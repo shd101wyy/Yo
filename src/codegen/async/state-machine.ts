@@ -5,14 +5,18 @@
  */
 
 import { Emitter } from "../../emitter";
-import { getVariablesFromEnvByFilter } from "../../env";
+import { getVariablesFromEnv, getVariablesFromEnvByFilter } from "../../env";
 import type {
   AwaitAnalysisResult,
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
-import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+} from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
+import { TokenType } from "../../token";
 import {
   BuiltinKeywords,
   exprIsAtomOf,
@@ -50,11 +54,401 @@ import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
+import { getTypeString } from "../utils/index";
 import {
   generateAwaitExpression,
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
+
+// ---------------------------------------------------------------------------
+// Cross-boundary variable analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Collects all variable IDs referenced in an expression tree.
+ * Skips nested io.async() bodies (they have their own state machines).
+ */
+function collectVariableRefsInExpr(
+  expr: Expr,
+  refs: Set<string>,
+  variableIdRemapping: Map<string, string>
+): void {
+  if (!expr) return;
+
+  switch (expr.tag) {
+    case ExprTag.Atom:
+      if (expr.$ && expr.token.type === TokenType.Identifier) {
+        const varName = expr.token.value;
+        const variables = getVariablesFromEnv(expr.$.env, varName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (variable && !variable.isCompileTimeOnly) {
+            // Resolve SSA remapping
+            const canonicalId =
+              variableIdRemapping.get(variable.id) ?? variable.id;
+            // Also resolve owner for RC borrowing
+            const ownerId = variable.isOwningTheSameRcValueAs
+              ? variable.isOwningTheSameRcValueAs.id
+              : canonicalId;
+            refs.add(ownerId);
+          }
+        }
+      }
+      break;
+
+    case ExprTag.FnCall:
+      // Skip nested async block bodies
+      if (isIoAsyncCall(expr)) {
+        // Still walk deferred dup expressions (capture references)
+        if (expr.$?.deferredDupExpressions) {
+          for (const dupExpr of expr.$.deferredDupExpressions) {
+            collectVariableRefsInExpr(dupExpr, refs, variableIdRemapping);
+          }
+        }
+        break;
+      }
+
+      collectVariableRefsInExpr(expr.func, refs, variableIdRemapping);
+      for (const arg of expr.args) {
+        collectVariableRefsInExpr(arg, refs, variableIdRemapping);
+      }
+
+      // Also walk deferred drop/dup expressions
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          collectVariableRefsInExpr(dropExpr, refs, variableIdRemapping);
+        }
+      }
+      if (expr.$?.deferredDupExpressions) {
+        for (const dupExpr of expr.$.deferredDupExpressions) {
+          collectVariableRefsInExpr(dupExpr, refs, variableIdRemapping);
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Determines which captured local variables cross await boundaries
+ * (i.e., are referenced in more than one state segment).
+ *
+ * Variables that are only used within a single segment can be emitted as
+ * C local variables in that segment's case block, reducing the state machine
+ * struct size. This is the Yo equivalent of Rust's liveness-based generator
+ * optimization.
+ *
+ * Returns a CrossBoundaryResult with the set of variable IDs that MUST be
+ * stored in the struct (cross at least one await boundary), plus any temp
+ * future variable aliases for Phase 1b deduplication.
+ */
+/**
+ * Result of cross-boundary variable analysis.
+ */
+export interface CrossBoundaryResult {
+  /** Variable IDs that must be stored as struct fields (cross await boundaries) */
+  crossBoundaryIds: Set<string>;
+  /**
+   * Maps temp variable IDs to their corresponding await_future_N field name.
+   * These temp vars hold the same future pointer as await_future_N but are
+   * never written to in the SM struct — they exist only because the suspension
+   * analysis captures them. The alias allows deferred drops to reference the
+   * await_future field instead of a non-existent struct field.
+   */
+  awaitFutureTempVarAliases: Map<string, string>;
+  /**
+   * Phase 2: Maps each captured variable ID to the set of segment indices
+   * where it is referenced. Used by overlapping storage analysis to determine
+   * live ranges and compute slot assignments.
+   */
+  variableSegments: Map<string, Set<number>>;
+}
+
+export function computeCrossBoundaryVariables(
+  bodyExpr: Expr,
+  analysis: AwaitAnalysisResult
+): CrossBoundaryResult {
+  const { awaitPoints, capturedVariables, variableIdRemapping } = analysis;
+
+  // If no await points, no variables cross boundaries
+  if (awaitPoints.length === 0) {
+    return {
+      crossBoundaryIds: new Set(),
+      awaitFutureTempVarAliases: new Map(),
+      variableSegments: new Map(),
+    };
+  }
+
+  // Identify which segments have branching await points (cond/while with await).
+  // Variables found only in a branching segment must stay in the struct because
+  // the cond/while continuation runs in a separate case block.
+  const branchingAwaitSegmentIndices = new Set<number>();
+
+  // Split body into segments (same function used by the resume code generator)
+  const segments = splitIntoStateSegments(bodyExpr, awaitPoints);
+
+  // Build the set of segment indices that have branching await points.
+  // Variables that appear ONLY in such a segment must stay in the struct because
+  // the cond/while continuation code runs in a separate case block (not in the
+  // segment's case block), so C locals would be lost across the state transition.
+  for (const segment of segments) {
+    if (segment.awaitPoint?.isInsideCond || segment.awaitPoint?.isInsideWhile) {
+      branchingAwaitSegmentIndices.add(segment.stateNumber);
+    }
+  }
+
+  // For each segment, collect all variable IDs referenced in its expressions
+  const variableSegments = new Map<string, Set<number>>();
+  for (const segment of segments) {
+    const refs = new Set<string>();
+    for (const expr of segment.expressions) {
+      collectVariableRefsInExpr(expr, refs, variableIdRemapping);
+    }
+    for (const varId of refs) {
+      let varSegs = variableSegments.get(varId);
+      if (!varSegs) {
+        varSegs = new Set();
+        variableSegments.set(varId, varSegs);
+      }
+      varSegs.add(segment.stateNumber);
+    }
+  }
+
+  // Also walk the body-level deferred drop expressions — these run at the end
+  // of the entire async block and reference variables that must be in the struct.
+  const CLEANUP_SEGMENT = -1;
+  if (bodyExpr.$?.deferredDropExpressions) {
+    const bodyDropRefs = new Set<string>();
+    for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
+      collectVariableRefsInExpr(dropExpr, bodyDropRefs, variableIdRemapping);
+    }
+    for (const varId of bodyDropRefs) {
+      let varSegs = variableSegments.get(varId);
+      if (!varSegs) {
+        varSegs = new Set();
+        variableSegments.set(varId, varSegs);
+      }
+      varSegs.add(CLEANUP_SEGMENT);
+    }
+  }
+
+  // A variable crosses a boundary if it appears in more than one segment.
+  // CONSERVATIVE: If a variable is captured by the suspension analysis but our
+  // walker didn't find it in any segment, keep it in the struct. This handles
+  // temp variables referenced in deferred drop expressions that may not have
+  // proper environment metadata in the expression tree.
+  // Also: variables that ONLY appear in the cleanup segment (-1) must be in the
+  // struct because cleanup code runs in the last segment and accesses sm->var_X.
+  // Also: variables that appear in exactly 1 segment but that segment has a
+  // branching await (cond/while) must stay in struct because the continuation
+  // code runs in a separate case block.
+  const crossBoundaryIds = new Set<string>();
+  for (const v of capturedVariables) {
+    if (v.kind === "outer") continue; // Outer vars are in __capture struct
+    const segmentsUsed = variableSegments.get(v.id);
+    if (!segmentsUsed) {
+      // Not found in any segment — keep in struct (conservative)
+      crossBoundaryIds.add(v.id);
+    } else if (segmentsUsed.size > 1) {
+      // Appears in multiple segments — cross-boundary
+      crossBoundaryIds.add(v.id);
+    } else if (segmentsUsed.has(CLEANUP_SEGMENT)) {
+      // Only appears in cleanup segment — must be in struct
+      crossBoundaryIds.add(v.id);
+    } else {
+      // Appears in exactly 1 numbered segment — check if that segment has a
+      // branching await. If so, must stay in struct because the cond/while
+      // continuation runs in a separate case block.
+      const singleSegment = segmentsUsed.values().next().value as number;
+      if (branchingAwaitSegmentIndices.has(singleSegment)) {
+        crossBoundaryIds.add(v.id);
+      }
+      // else: segment-local in a non-branching segment — can be C local
+    }
+  }
+
+  // Phase 1b: Identify temp variables that hold futures already stored in await_future_N.
+  // For io.await(expr()) where expr() creates a temp variable, the suspension analysis
+  // captures the temp var, but the codegen assigns the future to await_future_N.
+  // The temp var struct field is never assigned (always NULL) — its deferred drops are no-ops.
+  // We alias these temp vars to await_future_N so atom.ts redirects references
+  // to the existing field, eliminating the redundant struct field.
+  const awaitFutureTempVarAliases = new Map<string, string>();
+  for (const ap of awaitPoints) {
+    if (ap.futureVariableId !== undefined) continue; // Named variable — already aliased
+    const awaitExpr = ap.expr as Expr;
+    if (!exprIsFunctionCall(awaitExpr)) continue;
+    const futureArg = awaitExpr.args[0];
+    if (!futureArg) continue;
+    const tempVarName = futureArg.$?.variableName;
+    if (!tempVarName) continue;
+
+    // Find the captured variable matching this temp var name
+    const capturedVar = capturedVariables.find(
+      (v) =>
+        v.kind === "local" && (v.name === tempVarName || v.id === tempVarName)
+    );
+    if (capturedVar) {
+      awaitFutureTempVarAliases.set(capturedVar.id, `await_future_${ap.index}`);
+      // Remove from crossBoundaryIds if it was added
+      crossBoundaryIds.delete(capturedVar.id);
+    }
+  }
+
+  return { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments };
+}
+
+/**
+ * Information about an overlapping storage slot.
+ * Multiple non-RC value-type variables with non-overlapping live ranges
+ * can share a single struct field.
+ */
+export interface OverlappingSlot {
+  /** The struct field name, e.g., "slot_0" */
+  fieldName: string;
+  /** The C type string for this slot */
+  cType: string;
+  /** Variable names sharing this slot (for comments) */
+  variableNames: string[];
+}
+
+/**
+ * Result of overlapping storage analysis (Phase 2).
+ */
+export interface OverlappingStorageResult {
+  /** Maps variable IDs to their aliased slot field name */
+  slotAliases: Map<string, string>;
+  /** Slot field definitions for the struct */
+  slots: OverlappingSlot[];
+}
+
+/**
+ * Phase 2: Compute overlapping storage slots for cross-boundary variables.
+ *
+ * Variables of the same C type whose live ranges don't overlap can share
+ * a single struct field. This uses greedy graph coloring per type group.
+ *
+ * Only non-RC value types are eligible — RC types have lifetimes extending
+ * to function return (via deferred drops), making overlap rare and requiring
+ * state-aware drop logic in the dispose function.
+ */
+export function computeOverlappingSlots(
+  crossBoundaryIds: Set<string>,
+  variableSegments: Map<string, Set<number>>,
+  capturedVariables: CapturedVariable[],
+  awaitFutureTempVarAliases: Map<string, string>,
+  context: FunctionGenerationContext
+): OverlappingStorageResult {
+  const emptyResult: OverlappingStorageResult = {
+    slotAliases: new Map(),
+    slots: [],
+  };
+
+  // Filter to non-RC value types that are cross-boundary local variables
+  const eligible = capturedVariables.filter(
+    (v) =>
+      v.kind === "local" &&
+      crossBoundaryIds.has(v.id) &&
+      !awaitFutureTempVarAliases.has(v.id) &&
+      !typeContainsRcType(v.type)
+  );
+
+  if (eligible.length < 2) return emptyResult;
+
+  // Build live ranges [min_segment, max_segment] for each eligible variable.
+  // Exclude cleanup segment (-1) — non-RC types don't have deferred drops.
+  const ranges = new Map<string, [number, number]>();
+  for (const v of eligible) {
+    const segs = variableSegments.get(v.id);
+    if (!segs || segs.size === 0) continue;
+    const numberedSegs = [...segs].filter((s) => s >= 0);
+    if (numberedSegs.length === 0) continue;
+    const min = Math.min(...numberedSegs);
+    const max = Math.max(...numberedSegs);
+    ranges.set(v.id, [min, max]);
+  }
+
+  if (ranges.size < 2) return emptyResult;
+
+  // Group by C type — only same-type variables can share a slot
+  const byType = new Map<string, string[]>();
+  for (const [varId] of ranges) {
+    const v = eligible.find((e) => e.id === varId);
+    if (!v) continue;
+    const cType = getTypeString(v.type, context);
+    let group = byType.get(cType);
+    if (!group) {
+      group = [];
+      byType.set(cType, group);
+    }
+    group.push(varId);
+  }
+
+  // For each type group with 2+ members, build interference graph and color
+  const slotAliases = new Map<string, string>();
+  const slots: OverlappingSlot[] = [];
+  let nextSlotIndex = 0;
+
+  for (const [cType, varIds] of byType) {
+    if (varIds.length < 2) continue;
+
+    // Build interference: two vars conflict if their ranges overlap
+    const conflicts = new Map<string, Set<string>>();
+    for (const id of varIds) conflicts.set(id, new Set());
+
+    for (let i = 0; i < varIds.length; i++) {
+      for (let j = i + 1; j < varIds.length; j++) {
+        const [minA, maxA] = ranges.get(varIds[i]!)!;
+        const [minB, maxB] = ranges.get(varIds[j]!)!;
+        if (minA <= maxB && minB <= maxA) {
+          conflicts.get(varIds[i]!)!.add(varIds[j]!);
+          conflicts.get(varIds[j]!)!.add(varIds[i]!);
+        }
+      }
+    }
+
+    // Greedy graph coloring
+    const colors = new Map<string, number>();
+    for (const varId of varIds) {
+      const usedColors = new Set<number>();
+      for (const conflictId of conflicts.get(varId)!) {
+        if (colors.has(conflictId)) {
+          usedColors.add(colors.get(conflictId)!);
+        }
+      }
+      let color = 0;
+      while (usedColors.has(color)) color++;
+      colors.set(varId, color);
+    }
+
+    // Group variables by color to find which ones actually share
+    const colorToVars = new Map<number, string[]>();
+    for (const [varId, color] of colors) {
+      let group = colorToVars.get(color);
+      if (!group) {
+        group = [];
+        colorToVars.set(color, group);
+      }
+      group.push(varId);
+    }
+
+    // Only create slot aliases for colors with 2+ variables (actual sharing)
+    for (const [, groupVarIds] of colorToVars) {
+      if (groupVarIds.length < 2) continue;
+      const fieldName = `slot_${nextSlotIndex}`;
+      const varNames = groupVarIds.map(
+        (id) => eligible.find((v) => v.id === id)?.name ?? id
+      );
+      for (const varId of groupVarIds) {
+        slotAliases.set(varId, fieldName);
+      }
+      slots.push({ fieldName, cType, variableNames: varNames });
+      nextSlotIndex++;
+    }
+  }
+
+  return { slotAliases, slots };
+}
 
 /**
  * Get the state machine field name for the Future being awaited.
@@ -85,12 +479,12 @@ export function getFutureFieldName(
 }
 
 /**
- * Check if a future type is an IO future (yo_io_future_t) rather than a state
+ * Check if a future type is an IO future (__yo_io_future_t) rather than a state
  * machine future (from io.async). IO futures have a Concrete(...) trait and are
  * already submitted to io_uring at creation — they don't have __yo_resume_fn
  * and should not be "cold-started".
  *
- * Detection: IO futures (from Impl(Concrete(yo_io_future_t), Future(i32)))
+ * Detection: IO futures (from Impl(Concrete(__yo_io_future_t), Future(i32)))
  * have their resolvedConcreteType set to an extern SomeType (the Concrete type).
  * State machine futures may also have resolvedConcreteType as a SomeType, but
  * it won't be extern.
@@ -98,7 +492,7 @@ export function getFutureFieldName(
 export function isIoFutureType(type: Type | undefined): boolean {
   if (!type || !isSomeType(type)) return false;
   // Check if the concrete type resolution came from a Concrete(...) trait
-  // pointing to an extern C type like yo_io_future_t. State machine futures
+  // pointing to an extern C type like __yo_io_future_t. State machine futures
   // also have resolvedConcreteType set (from return-type resolution), but
   // their resolved type is never an extern type.
   if (
@@ -151,11 +545,17 @@ export function generateResumeFunctionDeclaration(
  */
 export function getStateMachineFieldName(
   variableId: string,
-  kind?: "outer" | "local"
+  kind?: "outer" | "local",
+  aliases?: Map<string, string>
 ): string {
   if (kind === "outer") {
     // Outer captured variables are accessed through __capture struct
     return `__capture.${sanitizeForCIdentifier(variableId)}`;
+  }
+  // Check aliases (Phase 1b temp future aliasing, Phase 2 overlapping slots)
+  const alias = aliases?.get(variableId);
+  if (alias) {
+    return alias;
   }
   // Local variables use var_{id} naming
   return sanitizeForCIdentifier(`var_${variableId}`);
@@ -276,37 +676,63 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-        // If the result contains Rc-managed data, we need to dup it before copying
-        // because the Future's dispose function will drop it, and we need our own reference
-        if (typeContainsRcType(prevAwait.resultType)) {
-          const dupFunctionName = getDupFunctionForType(
-            prevAwait.resultType,
-            context
-          );
-          if (dupFunctionName) {
-            emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
-            );
-          } else {
-            emitter.emitLine(
-              `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
-            );
-            emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
-            );
-          }
-        } else {
-          // For non-Rc types (primitives), simple copy is fine
-          emitter.emitLine(
-            `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
-          );
-        }
 
-        // If this await has a target variable, assign the result to it
-        if (prevAwait.targetVariableId) {
+        // Phase 3 optimization: for linear (non-cond) awaits, skip the
+        // intermediate await_result_N field and assign directly to the
+        // target variable or skip entirely if result is unused.
+        const useAwaitResultField = !!prevAwait.isInsideCond;
+
+        // Determine the assignment target:
+        // - Linear await with target variable: write directly to sm->var_X
+        // - Linear await without target: result is unused, skip storage
+        // - Cond await: write to sm->await_result_N (used by branch continuations)
+        let resultTarget: string | undefined;
+        if (useAwaitResultField) {
+          resultTarget = `sm->await_result_${stateNumber - 1}`;
+        } else if (prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
-            "local"
+            "local",
+            context.stateMachineFieldAliases
+          );
+          resultTarget = `sm->${fieldName}`;
+        }
+        // else: result is unused — no need to store it at all
+
+        if (resultTarget) {
+          // If the result contains Rc-managed data, we need to dup it before copying
+          // because the Future's dispose function will drop it, and we need our own reference
+          if (typeContainsRcType(prevAwait.resultType)) {
+            const dupFunctionName = getDupFunctionForType(
+              prevAwait.resultType,
+              context
+            );
+            if (dupFunctionName) {
+              emitter.emitLine(
+                `      ${resultTarget} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
+              );
+            } else {
+              emitter.emitLine(
+                `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
+              );
+              emitter.emitLine(
+                `      ${resultTarget} = sm->${prevFutureFieldName}->result;`
+              );
+            }
+          } else {
+            // For non-Rc types (primitives), simple copy is fine
+            emitter.emitLine(
+              `      ${resultTarget} = sm->${prevFutureFieldName}->result;`
+            );
+          }
+        }
+
+        // For cond awaits, also copy from await_result to the target variable
+        if (useAwaitResultField && prevAwait.targetVariableId) {
+          const fieldName = getStateMachineFieldName(
+            prevAwait.targetVariableId,
+            "local",
+            context.stateMachineFieldAliases
           );
           emitter.emitLine(
             `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
@@ -741,7 +1167,8 @@ export function generateAsyncBlockResumeFunction(
           if (condBranchData.targetVariableId) {
             const fieldName = getStateMachineFieldName(
               condBranchData.targetVariableId,
-              "local"
+              "local",
+              context.stateMachineFieldAliases
             );
             emitter.emitLine(`      // Assign cond result to target variable`);
             emitter.emitLine(
@@ -902,6 +1329,52 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
           );
+
+          // Generate step expression (3-arg while form) before condition re-evaluation
+          if (whileLoopData.stepExpr) {
+            const previousInStateMachineForStep = context.inAsyncStateMachine;
+            const previousStateMachineVariablesForStep =
+              context.stateMachineVariables;
+            const previousVariableIdRemappingForStep =
+              context.variableIdRemapping;
+
+            context.inAsyncStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+
+            const combinedVariablesForStep = new Map<
+              string,
+              CapturedVariable
+            >();
+            for (const v of analysis.capturedVariables) {
+              combinedVariablesForStep.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVariablesForStep.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                  isOwningTheSameRcValueAs: undefined,
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVariablesForStep;
+
+            const stepCode = generateExpr(
+              whileLoopData.stepExpr,
+              "        ",
+              context
+            );
+            if (stepCode) {
+              emitter.emitLine(`        ${stepCode};`);
+            }
+
+            context.inAsyncStateMachine = previousInStateMachineForStep;
+            context.stateMachineVariables =
+              previousStateMachineVariablesForStep;
+            context.variableIdRemapping = previousVariableIdRemappingForStep;
+          }
 
           // Set up state machine context for condition evaluation
           const previousInStateMachineForCond = context.inAsyncStateMachine;
@@ -1263,6 +1736,44 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Re-evaluate outer while condition
+            // Generate outer while step expression first (3-arg while form)
+            if (outerWhile.stepExpr) {
+              const prevInSMStep = context.inAsyncStateMachine;
+              const prevSMVarsStep = context.stateMachineVariables;
+              const prevVarRemapStep = context.variableIdRemapping;
+              context.inAsyncStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const stepVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                stepVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  stepVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = stepVars;
+
+              const outerStepCode = generateExpr(
+                outerWhile.stepExpr,
+                "        ",
+                context
+              );
+              if (outerStepCode) {
+                emitter.emitLine(`        ${outerStepCode};`);
+              }
+
+              context.inAsyncStateMachine = prevInSMStep;
+              context.stateMachineVariables = prevSMVarsStep;
+              context.variableIdRemapping = prevVarRemapStep;
+            }
             {
               const prevInSM3 = context.inAsyncStateMachine;
               const prevSMVars3 = context.stateMachineVariables;
@@ -1413,7 +1924,7 @@ export function generateAsyncBlockResumeFunction(
           analysis
         );
 
-        // Determine if the future is an IO future (yo_io_future_t) which is
+        // Determine if the future is an IO future (__yo_io_future_t) which is
         // already submitted to io_uring and doesn't have __yo_resume_fn.
         const awaitExprForTypeCheck = segment.awaitPoint.expr as {
           args?: Expr[];
@@ -1467,13 +1978,13 @@ export function generateAsyncBlockResumeFunction(
           `        // Yield once to event loop for fairness (microtask yield)`
         );
         emitter.emitLine(
-          `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+          `        __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
         );
         emitter.emitLine(`        return;`);
         emitter.emitLine(`      }`);
         emitter.emitLine(``);
         // Cold future: start it via stored resume function pointer
-        // IO futures (yo_io_future_t) are already submitted to io_uring and don't
+        // IO futures (__yo_io_future_t) are already submitted to io_uring and don't
         // have __yo_resume_fn — skip cold-start for them.
         if (!isIoFuture) {
           // SM futures need an extra ref because the SM future's own completion
@@ -1522,7 +2033,7 @@ export function generateAsyncBlockResumeFunction(
             `          // Completed or aborted synchronously — yield for fairness`
           );
           emitter.emitLine(
-            `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+            `          __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
           );
           emitter.emitLine(`          return;`);
           emitter.emitLine(`        }`);

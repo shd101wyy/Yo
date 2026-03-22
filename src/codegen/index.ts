@@ -533,7 +533,7 @@ function makeNonExportedFunctionsStatic(
   // Match function declarations/definitions at column 0.
   // Pattern: optional return type, then function_name, then '('
   // We extract the function name and check if it's exported.
-  // This handles complex signatures like: void yo_fn(void (*cb)(void*), void* data) {
+  // This handles complex signatures like: void __yo_fn(void (*cb)(void*), void* data) {
   //
   // Strategy: find lines that start at column 0 with a type+name pattern
   // and end with either '{' (definition) or ';' (declaration, possibly on next line)

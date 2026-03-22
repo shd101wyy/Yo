@@ -57,11 +57,11 @@ typeid(i32)       // different usize for each type
 
 ```c
 // Unique static variable per type — its address is the TypeId
-static const char yo_typeid_MyError = 0;
-static const char yo_typeid_i32 = 0;
+static const char __yo_typeid_MyError = 0;
+static const char __yo_typeid_i32 = 0;
 
 // typeid(MyError) emits:
-(uintptr_t)&yo_typeid_MyError
+(uintptr_t)&__yo_typeid_MyError
 ```
 
 Using address-of-static guarantees uniqueness without a global counter, works across compilation units, and has zero runtime cost.
@@ -74,7 +74,7 @@ Using address-of-static guarantees uniqueness without a global counter, works ac
 
 Every `Dyn` vtable auto-includes a `__yo_type_id` field (`uintptr_t`). This is always present regardless of which traits the Dyn includes. The cost is one extra pointer-sized value per vtable (negligible), enabling universal `downcast` support on all Dyn values.
 
-The compiler automatically populates `__yo_type_id` with `(uintptr_t)&yo_typeid_<concreteType>` for every concrete type used with `dyn()`. No user-facing `TypeId` trait is needed — runtime type identity is handled entirely by the compiler through the `downcast()` builtin.
+The compiler automatically populates `__yo_type_id` with `(uintptr_t)&__yo_typeid_<concreteType>` for every concrete type used with `dyn()`. No user-facing `TypeId` trait is needed — runtime type identity is handled entirely by the compiler through the `downcast()` builtin.
 
 ---
 
@@ -115,7 +115,7 @@ if downcast(animal, Cat).is_some(), {
 
 ```c
 // downcast(animal, Cat)  =>
-(animal.vtable->__yo_type_id == (uintptr_t)&yo_typeid_Cat)
+(animal.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Cat)
   ? (Option_Cat){ .tag = 1, .Some = __yo_incr_rc((Cat*)animal.data) }
   : (Option_Cat){ .tag = 0 }
 ```
@@ -201,8 +201,8 @@ handle_error :: (fn(err : AnyError) -> unit)({
 ### Phase 3: Vtable `__yo_type_id` Integration ✅
 
 1. `__yo_type_id` field (uintptr_t) auto-included in every Dyn vtable struct ✅
-2. Static `yo_typeid_<concreteType>` vars generated per dyn impl ✅
-3. Vtable populated with `.__yo_type_id = (uintptr_t)&yo_typeid_<concreteType>` ✅
+2. Static `__yo_typeid_<concreteType>` vars generated per dyn impl ✅
+3. Vtable populated with `.__yo_type_id = (uintptr_t)&__yo_typeid_<concreteType>` ✅
 4. No user-facing TypeId trait needed — compiler handles everything ✅
 
 ### Phase 4: ~~`dyn_cast` Builtin~~ — Removed

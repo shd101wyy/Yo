@@ -34,10 +34,13 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureCaptures?: string[]; // Variables captured by current closure function
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: FunctionType; // Current closure type being generated
-  currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
+  currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "__yo_struct_abc123_capture")
   // Async state machine context (set when generating code inside an async state machine)
   inAsyncStateMachine?: { futureType: SomeType | DynType };
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Phase 1b: Maps temp future variable IDs to their aliased await_future_N field names.
+  // When set, atom.ts redirects SM variable lookups to the existing await_future field.
+  stateMachineFieldAliases?: Map<string, string>;
   inEffectStateMachine?: unknown; // Legacy — no longer used (effects use evidence passing)
   // Set when generating code for a module effect member function (e.g., Exception.throw handler)
   isModuleEffectMemberFunction?: boolean;
@@ -118,6 +121,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     number,
     {
       conditionExpr: Expr; // The loop condition expression
+      stepExpr?: Expr; // Optional step expression (3-arg while form)
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
       // Expressions from an enclosing cond branch that come after this while loop.
@@ -135,6 +139,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
       outerWhileLoop?: {
         whileLoopIndex: number;
         conditionExpr: Expr;
+        stepExpr?: Expr;
         bodyExpr: Expr;
         bodyExprsAfterAwait: Expr[];
       };
@@ -181,4 +186,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // body-derived type (e.g., module effect member handlers with SomeType return).
   // Used by escape codegen to emit correct dummy return values.
   overrideReturnTypeStr?: string;
+  // Set to true when any io.async, io.await, or io.spawn call is encountered.
+  // Used to conditionally emit the async runtime and event loop in main().
+  usesAsync?: boolean;
+  // Set to true when any __yo_thread_spawn or __yo_worker_spawn call is found.
+  // Used to conditionally emit the parallelism runtime (thread pool, worker spawn).
+  usesParallelism?: boolean;
 }

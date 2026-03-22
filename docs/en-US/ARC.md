@@ -79,7 +79,7 @@ producer.join();
 
 ## Implementation details
 
-- **C representation**: `struct { yo_ref_header_t header; T value; }` — pointer type allocated on heap.
+- **C representation**: `struct { __yo_ref_header_t header; T value; }` — pointer type allocated on heap.
 - **Refcount ops**: Uses `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic` (atomic increment/decrement).
 - **Disposal**: When refcount hits 0, the inner value's `___drop` is called (if it has one), then the Arc allocation is freed.
 - **Closure capture**: When captured in a closure, the Arc pointer is **duped** (refcount incremented). The closure and the outer scope each hold independent references.

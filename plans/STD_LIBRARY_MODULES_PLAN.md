@@ -2,7 +2,7 @@
 
 ## Overview
 
-With the low-level `std/sys` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
+With the low-level `std/sys` async I/O foundation complete (39 modules covering file, socket, process, mmap, signals, TTY, DNS, bufio, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
 
 ## Algebraic Effects: IO and Exception
 
@@ -48,7 +48,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                                                         |
 | **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                                                 |
 | **Time**            | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock), `sleep` (sync) — 25 tests all passing                  |
-| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
+| **Sys (low-level)** | `std/sys/` (39 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, bufio, etc.                                        |
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
 | **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
 | **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup — all using Exception effect                         |
@@ -57,9 +57,9 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
 | **URL**             | `std/url/`                              | ✅ Complete | URL parser with Exception effect                                                                                   |
 | **Regex**           | `std/regex/`                            | ✅ Complete | Regular expression engine                                                                                          |
-| **Math**            | `std/math/`                             | Not Planned | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
-| **Log**             | `std/log/`                              | Not Planned | Structured logger with level filtering and output routing                                                          |
-| **Testing**         | `std/testing/`                          | Not Planned | Rich assertion helpers, micro-benchmarking                                                                         |
+| **Math**            | `std/math/`                             | ⏸ Deferred | `std/libc/math.yo` covers standard math; only needed for generic min/max/clamp, PRNG                               |
+| **Log**             | `std/log/log.yo`                        | ✅ Complete | Structured logger — Level enum (Trace→Error), `set_level`/`set_output`, convenience helpers (`trace`…`error`)      |
+| **Testing**         | `std/testing/assert.yo`, `bench.yo`     | ✅ Complete | Rich assertions (`assert_eq`/`ne`/`gt`/`lt`/`ge`/`le`/`approx`), micro-benchmarking with `BenchResult`             |
 
 ---
 
@@ -490,9 +490,9 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 ---
 
-## Phase 4: String Formatting (`std/fmt`) — Not Planned
+## Phase 4: String Formatting (`std/fmt`) — ✅ Done
 
-**Status**: Not planned. The existing template string approach (`` `Hello ${name}` ``) and `ToString` trait provide sufficient string formatting for current use cases. A dedicated formatting engine can be revisited later if needed.
+**Status**: Complete. `std/fmt/` provides `ToString` trait, `Writer`, `Display`, and `println`/`print`/`eprintln` functions. Template strings (`` `Hello ${name}` ``) with `ToString` trait provide string formatting.
 
 ---
 
@@ -605,9 +605,9 @@ Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGe
 
 ---
 
-## Phase 7: Math Extensions (`std/math`) — Not Planned
+## Phase 7: Math Extensions (`std/math`) — ⏸ Deferred
 
-**Status**: Not planned. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate math module is unnecessary since libc already provides these.
+**Status**: Deferred. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate `std/math` module would only be needed for Yo-native generic utilities (min/max/clamp with trait constraints, lerp, PRNG). These can be added when a concrete use case arises.
 
 ---
 
@@ -624,15 +624,22 @@ All fallible operations in the standard library use the `Exception` effect inste
 
 ---
 
-## Phase 9: Logging (`std/log`) — Not Planned
+## Phase 9: Logging (`std/log`) — ✅ Done
 
-**Status**: Not planned. `println` and `eprintln` are sufficient for current logging needs. A structured logging module can be revisited when more complex applications require it.
+**Status**: Complete. `std/log/log.yo` provides a structured logger with:
+
+- `Level` enum — Trace, Debug, Info, Warn, Error
+- `set_level(level)` / `set_output(file)` — configure log level and output destination
+- Convenience functions: `trace()`, `debug()`, `info()`, `warn()`, `error()`
 
 ---
 
-## Phase 10: Testing Utilities (`std/testing`) — Not Planned
+## Phase 10: Testing Utilities (`std/testing`) — ✅ Done
 
-**Status**: Not planned. The built-in `assert(condition)` and `assert(condition, message)` combined with the `test "name", { ... };` syntax provide sufficient testing capabilities.
+**Status**: Complete. `std/testing/` provides:
+
+- `assert.yo` — Rich typed assertions: `assert_eq`, `assert_ne`, `assert_gt`, `assert_lt`, `assert_ge`, `assert_le`, `assert_approx` (with generic type constraints)
+- `bench.yo` — Micro-benchmarking with `BenchResult` struct and `bench()` function for timing statistics
 
 ---
 
@@ -934,27 +941,27 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Recommended Implementation Order
 
-| Order | Phase    | Module                                             | Priority | Est. Effort | Status         |
-| ----- | -------- | -------------------------------------------------- | -------- | ----------- | -------------- |
-| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ⏸ Not Planned |
-| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ⏸ Not Planned |
-| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done        |
-| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done        |
-| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done        |
-| 6     | Phase 7  | `std/math` — Functions, PRNG                       | —        | —           | ⏸ Not Planned |
-| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done        |
-| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done        |
-| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ⏸ Not Planned |
-| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ⏸ Not Planned |
-| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done        |
-| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done        |
-| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done        |
-| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done        |
-| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done        |
-| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
-| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
-| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done        |
+| Order | Phase    | Module                                             | Priority | Est. Effort | Status      |
+| ----- | -------- | -------------------------------------------------- | -------- | ----------- | ----------- |
+| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ✅ Done     |
+| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ✅ Done     |
+| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done     |
+| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done     |
+| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done     |
+| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Low      | Small       | ⏸ Deferred |
+| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done     |
+| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done     |
+| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ✅ Done     |
+| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ✅ Done     |
+| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done     |
+| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done     |
+| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done     |
+| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done     |
+| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done     |
+| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done     |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done     |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done     |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done     |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
@@ -989,3 +996,66 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 - **PRNG vs CSPRNG**: `std/math/random` provides a fast PRNG (xoshiro256\*\*) for games/simulations. `std/crypto/random` provides cryptographically secure random using OS entropy. The two should never be confused.
 
 - **IO effect propagation**: Any function that calls an async I/O operation must either handle the `IO` effect (by providing `given(io)`) or propagate it via `using(io : IO)` in its own signature. Errors are returned as `Result(T, E)` values. The `main` function automatically receives IO from the runtime.
+
+---
+
+## Known API Issues
+
+Issues discovered during audit. **All naming issues and missing methods have been fixed.**
+
+### Naming Inconsistencies — ✅ Fixed
+
+All naming inconsistencies were fixed in commit `f3deb5de`:
+
+| Module                        | Old Name        | New Name       | Status   |
+| ----------------------------- | --------------- | -------------- | -------- |
+| `std/net/tcp.yo`              | `read_all`      | `read_bytes`   | ✅ Fixed |
+| `std/string/string.yo`        | `to_lower_case` | `to_lowercase` | ✅ Fixed |
+| `std/string/string.yo`        | `to_upper_case` | `to_uppercase` | ✅ Fixed |
+| `std/string/string.yo`        | `includes`      | `contains`     | ✅ Fixed |
+| `std/collections/hash_map.yo` | `has`           | `contains_key` | ✅ Fixed |
+
+### Type Safety Issues — ✅ Fixed
+
+- **`File.seek()` whence parameter**: Now uses `SeekFrom` enum (`Start`, `Current`, `End`) instead of raw `i32`.
+
+### Error Handling Inconsistencies
+
+The standard library uses a mix of error handling strategies. These are acceptable for now but could be unified in the future:
+
+| Module                                        | Pattern                                      | Status                              |
+| --------------------------------------------- | -------------------------------------------- | ----------------------------------- |
+| `std/fs/`, `std/net/tcp.yo`, `std/net/udp.yo` | `Exception` effect                           | ✅ Correct                          |
+| `std/sync/channel.yo`                         | `Result(unit, unit)` for send, `?T` for recv | ⚠️ Acceptable — different semantics |
+| `std/crypto/random.yo`                        | Custom `CryptoError` enum                    | ⚠️ Could use `Exception` in future  |
+| `std/encoding/json.yo`                        | Custom `JsonError` enum                      | ⚠️ Could use `Exception` in future  |
+
+---
+
+## Missing Convenience Methods — ✅ All Fixed
+
+| Module                          | Methods Added                                                                 | Commit                 |
+| ------------------------------- | ----------------------------------------------------------------------------- | ---------------------- |
+| `std/collections/array_list.yo` | `contains`, `index_of`, `reverse`, `sort`                                     | `49118208`, `23b3ba75` |
+| `std/string/string.yo`          | `parse_i32`, `parse_i64`, `parse_u32`, `parse_u64`, `parse_bool`, `Hash` impl | `35cf9926`, `d0a6feed` |
+| `std/path.yo`                   | `exists`, `is_file`, `is_dir` (already existed); tests added                  | `69437d1f`             |
+
+---
+
+## Missing Modules
+
+Status of modules that were not yet implemented at the start of the std library overhaul:
+
+| Module                    | Priority | Status      | Notes                                                                        |
+| ------------------------- | -------- | ----------- | ---------------------------------------------------------------------------- |
+| **CLI argument parsing**  | High     | ✅ Done     | `std/cli/arg_parser.yo` — builder pattern, flags, options, positionals, help |
+| **Reader/Writer traits**  | High     | ✅ Done     | `std/io/reader.yo`, `std/io/writer.yo` — generic I/O interfaces              |
+| **TOML parsing**          | Medium   | ✅ Done     | `std/toml/toml.yo` — strings, ints, bools, table sections, comments          |
+| **Glob/pattern matching** | Medium   | ✅ Done     | `std/glob/glob.yo` — `*`, `?`, `**`, `[abc]`, `[!abc]` support               |
+| **HTTP types**            | Medium   | ✅ Done     | `std/http/http.yo` — request builder, response parser, status helpers        |
+| **Compression**           | Low      | ⏸ Deferred | Would need C library bindings (zlib/miniz)                                   |
+| **HTTP server**           | Low      | ⏸ Deferred | Would build on top of `std/net/tcp` and `std/http/http`                      |
+
+## Documentation
+
+Full standard library documentation: **[docs/STD_LIBRARY_MODULES.md](../docs/STD_LIBRARY_MODULES.md)**

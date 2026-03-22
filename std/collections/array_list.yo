@@ -509,6 +509,114 @@ impl(forall(T : Type), ArrayList(T),
   )
 );
 
+impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
+  /**
+    * Check if the list contains a value
+    */
+  contains : (fn(self: Self, value: T) -> bool)({
+    found := false;
+    match(self._ptr,
+      .Some(_ptr) => {
+        i := usize(0);
+        while(((i < self._length) && !(found)), i = (i + usize(1)), {
+          cond(
+            ((_ptr &+ i).* == value) => {
+              found = true;
+            },
+            true => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    return found;
+  }),
+
+  /**
+    * Find the first index of a matching value
+    * Returns .Some(index) if found, .None otherwise
+    */
+  index_of : (fn(self: Self, value: T) -> Option(usize))({
+    (result : Option(usize)) = .None;
+    found := false;
+    match(self._ptr,
+      .Some(_ptr) => {
+        i := usize(0);
+        while(((i < self._length) && !(found)), i = (i + usize(1)), {
+          cond(
+            ((_ptr &+ i).* == value) => {
+              result = .Some(i);
+              found = true;
+            },
+            true => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    return result;
+  })
+);
+
+impl(forall(T : Type), ArrayList(T),
+  /**
+    * Reverse elements in place
+    */
+  reverse : (fn(self: Self) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true =>
+        match(self._ptr,
+          .Some(_ptr) => {
+            i := usize(0);
+            j := (self._length - usize(1));
+            while((i < j), {i = (i + usize(1)); j = (j - usize(1));}, {
+              tmp := (_ptr &+ i).*;
+              (_ptr &+ i).* = (_ptr &+ j).*;
+              (_ptr &+ j).* = tmp;
+            });
+          },
+          .None => ()
+        )
+    );
+  })
+);
+
+impl(forall(T : Type), where(T <: Ord(T)), ArrayList(T),
+  /**
+    * Sort elements in ascending order using insertion sort
+    */
+  sort : (fn(self: Self) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true =>
+        match(self._ptr,
+          .Some(_ptr) => {
+            i := usize(1);
+            while((i < self._length), i = (i + usize(1)), {
+              key := (_ptr &+ i).*;
+              j := i;
+              shifting := cond(
+                (j > usize(0)) => ((_ptr &+ (j - usize(1))).* > key),
+                true => false
+              );
+              while(shifting, (), {
+                (_ptr &+ j).* = (_ptr &+ (j - usize(1))).*;
+                j = (j - usize(1));
+                shifting = cond(
+                  (j > usize(0)) => ((_ptr &+ (j - usize(1))).* > key),
+                  true => false
+                );
+              });
+              (_ptr &+ j).* = key;
+            });
+          },
+          .None => ()
+        )
+    );
+  })
+);
+
 export
   ArrayList,
   ArrayListError,

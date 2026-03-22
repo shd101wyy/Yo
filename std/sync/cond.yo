@@ -1,62 +1,62 @@
-{ YO_THREAD_SYNC_TYPE, mutex_t, Mutex } :: import "./mutex";
+{ __YO_THREAD_SYNC_TYPE, mutex_t, Mutex } :: import "./mutex";
 
 extern "Yo",
-  YO_COND_TYPE : Type,
-  yo_cond_create : (fn() -> YO_COND_TYPE),
-  yo_cond_wait : (fn(cv : *(YO_COND_TYPE), mutex : *(YO_THREAD_SYNC_TYPE)) -> unit),
-  yo_cond_signal : (fn(cv : *(YO_COND_TYPE)) -> unit),
-  yo_cond_broadcast : (fn(cv : *(YO_COND_TYPE)) -> unit),
-  yo_cond_destroy : (fn(cv : *(YO_COND_TYPE)) -> unit)
+  __YO_COND_TYPE : Type,
+  __yo_cond_create : (fn() -> __YO_COND_TYPE),
+  __yo_cond_wait : (fn(cv : *(__YO_COND_TYPE), mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
+  __yo_cond_signal : (fn(cv : *(__YO_COND_TYPE)) -> unit),
+  __yo_cond_broadcast : (fn(cv : *(__YO_COND_TYPE)) -> unit),
+  __yo_cond_destroy : (fn(cv : *(__YO_COND_TYPE)) -> unit)
 ;
 
 cond_t :: newtype(
-  cv : YO_COND_TYPE
+  cv : __YO_COND_TYPE
 );
 impl(cond_t,
   new : (fn() -> Self)({
-    return Self(yo_cond_create());
+    return Self(__yo_cond_create());
   }),
 
   wait : (fn(self : *(Self), mutex : *(mutex_t)) -> unit)({
-    return yo_cond_wait(&(self.cv), &(mutex.mutex));
+    return __yo_cond_wait(&(self.cv), &(mutex.mutex));
   }),
 
   signal : (fn(self : *(Self)) -> unit)({
-    return yo_cond_signal(&(self.cv));
+    return __yo_cond_signal(&(self.cv));
   }),
 
   broadcast : (fn(self : *(Self)) -> unit)({
-    return yo_cond_broadcast(&(self.cv));
+    return __yo_cond_broadcast(&(self.cv));
   }),
 
   destroy : (fn(self : *(Self)) -> unit)({
-    return yo_cond_destroy(&(self.cv));
+    return __yo_cond_destroy(&(self.cv));
   })
 );
 
 Cond :: object(
-  cv : YO_COND_TYPE
+  cv : __YO_COND_TYPE
 );
 impl(Cond,
   new : (fn() -> Self)({
-    return Self(yo_cond_create());
+    return Self(__yo_cond_create());
   }),
 
   wait : (fn(self : Self, mutex : Mutex) -> unit)({
-    return yo_cond_wait(&(self.cv), &(mutex.mutex));
+    return __yo_cond_wait(&(self.cv), &(mutex.mutex));
   }),
 
   signal : (fn(self : Self) -> unit)({
-    return yo_cond_signal(&(self.cv));
+    return __yo_cond_signal(&(self.cv));
   }),
 
   broadcast : (fn(self : Self) -> unit)({
-    return yo_cond_broadcast(&(self.cv));
+    return __yo_cond_broadcast(&(self.cv));
   })
 );
 impl(Cond, Dispose(
   dispose : (fn(self : Self) -> unit)({
-    return yo_cond_destroy(&(self.cv));
+    return __yo_cond_destroy(&(self.cv));
   })
 ));
 

@@ -540,7 +540,7 @@ export function generateRcCall(
 
   // For GC types (reference-counted objects), return the actual ref_count
   if (isRcType(argType)) {
-    return `((yo_ref_header_t*)(${argCode}))->ref_count`;
+    return `((__yo_ref_header_t*)(${argCode}))->ref_count`;
   } else {
     // For value types, always return 1
     return `1`;

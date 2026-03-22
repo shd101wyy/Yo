@@ -3,6 +3,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   type FnCallExpr,
+  hasAnyControlFlow,
 } from "../../expr";
 import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
@@ -241,6 +242,10 @@ export function generateCondExpression(
                 !isTempVariableName(beginArg.$.env.modulePath, argCode)
               ) {
                 context.emitter.emitLine(`${valueIndent}${argCode};`);
+              }
+              // Stop after control flow (dead code may lack metadata)
+              if (hasAnyControlFlow(beginArg.$?.controlFlow)) {
+                break;
               }
             }
 

@@ -1,0 +1,149 @@
+open import "std/collections/array_list";
+
+test "ArrayList contains finds existing element", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  assert(list.contains(i32(2)), "should contain 2");
+};
+
+test "ArrayList contains returns false for missing element", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  assert(!(list.contains(i32(5))), "should not contain 5");
+};
+
+test "ArrayList contains on empty list", {
+  list := ArrayList(i32).new();
+  assert(!(list.contains(i32(1))), "empty list should not contain anything");
+};
+
+test "ArrayList index_of finds element", {
+  list := ArrayList(i32).new();
+  list.push(i32(10));
+  list.push(i32(20));
+  list.push(i32(30));
+  result := list.index_of(i32(20));
+  assert(result.is_some(), "should find 20");
+  assert((result.unwrap() == usize(1)), "index should be 1");
+};
+
+test "ArrayList index_of returns None for missing", {
+  list := ArrayList(i32).new();
+  list.push(i32(10));
+  list.push(i32(20));
+  assert(list.index_of(i32(99)).is_none(), "should not find 99");
+};
+
+test "ArrayList index_of on empty list", {
+  list := ArrayList(i32).new();
+  assert(list.index_of(i32(1)).is_none(), "empty list index_of should be None");
+};
+
+test "ArrayList index_of finds first occurrence", {
+  list := ArrayList(i32).new();
+  list.push(i32(5));
+  list.push(i32(3));
+  list.push(i32(5));
+  result := list.index_of(i32(5));
+  assert(result.is_some(), "should find 5");
+  assert((result.unwrap() == usize(0)), "should return first index");
+};
+
+test "ArrayList reverse multiple elements", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  list.push(i32(4));
+  list.reverse();
+  assert((list.get(usize(0)).unwrap() == i32(4)), "first should be 4");
+  assert((list.get(usize(1)).unwrap() == i32(3)), "second should be 3");
+  assert((list.get(usize(2)).unwrap() == i32(2)), "third should be 2");
+  assert((list.get(usize(3)).unwrap() == i32(1)), "fourth should be 1");
+};
+
+test "ArrayList reverse single element", {
+  list := ArrayList(i32).new();
+  list.push(i32(42));
+  list.reverse();
+  assert((list.get(usize(0)).unwrap() == i32(42)), "single element unchanged");
+};
+
+test "ArrayList reverse empty", {
+  list := ArrayList(i32).new();
+  list.reverse();
+  assert((list.len() == usize(0)), "empty list stays empty");
+};
+
+test "ArrayList reverse odd count", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  list.push(i32(4));
+  list.push(i32(5));
+  list.reverse();
+  assert((list.get(usize(0)).unwrap() == i32(5)), "first should be 5");
+  assert((list.get(usize(2)).unwrap() == i32(3)), "middle should be 3");
+  assert((list.get(usize(4)).unwrap() == i32(1)), "last should be 1");
+};
+
+test "ArrayList sort unsorted elements", {
+  list := ArrayList(i32).new();
+  list.push(i32(3));
+  list.push(i32(1));
+  list.push(i32(4));
+  list.push(i32(1));
+  list.push(i32(5));
+  list.push(i32(2));
+  list.sort();
+  assert((list.get(usize(0)).unwrap() == i32(1)), "index 0 should be 1");
+  assert((list.get(usize(1)).unwrap() == i32(1)), "index 1 should be 1");
+  assert((list.get(usize(2)).unwrap() == i32(2)), "index 2 should be 2");
+  assert((list.get(usize(3)).unwrap() == i32(3)), "index 3 should be 3");
+  assert((list.get(usize(4)).unwrap() == i32(4)), "index 4 should be 4");
+  assert((list.get(usize(5)).unwrap() == i32(5)), "index 5 should be 5");
+};
+
+test "ArrayList sort already sorted", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  list.sort();
+  assert((list.get(usize(0)).unwrap() == i32(1)), "first should be 1");
+  assert((list.get(usize(1)).unwrap() == i32(2)), "second should be 2");
+  assert((list.get(usize(2)).unwrap() == i32(3)), "third should be 3");
+};
+
+test "ArrayList sort reverse sorted", {
+  list := ArrayList(i32).new();
+  list.push(i32(5));
+  list.push(i32(4));
+  list.push(i32(3));
+  list.push(i32(2));
+  list.push(i32(1));
+  list.sort();
+  assert((list.get(usize(0)).unwrap() == i32(1)), "first should be 1");
+  assert((list.get(usize(1)).unwrap() == i32(2)), "second should be 2");
+  assert((list.get(usize(2)).unwrap() == i32(3)), "third should be 3");
+  assert((list.get(usize(3)).unwrap() == i32(4)), "fourth should be 4");
+  assert((list.get(usize(4)).unwrap() == i32(5)), "fifth should be 5");
+};
+
+test "ArrayList sort single element", {
+  list := ArrayList(i32).new();
+  list.push(i32(42));
+  list.sort();
+  assert((list.get(usize(0)).unwrap() == i32(42)), "single element unchanged");
+};
+
+test "ArrayList sort empty", {
+  list := ArrayList(i32).new();
+  list.sort();
+  assert((list.len() == usize(0)), "empty list stays empty");
+};

@@ -10,13 +10,13 @@ Async blocks were not completing and continuations were never being spawned afte
 
 ## Root Cause
 
-The `yo_async_register_continuation()` function attempted to register continuations on futures using a generic `void*` pointer with a cast to a specific struct type. However, different future types have different memory layouts:
+The `__yo_async_register_continuation()` function attempted to register continuations on futures using a generic `void*` pointer with a cast to a specific struct type. However, different future types have different memory layouts:
 
-1. **I/O futures (`yo_io_future_t`):**
+1. **I/O futures (`__yo_io_future_t`):**
 
    ```c
    struct {
-     yo_ref_header_t header;  // 24 bytes
+     __yo_ref_header_t header;  // 24 bytes
      _Atomic int state;       // 4 bytes
      int32_t result;          // 4 bytes
      // padding to 8-byte boundary
@@ -28,7 +28,7 @@ The `yo_async_register_continuation()` function attempted to register continuati
 2. **Async state machine futures:**
    ```c
    struct {
-     yo_ref_header_t header;  // 24 bytes
+     __yo_ref_header_t header;  // 24 bytes
      _Atomic int state;       // 4 bytes
      RESULT_TYPE result;      // VARIABLE SIZE (e.g., 8+ bytes for enums)
      _Atomic(void (*)(void*)) continuation_fn;
@@ -48,11 +48,11 @@ Even though continuations were "registered", they were written to wrong offsets 
 
 ## Solution
 
-Instead of using a generic `yo_async_register_continuation()` function, continuation registration is now done **inline at each await site** with direct field access:
+Instead of using a generic `__yo_async_register_continuation()` function, continuation registration is now done **inline at each await site** with direct field access:
 
 ```c
 // Before (broken):
-yo_async_register_continuation(sm->await_future_0, resume_fn, sm);
+__yo_async_register_continuation(sm->await_future_0, resume_fn, sm);
 
 // After (fixed):
 atomic_store_explicit(&sm->await_future_0->continuation_fn, resume_fn, memory_order_release);
@@ -64,7 +64,7 @@ This works because the await codegen knows the exact type of each future variabl
 ## Files Changed
 
 - `src/codegen/async/state-machine.ts` - Inline continuation registration with direct field access
-- `src/codegen/async/runtime.ts` - Removed generic `yo_async_register_continuation()` function
+- `src/codegen/async/runtime.ts` - Removed generic `__yo_async_register_continuation()` function
 - `src/codegen/functions/generation.ts` - Removed forward declaration
 - `src/codegen/expressions/generation.ts` - Added dummy `uint8_t result` field for unit-type futures
 

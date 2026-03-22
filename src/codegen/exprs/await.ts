@@ -77,7 +77,22 @@ export function generateAwait(
   if (isIoAwaitCall(expr)) {
     const futureCode = generateExpr(futureArg, indent, context);
     const futureTypeName = getTypeString(futureType, context);
-    const resultType = futureModuleType.isFuture.outputType;
+    let resultType = futureModuleType.isFuture.outputType;
+
+    // Resolve SomeType to concrete type for the await result.
+    if (isSomeType(resultType)) {
+      if (resultType.resolvedConcreteType) {
+        resultType = resultType.resolvedConcreteType;
+      } else if (expr.$?.type && !isSomeType(expr.$.type)) {
+        resultType = expr.$.type;
+      } else if (
+        expr.$?.type &&
+        isSomeType(expr.$.type) &&
+        expr.$.type.resolvedConcreteType
+      ) {
+        resultType = expr.$.type.resolvedConcreteType;
+      }
+    }
     const emitter = functionContext.emitter;
 
     // When the output type is an unresolved SomeType (e.g., from forall(T) in
@@ -127,7 +142,7 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}  while (__await_state != -1 && __await_state != -2) {`
     );
-    emitter.emitLine(`${indent}    yo_async_poll_step();`);
+    emitter.emitLine(`${indent}    __yo_async_poll_step();`);
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
@@ -153,13 +168,11 @@ export function generateAwait(
       emitter.emitLine(`${indent}      abort();`);
       emitter.emitLine(`${indent}    }`);
       // Aborted during this await by effect handler (e.g., Exception.throw escape).
-      // The event loop reference was already decremented by emitAsyncFutureEscape
-      // inside the SM. Clean up the original future reference and all in-scope
-      // locals before returning to prevent memory leaks.
-      emitter.emitLine(`${indent}    __yo_decr_rc((void*)${syncFutureVar});`);
-      // Null out the original future variable to prevent double-free
-      // from pending drops (syncFutureVar aliases futureCode)
-      emitter.emitLine(`${indent}    ${futureCode} = NULL;`);
+      // The event loop reference was already decremented by the SM itself
+      // (emitAsyncFutureEscape for full SM, or sync_fut_t escape path).
+      // Do NOT decrement here — that would cause a double-free/UAF.
+      // The pending deferred drops below will handle locally-owned futures;
+      // borrowed parameters are not in deferred drops and won't be touched.
       // Drop all in-scope local variables (Path, String, etc.)
       // Exclude the await result variable — it hasn't been declared yet in C.
       const savedDrops = functionContext.pendingDeferredDrops;
@@ -321,7 +334,7 @@ export function generateState(
  *
  * The JoinHandle struct wraps a void* pointer to the spawned future's state machine.
  * All generated futures share a common initial layout:
- *   yo_ref_header_t header;
+ *   __yo_ref_header_t header;
  *   int state;
  *   ResultType result;
  *   void (*continuation_fn)(void*);
@@ -394,7 +407,7 @@ export function generateJoinHandleAwait(
   emitter.emitLine(`${indent}  void* ${futVar} = ${handleCode}.__future;`);
   // Define inline struct type matching the common future header layout
   emitter.emitLine(`${indent}  struct ${headerStructName} {`);
-  emitter.emitLine(`${indent}    yo_ref_header_t header;`);
+  emitter.emitLine(`${indent}    __yo_ref_header_t header;`);
   emitter.emitLine(`${indent}    int state;`);
   emitter.emitLine(`${indent}    ${resultTypeName} result;`);
   emitter.emitLine(`${indent}    void (*continuation_fn)(void*);`);
@@ -408,7 +421,7 @@ export function generateJoinHandleAwait(
   // Poll loop: wait until completed (-1) or aborted (-2)
   emitter.emitLine(`${indent}  int __jh_state = ${headerVar}->state;`);
   emitter.emitLine(`${indent}  while (__jh_state != -1 && __jh_state != -2) {`);
-  emitter.emitLine(`${indent}    yo_async_poll_step();`);
+  emitter.emitLine(`${indent}    __yo_async_poll_step();`);
   emitter.emitLine(`${indent}    __jh_state = ${headerVar}->state;`);
   emitter.emitLine(`${indent}  }`);
 

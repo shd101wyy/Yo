@@ -55,16 +55,16 @@ The cycle collector frees nodes that still have outstanding references from vari
 ## Generated C Code (INCORRECT)
 
 ```c
-bool fn_id33857_has(yo_struct_id33491* self, int32_t value) {
-  yo_enum_id33545 current_opt = ...;  // Allocate and initialize
+bool fn_id33857_has(__yo_struct_id33491* self, int32_t value) {
+  __yo_enum_id33545 current_opt = ...;  // Allocate and initialize
 
   while (...) {
     switch ((current_opt).tag) {
-    case YO_ENUM_ID33545_NONE:
+    case __YO_ENUM_ID33545_NONE:
       bool _yo_temp = false;
       return _yo_temp;  // ❌ NO DROP for current_opt!
       break;
-    case YO_ENUM_ID33545_SOME:
+    case __YO_ENUM_ID33545_SOME:
       if (...) {
         bool _yo_temp = true;
         return _yo_temp;  // ❌ NO DROP for current_opt!
@@ -178,18 +178,18 @@ if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
 ### Generated C Code (FIXED)
 
 ```c
-bool fn_id33855_has(yo_struct_id33489* self, int32_t value) {
-  yo_enum_id33543 current_opt = ...;  // Allocate and initialize
+bool fn_id33855_has(__yo_struct_id33489* self, int32_t value) {
+  __yo_enum_id33543 current_opt = ...;  // Allocate and initialize
 
   while (...) {
     switch ((current_opt).tag) {
-    case YO_ENUM_ID33543_NONE:
+    case __YO_ENUM_ID33543_NONE:
       bool _yo_temp = false;
       // Drop local variables before early return
       fn_id33588___drop(current_opt);  // ✅ NOW DROPPED!
       return _yo_temp;
       break;
-    case YO_ENUM_ID33543_SOME:
+    case __YO_ENUM_ID33543_SOME:
       if (...) {
         bool _yo_temp = true;
         // Drop local variables before early return

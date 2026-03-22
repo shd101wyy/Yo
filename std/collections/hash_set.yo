@@ -377,7 +377,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
   /**
     * Check if an element exists in the set
     */
-  has : (fn(self: Self, element: T) -> bool)(
+  contains : (fn(self: Self, element: T) -> bool)(
     {
       hash := element.hash();
       slot_opt := Self._find_slot(self, element, hash);
@@ -485,7 +485,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               element := (data_ptr &+ i).*;
-              contains_result := other.has(element);
+              contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
                   is_sub = false;
@@ -529,7 +529,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
             element := (data_ptr &+ i).*;
-            contains_result := larger.has(element);
+            contains_result := larger.contains(element);
             cond(
               (contains_result == true) => {
                 result = false;
@@ -626,7 +626,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := (data_ptr &+ i).*;
                 cond(
-                  (larger.has(element)) => {
+                  (larger.contains(element)) => {
                     _ := result_set.add(element);
                   },
                   true => ()
@@ -660,7 +660,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := (data_ptr &+ i).*;
-                contains_result := other.has(element);
+                contains_result := other.contains(element);
                 cond(
                   (contains_result == false) => {
                     _ := result_set.add(element);
@@ -696,7 +696,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := (data_ptr &+ i).*;
-                contains_result := other.has(element);
+                contains_result := other.contains(element);
                 cond(
                   (contains_result == false) => {
                     _ := result_set.add(element);
@@ -716,7 +716,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := (other_data_ptr &+ j).*;
-                contains_result := self.has(element);
+                contains_result := self.contains(element);
                 cond(
                   (contains_result == false) => {
                     _ := result_set.add(element);

@@ -26,22 +26,22 @@ import {
 } from "../utils";
 import type { FunctionGenerationContext } from "./context";
 
-// Functions that are defined as C preprocessor macros in the threading preamble.
-// We must NOT emit `extern` declarations for these — the preprocessor would expand
-// the macro name, creating conflicting declarations with the real pthread functions.
+// Functions that are either C preprocessor macros or static functions defined
+// in the runtime preamble. We must NOT emit `extern` declarations for these —
+// macros would expand to conflicting declarations, and static functions would
+// conflict with an `extern` linkage specifier.
 const THREADING_MACRO_FUNCTIONS = new Set([
-  "yo_mutex_init",
-  "yo_mutex_destroy",
-  "yo_mutex_lock",
-  "yo_mutex_unlock",
-  "yo_cond_init",
-  "yo_cond_destroy",
-  "yo_cond_wait",
-  "yo_cond_signal",
-  "yo_cond_broadcast",
-  "yo_thread_create",
-  "yo_thread_join",
-  "yo_thread_self",
+  "__yo_mutex_init",
+  "__yo_mutex_destroy",
+  "__yo_mutex_lock",
+  "__yo_mutex_unlock",
+  "__yo_cond_init",
+  "__yo_cond_destroy",
+  "__yo_cond_wait",
+  "__yo_cond_signal",
+  "__yo_cond_broadcast",
+  "__yo_thread_join",
+  "__yo_thread_self",
 ]);
 
 /**
@@ -78,14 +78,14 @@ export function generateFunctionDeclarations(
   }
   emitter.emitDeclarationLine("");
 
-  // Generate forward declarations for async runtime functions
-  emitter.emitDeclarationLine(`/// Async runtime functions`);
-  emitter.emitDeclarationLine(
-    `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
-  );
-  // NOTE: yo_async_register_continuation removed - continuation registration is now inline
-  emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
-  emitter.emitDeclarationLine("");
+  // Generate forward declarations for async runtime functions (only when async is used)
+  if (context.usesAsync) {
+    emitter.emitDeclarationLine(`/// Async runtime functions`);
+    emitter.emitDeclarationLine(
+      `static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+    );
+    emitter.emitDeclarationLine("");
+  }
 
   // Generate constructor functions for objects
   emitter.emitDeclarationLine(`/// Object constructors`);
@@ -520,8 +520,12 @@ export function generateFunctionDeclaration(
       );
 
   const yoTypeStr = typeToString(functionType);
+  // Non-extern functions are 'static' (internal linkage) since all Yo code
+  // compiles to a single C file. This enables the C compiler to strip unused
+  // functions with -O2.
+  const linkagePrefix = isExtern ? "extern " : "static ";
   context.emitter.emitDeclarationLine(
-    `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`
+    `${linkagePrefix}${functionPrototype}; // ${yoTypeStr}`
   );
 }
 
@@ -533,32 +537,32 @@ export function generateObjectConstructorDeclarations(
 ): void {
   const emitter = context.emitter;
 
-  // Generate builtin reference counting functions
+  // Generate builtin reference counting functions (static — single C file)
   emitter.emitDeclarationLine(
-    `void __yo_decr_rc(void* ptr); // Decrement reference count`
+    `static void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
-    `void* __yo_incr_rc(void* ptr); // Increment reference count`
+    `static void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
   // Generate GC function declarations
   emitter.emitDeclarationLine(
-    `void __yo_gc_register(void* ptr); // Register object for cycle detection`
+    `static void __yo_gc_register(void* ptr); // Register object for cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
+    `static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_collect(); // Trigger garbage collection`
+    `static void __yo_gc_collect(); // Trigger garbage collection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
+    `static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
   );
   emitter.emitDeclarationLine(
-    `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
+    `static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
   );
   emitter.emitDeclarationLine(
-    `static void yo_init_process_cleanup(void); // Initialize process cleanup`
+    `static void __yo_init_process_cleanup(void); // Initialize process cleanup`
   );
 
   // Generate constructor declarations for each object
@@ -585,7 +589,7 @@ export function generateObjectConstructorDeclarations(
         .join(", ");
 
       emitter.emitDeclarationLine(
-        `${cName}* ${constructorName}(${paramTypes}); // Constructor`
+        `static ${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
     }
   }
@@ -613,7 +617,7 @@ export function generateCaptureDisposeFunctionDeclarations(
     for (const [closureInstanceId] of context.closureCaptureMap) {
       const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
       emitter.emitDeclarationLine(
-        `void ${disposeFunctionName}(void* closure_ptr);`
+        `static void ${disposeFunctionName}(void* closure_ptr);`
       );
     }
   }
@@ -697,7 +701,7 @@ export function generateSpecializedFunctionDeclarations(
 
     // Emit the function declaration
     context.emitter.emitDeclarationLine(
-      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
+      `static ${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }

@@ -218,7 +218,7 @@ export function collectTypesFromExpr(
       // This ensures each unique capture struct gets its own type definition
       context.types[captureType.id] = {
         type: captureType,
-        cName: `yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
+        cName: `__yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
       };
 
       // Now collect the capture type's nested types and module functions (___drop, etc.)
@@ -330,7 +330,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
   }
 
   // Skip collecting any types that contain SomeType (generic type parameters)
-  // Note: Extern types like YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
+  // Note: Extern types like __YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
   if (typeContainsSomeType(type)) {
     return;
   }
@@ -351,11 +351,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
     const cTypeName =
       // NOTE: OUTDATED
       // isFutureTraitType(type)
-      // ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
+      // ? `__yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
       // :
       isSliceType(type)
         ? getTypeString(type, context) // For slices, use the special slice type name
-        : `yo_${type.id}`;
+        : `__yo_${type.id}`;
     context.types[type.id] = {
       type,
       cName: cTypeName,

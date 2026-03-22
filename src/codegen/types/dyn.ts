@@ -40,7 +40,7 @@ export function generateDynForwardDeclarations(context: CodeGenContext): void {
       `typedef struct { // ${(type as DynType).typeName || "Dyn"} : ${typeToString(type)} (value type - fat pointer)`
     );
     emitter.emitDeclarationLine(
-      `  void* data; // Pointer to boxed data (with yo_ref_header_t)`
+      `  void* data; // Pointer to boxed data (with __yo_ref_header_t)`
     );
     emitter.emitDeclarationLine(
       `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`
@@ -207,7 +207,7 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
     const concreteTypeCName =
       context.types[resolvedConcreteType.id]?.cName ||
       `unknown_${resolvedConcreteType.id}`;
-    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+    const boxTypeName = `__yo_dyn_box_${concreteTypeCName}`;
 
     // Skip if already generated (multiple dyn() calls with same type)
     if (generatedBoxTypes.has(boxTypeName)) {
@@ -219,18 +219,20 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
 
     // Generate box struct
     emitter.emitDeclarationLine(`typedef struct {`);
-    emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+    emitter.emitDeclarationLine(`  __yo_ref_header_t header;`);
     emitter.emitDeclarationLine(`  ${valueTypeStr} value;`);
     emitter.emitDeclarationLine(`} ${boxTypeName};`);
     emitter.emitDeclarationLine("");
 
     // Generate box constructor declaration
     emitter.emitDeclarationLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
+      `static ${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
     );
 
     // Generate box dispose declaration
-    emitter.emitDeclarationLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
+    emitter.emitDeclarationLine(
+      `static void __yo_dispose_${boxTypeName}(void* ptr);`
+    );
     emitter.emitDeclarationLine("");
   }
 }

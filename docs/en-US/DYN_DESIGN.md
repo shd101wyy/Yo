@@ -35,7 +35,7 @@ main :: (fn() -> unit) {
 typedef struct {
   void* data;                    // MUST point to object type (has ref_header)
   const TraitVtable* vtable;    // Static vtable pointer
-} yo_dyn_trait_id;
+} __yo_dyn_trait_id;
 ```
 
 **Key Points:**
@@ -86,7 +86,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 typedef struct {
   int32_t (*return_i32)(void*);    // All return types must be concrete (no Self)
   void (*print)(void*);            // unit return type
-} yo_dyn_trait_TestDyn_vtable;
+} __yo_dyn_trait_TestDyn_vtable;
 ```
 
 **Wrapper Functions:**
@@ -166,7 +166,7 @@ int32_t wrapper_Box_i32_id(void* self_ptr) {
 }
 
 // Static vtable for dyn(box(i32))
-static const yo_dyn_trait_Id_vtable yo_vtable_Box_i32_Id = {
+static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // Points to wrapper
 };
 ```
@@ -180,7 +180,7 @@ void fn_Point_print(Point* self) {
 }
 
 // Static vtable for dyn(point) - no wrapper needed!
-static const yo_dyn_trait_Printer_vtable yo_vtable_Point_Printer = {
+static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
   .print = (void(*)(void*))fn_Point_print  // Direct cast
 };
 ```
@@ -193,9 +193,9 @@ When constructing a `Dyn`, the value must be an object type. The `Dyn` struct is
 // For dyn(box(42)):
 Box_i32* boxed = /* result of box(42) */;  // Already has RC = 1
 
-yo_dyn_trait_id result = {
+__yo_dyn_trait_id result = {
   .data = boxed,
-  .vtable = &yo_vtable_Box_i32_Id
+  .vtable = &__yo_vtable_Box_i32_Id
 };
 // Note: No dup here, ownership transfers from box(42) to dyn
 ```
@@ -204,9 +204,9 @@ yo_dyn_trait_id result = {
 // For dyn(point) where point : Point:
 Point* point = /* Point(3, 4) */;  // Already has RC = 1
 
-yo_dyn_trait_Printer result = {
+__yo_dyn_trait_Printer result = {
   .data = point,
-  .vtable = &yo_vtable_Point_Printer
+  .vtable = &__yo_vtable_Point_Printer
 };
 // Note: No dup here, ownership transfers from point to dyn
 ```
@@ -218,7 +218,7 @@ yo_dyn_trait_Printer result = {
 Method calls on `Dyn` go through the vtable. Since `Dyn` is a value type, `value` is the struct itself.
 
 ```c
-// value has type yo_dyn_trait_TestDyn (struct, not pointer)
+// value has type __yo_dyn_trait_TestDyn (struct, not pointer)
 int32_t result = value.vtable->return_i32(value.data);
 value.vtable->print(value.data);
 ```
@@ -232,7 +232,7 @@ Since `Dyn` is a value type, we need dup/drop functions that operate on the `dat
 When copying a `Dyn`, increment the `data` pointer's RC:
 
 ```c
-yo_dyn_trait_id __yo_dup_dyn_trait_Id(yo_dyn_trait_id dyn) {
+__yo_dyn_trait_id __yo_dup_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
     __yo_incr_rc(dyn.data);  // data is always an object type
   }
@@ -245,7 +245,7 @@ yo_dyn_trait_id __yo_dup_dyn_trait_Id(yo_dyn_trait_id dyn) {
 When dropping a `Dyn`, decrement the `data` pointer's RC:
 
 ```c
-void __yo_drop_dyn_trait_Id(yo_dyn_trait_id dyn) {
+void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
     __yo_decr_rc(dyn.data);  // data is always an object type
   }
@@ -313,7 +313,7 @@ function generateStaticVtable(
   dynType: DynType,
   context: FunctionGenerationContext
 ) {
-  const vtableName = `yo_vtable_${implCName}_${traitCName}`;
+  const vtableName = `__yo_vtable_${implCName}_${traitCName}`;
 
   emitter.emitLine(`static const ${dynVtableType} ${vtableName} = {`);
 
@@ -359,7 +359,7 @@ function generateDynCall(
   // Create Dyn struct on stack
   const dynVar = expr.$.variableName || generateTempName();
   const dynCName = getTypeCName(dynType, context);
-  const vtableName = `yo_vtable_${getTypeCName(concreteType, context)}_${dynType.traitName}`;
+  const vtableName = `__yo_vtable_${getTypeCName(concreteType, context)}_${dynType.traitName}`;
 
   context.emitter.emitLine(`${indent}${dynCName} ${dynVar} = {`);
   context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
@@ -385,7 +385,7 @@ function generateMethodCallOnDyn(
 ): string {
   const receiverCode = generateExpr(receiver, indent, context);
 
-  // receiver is a struct: yo_dyn_trait_TestDyn
+  // receiver is a struct: __yo_dyn_trait_TestDyn
   // Generate: receiver.vtable->method(receiver.data)
   return `${receiverCode}.vtable->${methodName}(${receiverCode}.data)`;
 }

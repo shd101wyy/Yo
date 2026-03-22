@@ -1421,3 +1421,366 @@ test "Test mixed break and continue in Option match after fn resume", {
   };
   run_test();
 };
+
+// ===========================================================================
+// Additional corner-case tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Three-level effect propagation via using parameter
+// Tests that evidence pointers are forwarded correctly through 3 call levels.
+// ---------------------------------------------------------------------------
+test "Test three-level effect propagation via using parameter", {
+  Raise :: (fn(msg : String) -> i32);
+
+  level3 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (x < 0) => raise(`negative`),
+      true => (x * i32(2))
+    )
+  );
+
+  level2 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    (level3(x) + i32(1))
+  );
+
+  level1 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    (level2(x) + i32(10))
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(0);
+  });
+
+  result1 := level1(i32(5));
+  assert((result1 == i32(21)), "3-level propagation: 5*2+1+10 = 21");
+
+  result2 := level1(i32(-1));
+  assert((result2 == i32(11)), "3-level propagation with raise: 0+1+10 = 11");
+};
+
+// ---------------------------------------------------------------------------
+// Three-level effect propagation with escape
+// Escape at the deepest level should propagate all the way out.
+// ---------------------------------------------------------------------------
+test "Test three-level effect propagation with escape", {
+  Raise :: (fn(msg : String) -> i32);
+
+  level3 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (x < 0) => raise(`negative`),
+      true => (x * i32(2))
+    )
+  );
+
+  level2 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    (level3(x) + i32(1))
+  );
+
+  level1 :: (fn(x : i32, using(raise : Raise)) -> i32)(
+    (level2(x) + i32(10))
+  );
+
+  run_test :: (fn() -> i32) {
+    (given(raise) : Raise) = ((msg) -> {
+      escape i32(99);
+    });
+    level1(i32(-1))
+  };
+
+  result := run_test();
+  assert((result == i32(99)), "3-level escape: should get 99");
+};
+
+// ---------------------------------------------------------------------------
+// Module effect with escape returning non-unit value
+// ---------------------------------------------------------------------------
+test "Test module effect escape with non-unit value", {
+  Raise :: module(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  run_test :: (fn() -> i32) {
+    (given(raise_mod) : Raise) = Raise(
+      raise :
+        (msg) -> {
+          escape i32(-1);
+        }
+    );
+    safe_divide(10, 0)
+  };
+
+  result := run_test();
+  assert((result == i32(-1)), "module escape non-unit: should get -1");
+};
+
+// ---------------------------------------------------------------------------
+// Module effect with multiple functions
+// Tests that a module with more than one function field works correctly.
+// ---------------------------------------------------------------------------
+test "Test module effect with multiple function members", {
+  Logger :: module(
+    info : (fn(msg : String) -> i32),
+    warn : (fn(msg : String) -> i32),
+    count : (fn(current : i32) -> i32)
+  );
+
+  log_messages :: (fn(using(logger : Logger)) -> i32) {
+    logger.info(`first info`);
+    logger.warn(`first warn`);
+    logger.info(`second info`);
+    logger.count(i32(3))
+  };
+
+  (given(logger) : Logger) = Logger(
+    info :
+      (msg) -> {
+        println(msg);
+        return i32(1);
+      },
+    warn :
+      (msg) -> {
+        println(msg);
+        return i32(1);
+      },
+    count :
+      (current) -> {
+        return current;
+      }
+  );
+
+  result := log_messages();
+  assert((result == 3), "multi-member module: count(3) should return 3");
+};
+
+// ---------------------------------------------------------------------------
+// Multiple module effects in the same scope
+// Two distinct module effect types used together.
+// ---------------------------------------------------------------------------
+test "Test multiple module effects in same scope", {
+  Raise :: module(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  Log :: module(
+    log : (fn(msg : String) -> i32)
+  );
+
+  compute :: (fn(x : i32, y : i32, using(raise_mod : Raise, log_mod : Log)) -> i32) {
+    log_mod.log(`computing`);
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  };
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+  (given(log_mod) : Log) = Log(
+    log :
+      (msg) -> {
+        println(msg);
+        return i32(1);
+      }
+  );
+
+  result := compute(10, 2);
+  assert((result == 5), "multi-module: 10/2 = 5");
+
+  result2 := compute(10, 0);
+  assert((result2 == 0), "multi-module: raise returns 0");
+};
+
+// ---------------------------------------------------------------------------
+// Effect handler that conditionally resumes or escapes based on argument
+// Handler decides at runtime whether to resume or escape.
+// ---------------------------------------------------------------------------
+test "Test effect handler conditional resume or escape based on argument", {
+  Raise :: (fn(msg : String, attempt : i32) -> i32);
+
+  safe_divide :: (fn(x : i32, y : i32, attempt : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`, attempt),
+      true => (x / y)
+    )
+  );
+
+  run_test :: (fn() -> i32) {
+    (given(raise) : Raise) = ((msg, attempt) -> {
+      cond(
+        (attempt <= i32(2)) => {
+          return i32(0);
+        },
+        true => {
+          escape i32(-1);
+        }
+      );
+    });
+
+    sum := Box(i32)(0);
+    sum.* = (sum.* + safe_divide(10, 0, i32(1)));
+    sum.* = (sum.* + safe_divide(20, 0, i32(2)));
+    sum.* = (sum.* + safe_divide(30, 0, i32(3)));
+    return sum.*;
+  };
+
+  result := run_test();
+  assert((result == i32(-1)), "conditional resume/escape: third call escapes with -1");
+};
+
+// ---------------------------------------------------------------------------
+// Recursive function with effects (recur + using)
+// ---------------------------------------------------------------------------
+test "Test recursive function with effect via recur", {
+  Raise :: (fn(msg : String) -> i32);
+
+  sum_to :: (fn(n : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (n <= 0) => raise(`reached zero`),
+      true => (n + recur((n - 1)))
+    )
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(0);
+  });
+
+  result := sum_to(i32(5));
+  assert((result == i32(15)), "recur+effect: 5+4+3+2+1+0 = 15");
+};
+
+// ---------------------------------------------------------------------------
+// Recursive function with effect — escape during recursion
+// ---------------------------------------------------------------------------
+test "Test recursive function with effect escape during recursion", {
+  Raise :: (fn(val : i32) -> i32);
+
+  sum_to :: (fn(n : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (n <= 0) => i32(0),
+      true => (raise(n) + recur((n - 1)))
+    )
+  );
+
+  run_test :: (fn() -> i32) {
+    (given(raise) : Raise) = ((val) -> {
+      cond(
+        (val == i32(3)) => {
+          escape i32(42);
+        },
+        true => {
+          return val;
+        }
+      );
+    });
+    sum_to(i32(5))
+  };
+
+  result := run_test();
+  assert((result == i32(42)), "recur+escape: should escape with 42 at n=3");
+};
+
+// ---------------------------------------------------------------------------
+// Effect with enum return type (Option)
+// ---------------------------------------------------------------------------
+test "Test effect with Option return type", {
+  Lookup :: (fn(key : i32) -> Option(i32));
+
+  get_or_default :: (fn(key : i32, default_val : i32, using(lookup : Lookup)) -> i32)(
+    match(lookup(key),
+      .Some(v) => v,
+      .None => default_val
+    )
+  );
+
+  (given(lookup) : Lookup) = ((key) -> {
+    return cond(
+      (key > 0) => Option(i32).Some((key * i32(10))),
+      true => Option(i32).None
+    );
+  });
+
+  result1 := get_or_default(i32(3), i32(-1));
+  assert((result1 == i32(30)), "option effect: key=3 -> 30");
+
+  result2 := get_or_default(i32(0), i32(-1));
+  assert((result2 == i32(-1)), "option effect: key=0 -> default -1");
+
+  result3 := get_or_default(i32(-5), i32(99));
+  assert((result3 == i32(99)), "option effect: key=-5 -> default 99");
+};
+
+// ---------------------------------------------------------------------------
+// Effect-polymorphic function with module effect (not just fn-type effect)
+// Combines forall(...(E)) spread with module-type effects.
+// ---------------------------------------------------------------------------
+test "Test effect polymorphism with module effect spread", {
+  Raise :: module(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  might_fail :: (fn(using(raise_mod : Raise)) -> i32)(
+    raise_mod.raise(`oops`)
+  );
+
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        return i32(77);
+      }
+  );
+
+  result := run(might_fail);
+  assert(result == i32(77), "module effect polymorphism: should be 77");
+};
+
+// ---------------------------------------------------------------------------
+// Transitive SM with module effects (combine forall + transitive + module)
+// ---------------------------------------------------------------------------
+test "Test transitive SM with module effect in while loop", {
+  Counter :: module(
+    increment : (fn(current : i32) -> i32)
+  );
+
+  loop_with_effect :: (fn(
+    forall(...(E)),
+    limit : i32,
+    using(...(E))
+  ) -> i32) {
+    sum := Box(i32)(0);
+    i := Box(i32)(0);
+    c := Box(i32)(0);
+    while runtime(i.* < limit), {
+      c.* = counter.increment(c.*);
+      sum.* = (sum.* + c.*);
+      i.* = (i.* + 1);
+    };
+    return sum.*;
+  };
+
+  (given(counter) : Counter) = Counter(
+    increment :
+      (current) -> {
+        return (current + i32(1));
+      }
+  );
+
+  result := loop_with_effect(i32(4));
+  assert((result == i32(10)), "transitive SM module: 1+2+3+4 = 10");
+};

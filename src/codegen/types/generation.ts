@@ -1,4 +1,5 @@
 import { BuiltinFunctions } from "../../expr";
+import { isTargetMacos, isTargetWindows } from "../../target";
 import type {
   EnumType,
   FunctionType,
@@ -35,16 +36,16 @@ import {
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Always generate atomic reference counter header for objects and ref enums
   const debugGcDefine = context.debugGc
-    ? "#define YO_DEBUG_GC 1"
-    : "// #define YO_DEBUG_GC 1";
+    ? "#define __YO_DEBUG_GC 1"
+    : "// #define __YO_DEBUG_GC 1";
 
   const debugParallelismDefine = context.debugParallelism
-    ? "#define YO_DEBUG_PARALLELISM 1"
-    : "// #define YO_DEBUG_PARALLELISM 1";
+    ? "#define __YO_DEBUG_PARALLELISM 1"
+    : "// #define __YO_DEBUG_PARALLELISM 1";
 
   const debugAsyncAwaitDefine = context.debugAsyncAwait
-    ? "#define YO_DEBUG_ASYNC_AWAIT 1"
-    : "// #define YO_DEBUG_ASYNC_AWAIT 1";
+    ? "#define __YO_DEBUG_ASYNC_AWAIT 1"
+    : "// #define __YO_DEBUG_ASYNC_AWAIT 1";
 
   context.emitter
     .emitDeclarationLine(`// Non-atomic Reference Counting with Thread-Local Cycle Collection
@@ -54,7 +55,7 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
 // Debug flag for GC operations - use --debug-gc flag to enable
 ${debugGcDefine}
 
-#ifdef YO_DEBUG_GC
+#ifdef __YO_DEBUG_GC
   #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
 #else
   #define GC_DEBUG(...)
@@ -63,7 +64,7 @@ ${debugGcDefine}
 // Debug flag for parallelism operations - use --debug-parallelism flag to enable
 ${debugParallelismDefine}
 
-#ifdef YO_DEBUG_PARALLELISM
+#ifdef __YO_DEBUG_PARALLELISM
   #define PARALLELISM_DEBUG(...) fprintf(stderr, __VA_ARGS__)
 #else
   #define PARALLELISM_DEBUG(...)
@@ -72,7 +73,7 @@ ${debugParallelismDefine}
 // Debug flag for async/await operations - use --debug-async-await flag to enable
 ${debugAsyncAwaitDefine}
 
-#ifdef YO_DEBUG_ASYNC_AWAIT
+#ifdef __YO_DEBUG_ASYNC_AWAIT
   #define ASYNC_DEBUG(...) fprintf(stderr, "ASYNC: " __VA_ARGS__)
 #else
   #define ASYNC_DEBUG(...)
@@ -80,146 +81,150 @@ ${debugAsyncAwaitDefine}
 
 // GC mark states for QuickJS-style trial deletion cycle collection
 typedef enum {
-  YO_GC_UNMARKED = 0,      // Object not yet processed
-  YO_GC_CANDIDATE = 1,     // Object is a candidate for cycle collection
-  YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
-  YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
-  YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
-} yo_gc_mark_t;
+  __YO_GC_UNMARKED = 0,      // Object not yet processed
+  __YO_GC_CANDIDATE = 1,     // Object is a candidate for cycle collection
+  __YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
+  __YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
+  __YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
+} __yo_gc_mark_t;
 
 // GC flags
-#define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+#define __YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+`);
 
-// Thread synchronization for stop-the-world GC
-#ifndef YO_THREAD_SYNC_TYPE
-#if defined(_WIN32)
-  // Windows: Use native Windows APIs for better compatibility
-  #ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
-  #endif
-  #ifndef _WINSOCKAPI_
-  #define _WINSOCKAPI_
-  #endif
-  #include <windows.h>
-  #include <process.h>
-  typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
-  typedef CONDITION_VARIABLE YO_COND_TYPE;
-  typedef HANDLE YO_THREAD_TYPE;
-  #define YO_THREAD_SYNC_INIT {0}
-  #define YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
-  #define YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
-  #define YO_COND_INIT CONDITION_VARIABLE_INIT
-  #define yo_mutex_init(m) InitializeCriticalSection(m)
-  #define yo_mutex_destroy(m) DeleteCriticalSection(m)
-  #define yo_mutex_lock(m) EnterCriticalSection(m)
-  #define yo_mutex_unlock(m) LeaveCriticalSection(m)
-  #define yo_cond_init(c) InitializeConditionVariable(c)
-  #define yo_cond_destroy(c) ((void)0)
-  #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
-  #define yo_cond_signal(c) WakeConditionVariable(c)
-  #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
-  #define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
-  #define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
-  #define yo_thread_self() ((uintptr_t)GetCurrentThreadId())
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  // Unix-like systems: Use pthreads (more reliable, especially on macOS)
-  #include <pthread.h>
-  #include <unistd.h>
-  #include <sys/syscall.h>
-  #if defined(__APPLE__)
-    #include <sys/types.h>
-    #include <sys/sysctl.h>
-  #endif
-  typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
-  typedef pthread_cond_t YO_COND_TYPE;
-  typedef pthread_t YO_THREAD_TYPE;
-  #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
-  #define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
-  #define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
-  #define YO_COND_INIT PTHREAD_COND_INITIALIZER
-  #define yo_mutex_init(m) pthread_mutex_init(m, NULL)
-  #define yo_mutex_destroy(m) pthread_mutex_destroy(m)
-  #define yo_mutex_lock(m) pthread_mutex_lock(m)
-  #define yo_mutex_unlock(m) pthread_mutex_unlock(m)
-  #define yo_cond_init(c) pthread_cond_init(c, NULL)
-  #define yo_cond_destroy(c) pthread_cond_destroy(c)
-  #define yo_cond_wait(c, m) pthread_cond_wait(c, m)
-  #define yo_cond_signal(c) pthread_cond_signal(c)
-  #define yo_cond_broadcast(c) pthread_cond_broadcast(c)
-  #define yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
-  #define yo_thread_join(t) pthread_join(t, NULL)
-  #define yo_thread_self() ((uintptr_t)pthread_self())
-#else
-  #error "Unsupported platform for threading"
+  // Thread synchronization — emit only target-specific types and macros
+  if (isTargetWindows(context.targetInfo)) {
+    context.emitter
+      .emitDeclarationLine(`// Thread synchronization for stop-the-world GC (Windows)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
 #endif
+#include <windows.h>
+#include <process.h>
+typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;
+typedef CONDITION_VARIABLE __YO_COND_TYPE;
+typedef HANDLE __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT {0}
+#define __YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+#define __YO_COND_INIT CONDITION_VARIABLE_INIT
+#define __yo_mutex_init(m) InitializeCriticalSection(m)
+#define __yo_mutex_destroy(m) DeleteCriticalSection(m)
+#define __yo_mutex_lock(m) EnterCriticalSection(m)
+#define __yo_mutex_unlock(m) LeaveCriticalSection(m)
+#define __yo_cond_init(c) InitializeConditionVariable(c)
+#define __yo_cond_destroy(c) ((void)0)
+#define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+#define __yo_cond_signal(c) WakeConditionVariable(c)
+#define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#define __yo_raw_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define __yo_raw_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`);
+  } else {
+    // POSIX (Linux, macOS, FreeBSD, etc.)
+    context.emitter
+      .emitDeclarationLine(`// Thread synchronization for stop-the-world GC (POSIX)
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+${
+  isTargetMacos(context.targetInfo)
+    ? `#include <sys/types.h>
+#include <sys/sysctl.h>`
+    : ""
+}
+typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
+typedef pthread_cond_t __YO_COND_TYPE;
+typedef pthread_t __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+#define __YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
+#define __YO_COND_INIT PTHREAD_COND_INITIALIZER
+#define __yo_mutex_init(m) pthread_mutex_init(m, NULL)
+#define __yo_mutex_destroy(m) pthread_mutex_destroy(m)
+#define __yo_mutex_lock(m) pthread_mutex_lock(m)
+#define __yo_mutex_unlock(m) pthread_mutex_unlock(m)
+#define __yo_cond_init(c) pthread_cond_init(c, NULL)
+#define __yo_cond_destroy(c) pthread_cond_destroy(c)
+#define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
+#define __yo_cond_signal(c) pthread_cond_signal(c)
+#define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#define __yo_raw_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define __yo_raw_thread_join(t) pthread_join(t, NULL)
+#define __yo_thread_self() ((uintptr_t)pthread_self())`);
+  }
 
+  // Thread handle type and helper functions
+  context.emitter.emitDeclarationLine(`
 // Thread handle type for parallelism - value type, stack allocated
 // Contains the OS thread handle (pthread_t or HANDLE)
 typedef struct __yo_thread_t {
-  YO_THREAD_TYPE handle;
+  __YO_THREAD_TYPE handle;
 } __yo_thread_t;
 
 // Thread callback type for spawn
 typedef void (*__yo_thread_fn)(void* closure);
 
-YO_THREAD_SYNC_TYPE yo_mutex_create(void);
-YO_COND_TYPE yo_cond_create(void);
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
+static __YO_COND_TYPE __yo_cond_create(void);
 /**
  * Create and initialize a mutex (stack-allocated value)
- * Returns an initialized mutex that can be used with yo_mutex_lock/unlock
+ * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
  */
-YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
-  YO_THREAD_SYNC_TYPE mutex;
-  yo_mutex_init(&mutex);
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void) {
+  __YO_THREAD_SYNC_TYPE mutex;
+  __yo_mutex_init(&mutex);
   return mutex;
 }
 
 /**
  * Create and initialize a condition variable (stack-allocated value)
- * Returns an initialized condition variable that can be used with yo_cond_wait/signal/broadcast
+ * Returns an initialized condition variable that can be used with __yo_cond_wait/signal/broadcast
  */
-YO_COND_TYPE yo_cond_create(void) {
-  YO_COND_TYPE cond;
-  yo_cond_init(&cond);
+static __YO_COND_TYPE __yo_cond_create(void) {
+  __YO_COND_TYPE cond;
+  __yo_cond_init(&cond);
   return cond;
 }
 
-// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
-typedef struct yo_thread_gc_state yo_thread_gc_state_t;
+// Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
+typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
 
 // Reference counting header - simple non-atomic RC with cycle collection support
 // Thread-local: each object is owned by the thread that created it
-typedef struct yo_ref_header_t {
+typedef struct __yo_ref_header_t {
   // Simple reference count (non-atomic, thread-local)
   size_t ref_count;
   
   // GC cycle collection fields
   uint8_t gc_flags;                                     // GC tracking flags
-  yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
+  __yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
   
   // GC object management fields (doubly-linked list for O(1) deletion)
-  struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
-  struct yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
+  struct __yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
+  struct __yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
   void (*dispose_fn)(void*);                            // Dispose function for this object type (immutable after construction)
   void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
-} yo_ref_header_t;
+} __yo_ref_header_t;
 
-// Per-thread GC state - defined after yo_ref_header_t so it can use complete type
-struct yo_thread_gc_state {
-  yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
+// Per-thread GC state - defined after __yo_ref_header_t so it can use complete type
+struct __yo_thread_gc_state {
+  __yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
   size_t tracked_count;                      // Number of objects tracked by this thread
   size_t thread_id;                          // Thread identifier (for debugging)
   size_t alloc_count;                        // Allocations since last collection
-  yo_thread_gc_state_t* next;                // Next thread in global thread list
-  yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
+  __yo_thread_gc_state_t* next;                // Next thread in global thread list
+  __yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
 };
 
 // Generic Future type - used by async runtime for type-agnostic operations
 // All concrete Future types share this same layout for common fields
 typedef struct {
-  yo_ref_header_t header;
-  yo_future_state_t state;
+  __yo_ref_header_t header;
+  __yo_future_state_t state;
   void* state_machine;
   void (*state_machine_dispose_fn)(void*);
   void (*resume_fn)(void*);
@@ -227,18 +232,18 @@ typedef struct {
   void* continuation_sm;
   bool detached;
   // Note: concrete Future types may have additional fields (e.g., result) after this
-} yo_future_generic_t;
+} __yo_future_generic_t;
 
 // Generic I/O Future type for extern "Yo" functions returning Impl Future(T)
 // This has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
 // so the await codegen can access ->state and ->result uniformly
-typedef struct yo_io_future_t {
-  yo_ref_header_t header;                       // Reference counting (must be first)
+typedef struct __yo_io_future_t {
+  __yo_ref_header_t header;                       // Reference counting (must be first)
   _Atomic int state;                            // Future state (0 = pending, -1 = completed)
   int32_t result;                               // The result value (bytes read/written or -errno)
   _Atomic(void (*)(void*)) continuation_fn;     // Continuation function
   _Atomic(void*) continuation_sm;               // Continuation state machine
-} yo_io_future_t;
+} __yo_io_future_t;
 
 // Forward declarations will be added here if needed
 `);
@@ -728,7 +733,7 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     // Generate Iso struct type
     emitter.emitDeclarationLine(`typedef struct { // Iso wrapper struct`);
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Atomic RC header`
+      `  __yo_ref_header_t header; // Atomic RC header`
     );
     emitter.emitDeclarationLine(`  _Atomic bool extracted; // Extraction flag`);
     emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
@@ -787,7 +792,7 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
 ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
   iso->header.ref_count = 1;
-  iso->header.gc_mark = YO_GC_UNMARKED;
+  iso->header.gc_mark = __YO_GC_UNMARKED;
   iso->header.gc_flags = 0;
   iso->header.dispose_fn = __yo_dispose_iso_${isoTypeName};
   atomic_store(&iso->extracted, false);
@@ -939,7 +944,7 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
       `struct ${arcTypeName}_struct { // Arc wrapper`
     );
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Atomic RC header`
+      `  __yo_ref_header_t header; // Atomic RC header`
     );
     emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
     emitter.emitDeclarationLine(`};`);
@@ -974,7 +979,7 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
 ${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value) {
   ${arcTypeName} arc = (${arcTypeName})__yo_malloc(sizeof(${arcTypeName}_struct));
   arc->header.ref_count = 1;
-  arc->header.gc_mark = YO_GC_UNMARKED;
+  arc->header.gc_mark = __YO_GC_UNMARKED;
   arc->header.gc_flags = 0;
   arc->header.dispose_fn = __yo_dispose_arc_${arcTypeName};
   arc->value = value;
@@ -1079,7 +1084,7 @@ export function generateClosureDeclaration(
     .join(", ");
 
   // Generate the closure structure with direct call function pointer (static dispatch)
-  // Impl closures are value types - no yo_ref_header_t, stack-allocated
+  // Impl closures are value types - no __yo_ref_header_t, stack-allocated
   // IMPORTANT: Use named-struct form to match our forward declaration pattern.
   emitter.emitDeclarationLine(
     `struct ${cName}_struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, value type)`
@@ -1128,7 +1133,7 @@ export function generateStructDeclaration(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
     );
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
+      `  __yo_ref_header_t header; // Reference count header`
     );
 
     for (const field of structType.fields) {

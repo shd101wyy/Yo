@@ -238,7 +238,7 @@ impl(BufReader,
   }),
 
   // Read all remaining data into an ArrayList of bytes.
-  read_all : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
+  read_bytes : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
     the_fd := self._fd;
     io.async((using(io : IO)) => {
       result := ArrayList(u8).new();
@@ -288,7 +288,7 @@ impl(BufReader,
   // Read all remaining data as a String.
   read_to_string : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
     io.async((using(io : IO)) => {
-      bytes_result := io.await(self.read_all(using(io)));
+      bytes_result := io.await(self.read_bytes(using(io)));
       match(bytes_result,
         .Ok(bytes) => .Ok(String.from_bytes(bytes)),
         .Err(e) => .Err(e)

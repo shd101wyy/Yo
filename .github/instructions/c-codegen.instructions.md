@@ -55,9 +55,11 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 `forall(...)`, `using(...)`, and modules are **compile-time only** constructs — they are erased at runtime. Evidence passing is how their runtime behavior is realized.
 
+For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
+
 **How it works:**
 - A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
-- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(yo_string)`
+- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
 - Call sites pass the function pointer from their context:
   - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
@@ -94,14 +96,15 @@ void resume(void* ptr) {
   if (__yo_effect_escaped) {
     __yo_effect_escaped = 0;
     sm->state = -2;  // Aborted
-    return;           // Don't decr RC — await abort path handles it
+    __yo_decr_rc(ptr); // Event loop reference — matches full SM behavior
+    return;
   }
   sm->state = -1;    // Completed
   // ... continuation + __yo_decr_rc(ptr)
 }
 ```
 
-**Important:** The escape path does NOT call `__yo_decr_rc`. The await abort path (which checks `state == -2`) handles the event loop reference decrement. This prevents double-free when both resume and await try to decrement the same reference.
+**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND escape. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
 
 ### When SM is still needed
 
@@ -114,8 +117,8 @@ Because effect handlers are called via function pointer (evidence passing), the 
 1. Before calling an effect handler via function pointer, the flag is reset to 0.
 2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
 3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
-   - In async SM: aborts the Future (state = -2), spawns the continuation, returns.
-   - In sync_fut_t resume: sets state = -2 (aborted), returns without decrementing RC.
+   - In async SM: aborts the Future (state = -2), spawns the continuation, self-decrements event loop RC, returns.
+   - In sync_fut_t resume: sets state = -2 (aborted), self-decrements event loop RC, returns.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
 The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
@@ -152,6 +155,14 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
+
+### Handler functions are standalone, not closures
+
+Effect handler functions (both module-type and fn-type) are compiled as standalone C functions via evidence passing. They are **not closures** and cannot reference variables from the enclosing scope — no closure/capture struct is generated. This is **by design**.
+
+If a handler needs state, pass it as explicit arguments to the effect functions, or allocate a `Box` outside the handler and pass its address.
+
+See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) for details.
 
 ## JoinHandle(T) codegen
 
@@ -191,13 +202,13 @@ The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actu
 
 1. Extract `void*` future pointer from handle's `__future` field
 2. Cast to inline header struct to read `state` and `result` fields
-3. Poll loop: `while (state != -1 && state != -2) { yo_async_poll_step(); }`
+3. Poll loop: `while (state != -1 && state != -2) { __yo_async_poll_step(); }`
 4. On completion (state == -1): return `Option(T).Some(result)`
 5. On abort (state == -2): clear `__yo_effect_escaped`, return `Option(T).None`
 
 The inline header struct assumes the standard state machine layout:
 ```c
-struct { yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
+struct { __yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
 ```
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.

@@ -1,25 +1,40 @@
 /**
  * runtime-io-linux.ts
  *
- * Linux async I/O via io_uring (liburing).
- * Provides async read, write, openat, close, statx, mkdir, unlink,
- * rename, symlink, link, fsync, fdatasync, ftruncate, chmod, chown,
- * readlink, dup, pipe, and socket operations.
+ * Linux I/O helpers split into two categories:
+ *
+ * 1. generatePlatformSysRuntimeLinux — synchronous POSIX helpers (pipe, dup,
+ *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
+ *    that do NOT depend on IOFuture or the async event loop.
+ *
+ * 2. generateAsyncRuntimeIOLinux — async I/O via io_uring (liburing).
+ *    Provides async read, write, openat, close, statx, mkdir, unlink,
+ *    rename, symlink, link, fsync, fdatasync, ftruncate, and socket operations.
  */
 
 import { Emitter } from "../../emitter";
 
-export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
+// ---------------------------------------------------------------------------
+// 1. Synchronous platform helpers (Linux) — no IOFuture / event-loop dependency
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits synchronous Linux-specific POSIX helpers.  These do NOT depend on the
+ * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * so unused ones are dead-code-eliminated by the C compiler.
+ *
+ * Sections: sync FD ops (pipe, dup, lseek, fallocate, fcntl, flock, readv/writev,
+ * iovec, fadvise, madvise, mmap, mprotect, msync, fchmod, fchown, readlinkat),
+ * sync socket ops (getsockname, getpeername, setsockopt, getsockopt, socketpair,
+ * clock_gettime, uname, gethostname, umask), address/socket helpers,
+ * file open/close/size, statx accessors.
+ */
+export function generatePlatformSysRuntimeLinux(emitter: Emitter): void {
   emitter.emitLine(`
 // ============================================================================
-// Async I/O Runtime (Linux - io_uring via liburing)
+// Platform-specific sync helpers (Linux)
 // ============================================================================
 
-#if defined(__linux__)
-// Try to include liburing.h - if not available, disable I/O features
-#if __has_include(<liburing.h>)
-#define YO_HAS_LIBURING 1
-#include <liburing.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -28,541 +43,11 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <sys/file.h>
 #include <sys/uio.h>
 #include <time.h>
-#include <errno.h>
-
-static struct io_uring __yo_io_ring;
-// __yo_io_initialized is defined in runtime-core
-static size_t __yo_pending_io_count = 0;
-
-// I/O Future types - yo_io_future_t is defined in types/generation.ts
-// It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
-// so the await codegen can access ->state and ->result uniformly.
-// We store the future pointer directly in the SQE user data.
-
-// Initialize io_uring (called once at event loop start)
-static void __yo_io_init(void) {
-  if (__yo_io_initialized) return;
-  
-  int ret = io_uring_queue_init(256, &__yo_io_ring, 0);
-  if (ret < 0) {
-    fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
-    exit(1);
-  }
-  __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] io_uring initialized with 256 entries\\n");
-}
-
-// Cleanup io_uring
-static void __yo_io_cleanup(void) {
-  if (!__yo_io_initialized) return;
-  io_uring_queue_exit(&__yo_io_ring);
-  __yo_io_initialized = false;
-  ASYNC_DEBUG("[IO] io_uring cleaned up\\n");
-}
-
-// Check if there are pending I/O operations
-static inline bool __yo_has_pending_io(void) {
-  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
-}
-
-// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
-static int __yo_poll_and_fs_event_tick(void);
-
-// Process completions from CQ
-// The future pointer is stored directly in the SQE user data
-static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
-  yo_io_future_t* future = (yo_io_future_t*)io_uring_cqe_get_data(cqe);
-  __yo_pending_io_count--;
-
-  // Set the result
-  future->result = cqe->res;
-  
-  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
-              future->result, __yo_pending_io_count);
-  
-  // Mark as completed (state -1 = done)
-  future->state = -1;
-  
-  // Wake continuation if registered
-  void (*cont_fn)(void*) = future->continuation_fn;
-  void* cont_sm = future->continuation_sm;
-  
-  ASYNC_DEBUG("[IO] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
-  
-  if (cont_fn && cont_sm) {
-    ASYNC_DEBUG("[IO] Spawning continuation for I/O completion\\n");
-    yo_async_spawn_task(cont_fn, cont_sm);
-  }
-
-  io_uring_cqe_seen(&__yo_io_ring, cqe);
-}
-
-// Poll for I/O completions (non-blocking)
-static int __yo_io_poll(void) {
-  struct io_uring_cqe* cqe;
-  int count = 0;
-  
-  while (io_uring_peek_cqe(&__yo_io_ring, &cqe) == 0) {
-    __yo_io_process_cqe(cqe);
-    count++;
-  }
-  
-  // Also tick poll/fs_event handles
-  count += __yo_poll_and_fs_event_tick();
-  
-  if (count > 0) {
-    ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
-  }
-  return count;
-}
-
-// Wait for at least one I/O completion (blocking)
-static int __yo_io_wait(void) {
-  // If only poll/fs_event watches are pending (no io_uring ops), use a short sleep
-  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
-    struct timespec ts = {0, 10 * 1000 * 1000}; // 10ms
-    nanosleep(&ts, NULL);
-    return __yo_poll_and_fs_event_tick();
-  }
-  
-  struct io_uring_cqe* cqe;
-  int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
-  if (ret < 0) {
-    ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
-    return 0;
-  }
-  
-  ASYNC_DEBUG("[IO] Waiting for I/O completion...\\n");
-  __yo_io_process_cqe(cqe);
-  return 1 + __yo_io_poll();  // Process any additional completions
-}
-
-// Create and start an async read operation
-// Returns a yo_io_future_t* that completes when the read finishes
-static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
-  // Ensure io_uring is initialized (lazy initialization for eager async execution)
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
-  
-  // Initialize ref counting
-  future->header.ref_count = 1;
-  
-  // Initialize future state
-  future->state = 0;  // 0 = pending
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  // Submit to io_uring
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    // Queue full
-    future->result = -EAGAIN;
-    future->state = -1;  // Mark as completed
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
-    return future;
-  }
-  
-  io_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
-              fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async write operation
-// Returns a yo_io_future_t* that completes when the write finishes
-static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
-  // Ensure io_uring is initialized (lazy initialization for eager async execution)
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
-  
-  // Initialize ref counting
-  future->header.ref_count = 1;
-  
-  // Initialize future state
-  future->state = 0;  // 0 = pending
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  // Submit to io_uring
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    // Queue full
-    future->result = -EAGAIN;
-    future->state = -1;  // Mark as completed
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
-    return future;
-  }
-  
-  io_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
-              fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async openat operation
-// Returns a yo_io_future_t* that completes with the fd or error
-static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_openat(sqe, dirfd, path, flags, (mode_t)mode);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
-              dirfd, path, flags, mode, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async close operation
-static yo_io_future_t* __yo_async_close_start(int32_t fd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_close(sqe, fd);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async statx operation (for async stat)
-// Uses statx which is the modern replacement for stat, supported by io_uring
-static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_statx(sqe, dirfd, path, flags, mask, (struct statx*)statxbuf);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
-              dirfd, path, flags, mask, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async mkdirat operation
-static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_mkdirat(sqe, dirfd, path, (mode_t)mode);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
-              dirfd, path, mode, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async unlinkat operation
-static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_unlinkat(sqe, dirfd, path, flags);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
-              dirfd, path, flags, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async renameat operation
-static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_renameat(sqe, olddirfd, oldpath, newdirfd, newpath, 0);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
-              olddirfd, oldpath, newdirfd, newpath, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async symlinkat operation
-static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_symlinkat(sqe, target, newdirfd, linkpath);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
-              target, newdirfd, linkpath, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async linkat operation (hard link)
-static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_linkat(sqe, olddirfd, oldpath, newdirfd, newpath, flags);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
-              olddirfd, oldpath, newdirfd, newpath, flags, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async fsync operation
-static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_fsync(sqe, fd, 0);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async fdatasync operation
-static yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_fsync(sqe, fd, IORING_FSYNC_DATASYNC);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Create and start an async ftruncate operation
-static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-
-#if defined(IORING_OP_FTRUNCATE)
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-
-  io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, 0, (uint64_t)length);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-
-  ASYNC_DEBUG("[IO] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
-              fd, (long long)length, __yo_pending_io_count);
-#else
-  int result = ftruncate(fd, (off_t)length);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-
-  ASYNC_DEBUG("[IO] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
-              fd, (long long)length, future->result);
-#endif
-  
-  return future;
-}
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
 
 // ============================================================================
 // Synchronous FD Operations (Linux) - no IOFuture overhead
@@ -751,320 +236,6 @@ static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, 
   return (result < 0) ? -errno : (int32_t)result;
 }
 
-// ============================================================================
-// Socket Operations (Linux io_uring)
-// ============================================================================
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
-#include <sys/un.h>
-
-// Async socket - create socket
-static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = socket(domain, type, protocol);
-  future->result = (result < 0) ? -errno : result;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
-              domain, type, protocol, future->result);
-  
-  return future;
-}
-
-// Async bind - bind socket to address
-static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = bind(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
-  
-  return future;
-}
-
-// Async listen - mark socket as listening
-static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = listen(sockfd, backlog);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
-  
-  return future;
-}
-
-// Async accept - accept incoming connection (using io_uring)
-static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Async connect - connect to remote address (using io_uring)
-static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Async send - send data on socket (using io_uring)
-static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_send(sqe, sockfd, buf, len, flags);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Async recv - receive data from socket (using io_uring)
-static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    future->result = -EAGAIN;
-    future->state = -1;
-    return future;
-  }
-  
-  io_uring_prep_recv(sqe, sockfd, buf, len, flags);
-  io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
-  
-  return future;
-}
-
-// Async sendto - send data to specific address (UDP)
-static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
-                                                const void* dest_addr, uint32_t addrlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  // io_uring doesn't have direct sendto, use synchronous
-  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
-  
-  return future;
-}
-
-// Async recvfrom - receive data with source address (UDP)
-static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
-                                                  void* src_addr, uint32_t* addrlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  // io_uring doesn't have direct recvfrom, use synchronous
-  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
-  
-  return future;
-}
-
-// Async shutdown - shutdown socket
-static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = shutdown(sockfd, how);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
-  
-  return future;
-}
-
-// Async setsockopt - set socket option
-static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
-                                                    const void* optval, uint32_t optlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
-              sockfd, level, optname, future->result);
-  
-  return future;
-}
-
-// Async getsockopt - get socket option
-static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
-                                                    void* optval, uint32_t* optlen) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  future->state = 0;
-  future->result = 0;
-  future->continuation_fn = NULL;
-  future->continuation_sm = NULL;
-  
-  int result = getsockopt(sockfd, level, optname, optval, (socklen_t*)optlen);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[IO] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
-              sockfd, level, optname, future->result);
-  
-  return future;
-}
-
 // Sync getsockname - get local socket address
 static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
   socklen_t len = (socklen_t)(*addrlen);
@@ -1147,6 +318,7 @@ static int32_t __yo_sync_umask(int32_t mask) {
   mode_t prev = umask((mode_t)mask);
   return (int32_t)prev;
 }
+
 
 // ============================================================================
 // Socket Address Helpers (Cross-platform)
@@ -1342,11 +514,880 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
   return (uint64_t)((struct statx*)statxbuf)->stx_blocks;
 }
 
-#else // !YO_HAS_LIBURING
 
+`);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Async I/O runtime (Linux) — requires IOFuture / event-loop types
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits async I/O helpers that depend on the IOFuture type and event loop.
+ * Uses io_uring via liburing when available, falls back to stubs otherwise.
+ */
+export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
+  emitter.emitLine(`
+// ============================================================================
+// Async I/O Runtime (Linux - io_uring via liburing)
+// ============================================================================
+
+// Try to include liburing.h - if not available, disable I/O features
+#if __has_include(<liburing.h>)
+#define __YO_HAS_LIBURING 1
+#include <liburing.h>
+#include <errno.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
-#include <sys/utsname.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+static struct io_uring __yo_io_ring;
+// __yo_io_initialized is defined in runtime-core
+static size_t __yo_pending_io_count = 0;
+
+// I/O Future types - __yo_io_future_t is defined in types/generation.ts
+// It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
+// so the await codegen can access ->state and ->result uniformly.
+// We store the future pointer directly in the SQE user data.
+
+// Initialize io_uring (called once at event loop start)
+static void __yo_io_init(void) {
+  if (__yo_io_initialized) return;
+  
+  int ret = io_uring_queue_init(256, &__yo_io_ring, 0);
+  if (ret < 0) {
+    fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
+    exit(1);
+  }
+  __yo_io_initialized = true;
+  ASYNC_DEBUG("[IO] io_uring initialized with 256 entries\\n");
+}
+
+// Cleanup io_uring
+static void __yo_io_cleanup(void) {
+  if (!__yo_io_initialized) return;
+  io_uring_queue_exit(&__yo_io_ring);
+  __yo_io_initialized = false;
+  ASYNC_DEBUG("[IO] io_uring cleaned up\\n");
+}
+
+// Check if there are pending I/O operations
+static inline bool __yo_has_pending_io(void) {
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
+}
+
+// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
+static int __yo_poll_and_fs_event_tick(void);
+
+// Process completions from CQ
+// The future pointer is stored directly in the SQE user data
+static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
+  __yo_io_future_t* future = (__yo_io_future_t*)io_uring_cqe_get_data(cqe);
+  __yo_pending_io_count--;
+
+  // Set the result
+  future->result = cqe->res;
+  
+  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
+              future->result, __yo_pending_io_count);
+  
+  // Mark as completed (state -1 = done)
+  future->state = -1;
+  
+  // Wake continuation if registered
+  void (*cont_fn)(void*) = future->continuation_fn;
+  void* cont_sm = future->continuation_sm;
+  
+  ASYNC_DEBUG("[IO] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
+  
+  if (cont_fn && cont_sm) {
+    ASYNC_DEBUG("[IO] Spawning continuation for I/O completion\\n");
+    __yo_async_spawn_task(cont_fn, cont_sm);
+  }
+
+  io_uring_cqe_seen(&__yo_io_ring, cqe);
+}
+
+// Poll for I/O completions (non-blocking)
+static int __yo_io_poll(void) {
+  struct io_uring_cqe* cqe;
+  int count = 0;
+  
+  while (io_uring_peek_cqe(&__yo_io_ring, &cqe) == 0) {
+    __yo_io_process_cqe(cqe);
+    count++;
+  }
+  
+  // Also tick poll/fs_event handles
+  count += __yo_poll_and_fs_event_tick();
+  
+  if (count > 0) {
+    ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
+  }
+  return count;
+}
+
+// Wait for at least one I/O completion (blocking)
+static int __yo_io_wait(void) {
+  // If only poll/fs_event watches are pending (no io_uring ops), use a short sleep
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
+    struct timespec ts = {0, 10 * 1000 * 1000}; // 10ms
+    nanosleep(&ts, NULL);
+    return __yo_poll_and_fs_event_tick();
+  }
+  
+  struct io_uring_cqe* cqe;
+  int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
+  if (ret < 0) {
+    ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
+    return 0;
+  }
+  
+  ASYNC_DEBUG("[IO] Waiting for I/O completion...\\n");
+  __yo_io_process_cqe(cqe);
+  return 1 + __yo_io_poll();  // Process any additional completions
+}
+
+// Create and start an async read operation
+// Returns a __yo_io_future_t* that completes when the read finishes
+static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  // Ensure io_uring is initialized (lazy initialization for eager async execution)
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+  
+  // Initialize ref counting
+  future->header.ref_count = 1;
+  
+  // Initialize future state
+  future->state = 0;  // 0 = pending
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  // Submit to io_uring
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    // Queue full
+    future->result = -EAGAIN;
+    future->state = -1;  // Mark as completed
+    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    return future;
+  }
+  
+  io_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
+  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+              fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async write operation
+// Returns a __yo_io_future_t* that completes when the write finishes
+static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  // Ensure io_uring is initialized (lazy initialization for eager async execution)
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+  
+  // Initialize ref counting
+  future->header.ref_count = 1;
+  
+  // Initialize future state
+  future->state = 0;  // 0 = pending
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  // Submit to io_uring
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    // Queue full
+    future->result = -EAGAIN;
+    future->state = -1;  // Mark as completed
+    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    return future;
+  }
+  
+  io_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
+  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+              fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async openat operation
+// Returns a __yo_io_future_t* that completes with the fd or error
+static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_openat(sqe, dirfd, path, flags, (mode_t)mode);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
+              dirfd, path, flags, mode, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async close operation
+static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_close(sqe, fd);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async statx operation (for async stat)
+// Uses statx which is the modern replacement for stat, supported by io_uring
+static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_statx(sqe, dirfd, path, flags, mask, (struct statx*)statxbuf);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
+              dirfd, path, flags, mask, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async mkdirat operation
+static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_mkdirat(sqe, dirfd, path, (mode_t)mode);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
+              dirfd, path, mode, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async unlinkat operation
+static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_unlinkat(sqe, dirfd, path, flags);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
+              dirfd, path, flags, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async renameat operation
+static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_renameat(sqe, olddirfd, oldpath, newdirfd, newpath, 0);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
+              olddirfd, oldpath, newdirfd, newpath, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async symlinkat operation
+static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_symlinkat(sqe, target, newdirfd, linkpath);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
+              target, newdirfd, linkpath, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async linkat operation (hard link)
+static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_linkat(sqe, olddirfd, oldpath, newdirfd, newpath, flags);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
+              olddirfd, oldpath, newdirfd, newpath, flags, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async fsync operation
+static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_fsync(sqe, fd, 0);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async fdatasync operation
+static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_fsync(sqe, fd, IORING_FSYNC_DATASYNC);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async ftruncate operation
+static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+
+#if defined(IORING_OP_FTRUNCATE)
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+
+  io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, 0, (uint64_t)length);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+
+  ASYNC_DEBUG("[IO] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
+              fd, (long long)length, __yo_pending_io_count);
+#else
+  int result = ftruncate(fd, (off_t)length);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+
+  ASYNC_DEBUG("[IO] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
+              fd, (long long)length, future->result);
+#endif
+  
+  return future;
+}
+
+// ============================================================================
+// Socket Operations (Linux io_uring)
+// ============================================================================
+
+// Async socket - create socket
+static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = socket(domain, type, protocol);
+  future->result = (result < 0) ? -errno : result;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
+              domain, type, protocol, future->result);
+  
+  return future;
+}
+
+// Async bind - bind socket to address
+static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = bind(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  
+  return future;
+}
+
+// Async listen - mark socket as listening
+static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = listen(sockfd, backlog);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
+  
+  return future;
+}
+
+// Async accept - accept incoming connection (using io_uring)
+static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Async connect - connect to remote address (using io_uring)
+static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Async send - send data on socket (using io_uring)
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_send(sqe, sockfd, buf, len, flags);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Async recv - receive data from socket (using io_uring)
+static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+  
+  io_uring_prep_recv(sqe, sockfd, buf, len, flags);
+  io_uring_sqe_set_data(sqe, future);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Async sendto - send data to specific address (UDP)
+static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
+                                                const void* dest_addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  // io_uring doesn't have direct sendto, use synchronous
+  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
+  future->result = (result < 0) ? -errno : (int32_t)result;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  
+  return future;
+}
+
+// Async recvfrom - receive data with source address (UDP)
+static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
+                                                  void* src_addr, uint32_t* addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  // io_uring doesn't have direct recvfrom, use synchronous
+  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
+  future->result = (result < 0) ? -errno : (int32_t)result;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  
+  return future;
+}
+
+// Async shutdown - shutdown socket
+static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = shutdown(sockfd, how);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
+  
+  return future;
+}
+
+// Async setsockopt - set socket option
+static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+                                                    const void* optval, uint32_t optlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+              sockfd, level, optname, future->result);
+  
+  return future;
+}
+
+// Async getsockopt - get socket option
+static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+                                                    void* optval, uint32_t* optlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  future->state = 0;
+  future->result = 0;
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
+  
+  int result = getsockopt(sockfd, level, optname, optval, (socklen_t*)optlen);
+  future->result = (result < 0) ? -errno : 0;
+  future->state = -1;
+  
+  ASYNC_DEBUG("[IO] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+              sockfd, level, optname, future->result);
+  
+  return future;
+}
+
+#else // !__YO_HAS_LIBURING
+
 #include <time.h>
 
 // Stub functions when liburing is not available
@@ -1552,210 +1593,7 @@ static inline void* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, i
   return NULL;
 }
 
-static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  socklen_t len = (socklen_t)(*addrlen);
-  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  socklen_t len = (socklen_t)(*addrlen);
-  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
-                                     const void* optval, uint32_t optlen) {
-  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
-                                     void* optval, uint32_t* optlen) {
-  socklen_t len = (socklen_t)(*optlen);
-  int result = getsockopt(sockfd, level, optname, optval, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *optlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
-  int result = socketpair(domain, sock_type, protocol, (int*)sv);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
-  struct timespec ts;
-  int result = clock_gettime((clockid_t)clock_id, &ts);
-  if (result < 0) {
-    return -errno;
-  }
-  *sec = (int64_t)ts.tv_sec;
-  *nsec = (int64_t)ts.tv_nsec;
-  return 0;
-}
-
-static int32_t __yo_sync_uname(void* buf) {
-  int result = uname((struct utsname*)buf);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_gethostname(char* name, size_t len) {
-  int result = gethostname(name, len);
-  if (result < 0) {
-    return -errno;
-  }
-  if (len > 0) {
-    name[len - 1] = '\0';
-  }
-  return 0;
-}
-
-static int32_t __yo_sync_umask(int32_t mask) {
-  mode_t prev = umask((mode_t)mask);
-  return (int32_t)prev;
-}
-
-static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
-  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
-  return -1;
-}
-
-static void __yo_file_close(int32_t fd) {
-  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
-}
-
-static int64_t __yo_file_size(int32_t fd) {
-  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
-  return -1;
-}
-
-// Sync operations work without liburing (pure POSIX calls)
-static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  int result = pipe((int*)pipefd);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_dup(int32_t oldfd) {
-  int result = dup(oldfd);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
-  int result = dup2(oldfd, newfd);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
-  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
-  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  struct iovec* vec = (struct iovec*)iov;
-  ssize_t total = 0;
-  off_t current = (off_t)offset;
-
-  for (int32_t i = 0; i < iovcnt; i++) {
-    if (vec[i].iov_len == 0) continue;
-    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
-    if (n < 0) {
-      return (total > 0) ? (int32_t)total : -errno;
-    }
-    total += n;
-    if ((size_t)n < vec[i].iov_len) {
-      break;
-    }
-    current += (off_t)n;
-  }
-
-  return (int32_t)total;
-}
-
-static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  struct iovec* vec = (struct iovec*)iov;
-  ssize_t total = 0;
-  off_t current = (off_t)offset;
-
-  for (int32_t i = 0; i < iovcnt; i++) {
-    if (vec[i].iov_len == 0) continue;
-    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
-    if (n < 0) {
-      return (total > 0) ? (int32_t)total : -errno;
-    }
-    total += n;
-    if ((size_t)n < vec[i].iov_len) {
-      break;
-    }
-    current += (off_t)n;
-  }
-
-  return (int32_t)total;
-}
-
-static size_t __yo_iovec_size(void) {
-  return sizeof(struct iovec);
-}
-
-static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
-  struct iovec* vec = (struct iovec*)iov;
-  vec[index].iov_base = base;
-  vec[index].iov_len = len;
-}
-
-static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
-  int result = posix_fadvise(fd, (off_t)offset, (off_t)len, advice);
-  return (result == 0) ? 0 : -result;
-}
-
-static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
-  int result = madvise((void*)addr, length, advice);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
-  int result = fchmod(fd, (mode_t)mode);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
-  int result = fchmodat(dirfd, path, (mode_t)mode, flags);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
-  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
-  int result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
-  ssize_t result = readlinkat(dirfd, path, buf, bufsize);
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-#endif // YO_HAS_LIBURING
-
-#endif // __linux__
+#endif // __YO_HAS_LIBURING
 
 `);
 }

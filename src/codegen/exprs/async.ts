@@ -1,4 +1,8 @@
-import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+  isIoSpawnCall,
+} from "../../evaluator/async/await-analysis";
 import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
   extractFutureTraitFromType,
@@ -32,9 +36,12 @@ import {
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
+  computeCrossBoundaryVariables,
+  computeOverlappingSlots,
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
+import type { OverlappingSlot } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getEvidenceParameters } from "../functions/declarations";
 import { getTypeString, getVariableTypeString } from "../utils";
@@ -107,7 +114,39 @@ export function generateAsyncBlock(
   }
 
   // Get the result type (T in Future(T))
-  const resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureModuleType.isFuture.outputType;
+
+  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // resolve it to a concrete type. The evaluator may set resolvedConcreteType
+  // on the SomeType when the body returns a concrete type, but the
+  // FutureTraitType's outputType may be a different SomeType instance.
+  // Walk several resolution paths to find the concrete type.
+  if (isSomeType(resultType)) {
+    if (resultType.resolvedConcreteType) {
+      resultType = resultType.resolvedConcreteType;
+    } else {
+      const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+      const closureFnValue = closureArg?.$?.closureFunctionValue;
+      if (closureFnValue && isFunctionValue(closureFnValue)) {
+        const fnRetType = closureFnValue.type?.return?.type;
+        if (
+          fnRetType &&
+          isSomeType(fnRetType) &&
+          fnRetType.resolvedConcreteType
+        ) {
+          resultType = fnRetType.resolvedConcreteType;
+        } else if (closureFnValue.body?.$?.type) {
+          const bodyType = closureFnValue.body.$.type;
+          if (isSomeType(bodyType) && bodyType.resolvedConcreteType) {
+            resultType = bodyType.resolvedConcreteType;
+          } else if (!isSomeType(bodyType)) {
+            resultType = bodyType;
+          }
+        }
+      }
+    }
+  }
+
   const resultTypeCName = getTypeString(resultType, context);
 
   const emitter = context.emitter;
@@ -318,6 +357,10 @@ function emitAsyncBlockStructDefinition(
     resultTypeCName: string;
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
+    crossBoundaryIds?: Set<string>;
+    awaitFutureTempVarAliases?: Map<string, string>;
+    overlappingSlotAliases?: Map<string, string>;
+    overlappingSlots?: OverlappingSlot[];
   },
   context: FunctionGenerationContext
 ): void {
@@ -329,6 +372,10 @@ function emitAsyncBlockStructDefinition(
     resultTypeCName,
     captureType,
     analysis,
+    crossBoundaryIds,
+    awaitFutureTempVarAliases,
+    overlappingSlotAliases,
+    overlappingSlots,
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
@@ -336,9 +383,9 @@ function emitAsyncBlockStructDefinition(
   );
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
 
-  // Reference counting header - must be first for yo_ref_header_t* casting
+  // Reference counting header - must be first for __yo_ref_header_t* casting
   emitter.emitDeclarationLine(
-    `  yo_ref_header_t header;  // Reference counting header (must be first)`
+    `  __yo_ref_header_t header;  // Reference counting header (must be first)`
   );
 
   emitter.emitDeclarationLine(
@@ -385,10 +432,21 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(``);
   }
 
-  // Local variables (exclude "outer" variables which are in the __capture struct)
-  const localVariables = analysis.capturedVariables.filter(
+  // Local variables — only those that cross await boundaries need struct fields.
+  // Segment-local variables (used in only one segment) will be C locals in their case block.
+  // Also exclude temp vars aliased to await_future_N fields (Phase 1b)
+  // and vars sharing overlapping storage slots (Phase 2).
+  let localVariables = analysis.capturedVariables.filter(
     (v) => v.kind !== "outer"
   );
+  if (crossBoundaryIds) {
+    localVariables = localVariables.filter(
+      (v) =>
+        crossBoundaryIds.has(v.id) &&
+        !awaitFutureTempVarAliases?.has(v.id) &&
+        !overlappingSlotAliases?.has(v.id)
+    );
+  }
   if (localVariables.length > 0) {
     emitter.emitDeclarationLine(`  // Local variables`);
     for (const variable of localVariables) {
@@ -401,9 +459,26 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(``);
   }
 
+  // Phase 2: Overlapping storage slots — variables of the same non-RC type
+  // with non-overlapping live ranges share a single struct field.
+  if (overlappingSlots && overlappingSlots.length > 0) {
+    emitter.emitDeclarationLine(`  // Overlapping storage slots (Phase 2)`);
+    for (const slot of overlappingSlots) {
+      emitter.emitDeclarationLine(
+        `  ${slot.cType} ${slot.fieldName};  // shared: ${slot.variableNames.join(", ")}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
   // Await result temporaries
+  // Phase 3 optimization: skip await_result_N for linear (non-cond) awaits.
+  // For linear awaits with a target variable, the result is assigned directly
+  // to sm->var_X. For linear awaits without a target, the result is unused.
+  // Cond awaits still need await_result_N because branch continuation code
+  // reads from it.
   if (analysis.awaitPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Await result temporaries`);
+    const awaitResultFields: string[] = [];
     for (const awaitPoint of analysis.awaitPoints) {
       // When the output type is an unresolved SomeType (e.g., forall(T) from
       // io.await evaluated with io=UnknownValue), treat it as unit since the
@@ -412,7 +487,12 @@ function emitAsyncBlockStructDefinition(
         isUnitType(awaitPoint.resultType) ||
         (isSomeType(awaitPoint.resultType) &&
           !awaitPoint.resultType.resolvedConcreteType);
-      if (!isEffectivelyUnit) {
+
+      // Skip await_result for linear awaits (non-cond)
+      const needsAwaitResultField =
+        !isEffectivelyUnit && awaitPoint.isInsideCond;
+
+      if (needsAwaitResultField) {
         // Determine the correct type for await_result_X:
         // For extern futures (e.g., io_uring), use the Future's result type directly
         // For async block futures, use awaitPoint.resultType (which matches the block's result)
@@ -429,12 +509,18 @@ function emitAsyncBlockStructDefinition(
         }
 
         const awaitResultTypeCName = getTypeString(awaitResultType, context);
-        emitter.emitDeclarationLine(
+        awaitResultFields.push(
           `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`
         );
       }
     }
-    emitter.emitDeclarationLine(``);
+    if (awaitResultFields.length > 0) {
+      emitter.emitDeclarationLine(`  // Await result temporaries`);
+      for (const field of awaitResultFields) {
+        emitter.emitDeclarationLine(field);
+      }
+      emitter.emitDeclarationLine(``);
+    }
   }
 
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
@@ -624,6 +710,16 @@ function emitDeferredAsyncBlockStructDefinitions(
       : blocks;
 
   for (const b of orderedBlocks) {
+    const { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments } =
+      computeCrossBoundaryVariables(b.bodyExpr, b.analysis);
+    const { slotAliases: overlappingSlotAliases, slots: overlappingSlots } =
+      computeOverlappingSlots(
+        crossBoundaryIds,
+        variableSegments,
+        b.analysis.capturedVariables,
+        awaitFutureTempVarAliases,
+        context
+      );
     emitAsyncBlockStructDefinition(
       {
         asyncBlockId: b.asyncBlockId,
@@ -632,6 +728,10 @@ function emitDeferredAsyncBlockStructDefinitions(
         resultTypeCName: b.resultTypeCName,
         captureType: b.captureType,
         analysis: b.analysis,
+        crossBoundaryIds,
+        awaitFutureTempVarAliases,
+        overlappingSlotAliases,
+        overlappingSlots,
       },
       context
     );
@@ -657,6 +757,8 @@ function generateAsyncBlockStateDisposeFunction(
   captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
   localVarDrops: string[],
+  crossBoundaryIds: Set<string>,
+  awaitFutureTempVarAliases: Map<string, string>,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -741,13 +843,17 @@ function generateAsyncBlockStateDisposeFunction(
 
   // Drop local variables when escape aborted the SM (state == -2).
   // In normal completion, local vars are dropped inline in the final state.
-  // On escape, we must drop ALL local variables from the analysis, not just
-  // body-scope ones, because inner-scope locals (e.g. while loop body vars)
-  // are SM fields that may hold allocated values.
+  // On escape, we must drop ALL cross-boundary local variables from the analysis
+  // (they have struct fields). Segment-local variables are C locals and are
+  // cleaned up inline by the segment's escape handling code.
   {
     const localDropLines: string[] = [];
     for (const v of analysis.capturedVariables) {
       if (v.kind !== "local") continue;
+      // Skip segment-local variables — they are not struct fields
+      if (!crossBoundaryIds.has(v.id)) continue;
+      // Skip temp future vars aliased to await_future_N — lifecycle managed by resume function
+      if (awaitFutureTempVarAliases.has(v.id)) continue;
       // Skip variables that are borrowing an RC value from another variable
       if (v.isOwningTheSameRcValueAs !== undefined) continue;
 
@@ -871,7 +977,7 @@ function generateAsyncBlockConstructor(
     `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`
   );
   emitter.emitLine(`  sm->header.gc_flags = 0;`);
-  emitter.emitLine(`  sm->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`  sm->header.gc_mark = __YO_GC_UNMARKED;`);
   emitter.emitLine(`  sm->header.gc_next = NULL;`);
   emitter.emitLine(`  sm->header.gc_prev = NULL;`);
   emitter.emitLine(
@@ -971,7 +1077,38 @@ export function generateDeferredAsyncBlocks(
       string,
       import("../../evaluator/async/await-analysis-types").CapturedVariable
     >();
-    for (const v of analysis.capturedVariables) {
+
+    // Compute cross-boundary variables so segment-local variables become C locals.
+    // Create a filtered analysis where capturedVariables excludes segment-locals.
+    // This ensures ALL internal map-building in the resume function generator
+    // (which iterates analysis.capturedVariables) automatically excludes them.
+    // Phase 1b: aliased temp future vars remain in capturedVariables (for deferred drops)
+    // but their struct fields are skipped — atom.ts redirects to await_future_N.
+    const { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments } =
+      computeCrossBoundaryVariables(bodyExpr, analysis);
+
+    // Phase 2: Compute overlapping storage slots for same-type non-RC variables.
+    const { slotAliases: overlappingSlotAliases } = computeOverlappingSlots(
+      crossBoundaryIds,
+      variableSegments,
+      analysis.capturedVariables,
+      awaitFutureTempVarAliases,
+      context
+    );
+
+    const filteredCapturedVariables = analysis.capturedVariables.filter(
+      (v) =>
+        v.kind === "outer" ||
+        crossBoundaryIds.has(v.id) ||
+        awaitFutureTempVarAliases.has(v.id) ||
+        overlappingSlotAliases.has(v.id)
+    );
+    const filteredAnalysis: AwaitAnalysisResult = {
+      ...analysis,
+      capturedVariables: filteredCapturedVariables,
+    };
+
+    for (const v of filteredCapturedVariables) {
       smVarMap.set(v.id, v);
     }
     if (captureType) {
@@ -986,13 +1123,21 @@ export function generateDeferredAsyncBlocks(
       }
     }
     context.stateMachineVariables = smVarMap;
+    // Phase 1b + Phase 2: Set field aliases so atom.ts redirects variable
+    // lookups to the corresponding aliased field (await_future_N or slot_N).
+    const savedFieldAliases = context.stateMachineFieldAliases;
+    const mergedAliases = new Map<string, string>(awaitFutureTempVarAliases);
+    for (const [varId, slotField] of overlappingSlotAliases) {
+      mergedAliases.set(varId, slotField);
+    }
+    context.stateMachineFieldAliases = mergedAliases;
 
     const localVarDrops = generateAsyncBlockResumeFunction(
       bodyExpr,
       asyncBlockId,
       structName,
       resumeFunctionName,
-      analysis,
+      filteredAnalysis,
       futureType,
       captureType,
       context
@@ -1001,6 +1146,7 @@ export function generateDeferredAsyncBlocks(
     // Restore context
     context.stateMachineVariables = savedSMVars;
     context.currentEvidenceParams = savedEvidenceParams;
+    context.stateMachineFieldAliases = savedFieldAliases;
 
     emitter.emitLine(``);
 
@@ -1011,8 +1157,10 @@ export function generateDeferredAsyncBlocks(
       disposeFunctionName,
       resultType,
       captureType,
-      analysis,
+      filteredAnalysis,
       localVarDrops,
+      crossBoundaryIds,
+      awaitFutureTempVarAliases,
       context
     );
 
@@ -1039,6 +1187,19 @@ export function generateDeferredAsyncBlocks(
     if (context.deferredAsyncBlocks.length > prevLength) {
       const newBlocks = context.deferredAsyncBlocks.slice(prevLength);
       for (const newBlock of newBlocks) {
+        const {
+          crossBoundaryIds: newCrossBoundaryIds,
+          awaitFutureTempVarAliases: newAliases,
+          variableSegments: newVarSegments,
+        } = computeCrossBoundaryVariables(newBlock.bodyExpr, newBlock.analysis);
+        const { slotAliases: newSlotAliases, slots: newSlots } =
+          computeOverlappingSlots(
+            newCrossBoundaryIds,
+            newVarSegments,
+            newBlock.analysis.capturedVariables,
+            newAliases,
+            context
+          );
         emitAsyncBlockStructDefinition(
           {
             asyncBlockId: newBlock.asyncBlockId,
@@ -1047,6 +1208,10 @@ export function generateDeferredAsyncBlocks(
             resultTypeCName: newBlock.resultTypeCName,
             captureType: newBlock.captureType,
             analysis: newBlock.analysis,
+            crossBoundaryIds: newCrossBoundaryIds,
+            awaitFutureTempVarAliases: newAliases,
+            overlappingSlotAliases: newSlotAliases,
+            overlappingSlots: newSlots,
           },
           context
         );
@@ -1074,6 +1239,20 @@ export function preRegisterAsyncBlockTypes(
   }
 }
 
+/** Prefixes of extern "yo" function names that require the async runtime. */
+const ASYNC_RUNTIME_EXTERN_PREFIXES = [
+  "__yo_poll_",
+  "__yo_fs_event_",
+  "__yo_async_",
+];
+
+/** Returns true if the given extern name is defined in the async runtime. */
+function isAsyncRuntimeExternName(name: string): boolean {
+  return ASYNC_RUNTIME_EXTERN_PREFIXES.some((prefix) =>
+    name.startsWith(prefix)
+  );
+}
+
 /**
  * Recursively search for async blocks in an expression and pre-register their types.
  */
@@ -1088,6 +1267,8 @@ function preRegisterAsyncBlocksInExpr(
 
     // Check if this is an async block
     if (isIoAsyncCall(expr)) {
+      // Mark that the program uses async — enables runtime emission
+      context.usesAsync = true;
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
@@ -1153,6 +1334,44 @@ function preRegisterAsyncBlocksInExpr(
       }
     }
 
+    // Check if this is an io.await or io.spawn call — both need the async runtime
+    // (io.await emits __yo_async_poll_step; io.spawn cold-starts a Future)
+    if (isIoAwaitCall(expr) || isIoSpawnCall(expr)) {
+      context.usesAsync = true;
+    }
+
+    // Check if this is an extern "yo" call to a function defined in the async runtime
+    // (e.g., __yo_poll_init, __yo_fs_event_init, __yo_async_*)
+    {
+      const calledType = funcCallExpr.func.$?.type;
+      if (
+        calledType &&
+        "isExtern" in calledType &&
+        calledType.isExtern === "yo" &&
+        "externName" in calledType &&
+        typeof calledType.externName === "string" &&
+        isAsyncRuntimeExternName(calledType.externName)
+      ) {
+        context.usesAsync = true;
+      }
+    }
+
+    // Check if this is a parallelism call (__yo_thread_spawn or __yo_worker_spawn)
+    {
+      const calledType = funcCallExpr.func.$?.type;
+      if (
+        calledType &&
+        "isExtern" in calledType &&
+        calledType.isExtern === "yo" &&
+        "externName" in calledType &&
+        typeof calledType.externName === "string" &&
+        (calledType.externName === "__yo_thread_spawn" ||
+          calledType.externName === "__yo_worker_spawn")
+      ) {
+        context.usesParallelism = true;
+      }
+    }
+
     // Recursively search in arguments
     for (const arg of funcCallExpr.args) {
       preRegisterAsyncBlocksInExpr(arg, context);
@@ -1182,7 +1401,36 @@ export function generateIoAsyncSyncCall(
     return `/* Error: Could not extract Future module type */`;
   }
 
-  const resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureModuleType.isFuture.outputType;
+
+  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // resolve it to a concrete type. Same resolution chain as the state machine path.
+  if (isSomeType(resultType)) {
+    if (resultType.resolvedConcreteType) {
+      resultType = resultType.resolvedConcreteType;
+    } else {
+      const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+      const closureFnValue = closureArg?.$?.closureFunctionValue;
+      if (closureFnValue && isFunctionValue(closureFnValue)) {
+        const fnRetType = closureFnValue.type?.return?.type;
+        if (
+          fnRetType &&
+          isSomeType(fnRetType) &&
+          fnRetType.resolvedConcreteType
+        ) {
+          resultType = fnRetType.resolvedConcreteType;
+        } else if (closureFnValue.body?.$?.type) {
+          const bodyType = closureFnValue.body.$.type;
+          if (isSomeType(bodyType) && bodyType.resolvedConcreteType) {
+            resultType = bodyType.resolvedConcreteType;
+          } else if (!isSomeType(bodyType)) {
+            resultType = bodyType;
+          }
+        }
+      }
+    }
+  }
+
   const resultTypeCName = getTypeString(resultType, context);
   const structName = expr.$?.asyncStateMachineStructName;
   if (!structName) {
@@ -1228,7 +1476,7 @@ export function generateIoAsyncSyncCall(
   // Emit struct definition — includes an embedded __capture field so the
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
-  emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+  emitter.emitDeclarationLine(`  __yo_ref_header_t header;`);
   emitter.emitDeclarationLine(`  int state;`);
   if (isUnitType(resultType)) {
     emitter.emitDeclarationLine(`  uint8_t result;`);
@@ -1272,12 +1520,14 @@ export function generateIoAsyncSyncCall(
   }
   // If an effect handler called escape(), the closure returned early.
   // Set state to -2 (aborted) instead of -1 (completed).
-  // Don't decrement refcount here — the await abort path handles the
-  // event loop reference decrement when it sees state == -2.
+  // Self-decrement the event loop reference (matching full SM behavior in
+  // emitAsyncFutureEscape). The synchronous await abort path does NOT
+  // decrement — all futures handle their own event loop ref cleanup.
   if (closureEvidenceArgs) {
     emitter.emitDeclarationLine(`  if (__yo_effect_escaped) {`);
     emitter.emitDeclarationLine(`    __yo_effect_escaped = 0;`);
     emitter.emitDeclarationLine(`    sm->state = -2;`);
+    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
     emitter.emitDeclarationLine(`    return;`);
     emitter.emitDeclarationLine(`  }`);
   }
@@ -1331,7 +1581,7 @@ export function generateIoAsyncSyncCall(
   emitter.emitLine(`${indent}memset(${resultVar}, 0, sizeof(${structName}));`);
   emitter.emitLine(`${indent}${resultVar}->header.ref_count = 1;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = __YO_GC_UNMARKED;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
   emitter.emitLine(

@@ -1,5 +1,5 @@
 open import "std/string";
-{ base64_encode, base64_decode, base64_encode_url, base64_decode_url } :: import "std/encoding/base64";
+open import "std/encoding/base64";
 { ArrayList } :: import "std/collections/array_list";
 { Error, AnyError, Exception } :: import "std/error";
 
@@ -138,4 +138,65 @@ test "base64 url roundtrip", {
   assert((decoded.get(usize(0)).unwrap() == u8(0xFB)), "url roundtrip byte 0");
   assert((decoded.get(usize(1)).unwrap() == u8(0xFF)), "url roundtrip byte 1");
   assert((decoded.get(usize(2)).unwrap() == u8(0xFE)), "url roundtrip byte 2");
+};
+
+// ===== String-level API Tests =====
+
+test "encode_string empty", {
+  result := base64_encode_string(String.new());
+  assert((result.as_str() == ""), "empty string should encode to empty");
+};
+
+test "encode_string f to Zg==", {
+  result := base64_encode_string(`f`);
+  assert((result.as_str() == "Zg=="), "f should encode to Zg==");
+};
+
+test "encode_string fo to Zm8=", {
+  result := base64_encode_string(`fo`);
+  assert((result.as_str() == "Zm8="), "fo should encode to Zm8=");
+};
+
+test "encode_string foo to Zm9v", {
+  result := base64_encode_string(`foo`);
+  assert((result.as_str() == "Zm9v"), "foo should encode to Zm9v");
+};
+
+test "encode_string foobar to Zm9vYmFy", {
+  result := base64_encode_string(`foobar`);
+  assert((result.as_str() == "Zm9vYmFy"), "foobar should encode to Zm9vYmFy");
+};
+
+test "encode_string Hello, World!", {
+  result := base64_encode_string(`Hello, World!`);
+  assert((result.as_str() == "SGVsbG8sIFdvcmxkIQ=="), "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
+};
+
+test "decode_string empty", {
+  result := base64_decode_string(String.new());
+  assert(result.is_ok(), "empty string should decode ok");
+  assert((result.unwrap().as_str() == ""), "empty string should decode to empty");
+};
+
+test "decode_string Zm9v to foo", {
+  result := base64_decode_string(`Zm9v`);
+  assert(result.is_ok(), "Zm9v should decode ok");
+  assert((result.unwrap().as_str() == "foo"), "Zm9v should decode to foo");
+};
+
+test "decode_string Hello World", {
+  result := base64_decode_string(`SGVsbG8sIFdvcmxkIQ==`);
+  assert(result.is_ok(), "should decode ok");
+  assert((result.unwrap().as_str() == "Hello, World!"), "should decode to Hello, World!");
+};
+
+test "decode_string with whitespace", {
+  result := base64_decode_string(`Zm9v YmFy`);
+  assert(result.is_ok(), "should decode ok with whitespace");
+  assert((result.unwrap().as_str() == "foobar"), "should decode to foobar ignoring whitespace");
+};
+
+test "decode_string invalid characters", {
+  result := base64_decode_string(`!!!!`);
+  assert(result.is_err(), "invalid characters should return error");
 };

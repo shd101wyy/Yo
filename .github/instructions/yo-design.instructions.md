@@ -99,7 +99,9 @@ This applies to all parameters and return types in comptime-only APIs:
 - `return expr` inside an effect handler **resumes** the continuation.
 - `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
-- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.  
+- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
+- **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
+- For the full design document with overhead analysis and implementation details, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 ## Future return types with effects
 
@@ -182,3 +184,13 @@ IntoIterator :: trait(
 - **`:` in impl** creates a TraitValue (provides all fields).
 - **`:=` in where clause** creates a specialized TraitType (constrains associated types only).
 - Always wrap `fn` types in parentheses inside trait field definitions: `next : (fn(...) -> T)`, not `next : fn(...) -> T`.
+
+## Comptime/runtime function specialization
+
+Yo does **not** support function overloading. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`). For operators, the `Call :: (runtime_fn, comptime_fn)` tuple pattern inside a module provides dispatch.
+
+Use separate `impl` blocks with `where(Self <: Comptime)` constraints for comptime method variants on generic types like `Option(T)` and `Result(T, E)`.
+
+**Duplicate method names across impl blocks are disallowed.** Defining `unwrap` in two separate impl blocks for the same type produces an error. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
+
+**Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.

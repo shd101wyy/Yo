@@ -1,4 +1,5 @@
 import { Emitter } from "../emitter";
+import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
@@ -91,12 +92,14 @@ export class CodeGeneratorC {
         "<stdlib.h>",
         "<stdio.h>",
         "<string.h>",
+        "<errno.h>",
         "<fcntl.h>", // For O_RDONLY, O_WRONLY, etc.
         // Note: <unistd.h> and <sys/stat.h> are platform-specific, added in emitCIncludes
       ]),
       debugGc: options.debugGc ?? false,
       debugParallelism: options.debugParallelism ?? false,
       debugAsyncAwait: options.debugAsyncAwait ?? false,
+      targetInfo: getCurrentTarget(),
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
       allocator: options.allocator ?? "mimalloc",
       isLibrary: options.isLibrary ?? false,
@@ -134,10 +137,10 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`
 // Future state enum - shared by all Future types
 typedef enum {
-  YO_FUTURE_RUNNING = 0,    // Task is in progress (queued or executing)
-  YO_FUTURE_COMPLETED = 1,  // Task completed successfully
-  YO_FUTURE_ERROR = 2       // Task failed with error
-} yo_future_state_t;
+  __YO_FUTURE_RUNNING = 0,    // Task is in progress (queued or executing)
+  __YO_FUTURE_COMPLETED = 1,  // Task completed successfully
+  __YO_FUTURE_ERROR = 2       // Task failed with error
+} __yo_future_state_t;
 `);
 
     // Second pass: Generate type declarations

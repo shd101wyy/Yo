@@ -143,6 +143,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - While implementing the evaluator or codegen, no shortcuts or simplifications!
 - Do not create new `.yo`, `.js`, or `.ts` files unless told to do so.
 - Never use TypeScript `any` type. Use explicit types or `unknown` with proper narrowing.
+- No inline `import(...)` type expressions in TypeScript. Always use top-level `import type { ... }` statements.
 - No TypeScript `index.ts` barrel files — they easily cause circular dependencies.
 - When asked to refactor, refactor everything. Don't miss any lines. Don't put placeholders or TODOs.
 - Never skip bugs discovered during implementation.

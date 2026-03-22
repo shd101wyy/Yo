@@ -109,6 +109,25 @@ $ sudo dnf install liburing-devel
 $ sudo pacman -S liburing
 ```
 
+## Standard Library
+
+Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/STD_LIBRARY_MODULES.md)**.
+
+Key modules include:
+
+| Module      | Import                                                       | Description                                                 |
+| ----------- | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| String      | `open import "std/string"`                                   | UTF-8 strings with parsing, search, transform               |
+| Collections | `"std/collections/array_list"`, `hash_map`, `hash_set`, etc. | ArrayList, HashMap, HashSet, BTreeMap, Deque, PriorityQueue |
+| File System | `open import "std/fs/file"`                                  | Async file I/O, directories, metadata                       |
+| Networking  | `open import "std/net/tcp"`                                  | TCP/UDP sockets, DNS resolution                             |
+| JSON        | `open import "std/encoding/json"`                            | Full JSON parser/stringifier                                |
+| TOML        | `"std/toml/toml"`                                            | TOML config file parser                                     |
+| HTTP        | `"std/http/http"`                                            | HTTP request builder, response parser                       |
+| Regex       | `open import "std/regex/regex"`                              | Regular expression engine                                   |
+| Crypto      | `open import "std/crypto/sha256"`                            | SHA-256, MD5, random                                        |
+| Formatting  | `open import "std/fmt"`                                      | `print`, `println` for any `ToString` type                  |
+
 ## Code examples
 
 Check the [./tests](./tests/) and [./std](./std/) folders for code examples.

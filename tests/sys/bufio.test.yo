@@ -213,7 +213,7 @@ test "BufReader read_line on empty file returns None", using(io : IO), {
   io.await(fs_dir.remove_file(fpath, using(io)));
 };
 
-test "BufReader read_all reads entire file", using(io : IO), {
+test "BufReader read_bytes reads entire file", using(io : IO), {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
@@ -228,11 +228,11 @@ test "BufReader read_all reads entire file", using(io : IO), {
   fd := f.fd();
   reader := BufReader.new(fd);
 
-  result := io.await(reader.read_all(using(io)));
+  result := io.await(reader.read_bytes(using(io)));
   match(result,
     .Ok(bytes) => {
       s := String.from_bytes(bytes);
-      printf("  read_all: %s\n", s.to_cstr().ptr().unwrap());
+      printf("  read_bytes: %s\n", s.to_cstr().ptr().unwrap());
       assert((s == `all data here`), "should read all data");
     },
     .Err(e) => assert(false, "should not error")

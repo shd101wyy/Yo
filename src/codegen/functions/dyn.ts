@@ -23,7 +23,7 @@ export function generateDynDupDrop(context: FunctionGenerationContext): void {
 
   for (const [, impl] of context.dynImpls) {
     const dynTypeCName =
-      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+      context.types[impl.dynType.id]?.cName || `__yo_dyn_${impl.dynType.id}`;
 
     if (generatedTypes.has(dynTypeCName)) {
       continue;
@@ -78,7 +78,7 @@ export function generateDynBoxFunctions(
     const concreteTypeCName =
       context.types[resolvedConcreteType.id]?.cName ||
       `unknown_${resolvedConcreteType.id}`;
-    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+    const boxTypeName = `__yo_dyn_box_${concreteTypeCName}`;
 
     if (generatedBoxFunctions.has(boxTypeName)) {
       continue;
@@ -89,14 +89,14 @@ export function generateDynBoxFunctions(
 
     // Generate box constructor
     emitter.emitLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
+      `static ${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
     );
     emitter.emitLine(
       `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
     );
     emitter.emitLine(`  box->header.ref_count = 1;`);
     emitter.emitLine(`  box->header.gc_flags = 0;`);
-    emitter.emitLine(`  box->header.gc_mark = YO_GC_UNMARKED;`);
+    emitter.emitLine(`  box->header.gc_mark = __YO_GC_UNMARKED;`);
     emitter.emitLine(`  box->header.gc_next = NULL;`);
     emitter.emitLine(`  box->header.gc_prev = NULL;`);
     emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
@@ -109,7 +109,7 @@ export function generateDynBoxFunctions(
     emitter.emitLine("");
 
     // Generate box dispose
-    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr) {`);
+    emitter.emitLine(`static void __yo_dispose_${boxTypeName}(void* ptr) {`);
     emitter.emitLine(`  ${boxTypeName}* box = (${boxTypeName}*)ptr;`);
 
     const concreteType =
@@ -172,7 +172,7 @@ export function generateDynWrapperFunctions(
 
       const callType = requiredModule.isFn.callType;
       const returnTypeStr = getTypeString(callType.return.type, context);
-      const wrapperName = `yo_wrap_${implKey}_call`;
+      const wrapperName = `__yo_wrap_${implKey}_call`;
 
       const params: string[] = ["void* self_ptr"];
       for (let i = 0; i < callType.parameters.length; i++) {
@@ -328,7 +328,7 @@ export function generateDynWrapperFunctions(
           continue;
         }
 
-        const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+        const wrapperName = `__yo_wrap_${implKey}_${field.label}`;
         const returnTypeStr = getTypeString(funcType.return.type, context);
         const params = ["void* self_ptr"];
         for (let j = 1; j < funcType.parameters.length; j++) {
@@ -423,7 +423,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const concreteTypeCName =
       context.types[resolvedConcreteType.id]?.cName ||
       `unknown_${resolvedConcreteType.id}`;
-    const typeIdName = `yo_typeid_${concreteTypeCName}`;
+    const typeIdName = `__yo_typeid_${concreteTypeCName}`;
     if (
       !generatedTypeIds.has(typeIdName) &&
       !context.typeIdStatics.has(resolvedConcreteType.id)
@@ -443,7 +443,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
 
   for (const [implKey, impl] of context.dynImpls) {
     const dynTypeCName =
-      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+      context.types[impl.dynType.id]?.cName || `__yo_dyn_${impl.dynType.id}`;
     const resolvedConcreteType2 =
       isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
         ? impl.concreteType.resolvedConcreteType
@@ -451,9 +451,9 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const concreteTypeCName =
       context.types[resolvedConcreteType2.id]?.cName ||
       `unknown_${resolvedConcreteType2.id}`;
-    const vtableName = `yo_vtable_${implKey}`;
+    const vtableName = `__yo_vtable_${implKey}`;
     const vtableTypeName = `${dynTypeCName}_vtable`;
-    const typeIdName = `yo_typeid_${concreteTypeCName}`;
+    const typeIdName = `__yo_typeid_${concreteTypeCName}`;
 
     emitter.emitDeclarationLine(
       `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map(({ traitType }) => traitType.typeName || "?").join(" + ")})`
@@ -475,7 +475,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
 
     for (const { traitType } of impl.dynType.requiredTraits) {
       if (isFnTraitType(traitType)) {
-        const wrapperName = `yo_wrap_${implKey}_call`;
+        const wrapperName = `__yo_wrap_${implKey}_call`;
         emitter.emitDeclarationLine(`  .call = ${wrapperName},`);
         processedMethods.add("call");
         continue;
@@ -500,7 +500,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
           if (functionType.parameters.length > 0) {
             const firstParam = functionType.parameters[0];
             if (firstParam && firstParam.label === "self") {
-              const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+              const wrapperName = `__yo_wrap_${implKey}_${field.label}`;
               emitter.emitDeclarationLine(
                 `  .${sanitizeForCIdentifier(field.label)} = ${wrapperName},`
               );

@@ -955,16 +955,24 @@ Got:      "${paramName}"`,
   if (
     isSomeType(functionType.return.type) &&
     !functionType.return.type.resolvedConcreteType &&
-    evaluatedBodyReturnType &&
-    !isSomeType(evaluatedBodyReturnType)
+    evaluatedBodyReturnType
   ) {
-    const runtimeType = convertComptimeTypeToRuntimeType({
-      type: evaluatedBodyReturnType,
-      expectedType: undefined,
-      expr: evaluatedBody,
-      env,
-    });
-    functionType.return.type.resolvedConcreteType = runtimeType;
+    // The body type might be concrete (e.g., i32) or a SomeType with resolvedConcreteType
+    // (e.g., when the last expression is a binary op whose result inherits the expected
+    // SomeType but has been resolved to a concrete type during evaluation).
+    let concreteBodyType = evaluatedBodyReturnType;
+    if (isSomeType(concreteBodyType) && concreteBodyType.resolvedConcreteType) {
+      concreteBodyType = concreteBodyType.resolvedConcreteType;
+    }
+    if (!isSomeType(concreteBodyType)) {
+      const runtimeType = convertComptimeTypeToRuntimeType({
+        type: concreteBodyType,
+        expectedType: undefined,
+        expr: evaluatedBody,
+        env,
+      });
+      functionType.return.type.resolvedConcreteType = runtimeType;
+    }
   }
 
   if (

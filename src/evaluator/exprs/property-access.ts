@@ -324,6 +324,31 @@ export function evaluatePropertyAccess({
         (_variant) => _variant.name === variantName
       );
       if (!variant) {
+        // Before throwing, check if the property is an impl'd method
+        // (same pattern used for struct types at the generic impl lookup below)
+        const genericMethods = findMethodsFromGenericImpls({
+          concreteType: typeValue.value,
+          methodName: variantName,
+          env,
+        });
+        if (genericMethods.length === 1) {
+          const method = genericMethods[0]!;
+          expr.$ = {
+            env,
+            type: method.type,
+            value: method.value,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+        if (genericMethods.length > 1) {
+          // Multiple matches — defer to function.ts for disambiguation
+          expr.$ = undefined;
+          return expr;
+        }
+
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Enum variant "${variantName}" not found in enum`,

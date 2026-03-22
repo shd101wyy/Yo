@@ -1,0 +1,172 @@
+open import "std/libc/stdio";
+open import "std/string";
+open import "std/fmt";
+{ Path } :: import "std/path";
+{ IOError } :: import "std/sys/errors";
+{ Error, AnyError, Exception } :: import "std/error";
+fs_file :: import "std/fs/file";
+{ File, OpenMode } :: import "std/fs/file";
+fs_dir :: import "std/fs/dir";
+{ temp_dir, path_join } :: import "../helper";
+
+// ============================================================================
+// is_file tests
+// ============================================================================
+
+test "is_file returns true for a regular file", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
+
+  io.await(fs_file.write_file(fpath, String.from("hello")));
+
+  r := io.await(fs_file.is_file(fpath, using(io)));
+  printf("  is_file = %d\n", cond(r => i32(1), true => i32(0)));
+  assert(r, "should be a file");
+
+  io.await(fs_dir.remove_file(fpath));
+};
+
+test "is_file returns false for a directory", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  dpath := Path.new(path_join(tmp, `yo_fs_conv_is_file_dir`));
+
+  io.await(fs_dir.create_dir(dpath));
+
+  r := io.await(fs_file.is_file(dpath, using(io)));
+  printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0)));
+  assert((!(r)), "directory should not be a file");
+
+  io.await(fs_dir.remove_dir(dpath));
+};
+
+test "is_file returns false for nonexistent path", using(io : IO), {
+  fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
+  r := io.await(fs_file.is_file(fpath, using(io)));
+  printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
+  assert((!(r)), "nonexistent path should return false");
+};
+
+// ============================================================================
+// is_dir tests
+// ============================================================================
+
+test "is_dir returns true for a directory", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  dpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir`));
+
+  io.await(fs_dir.create_dir(dpath));
+
+  r := io.await(fs_file.is_dir(dpath, using(io)));
+  printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0)));
+  assert(r, "should be a directory");
+
+  io.await(fs_dir.remove_dir(dpath));
+};
+
+test "is_dir returns false for a file", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
+
+  io.await(fs_file.write_file(fpath, String.from("test")));
+
+  r := io.await(fs_file.is_dir(fpath, using(io)));
+  printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0)));
+  assert((!(r)), "file should not be a directory");
+
+  io.await(fs_dir.remove_file(fpath));
+};
+
+test "is_dir returns false for nonexistent path", using(io : IO), {
+  dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
+  r := io.await(fs_file.is_dir(dpath, using(io)));
+  printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
+  assert((!(r)), "nonexistent path should return false");
+};
+
+// ============================================================================
+// canonical tests
+// ============================================================================
+
+test "canonical resolves a real path", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    println(`  unexpected error: ${err}`);
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_conv_canonical.txt`));
+
+  io.await(fs_file.write_file(fpath, String.from("canonical")));
+
+  resolved := io.await(fs_file.canonical(fpath));
+  resolved_str := resolved.to_string();
+  printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap());
+  assert(resolved.is_absolute(), "canonical path should be absolute");
+
+  io.await(fs_dir.remove_file(fpath));
+};
+
+test "canonical resolves dot-dot segments", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    println(`  unexpected error: ${err}`);
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
+  tmp := temp_dir();
+  dir_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir`));
+  sub_path := Path.new(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`));
+  file_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir/target.txt`));
+
+  io.await(fs_dir.create_dir(dir_path));
+  io.await(fs_dir.create_dir(sub_path));
+  io.await(fs_file.write_file(file_path, String.from("data")));
+
+  // Path with .. segment: dir/sub/../target.txt should resolve to dir/target.txt
+  dotdot_path := Path.new(path_join(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
+  resolved := io.await(fs_file.canonical(dotdot_path));
+  direct := io.await(fs_file.canonical(file_path));
+
+  resolved_str := resolved.to_string();
+  direct_str := direct.to_string();
+  printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap());
+  printf("  direct resolved  = %s\n", direct_str.to_cstr().ptr().unwrap());
+  assert((resolved_str == direct_str), "dot-dot path should resolve to same as direct");
+
+  io.await(fs_dir.remove_file(file_path));
+  io.await(fs_dir.remove_dir(sub_path));
+  io.await(fs_dir.remove_dir(dir_path));
+};
+
+test "canonical throws for nonexistent path", using(io : IO), {
+  fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
+
+  given(exn) := Exception(throw : ((err) -> {
+    printf("  got expected error\n");
+    escape ();
+  }));
+
+  io.await(fs_file.canonical(fpath));
+  assert(false, "should have thrown");
+};

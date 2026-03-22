@@ -235,6 +235,13 @@ export function generateAtom(
         // Check if this variable ID is in the state machine
         const capturedVar = functionContext.stateMachineVariables.get(varId);
         if (capturedVar) {
+          // Phase 1b: Check if this variable is aliased to an await_future_N field
+          const aliasedField =
+            functionContext.stateMachineFieldAliases?.get(varId);
+          if (aliasedField) {
+            foundInStateMachine = true;
+            return `sm->${aliasedField}`;
+          }
           // This is a state machine variable - access it through sm->
           // Use kind to determine field name:
           // - "outer": Use __capture.varName (sm->__capture.varName)
@@ -257,6 +264,13 @@ export function generateAtom(
         capturedVar,
       ] of functionContext.stateMachineVariables) {
         if (capturedVar.name === varName) {
+          // Phase 1b: Check alias before generating field name
+          const aliasedField =
+            functionContext.stateMachineFieldAliases?.get(varId);
+          if (aliasedField) {
+            foundInStateMachine = true;
+            return `sm->${aliasedField}`;
+          }
           const fieldName =
             capturedVar.kind === "outer"
               ? `__capture.${varName}`

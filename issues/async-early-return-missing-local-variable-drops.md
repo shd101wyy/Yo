@@ -75,12 +75,12 @@ These are the ArrayList and its buffer allocated but never freed when the async 
 
 ## Solution (IMPLEMENTED)
 
-### Fix 1: Zero-initialize `yo_io_future_t`
+### Fix 1: Zero-initialize `__yo_io_future_t`
 
 In `src/codegen/async/runtime.ts`, added `memset` to zero-initialize the future struct in both `__yo_async_read_start` and `__yo_async_write_start`:
 
 ```c
-memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
 ```
 
 This prevents segfaults when dropping a future that was allocated but not fully initialized.

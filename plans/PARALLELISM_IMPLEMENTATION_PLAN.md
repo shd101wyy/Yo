@@ -31,7 +31,7 @@ This document outlines the implementation plan for Yo's parallelism features bas
 ```c
 // Thread handle (value type, stack allocated)
 typedef struct __yo_thread_t {
-  YO_THREAD_TYPE handle;  // OS thread handle (pthread_t)
+  __YO_THREAD_TYPE handle;  // OS thread handle (pthread_t)
 } __yo_thread_t;
 
 // Thread callback type (function + closure)
@@ -81,7 +81,7 @@ Thread :: struct(
 ```c
 // Thread pool (global singleton)
 typedef struct __yo_thread_pool_t {
-  YO_THREAD_TYPE* threads;     // Array of OS threads
+  __YO_THREAD_TYPE* threads;     // Array of OS threads
   size_t num_threads;          // Number of threads (= CPU cores)
   __yo_task_queue_t* queues;   // Per-thread task queues
   _Atomic bool shutdown;       // Shutdown flag

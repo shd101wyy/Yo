@@ -923,6 +923,7 @@ export default class Parser {
     tokens: Token[];
     index: number;
   }): ParserReturn {
+    const originalIndex = index;
     const nextIndex = this.skipWhitespace(tokens, index);
     const hasWhitespaceForward = nextIndex !== index;
     const hasWhitespaceBackward =
@@ -949,8 +950,25 @@ export default class Parser {
     // Person.Person
     const primaryExprIsDotOperator =
       primaryExpr.tag === "Atom" && primaryExpr.token.type === TokenType.Dot;
+    // Allow method chaining across newlines:
+    //   Builder.new()
+    //     .add(1)
+    // In this case hasWhitespaceForward is true (the newline + indent), but the
+    // dot is at the start of a new line so we still want to treat it as member access.
+    const isDotAtLineStart =
+      token?.type === TokenType.Dot &&
+      hasWhitespaceForward &&
+      tokens[nextIndex + 1]?.type !== TokenType.Whitespace &&
+      // Ensure the whitespace actually contains a newline (not just spaces)
+      tokens
+        .slice(originalIndex, nextIndex)
+        .some(
+          (t) => t.type === TokenType.Whitespace && t.value.includes("\n")
+        ) &&
+      this.isOperatorAtLineStart(tokens.slice(originalIndex, nextIndex), 0);
     if (
       primaryExprIsDotOperator ||
+      isDotAtLineStart ||
       (token.type === TokenType.Dot &&
         !hasWhitespaceForward &&
         !hasWhitespaceBackward &&

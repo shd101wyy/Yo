@@ -15,6 +15,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue, FuncValueId } from "../../function-value";
+import type { TargetInfo } from "../../target";
 import type {
   ArcType,
   ArrayType,
@@ -195,6 +196,11 @@ export interface CodeGenContext {
    * Enable debug logging for async/await state machine operations
    */
   debugAsyncAwait: boolean;
+
+  /**
+   * Compilation target info (arch, os, abi)
+   */
+  targetInfo: TargetInfo;
 
   /**
    * Memory allocator to use: 'mimalloc' (default) or 'libc'
@@ -567,7 +573,7 @@ export function getTypeString(
       // For Impl(Future(...)), handle different cases:
       // 1. Impl(Concrete(extern_type), Future(T)) - use extern_type's C name
       // 2. Async blocks - use the registered SomeType's cName (state machine struct)
-      // 3. Fallback - use yo_io_future_t for unregistered extern futures
+      // 3. Fallback - use __yo_io_future_t for unregistered extern futures
       if (typeImplementsFuture(someType)) {
         // Check for Concrete(extern_type) - resolvedConcreteType will be an extern type
         if (someType.resolvedConcreteType?.isExtern) {
@@ -750,7 +756,7 @@ export function getTypeString(
       const childTypeCName = getTypeString(childType, context);
 
       // Create a clean type name without pointer symbols
-      // For Box(i32) which is yo_struct_id31868*, we want Iso_yo_struct_id31868
+      // For Box(i32) which is __yo_struct_id31868*, we want Iso___yo_struct_id31868
       const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
       const isoTypeName = `Iso_${sanitizeForCIdentifier(cleanChildTypeName)}`;
 

@@ -89,7 +89,7 @@ drop(ch)       → DOUBLE FREE     ← bug!
 ```c
 void __yo_user_main() {
   // ch created (Rc = 1)
-  yo_struct_*ch = Channel_new(20);
+  __yo_struct_*ch = Channel_new(20);
 
   // Capture 1 — NO __yo_incr_rc
   capture1 = { .ch = ch };

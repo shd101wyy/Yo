@@ -1,5 +1,6 @@
 import { BuiltinFunctions, type FnCallExpr } from "../../expr";
 import { isEnumType } from "../../types/guards";
+import { isTargetWindows } from "../../target";
 import {
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
@@ -106,14 +107,11 @@ export function generateYoInlineFunctionCall(
   // __yo_ms_sleep
   else if (BuiltinFunctions.__yo_ms_sleep.includes(functionName)) {
     // Cross-platform sleep - takes milliseconds
-    // Windows Sleep takes milliseconds, usleep takes microseconds
-    return `(
-#ifdef _WIN32
-Sleep(${args[0]!})
-#else
-usleep((${args[0]!}) * 1000)
-#endif
-)`;
+    if (isTargetWindows(context.targetInfo)) {
+      return `Sleep(${args[0]!})`;
+    } else {
+      return `usleep((${args[0]!}) * 1000)`;
+    }
   }
   // __yo_decr_rc
   else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {

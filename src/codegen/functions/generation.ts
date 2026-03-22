@@ -33,9 +33,11 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types/utils";
+import { isTargetWindows } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
+import { generateSysRuntime } from "../async/runtime-io-common";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -49,6 +51,7 @@ import {
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
   findReturnedAsyncBlock,
+  getEnumVariantCName,
   getTypeString,
   getVariableNameForCodegen,
   isComptimeFunction,
@@ -178,11 +181,30 @@ function findUserDisposeMethodForType(
 export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
 
-  // Generate async/await runtime first (defines yo_continuation_t used by worker threads)
-  generateAsyncRuntime(context.emitter, context.debugAsyncAwait);
+  // Always emit synchronous system helpers (stat, sync ops, signal, TTY).
+  // These have no async/IOFuture dependency.  All functions are `static`, so
+  // unused ones are dead-code-eliminated by the C compiler.
+  generateSysRuntime(context.emitter, context.targetInfo);
 
-  // Generate parallelism runtime (Worker, Channel for multi-threaded execution)
-  generateParallelismRuntime(context.emitter, context.debugParallelism);
+  // Generate async/await runtime only when the program uses async code.
+  // This avoids ~8K lines of C runtime overhead for non-async programs.
+  if (context.usesAsync) {
+    generateAsyncRuntime(
+      context.emitter,
+      context.targetInfo,
+      context.debugAsyncAwait
+    );
+  }
+
+  // Generate parallelism runtime only when the program uses threads/workers.
+  // This avoids ~450 lines of C thread pool code for single-threaded programs.
+  if (context.usesParallelism) {
+    generateParallelismRuntime(
+      context.emitter,
+      context.debugParallelism,
+      context.targetInfo
+    );
+  }
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -385,6 +407,17 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     const mainCallArgs = evidenceArgs ? `(${evidenceArgs})` : "()";
 
     // Sync main - call it directly and wait for any async tasks
+    const asyncInit = context.usesAsync
+      ? `
+  // Initialize async runtime
+  __yo_async_scheduler_init();`
+      : "";
+    const asyncWait = context.usesAsync
+      ? `
+  // Wait for all async tasks to complete
+  __yo_async_wait_all();`
+      : "";
+
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -392,17 +425,10 @@ int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
-  
-  // Initialize async runtime (in case async blocks are used)
-  __yo_async_scheduler_init();
-  
+  ${asyncInit}
   // Call sync main
   __yo_user_main${mainCallArgs};
-  
-  // Wait for all async tasks to complete
-  // This ensures any async blocks spawned in main finish before exit
-  __yo_async_wait_all();
-  
+  ${asyncWait}
   return 0;
 }
 `);
@@ -614,7 +640,13 @@ export function generateFunction(
         originalFunctionType
       );
 
-  emitter.emitLine(`${functionPrototype} {`);
+  // All functions are 'static' (internal linkage) except __yo_user_main and
+  // library exports, since everything compiles to a single C file.
+  const isExported =
+    cFunctionName === "__yo_user_main" ||
+    context.exportedFunctionLabels?.has(functionValue.funcId);
+  const linkagePrefix = isExported ? "" : "static ";
+  emitter.emitLine(`${linkagePrefix}${functionPrototype} {`);
 
   // Set current function name and type for recur support and async handling
   const previousFunctionName = context.currentFunctionName;
@@ -804,6 +836,14 @@ export function generateFunctionBody(
       if (findReturn) {
         break;
       }
+
+      // Stop generating code after an expression with control flow
+      // (e.g., a cond/match where all branches return). Expressions
+      // after such a point are dead code and may lack evaluator metadata.
+      if (hasAnyControlFlow(arg.$?.controlFlow)) {
+        findReturn = true;
+        break;
+      }
     }
 
     // Generate the last expression as a return statement
@@ -889,16 +929,16 @@ export function generateFunctionBody(
           /// emitter.emitLine(`${indent}_yo_future->header.ref_count = 1;`);
           /// emitter.emitLine(`${indent}_yo_future->header.gc_flags = 0;`);
           /// emitter.emitLine(
-          ///   `${indent}_yo_future->header.gc_mark = YO_GC_UNMARKED;`
+          ///   `${indent}_yo_future->header.gc_mark = __YO_GC_UNMARKED;`
           /// );
           /// emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
           /// emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
           /// emitter.emitLine(
-          ///   `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+          ///   `${indent}_yo_future->header.dispose_fn = __yo_future_dispose;`
           /// );
           /// emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
           /// emitter.emitLine(
-          ///   `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
+          ///   `${indent}atomic_store_explicit(&_yo_future->state, __YO_FUTURE_COMPLETED, memory_order_relaxed);`
           /// );
           /// emitter.emitLine(
           ///   `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
@@ -1109,15 +1149,26 @@ function generateAtomicGCRuntimeFunctions(
 
   // Generate simple non-atomic __yo_decr_rc and __yo_incr_rc functions
   emitter.emitLine(`// Non-atomic reference counting functions (thread-local)
-void __yo_decr_rc(void* ptr) {
+// Flag to prevent double RC decrements during GC collection.
+// When set, __yo_decr_rc skips all tracked objects because the GC
+// already accounts for their references via trial deletion.
+static _Thread_local int __yo_gc_collecting = 0;
+
+static void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
-  // Skip if this object is marked as garbage by the GC.
-  // During GC collection, dispose functions may call ___drop on children,
-  // but those children are also being collected by the GC.
-  // The GC is responsible for freeing garbage objects, not the RC system.
-  if ((header->gc_flags & YO_GC_TRACKED) && header->gc_mark == YO_GC_GARBAGE) {
+  // During GC collection, skip all tracked objects.
+  // The GC handles their lifecycle via trial deletion — decrementing here
+  // would double-count the reference removal. Non-tracked RC children are
+  // still decremented normally (they weren't trial-deleted).
+  if (__yo_gc_collecting && (header->gc_flags & __YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
+    return;
+  }
+  
+  // Also skip objects marked as garbage by the GC (legacy guard for safety).
+  if ((header->gc_flags & __YO_GC_TRACKED) && header->gc_mark == __YO_GC_GARBAGE) {
     GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
     return;
   }
@@ -1138,9 +1189,9 @@ void __yo_decr_rc(void* ptr) {
   }
 }
 
-void* __yo_incr_rc(void* ptr) {
+static void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
   GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
   return ptr;
@@ -1149,16 +1200,16 @@ void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (thread-safe)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
-void* __yo_incr_rc_atomic(void* ptr) {
+static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
   return ptr;
 }
 
-void __yo_decr_rc_atomic(void* ptr) {
+static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
   
   if (old_count == 1) {
@@ -1181,131 +1232,127 @@ void __yo_decr_rc_atomic(void* ptr) {
     `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
   );
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
-static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
-static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
-#if defined(_WIN32)
-static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;
-#endif
-static size_t yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
-static size_t yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
+${isTargetWindows(context.targetInfo) ? `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;` : `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`}
+static size_t __yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
+static size_t __yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
 
 // Thread cleanup infrastructure
-#if defined(_WIN32)
-// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
-static DWORD yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
-static volatile LONG yo_thread_cleanup_init_started = 0;
-static volatile LONG yo_thread_cleanup_init_done = 0;
+${
+  isTargetWindows(context.targetInfo)
+    ? `// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
+static DWORD __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+static volatile LONG __yo_thread_cleanup_init_started = 0;
+static volatile LONG __yo_thread_cleanup_init_done = 0;
 
-static void yo_init_thread_cleanup_key(void) {
+static void __yo_init_thread_cleanup_key(void) {
   // Simple once-only initialization using interlocked operations
-  if (InterlockedCompareExchange(&yo_thread_cleanup_init_started, 1, 0) == 0) {
-    yo_thread_cleanup_key = TlsAlloc();
-    InterlockedExchange(&yo_thread_cleanup_init_done, 1);
+  if (InterlockedCompareExchange(&__yo_thread_cleanup_init_started, 1, 0) == 0) {
+    __yo_thread_cleanup_key = TlsAlloc();
+    InterlockedExchange(&__yo_thread_cleanup_init_done, 1);
   } else {
     // Wait for initialization to complete
-    while (InterlockedCompareExchange(&yo_thread_cleanup_init_done, 1, 1) == 0) {
+    while (InterlockedCompareExchange(&__yo_thread_cleanup_init_done, 1, 1) == 0) {
       Sleep(0);
     }
   }
-}
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-static pthread_key_t yo_thread_cleanup_key = (pthread_key_t)(-1);
-static pthread_once_t yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
+}`
+    : `static pthread_key_t __yo_thread_cleanup_key = (pthread_key_t)(-1);
+static pthread_once_t __yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
 
-static void yo_pthread_cleanup(void* value) {
+static void __yo_pthread_cleanup(void* value) {
   if (value != NULL) {
     __yo_cleanup_thread_gc();
   }
 }
 
-static void yo_init_thread_cleanup_key(void) {
-  pthread_key_create(&yo_thread_cleanup_key, yo_pthread_cleanup);
+static void __yo_init_thread_cleanup_key(void) {
+  pthread_key_create(&__yo_thread_cleanup_key, __yo_pthread_cleanup);
+}`
 }
-#endif
 
 // Initialize thread-local GC state
-static void yo_init_thread_gc() {
-  if (yo_current_thread_gc != NULL) return;
+static void __yo_init_thread_gc() {
+  if (__yo_current_thread_gc != NULL) return;
 
-#if defined(_WIN32)
-  yo_init_thread_cleanup_key();
-  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
-    TlsSetValue(yo_thread_cleanup_key, (void*)1);
-  }
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  pthread_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
-  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
-    pthread_setspecific(yo_thread_cleanup_key, (void*)1);
-  }
-#endif
+${
+  isTargetWindows(context.targetInfo)
+    ? `  __yo_init_thread_cleanup_key();
+  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsSetValue(__yo_thread_cleanup_key, (void*)1);
+  }`
+    : `  pthread_once(&__yo_thread_cleanup_once, __yo_init_thread_cleanup_key);
+  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_setspecific(__yo_thread_cleanup_key, (void*)1);
+  }`
+}
   
-  yo_init_process_cleanup();
+  __yo_init_process_cleanup();
 
-  yo_current_thread_gc = (yo_thread_gc_state_t*)__yo_malloc(sizeof(yo_thread_gc_state_t));
-  yo_current_thread_gc->tracked_objects = NULL;
-  yo_current_thread_gc->tracked_count = 0;
-  yo_current_thread_gc->thread_id = yo_thread_self();
-  yo_current_thread_gc->alloc_count = 0;
+  __yo_current_thread_gc = (__yo_thread_gc_state_t*)__yo_malloc(sizeof(__yo_thread_gc_state_t));
+  __yo_current_thread_gc->tracked_objects = NULL;
+  __yo_current_thread_gc->tracked_count = 0;
+  __yo_current_thread_gc->thread_id = __yo_thread_self();
+  __yo_current_thread_gc->alloc_count = 0;
 
   // Add to global thread list (for cleanup coordination)
-  yo_mutex_lock(&yo_thread_list_mutex);
-  yo_current_thread_gc->next = yo_all_thread_gcs;
-  yo_current_thread_gc->prev = NULL;
-  if (yo_all_thread_gcs != NULL) {
-    yo_all_thread_gcs->prev = yo_current_thread_gc;
+  __yo_mutex_lock(&__yo_thread_list_mutex);
+  __yo_current_thread_gc->next = __yo_all_thread_gcs;
+  __yo_current_thread_gc->prev = NULL;
+  if (__yo_all_thread_gcs != NULL) {
+    __yo_all_thread_gcs->prev = __yo_current_thread_gc;
   }
-  yo_all_thread_gcs = yo_current_thread_gc;
-  yo_mutex_unlock(&yo_thread_list_mutex);
+  __yo_all_thread_gcs = __yo_current_thread_gc;
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
 }
 
 // Public function to initialize thread-local GC (for worker threads)
-void __yo_gc_init_thread() {
-  yo_init_thread_gc();
+static void __yo_gc_init_thread() {
+  __yo_init_thread_gc();
 }`);
 
   // Generate __yo_gc_register and __yo_gc_unregister functions
-  emitter.emitLine(`void __yo_gc_register(void* ptr) {
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  emitter.emitLine(`static void __yo_gc_register(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
-  if (yo_current_thread_gc == NULL) {
-    yo_init_thread_gc();
+  if (__yo_current_thread_gc == NULL) {
+    __yo_init_thread_gc();
   }
   
   GC_DEBUG("GC Register: ptr=%p\\n", ptr);
   
   // Check if already tracked
-  if (header->gc_flags & YO_GC_TRACKED) {
+  if (header->gc_flags & __YO_GC_TRACKED) {
     return;
   }
   
-  header->gc_flags |= YO_GC_TRACKED;
-  header->gc_mark = YO_GC_UNMARKED;
+  header->gc_flags |= __YO_GC_TRACKED;
+  header->gc_mark = __YO_GC_UNMARKED;
   
   // Add to thread-local tracking list
-  header->gc_next = yo_current_thread_gc->tracked_objects;
+  header->gc_next = __yo_current_thread_gc->tracked_objects;
   header->gc_prev = NULL;
-  if (yo_current_thread_gc->tracked_objects != NULL) {
-    yo_current_thread_gc->tracked_objects->gc_prev = header;
+  if (__yo_current_thread_gc->tracked_objects != NULL) {
+    __yo_current_thread_gc->tracked_objects->gc_prev = header;
   }
-  yo_current_thread_gc->tracked_objects = header;
-  yo_current_thread_gc->tracked_count++;
+  __yo_current_thread_gc->tracked_objects = header;
+  __yo_current_thread_gc->tracked_count++;
   
-  // Check if we should trigger GC
-  if (yo_current_thread_gc->tracked_count >= yo_gc_collect_threshold) {
+  // Check if we should trigger GC (skip during active collection to prevent re-entrance)
+  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_collect_threshold) {
     __yo_gc_collect();
   }
 }
 
-void __yo_gc_unregister(void* ptr) {
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+static void __yo_gc_unregister(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
-  if (yo_current_thread_gc == NULL) {
+  if (__yo_current_thread_gc == NULL) {
     return;
   }
   
-  if (!(header->gc_flags & YO_GC_TRACKED)) {
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
     return;
   }
   
@@ -1313,26 +1360,26 @@ void __yo_gc_unregister(void* ptr) {
   if (header->gc_prev != NULL) {
     header->gc_prev->gc_next = header->gc_next;
   } else {
-    yo_current_thread_gc->tracked_objects = header->gc_next;
+    __yo_current_thread_gc->tracked_objects = header->gc_next;
   }
   
   if (header->gc_next != NULL) {
     header->gc_next->gc_prev = header->gc_prev;
   }
 
-  yo_current_thread_gc->tracked_count--;
-  header->gc_flags &= ~YO_GC_TRACKED;
+  __yo_current_thread_gc->tracked_count--;
+  header->gc_flags &= ~__YO_GC_TRACKED;
 }`);
 
   // Generate QuickJS-style trial deletion cycle collection
   emitter.emitLine(`// QuickJS-style trial deletion for cycle collection
 // Phase 1: Trial deletion - decrement ref counts for internal references
-static void yo_gc_trial_delete_visitor(void* ptr) {
+static void __yo_gc_trial_delete_visitor(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   // Only process tracked objects
-  if (!(header->gc_flags & YO_GC_TRACKED)) return;
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
   
   // Trial decrement
   if (header->ref_count > 0) {
@@ -1341,72 +1388,97 @@ static void yo_gc_trial_delete_visitor(void* ptr) {
   }
 }
 
-// Phase 2: Restore ref counts for live objects
-static void yo_gc_restore_visitor(void* ptr) {
+// Phase 3: Recursive scan/restore visitor.
+// Restores trial-deleted ref counts and propagates liveness from live roots
+// to all reachable objects. Objects promoted from GARBAGE to live (UNMARKED)
+// have their children recursively scanned.
+static void __yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
-  // Only restore for objects that were trial-deleted
-  if (header->gc_mark == YO_GC_LIVE) {
-    header->ref_count++;
-    GC_DEBUG("Restore: ptr=%p, ref_count->%zu\\n", ptr, header->ref_count);
+  // Skip non-tracked objects (their RC was never trial-deleted)
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
+  
+  // Restore the trial-deleted reference
+  header->ref_count++;
+  GC_DEBUG("ScanRestore: ptr=%p, ref_count->%zu, mark=%d\\n", ptr, header->ref_count, header->gc_mark);
+  
+  if (header->gc_mark == __YO_GC_GARBAGE) {
+    // This object was tentatively marked garbage but is reachable from a live root.
+    // Promote to live (mark UNMARKED = "scanned") and recursively scan children.
+    header->gc_mark = __YO_GC_UNMARKED;
+    if (header->traverse_fn) {
+      header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
+    }
   }
+  // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
 }
 
-void __yo_gc_collect() {
-  if (yo_current_thread_gc == NULL) return;
+static void __yo_gc_collect() {
+  if (__yo_current_thread_gc == NULL) return;
   
-  yo_ref_header_t* head = yo_current_thread_gc->tracked_objects;
+  __yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
   if (head == NULL) return;
   
-  GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", yo_current_thread_gc->tracked_count);
+  GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", __yo_current_thread_gc->tracked_count);
   
+  __yo_gc_collecting = 1;
   size_t collected = 0;
   
   // Phase 1: Mark all as candidates and trial-delete
-  yo_ref_header_t* obj = head;
+  __yo_ref_header_t* obj = head;
   while (obj != NULL) {
-    obj->gc_mark = YO_GC_CANDIDATE;
+    obj->gc_mark = __YO_GC_CANDIDATE;
     obj = obj->gc_next;
   }
   
-  // Trial deletion: decrement RC for all internal references
+  // Trial deletion: decrement RC for all internal (tracked→tracked) references
   obj = head;
   while (obj != NULL) {
     if (obj->traverse_fn) {
-      obj->traverse_fn(obj, yo_gc_trial_delete_visitor);
+      obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
     }
     obj = obj->gc_next;
   }
   
-  // Phase 2: Identify garbage (RC == 0) and live objects (RC > 0)
+  // Phase 2: Classify objects — RC > 0 means external references exist (live root),
+  // RC == 0 means only internal references (tentative garbage)
   obj = head;
   while (obj != NULL) {
     if (obj->ref_count == 0) {
-      obj->gc_mark = YO_GC_GARBAGE;
+      obj->gc_mark = __YO_GC_GARBAGE;
       GC_DEBUG("GC: Marked as garbage: ptr=%p\\n", obj);
     } else {
-      obj->gc_mark = YO_GC_LIVE;
-      GC_DEBUG("GC: Marked as live: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
+      obj->gc_mark = __YO_GC_LIVE;
+      GC_DEBUG("GC: Marked as live root: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
     }
     obj = obj->gc_next;
   }
   
-  // Phase 3: Restore ref counts for live objects
+  // Phase 3: Scan from live roots — restore ref counts and propagate liveness.
+  // Live roots (__YO_GC_LIVE) are scanned; their reachable GARBAGE children are
+  // promoted to UNMARKED (live+scanned). After this phase, only truly unreachable
+  // objects remain marked __YO_GC_GARBAGE.
   obj = head;
   while (obj != NULL) {
-    if (obj->gc_mark == YO_GC_LIVE && obj->traverse_fn) {
-      obj->traverse_fn(obj, yo_gc_restore_visitor);
+    if (obj->gc_mark == __YO_GC_LIVE) {
+      // Mark this root as scanned so the loop doesn't re-process it
+      // if the list order changes (defensive) and to distinguish from promoted objects
+      obj->gc_mark = __YO_GC_UNMARKED;
+      if (obj->traverse_fn) {
+        obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
+      }
     }
     obj = obj->gc_next;
   }
   
-  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid)
-  // This must happen before freeing any objects, because dispose functions may try
-  // to access other garbage objects (e.g., to check gc_mark in __yo_decr_rc).
+  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid).
+  // __yo_gc_collecting flag ensures __yo_decr_rc skips tracked objects, preventing
+  // double RC decrements (trial deletion already accounted for those references).
+  // Non-tracked RC children are still properly released by dispose.
   obj = head;
   while (obj != NULL) {
-    if (obj->gc_mark == YO_GC_GARBAGE && obj->dispose_fn) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) {
       GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
       obj->dispose_fn(obj);
     }
@@ -1414,18 +1486,18 @@ void __yo_gc_collect() {
   }
   
   // Phase 4b: Free all garbage objects and remove from tracking list
-  yo_ref_header_t* current = head;
-  yo_ref_header_t* prev = NULL;
+  __yo_ref_header_t* current = head;
+  __yo_ref_header_t* prev = NULL;
   
   while (current != NULL) {
-    yo_ref_header_t* next = current->gc_next;
+    __yo_ref_header_t* next = current->gc_next;
     
-    if (current->gc_mark == YO_GC_GARBAGE) {
+    if (current->gc_mark == __YO_GC_GARBAGE) {
       GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
       
       // Remove from tracking list
       if (prev == NULL) {
-        yo_current_thread_gc->tracked_objects = next;
+        __yo_current_thread_gc->tracked_objects = next;
       } else {
         prev->gc_next = next;
       }
@@ -1433,7 +1505,7 @@ void __yo_gc_collect() {
         next->gc_prev = prev;
       }
       
-      yo_current_thread_gc->tracked_count--;
+      __yo_current_thread_gc->tracked_count--;
       collected++;
       
       // Free the object (dispose was already called in Phase 4a)
@@ -1442,45 +1514,47 @@ void __yo_gc_collect() {
       current = next;
     } else {
       // Reset mark for next collection
-      current->gc_mark = YO_GC_UNMARKED;
+      current->gc_mark = __YO_GC_UNMARKED;
       prev = current;
       current = next;
     }
   }
   
-  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
-  size_t new_threshold = yo_current_thread_gc->tracked_count * 2;
-  if (new_threshold < yo_gc_min_threshold) {
-    new_threshold = yo_gc_min_threshold;
-  }
-  yo_gc_collect_threshold = new_threshold;
+  __yo_gc_collecting = 0;
   
-  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, yo_current_thread_gc->tracked_count, yo_gc_collect_threshold);
+  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
+  size_t new_threshold = __yo_current_thread_gc->tracked_count * 2;
+  if (new_threshold < __yo_gc_min_threshold) {
+    new_threshold = __yo_gc_min_threshold;
+  }
+  __yo_gc_collect_threshold = new_threshold;
+  
+  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, __yo_current_thread_gc->tracked_count, __yo_gc_collect_threshold);
 }
 
-size_t __yo_gc_tracked_count() {
-  if (yo_current_thread_gc == NULL) return 0;
-  return yo_current_thread_gc->tracked_count;
+static size_t __yo_gc_tracked_count() {
+  if (__yo_current_thread_gc == NULL) return 0;
+  return __yo_current_thread_gc->tracked_count;
 }`);
 
   // Generate thread cleanup function
   emitter.emitLine(`// Clean up thread-local GC state
-void __yo_cleanup_thread_gc() {
-  yo_mutex_lock(&yo_thread_list_mutex);
+static void __yo_cleanup_thread_gc() {
+  __yo_mutex_lock(&__yo_thread_list_mutex);
   
-  yo_thread_gc_state_t* my_gc_state = yo_current_thread_gc;
+  __yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
   
   if (my_gc_state == NULL) {
-    yo_mutex_unlock(&yo_thread_list_mutex);
+    __yo_mutex_unlock(&__yo_thread_list_mutex);
     return;
   }
   
   GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
   
   // Force dispose all remaining tracked objects
-  yo_ref_header_t* current = my_gc_state->tracked_objects;
+  __yo_ref_header_t* current = my_gc_state->tracked_objects;
   while (current != NULL) {
-    yo_ref_header_t* next = current->gc_next;
+    __yo_ref_header_t* next = current->gc_next;
     
     GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
     if (current->dispose_fn) {
@@ -1495,59 +1569,59 @@ void __yo_cleanup_thread_gc() {
   if (my_gc_state->prev != NULL) {
     my_gc_state->prev->next = my_gc_state->next;
   } else {
-    yo_all_thread_gcs = my_gc_state->next;
+    __yo_all_thread_gcs = my_gc_state->next;
   }
   
   if (my_gc_state->next != NULL) {
     my_gc_state->next->prev = my_gc_state->prev;
   }
   
-  yo_mutex_unlock(&yo_thread_list_mutex);
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
   
   __yo_free(my_gc_state);
-  yo_current_thread_gc = NULL;
+  __yo_current_thread_gc = NULL;
 }
 
 // Process cleanup
-static void yo_process_cleanup(void) {
+static void __yo_process_cleanup(void) {
   GC_DEBUG("ProcessCleanup: Called\\n");
   
-  if (yo_current_thread_gc != NULL) {
+  if (__yo_current_thread_gc != NULL) {
     __yo_gc_collect();
     __yo_cleanup_thread_gc();
   }
   
-#if defined(_WIN32)
-  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
-    TlsFree(yo_thread_cleanup_key);
-    yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
-  }
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
-    pthread_key_delete(yo_thread_cleanup_key);
-  }
-#endif
+${
+  isTargetWindows(context.targetInfo)
+    ? `  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsFree(__yo_thread_cleanup_key);
+    __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+  }`
+    : `  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_key_delete(__yo_thread_cleanup_key);
+  }`
+}
 }
 
-#if defined(_WIN32)
-static INIT_ONCE yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
-static BOOL CALLBACK yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+${
+  isTargetWindows(context.targetInfo)
+    ? `static INIT_ONCE __yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK __yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
   (void)InitOnce; (void)Parameter; (void)Context;
-  InitializeCriticalSection(&yo_thread_list_mutex);
-  atexit(yo_process_cleanup);
+  InitializeCriticalSection(&__yo_thread_list_mutex);
+  atexit(__yo_process_cleanup);
   return TRUE;
 }
-#endif
 
-static void yo_init_process_cleanup(void) {
-#if defined(_WIN32)
-  InitOnceExecuteOnce(&yo_process_cleanup_once, yo_process_cleanup_init_callback, NULL, NULL);
-#else
+static void __yo_init_process_cleanup(void) {
+  InitOnceExecuteOnce(&__yo_process_cleanup_once, __yo_process_cleanup_init_callback, NULL, NULL);
+}`
+    : `static void __yo_init_process_cleanup(void) {
   static bool cleanup_initialized = false;
   if (cleanup_initialized) return;
   cleanup_initialized = true;
-  atexit(yo_process_cleanup);
-#endif
+  atexit(__yo_process_cleanup);
+}`
 }`);
 }
 
@@ -1574,7 +1648,7 @@ function generateRefStructTraversalFunctions(
       // Generate traversal function for this struct type
       const traversalFunctionName = `__yo_traverse_${cName}`;
       emitter.emitLine(
-        `void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
+        `static void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
 
@@ -1608,14 +1682,20 @@ function generateRefStructTraversalFunctions(
             for (const variant of enumType.variants || []) {
               // Check if any of the variant's fields contain references
               if (variant.fields && variant.fields.length > 0) {
-                for (const variantField of variant.fields) {
-                  if (
-                    isStructType(variantField.type) &&
-                    variantField.type.isReferenceSemantics
-                  ) {
-                    // This variant contains a reference
-                    const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
-                    emitter.emitLine(`  case ${enumConstantName}:`);
+                const rcFields = variant.fields.filter(
+                  (f) => isStructType(f.type) && f.type.isReferenceSemantics
+                );
+
+                if (rcFields.length > 0) {
+                  const enumConstantName = getEnumVariantCName(
+                    enumType,
+                    variant.name,
+                    context
+                  );
+                  emitter.emitLine(`  case ${enumConstantName}:`);
+
+                  // Visit ALL reference-counted fields in this variant
+                  for (const variantField of rcFields) {
                     emitter.emitLine(
                       `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
                     );
@@ -1623,9 +1703,9 @@ function generateRefStructTraversalFunctions(
                       `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
                     );
                     emitter.emitLine(`    }`);
-                    emitter.emitLine(`    break;`);
-                    break; // Only generate one case per variant
                   }
+
+                  emitter.emitLine(`    break;`);
                 }
               }
             }
@@ -1674,7 +1754,7 @@ export function generateRefStructConstructorFunctions(
         })
         .join(", ");
 
-      emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
+      emitter.emitLine(`static ${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
@@ -1683,7 +1763,7 @@ export function generateRefStructConstructorFunctions(
         `  obj->header.ref_count = 1;  // Start with one reference`
       );
       emitter.emitLine(`  obj->header.gc_flags = 0;`);
-      emitter.emitLine(`  obj->header.gc_mark = YO_GC_UNMARKED;`);
+      emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
       emitter.emitLine(`  obj->header.gc_prev = NULL;`);
 
@@ -1776,7 +1856,7 @@ export function generateClosureDisposeFunctions(
   for (const [closureInstanceId] of context.closureCaptureMap) {
     const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
     emitter.emitDeclarationLine(
-      `void ${disposeFunctionName}(void* closure_ptr);`
+      `static void ${disposeFunctionName}(void* closure_ptr);`
     );
   }
 
@@ -1814,7 +1894,7 @@ export function generateClosureDisposeFunctions(
     // This function receives the CLOSURE pointer (not capture pointer),
     // extracts the capture data, and calls drop (no free needed for stack-allocated capture)
     emitter.emitLine(
-      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
+      `static void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
     );
     emitter.emitLine(`  if (closure_ptr) {`);
     emitter.emitLine(

@@ -44,14 +44,14 @@ The compiler generated unnecessary dup/drop pairs:
 ```c
 if (condition) {
   // Early return branch
-  yo_struct* temp = fn___dup(segments);        // Unnecessary dup
-  yo_struct* result = __yo_new(..., temp);
+  __yo_struct* temp = fn___dup(segments);        // Unnecessary dup
+  __yo_struct* result = __yo_new(..., temp);
   fn___drop(segments);                          // Unnecessary drop
   return result;
 }
 // Normal return
-yo_struct* temp = fn___dup(segments);          // Unnecessary dup
-yo_struct* result = __yo_new(..., temp);
+__yo_struct* temp = fn___dup(segments);          // Unnecessary dup
+__yo_struct* result = __yo_new(..., temp);
 fn___drop(segments);                            // Unnecessary drop
 return result;
 ```
@@ -194,10 +194,10 @@ After fix, generated C shows `segments` passed directly without dup/drop:
 
 ```c
 if (condition) {
-  yo_struct* result = __yo_new_...(segments);
+  __yo_struct* result = __yo_new_...(segments);
   return result;
 }
 // ...
-yo_struct* result = __yo_new_...(segments);
+__yo_struct* result = __yo_new_...(segments);
 return result;
 ```

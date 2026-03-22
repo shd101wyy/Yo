@@ -478,9 +478,9 @@ impl(String,
   ),
 
   /**
-   * Check if the string contains a substring (like JavaScript includes)
+   * Check if the string contains a substring
    */
-  includes : (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> bool)(
+  contains : (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> bool)(
     match(self.index_of(substr, from_index),
       .Some(_) => true,
       .None => false
@@ -1070,7 +1070,7 @@ impl(String,
    * Convert ASCII lowercase letters to uppercase (like JavaScript toUpperCase)
    * Note: Only handles ASCII a-z, not full Unicode case mapping
    */
-  to_upper_case : (fn(self: Self) -> Self)({
+  to_uppercase : (fn(self: Self) -> Self)({
     new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
     
     i := usize(0);
@@ -1098,7 +1098,7 @@ impl(String,
    * Convert ASCII uppercase letters to lowercase (like JavaScript toLowerCase)
    * Note: Only handles ASCII A-Z, not full Unicode case mapping
    */
-  to_lower_case : (fn(self: Self) -> Self)({
+  to_lowercase : (fn(self: Self) -> Self)({
     new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
     
     i := usize(0);
@@ -1356,6 +1356,27 @@ impl(String, Eq(String)(
   })
 ));
 
+impl(String, Hash(
+  (hash): (fn(self: *(Self)) -> u64)({
+    // FNV-1a hash over the bytes
+    h := u64(14695981039346656037);
+    i := usize(0);
+    len := self.*._bytes.len();
+    while ((i < len)),
+          (i = (i + usize(1))),
+    {
+      match(self.*._bytes.get(i),
+        .Some(b) => {
+          h = (h ^ u64(b));
+          h = (h * u64(1099511628211));
+        },
+        .None => ()
+      );
+    };
+    h
+  })
+));
+
 // === Iterator support ===
 
 /**
@@ -1439,6 +1460,379 @@ impl(String,
   into_iter : (fn(self : Self) -> StringChars)(
     StringChars(_string: self, _byte_index: usize(0))
   )
+);
+
+// === Numeric parsing methods ===
+
+impl(String,
+  /**
+   * Helper: check if a byte is an ASCII digit '0'-'9'
+   */
+  _is_digit_byte : (fn(byte: u8) -> bool)(
+    ((byte >= u8(48)) && (byte <= u8(57)))
+  ),
+
+  /**
+   * Parse the string as a signed 32-bit integer.
+   * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow).
+   */
+  parse_i32 : (fn(self: Self) -> Option(i32))({
+    total_bytes := self._bytes.len();
+    cond(
+      (total_bytes == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    idx := usize(0);
+
+    // Check for sign
+    is_negative := false;
+    first_byte_opt := self._bytes.get(usize(0));
+    match(first_byte_opt,
+      .Some(first_byte) => {
+        cond(
+          (first_byte == u8(45)) => {
+            is_negative = true;
+            idx = usize(1);
+          },
+          (first_byte == u8(43)) => {
+            idx = usize(1);
+          },
+          true => ()
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+
+    // Must have at least one digit after sign
+    cond(
+      (idx >= total_bytes) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    result := i64(0);
+    has_digit := false;
+
+    while ((idx < total_bytes)),
+          (idx = (idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(idx);
+      match(byte_opt,
+        .Some(byte) => {
+          cond(
+            Self._is_digit_byte(byte) => {
+              digit := i64((byte - u8(48)));
+              result = ((result * i64(10)) + digit);
+              has_digit = true;
+            },
+            true => {
+              return .None;
+            }
+          );
+        },
+        .None => {
+          return .None;
+        }
+      );
+    };
+
+    cond(
+      (!(has_digit)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    final_val := cond(
+      is_negative => (i64(0) - result),
+      true => result
+    );
+
+    // Check i32 range: -2147483648 to 2147483647
+    cond(
+      ((final_val < i64(-2147483648)) || (final_val > i64(2147483647))) => .None,
+      true => .Some(i32(final_val))
+    )
+  }),
+
+  /**
+   * Parse the string as a signed 64-bit integer.
+   * Returns .Some(value) on success, .None on failure.
+   * Note: does not detect i64 overflow during accumulation.
+   */
+  parse_i64 : (fn(self: Self) -> Option(i64))({
+    total_bytes := self._bytes.len();
+    cond(
+      (total_bytes == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    idx := usize(0);
+
+    is_negative := false;
+    first_byte_opt := self._bytes.get(usize(0));
+    match(first_byte_opt,
+      .Some(first_byte) => {
+        cond(
+          (first_byte == u8(45)) => {
+            is_negative = true;
+            idx = usize(1);
+          },
+          (first_byte == u8(43)) => {
+            idx = usize(1);
+          },
+          true => ()
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+
+    cond(
+      (idx >= total_bytes) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    result := i64(0);
+    has_digit := false;
+
+    while ((idx < total_bytes)),
+          (idx = (idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(idx);
+      match(byte_opt,
+        .Some(byte) => {
+          cond(
+            Self._is_digit_byte(byte) => {
+              digit := i64((byte - u8(48)));
+              result = ((result * i64(10)) + digit);
+              has_digit = true;
+            },
+            true => {
+              return .None;
+            }
+          );
+        },
+        .None => {
+          return .None;
+        }
+      );
+    };
+
+    cond(
+      (!(has_digit)) => .None,
+      true => {
+        final_val := cond(
+          is_negative => (i64(0) - result),
+          true => result
+        );
+        return .Some(final_val);
+      }
+    )
+  }),
+
+  /**
+   * Parse the string as an unsigned 32-bit integer.
+   * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow, negative sign).
+   */
+  parse_u32 : (fn(self: Self) -> Option(u32))({
+    total_bytes := self._bytes.len();
+    cond(
+      (total_bytes == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    idx := usize(0);
+
+    // Optional '+' sign, but '-' is invalid for unsigned
+    first_byte_opt := self._bytes.get(usize(0));
+    match(first_byte_opt,
+      .Some(first_byte) => {
+        cond(
+          (first_byte == u8(45)) => {
+            return .None;
+          },
+          (first_byte == u8(43)) => {
+            idx = usize(1);
+          },
+          true => ()
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+
+    cond(
+      (idx >= total_bytes) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    result := u64(0);
+    has_digit := false;
+
+    while ((idx < total_bytes)),
+          (idx = (idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(idx);
+      match(byte_opt,
+        .Some(byte) => {
+          cond(
+            Self._is_digit_byte(byte) => {
+              digit := u64((byte - u8(48)));
+              result = ((result * u64(10)) + digit);
+              has_digit = true;
+            },
+            true => {
+              return .None;
+            }
+          );
+        },
+        .None => {
+          return .None;
+        }
+      );
+    };
+
+    cond(
+      (!(has_digit)) => .None,
+      true => {
+        // Check u32 range: 0 to 4294967295
+        cond(
+          (result > u64(4294967295)) => {
+            return .None;
+          },
+          true => {
+            return .Some(u32(result));
+          }
+        );
+      }
+    )
+  }),
+
+  /**
+   * Parse the string as an unsigned 64-bit integer.
+   * Returns .Some(value) on success, .None on failure.
+   * Note: does not detect u64 overflow during accumulation.
+   */
+  parse_u64 : (fn(self: Self) -> Option(u64))({
+    total_bytes := self._bytes.len();
+    cond(
+      (total_bytes == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    idx := usize(0);
+
+    first_byte_opt := self._bytes.get(usize(0));
+    match(first_byte_opt,
+      .Some(first_byte) => {
+        cond(
+          (first_byte == u8(45)) => {
+            return .None;
+          },
+          (first_byte == u8(43)) => {
+            idx = usize(1);
+          },
+          true => ()
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+
+    cond(
+      (idx >= total_bytes) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    result := u64(0);
+    has_digit := false;
+
+    while ((idx < total_bytes)),
+          (idx = (idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(idx);
+      match(byte_opt,
+        .Some(byte) => {
+          cond(
+            Self._is_digit_byte(byte) => {
+              digit := u64((byte - u8(48)));
+              result = ((result * u64(10)) + digit);
+              has_digit = true;
+            },
+            true => {
+              return .None;
+            }
+          );
+        },
+        .None => {
+          return .None;
+        }
+      );
+    };
+
+    cond(
+      (!(has_digit)) => .None,
+      true => .Some(result)
+    )
+  }),
+
+  /**
+   * Parse the string as a boolean.
+   * Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
+   */
+  parse_bool : (fn(self: Self) -> Option(bool))({
+    total_bytes := self._bytes.len();
+    // "true" = 4 bytes: 116(t), 114(r), 117(u), 101(e)
+    // "false" = 5 bytes: 102(f), 97(a), 108(l), 115(s), 101(e)
+    cond(
+      (total_bytes == usize(4)) => {
+        b0 := self._bytes.get(usize(0)).unwrap_or(u8(0));
+        b1 := self._bytes.get(usize(1)).unwrap_or(u8(0));
+        b2 := self._bytes.get(usize(2)).unwrap_or(u8(0));
+        b3 := self._bytes.get(usize(3)).unwrap_or(u8(0));
+        cond(
+          ((b0 == u8(116)) && ((b1 == u8(114)) && ((b2 == u8(117)) && (b3 == u8(101))))) =>
+            .Some(true),
+          true => .None
+        )
+      },
+      (total_bytes == usize(5)) => {
+        b0 := self._bytes.get(usize(0)).unwrap_or(u8(0));
+        b1 := self._bytes.get(usize(1)).unwrap_or(u8(0));
+        b2 := self._bytes.get(usize(2)).unwrap_or(u8(0));
+        b3 := self._bytes.get(usize(3)).unwrap_or(u8(0));
+        b4 := self._bytes.get(usize(4)).unwrap_or(u8(0));
+        cond(
+          ((b0 == u8(102)) && ((b1 == u8(97)) && ((b2 == u8(108)) && ((b3 == u8(115)) && (b4 == u8(101)))))) =>
+            .Some(false),
+          true => .None
+        )
+      },
+      true => .None
+    )
+  })
 );
 
 export

@@ -521,6 +521,54 @@ The async runtime uses a simple **single-threaded event loop**:
 7. **Wake tasks**: Move woken tasks to ready queue
 8. **Repeat** until all tasks complete
 
+### Thread-Local Event Loop
+
+Each thread has its own event loop via thread-local storage:
+
+```c
+// Thread-local async runtime state
+static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
+```
+
+This means:
+
+- **Main thread**: Has its own event loop for `io.async`/`io.await` tasks
+- **Worker threads** (from `Task.spawn`): Each gets an independent event loop
+- **No cross-thread task migration**: Tasks always run on the thread that created them
+- **No locking needed**: Queue operations are single-threaded by design
+
+### Runtime Initialization
+
+The async runtime is generated conditionally — **only when the program uses async/await**:
+
+- The compiler scans for `io.async`, `io.await`, and `io.spawn` calls during code generation
+- If no async code is present, the runtime (scheduler, I/O subsystem, continuation queue) is **not emitted** at all, and `main()` calls the user function directly
+- If async code is present, `main()` initializes the scheduler and waits for all tasks:
+
+```c
+int main(int argc, char** argv) {
+  __yo_async_scheduler_init();   // Lightweight: just sets a flag
+  __yo_user_main();
+  __yo_async_wait_all();         // Drains queue; returns immediately if empty
+  return 0;
+}
+```
+
+**I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
+
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
+
+**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generateSysRuntime()` which includes both cross-platform helpers and platform-specific sync helpers (`generatePlatformSysRuntime{MacOS,Linux,Windows}`). These have **no IOFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
+
+### Platform-Specific I/O Backends
+
+| Platform | Backend                           | File                    |
+| -------- | --------------------------------- | ----------------------- |
+| Linux    | `io_uring` (via liburing)         | `runtime-io-linux.ts`   |
+| macOS    | Grand Central Dispatch (GCD)      | `runtime-io-macos.ts`   |
+| Windows  | I/O Completion Ports (IOCP)       | `runtime-io-windows.ts` |
+| WASM     | No I/O runtime (computation only) | —                       |
+
 ## Memory Management
 
 ### Non-Atomic Reference Counting
@@ -533,17 +581,17 @@ Since all async code runs on one thread:
 
 ```c
 // Non-atomic RC (single-threaded)
-struct yo_ref_header {
+struct __yo_ref_header {
   size_t ref_count;  // Simple size_t, not atomic!
 };
 
 // Increment - no atomics!
-static inline void yo_rc_inc(yo_ref_header_t* header) {
+static inline void yo_rc_inc(__yo_ref_header_t* header) {
   header->ref_count++;
 }
 
 // Decrement - no atomics!
-static inline bool yo_rc_dec(yo_ref_header_t* header) {
+static inline bool yo_rc_dec(__yo_ref_header_t* header) {
   return --header->ref_count == 0;
 }
 ```
@@ -587,11 +635,11 @@ export main;
 
 **Implementation Details:**
 
-The state machine struct includes a `yo_ref_header_t` as its first field:
+The state machine struct includes a `__yo_ref_header_t` as its first field:
 
 ```c
 struct async_block_state_t {
-  yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
+  __yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
   int state;
   // ... other fields ...
 };
@@ -625,7 +673,7 @@ future->__yo_resume_fn(future);  // Runs until first yield/await
 
 // 3. Event loop — runs ready tasks
 while (not_complete) {
-  yo_async_run_ready_tasks();  // Resumes queued tasks
+  __yo_async_run_ready_tasks();  // Resumes queued tasks
 }
 
 // 4. Completion
@@ -636,6 +684,38 @@ __yo_decr_rc(future);  // Release running task reference
 
 // 5. Cleanup — when user drops, refcount reaches 0, freed
 ```
+
+### `Impl(Future(T))` Dispatch and Allocation Model
+
+**`Impl(Future(T))` is always heap-allocated with non-atomic reference counting.**
+
+This is **not** static dispatch (where the concrete type is known and stack-allocated). Instead:
+
+1. **Heap allocation**: `io.async(fn)` calls `__yo_malloc(sizeof(state_machine_struct))` and returns a pointer. This is necessary because:
+
+   - Futures suspend and resume across C stack frames — the state machine must outlive the frame that created it
+   - The event loop queues continuations as `(resume_fn, state_machine_ptr)` pairs — stable addresses are required
+   - Multiple references (user code + event loop) can exist simultaneously
+
+2. **Reference counting**: Each state machine has a `__yo_ref_header_t` as its first field. The RC is non-atomic because all async code runs on a single thread. The typical lifecycle is:
+
+   - Creation: `refcount = 1` (user owns)
+   - Start (await/spawn): `refcount = 2` (user + event loop)
+   - Task completion: event loop decrements → `refcount = 1`
+   - User scope exit: user decrements → `refcount = 0` → freed via dispose function
+
+3. **Pointer semantics**: In generated C code, `Impl(Future(T))` compiles to `state_machine_struct*` (a pointer). The Yo type system treats it as opaque — user code cannot inspect the struct fields.
+
+4. **Dispose function**: Each state machine type gets a custom dispose function that:
+
+   - Drops the capture struct (outer scope variables)
+   - Drops the result value (if completed and result contains RC types)
+   - Drops local variables (if aborted mid-execution)
+   - The memory is freed by `__yo_decr_rc` after the dispose function returns
+
+5. **sync_fut_t optimization**: When an async block has **no await points** (purely synchronous), a lightweight `sync_fut_t` struct is generated instead of a full state machine. It has the same header layout but no state dispatch — the resume function simply calls the closure and sets state to -1 (completed).
+
+**Why not stack allocation?** Even with `Impl(...)` (which typically implies static dispatch in Yo), Futures must be heap-allocated because their lifetime is decoupled from the creating stack frame. A future created in function `f()` may be awaited in function `g()` after `f()` has returned.
 
 ### State Machine Memory
 
@@ -850,6 +930,48 @@ handle.await(using(io));
 | Generic effect (`forall(T)`)            | Compile-time      | Direct function call  |
 | Non-module (`IO`) type                  | Compile-time      | No runtime field      |
 | Non-generic, unresolved handler         | Runtime injection | `void*` capture field |
+
+## Async + Algebraic Effects
+
+Algebraic effects and async work together: async closures can declare effect
+parameters via `using(...)`, and callers inject handlers at `io.await` or
+`io.spawn` time. This section covers tested scenarios and known limitations.
+
+### Tested Scenarios
+
+| Scenario                                    | Description                                                  |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| Effect resume inside async closure          | Handler `return`s a value, async closure receives it         |
+| Effect resume across multiple yields        | Effect called after each `io.await(yield())`                 |
+| Two effects injected via `io.await`         | Two independent effect handlers injected together            |
+| Two effects injected via `io.spawn`         | Same, but via `io.spawn` + `handle.await`                    |
+| Effect resume in async while loop           | Effect called inside `while` loop body with yields           |
+| Effect resume in while loop with break      | Effect triggers `break` based on return value                |
+| Escape via injected effect aborts future    | Handler `escape`s, future enters `Aborted` state             |
+| JoinHandle escape via spawn-injected effect | Same but with `io.spawn`, `handle.await` returns `.None`     |
+| Given handler inside async with yields      | `given` binding defined inside async body, used after yields |
+
+### Known Limitations
+
+1. **Effect handlers are not closures** — handler functions are standalone C
+   functions and cannot capture variables from the enclosing scope. Pass state
+   via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
+
+2. **Async escape RC double-decrement** — when a future is passed as a
+   parameter to a function that escapes during `io.await`, the future's RC is
+   decremented twice (once in the await abort path, once in escape cleanup),
+   causing use-after-free. Workaround: create the future inside the escaping
+   function. See `issues/async-escape-rc-double-decrement.md`.
+
+3. **3-argument while loop in async** — the async SM codegen only handles the
+   2-argument form `while condition, body`. The 3-argument form
+   `while condition, step, body` emits broken C code. Workaround: put the step
+   expression inside the loop body. See `issues/async-while-3arg-form.md`.
+
+4. **Binary expression as async return value** — when the last expression in an
+   async closure is a binary operation (e.g., `(a + b)`), the SM struct gets
+   `void* result` instead of the correct type. Workaround: assign to a variable
+   first. See `issues/async-sm-result-type-binary-expr.md`.
 
 ## Summary
 

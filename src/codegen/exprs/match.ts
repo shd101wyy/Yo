@@ -7,6 +7,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   type FnCallExpr,
+  hasAnyControlFlow,
 } from "../../expr";
 import type { Type } from "../../types/definitions";
 import {
@@ -32,6 +33,7 @@ import {
   generateDeferredDupExpressions,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { getStateMachineFieldName } from "../async/state-machine";
 
 /**
  * Check if a generated code string represents control flow (goto, break, continue, return)
@@ -86,6 +88,10 @@ function generateCaseBody(
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {
         context.emitter.emitLine(`${indent}${argCode};`);
+      }
+      // Stop after control flow (dead code may lack metadata)
+      if (hasAnyControlFlow(arg.$?.controlFlow)) {
+        break;
       }
     }
 
@@ -614,8 +620,13 @@ export function generateMatchExpression(
                           varId &&
                           functionContext.stateMachineVariables.has(varId)
                         ) {
+                          const smField = getStateMachineFieldName(
+                            varId,
+                            "local",
+                            functionContext.stateMachineFieldAliases
+                          );
                           context.emitter.emitLine(
-                            `${indent}  sm->var_${varId} = ${varName};`
+                            `${indent}  sm->${smField} = ${varName};`
                           );
                         }
                       }
@@ -697,7 +708,7 @@ export function generateMatchExpression(
                       ) {
                         // This variable crosses an await boundary, store it in state machine
                         context.emitter.emitLine(
-                          `${indent}  sm->var_${varId} = ${varName};`
+                          `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                         );
                       }
                     }
@@ -843,7 +854,7 @@ export function generateMatchExpression(
                           functionContext.stateMachineVariables.has(varId)
                         ) {
                           context.emitter.emitLine(
-                            `${indent}  sm->var_${varId} = ${varName};`
+                            `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                           );
                         }
                       }
@@ -924,7 +935,7 @@ export function generateMatchExpression(
                       ) {
                         // This variable crosses an await boundary, store it in state machine
                         context.emitter.emitLine(
-                          `${indent}  sm->var_${varId} = ${varName};`
+                          `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                         );
                       }
                     }

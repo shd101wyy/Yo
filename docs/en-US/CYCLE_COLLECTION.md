@@ -50,16 +50,16 @@ Each thread has its own cycle collector with complete isolation. No stop-the-wor
 
 ```c
 // Per-thread GC state
-typedef struct yo_thread_gc_state_t {
-  yo_ref_header_t* tracked_objects;  // Doubly-linked list of potentially cyclic objects
+typedef struct __yo_thread_gc_state_t {
+  __yo_ref_header_t* tracked_objects;  // Doubly-linked list of potentially cyclic objects
   size_t tracked_count;              // Number of tracked objects
-  YO_THREAD_TYPE thread_id;          // Owning thread
+  __YO_THREAD_TYPE thread_id;          // Owning thread
   size_t alloc_count;                // Allocations since last GC
-  struct yo_thread_gc_state_t* next; // For global thread list (cleanup only)
-  struct yo_thread_gc_state_t* prev;
-} yo_thread_gc_state_t;
+  struct __yo_thread_gc_state_t* next; // For global thread list (cleanup only)
+  struct __yo_thread_gc_state_t* prev;
+} __yo_thread_gc_state_t;
 
-static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc;
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc;
 ```
 
 ### When to Collect: Adaptive Object Count Threshold
@@ -123,24 +123,24 @@ Only objects that can form cycles are tracked:
 #### Phase 1: Trial Deletion
 
 ```c
-void yo_gc_mark_phase(yo_gc_state_t* gc) {
+void __yo_gc_mark_phase(__yo_gc_state_t* gc) {
     // 1. Mark all tracked objects as candidates
     for (size_t i = 0; i < gc->tracked_count; i++) {
-        yo_object* obj = gc->tracked_objects[i];
+        __yo_object* obj = gc->tracked_objects[i];
         obj->gc_mark = GC_CANDIDATE;
     }
 
     // 2. Trial deletion: decrement RC of all objects reachable from candidates
     for (size_t i = 0; i < gc->tracked_count; i++) {
-        yo_object* obj = gc->tracked_objects[i];
+        __yo_object* obj = gc->tracked_objects[i];
         if (obj->gc_mark == GC_CANDIDATE) {
-            yo_gc_trial_delete(obj);  // Recursively decrement RC
+            __yo_gc_trial_delete(obj);  // Recursively decrement RC
         }
     }
 
     // 3. Mark survivors: objects with RC > 0 after trial deletion
     for (size_t i = 0; i < gc->tracked_count; i++) {
-        yo_object* obj = gc->tracked_objects[i];
+        __yo_object* obj = gc->tracked_objects[i];
         if (obj->ref_count > 0) {
             obj->gc_mark = GC_LIVE;
         } else {
@@ -149,21 +149,21 @@ void yo_gc_mark_phase(yo_gc_state_t* gc) {
     }
 }
 
-void yo_gc_trial_delete(yo_object* obj) {
+void __yo_gc_trial_delete(__yo_object* obj) {
     if (obj->gc_mark != GC_CANDIDATE) return;
 
     obj->gc_mark = GC_TRIAL_DELETED;
 
     // Traverse fields and trial-delete referenced objects
     if (obj->traverse_fn) {
-        obj->traverse_fn(obj, yo_gc_trial_delete_visitor);
+        obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
     }
 }
 
-void yo_gc_trial_delete_visitor(yo_object* referenced) {
+void __yo_gc_trial_delete_visitor(__yo_object* referenced) {
     referenced->ref_count--;  // Non-atomic decrement
     if (referenced->ref_count > 0 && referenced->gc_mark == GC_CANDIDATE) {
-        yo_gc_trial_delete(referenced);
+        __yo_gc_trial_delete(referenced);
     }
 }
 ```
@@ -171,19 +171,19 @@ void yo_gc_trial_delete_visitor(yo_object* referenced) {
 #### Phase 2: Restore and Sweep
 
 ```c
-void yo_gc_sweep_phase(yo_gc_state_t* gc) {
+void __yo_gc_sweep_phase(__yo_gc_state_t* gc) {
     size_t write_index = 0;
 
     for (size_t i = 0; i < gc->tracked_count; i++) {
-        yo_object* obj = gc->tracked_objects[i];
+        __yo_object* obj = gc->tracked_objects[i];
 
         if (obj->gc_mark == GC_LIVE) {
             // Restore RC for live objects
-            yo_gc_restore_rc(obj);
+            __yo_gc_restore_rc(obj);
             gc->tracked_objects[write_index++] = obj;
         } else if (obj->gc_mark == GC_GARBAGE) {
             // Free garbage
-            yo_free_object(obj);
+            __yo_free_object(obj);
             gc->objects_collected++;
         }
     }
@@ -191,21 +191,21 @@ void yo_gc_sweep_phase(yo_gc_state_t* gc) {
     gc->tracked_count = write_index;
 }
 
-void yo_gc_restore_rc(yo_object* obj) {
+void __yo_gc_restore_rc(__yo_object* obj) {
     if (obj->gc_mark != GC_LIVE) return;
 
     obj->gc_mark = GC_RESTORED;
 
     // Restore RC for referenced objects
     if (obj->traverse_fn) {
-        obj->traverse_fn(obj, yo_gc_restore_visitor);
+        obj->traverse_fn(obj, __yo_gc_restore_visitor);
     }
 }
 
-void yo_gc_restore_visitor(yo_object* referenced) {
+void __yo_gc_restore_visitor(__yo_object* referenced) {
     referenced->ref_count++;  // Non-atomic increment
     if (referenced->gc_mark == GC_LIVE) {
-        yo_gc_restore_rc(referenced);
+        __yo_gc_restore_rc(referenced);
     }
 }
 ```
@@ -288,13 +288,13 @@ main :: (fn() -> unit) {
 **GC Collection Process:**
 
 ```c
-void yo_gc_collect_thread_local() {
+void __yo_gc_collect_thread_local() {
     // No synchronization needed - thread-local only
-    yo_gc_state_t* gc = &yo_gc_state;
+    __yo_gc_state_t* gc = &__yo_gc_state;
 
     // Run trial deletion on this thread's tracked objects
-    yo_gc_mark_phase(gc);
-    yo_gc_sweep_phase(gc);
+    __yo_gc_mark_phase(gc);
+    __yo_gc_sweep_phase(gc);
 
     // Other threads continue running in parallel
 }
@@ -377,7 +377,7 @@ Compiler generates tracking code for cycle-forming types:
 Node :: object(value: i32, next: Option(Node));
 
 // Generated tracking
-node := Node(42, .None);  // Calls yo_gc_track(node)
+node := Node(42, .None);  // Calls __yo_gc_track(node)
 ```
 
 ### Traverse Function Generation
@@ -400,18 +400,18 @@ Compiler generates code to register objects with thread-local GC:
 
 ```c
 // Generated code for object allocation
-Node* node = yo_alloc_object(sizeof(Node));
+Node* node = __yo_alloc_object(sizeof(Node));
 node->value = 42;
 node->next = OPTION_NONE;
 
 // Register with thread-local GC (no synchronization needed)
-yo_gc_track(&yo_gc_state, (yo_object*)node);
+__yo_gc_track(&__yo_gc_state, (__yo_object*)node);
 
 // Increment thread-local allocation counter
-yo_gc_state.alloc_count++;
-if (yo_gc_state.alloc_count >= YO_GC_THRESHOLD) {
-    yo_gc_collect_thread_local();  // Collect this thread only
-    yo_gc_state.alloc_count = 0;
+__yo_gc_state.alloc_count++;
+if (__yo_gc_state.alloc_count >= __YO_GC_THRESHOLD) {
+    __yo_gc_collect_thread_local();  // Collect this thread only
+    __yo_gc_state.alloc_count = 0;
 }
 ```
 
