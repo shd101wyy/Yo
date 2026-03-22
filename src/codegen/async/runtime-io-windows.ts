@@ -883,7 +883,7 @@ static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrl
   __yo_wsa_init();
 
   int len = (int)(*addrlen);
-  int result = getsockname((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  int result = getsockname((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
     return -(int32_t)WSAGetLastError();
   }
@@ -896,7 +896,7 @@ static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrl
   __yo_wsa_init();
 
   int len = (int)(*addrlen);
-  int result = getpeername((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  int result = getpeername((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
     return -(int32_t)WSAGetLastError();
   }
@@ -908,7 +908,7 @@ static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrl
 static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
   __yo_wsa_init();
 
-  int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
+  int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
   return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
 }
 
@@ -916,7 +916,7 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
   __yo_wsa_init();
 
   int len = (int)(*optlen);
-  int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
+  int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
     return -(int32_t)WSAGetLastError();
   }
@@ -1991,7 +1991,12 @@ static bool __yo_win_associate_handle(HANDLE handle) {
     SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     return true;
   }
-  return GetLastError() == ERROR_INVALID_PARAMETER;
+  if (GetLastError() == ERROR_INVALID_PARAMETER) {
+    // Already associated — ensure skip-on-success mode is set.
+    SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    return true;
+  }
+  return false;
 }
 
 static int __yo_poll_and_fs_event_tick(void);
@@ -2951,6 +2956,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
   } else {
     if (__yo_io_iocp) {
       CreateIoCompletionPort((HANDLE)s, __yo_io_iocp, 0, 0);
+      SetFileCompletionNotificationModes((HANDLE)s, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     }
     future->result = (int32_t)(uintptr_t)s;
   }
@@ -2967,7 +2973,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = bind((SOCKET)(uintptr_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
+  int result = bind((SOCKET)(uintptr_t)(uint32_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -2982,7 +2988,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = listen((SOCKET)(uintptr_t)sockfd, backlog);
+  int result = listen((SOCKET)(uintptr_t)(uint32_t)sockfd, backlog);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -2998,13 +3004,14 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   atomic_init(&future->continuation_sm, NULL);
 
   int len = (int)(*addrlen);
-  SOCKET result = accept((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  SOCKET result = accept((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == INVALID_SOCKET) {
     future->result = -(int32_t)WSAGetLastError();
   } else {
     *addrlen = (uint32_t)len;
     if (__yo_io_iocp) {
       CreateIoCompletionPort((HANDLE)result, __yo_io_iocp, 0, 0);
+      SetFileCompletionNotificationModes((HANDLE)result, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     }
     future->result = (int32_t)(uintptr_t)result;
   }
@@ -3021,7 +3028,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = connect((SOCKET)(uintptr_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
+  int result = connect((SOCKET)(uintptr_t)(uint32_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -3042,7 +3049,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
     return future;
   }
 
-  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
   __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
   memset(ov, 0, sizeof(__yo_win_overlapped_t));
@@ -3090,7 +3097,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     return future;
   }
 
-  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
   __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
   memset(ov, 0, sizeof(__yo_win_overlapped_t));
@@ -3137,7 +3144,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   if (len > INT_MAX) {
     future->result = -EINVAL;
   } else {
-    int result = sendto((SOCKET)(uintptr_t)sockfd, (const char*)buf, (int)len, flags,
+    int result = sendto((SOCKET)(uintptr_t)(uint32_t)sockfd, (const char*)buf, (int)len, flags,
                         (const struct sockaddr*)dest_addr, (int)addrlen);
     future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
   }
@@ -3159,7 +3166,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
     future->result = -EINVAL;
   } else {
     int alen = (int)(*addrlen);
-    int result = recvfrom((SOCKET)(uintptr_t)sockfd, (char*)buf, (int)len, flags,
+    int result = recvfrom((SOCKET)(uintptr_t)(uint32_t)sockfd, (char*)buf, (int)len, flags,
                           (struct sockaddr*)src_addr, &alen);
     if (result == SOCKET_ERROR) {
       future->result = -(int32_t)WSAGetLastError();
@@ -3181,7 +3188,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = shutdown((SOCKET)(uintptr_t)sockfd, how);
+  int result = shutdown((SOCKET)(uintptr_t)(uint32_t)sockfd, how);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -3196,7 +3203,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
+  int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -3212,7 +3219,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   atomic_init(&future->continuation_sm, NULL);
 
   int len = (int)(*optlen);
-  int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
+  int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
     future->result = -(int32_t)WSAGetLastError();
   } else {
@@ -4060,9 +4067,14 @@ static int __yo_poll_and_fs_event_tick(void) {
               ptr += info->NextEntryOffset;
             }
 
-            ResetEvent(fse->overlapped.hEvent);
+            HANDLE old_event = fse->overlapped.hEvent;
             memset(&fse->overlapped, 0, sizeof(OVERLAPPED));
-            fse->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+            if (old_event) {
+              ResetEvent(old_event);
+              fse->overlapped.hEvent = old_event;
+            } else {
+              fse->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+            }
             ReadDirectoryChangesW(fse->dir_handle,
               fse->notify_buf, sizeof(fse->notify_buf),
               FALSE,
