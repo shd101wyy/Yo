@@ -1809,6 +1809,105 @@ static int32_t __yo_kill(int32_t pid, int32_t signum) {
   return -ENOSYS;
 }
 
+// ============================================================================
+// TTY Operations (Windows Console API)
+// ============================================================================
+
+static DWORD __yo_orig_console_mode_in = 0;
+static DWORD __yo_orig_console_mode_out = 0;
+static bool __yo_console_mode_saved = false;
+
+static int32_t __yo_tty_init(int32_t fd) {
+  if (!__yo_console_mode_saved) {
+    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_in != INVALID_HANDLE_VALUE) {
+      GetConsoleMode(h_in, &__yo_orig_console_mode_in);
+    }
+    if (h_out != INVALID_HANDLE_VALUE) {
+      GetConsoleMode(h_out, &__yo_orig_console_mode_out);
+    }
+    __yo_console_mode_saved = true;
+  }
+  (void)fd;
+  return 0;
+}
+
+static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
+  if (fd < 0) return -EBADF;
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+
+  DWORD console_mode = 0;
+  if (!GetConsoleMode(handle, &console_mode)) return -ENOTTY;
+
+  DWORD file_type = GetFileType(handle);
+  bool is_input = (file_type == FILE_TYPE_CHAR);
+  DWORD new_mode = 0;
+
+  switch (mode) {
+    case 0:  // TTY_MODE_NORMAL
+      if (is_input) {
+        new_mode = __yo_orig_console_mode_in;
+      } else {
+        new_mode = __yo_orig_console_mode_out;
+      }
+      break;
+    case 1:  // TTY_MODE_RAW
+      if (is_input) {
+        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
+      } else {
+        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+      }
+      break;
+    case 2:  // TTY_MODE_IO
+      if (is_input) {
+        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
+      } else {
+        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+      }
+      break;
+    default:
+      return -EINVAL;
+  }
+
+  if (!SetConsoleMode(handle, new_mode)) return -__yo_win_last_error_to_errno();
+  return 0;
+}
+
+static int32_t __yo_tty_reset_mode(void) {
+  if (__yo_console_mode_saved) {
+    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_in != INVALID_HANDLE_VALUE) {
+      SetConsoleMode(h_in, __yo_orig_console_mode_in);
+    }
+    if (h_out != INVALID_HANDLE_VALUE) {
+      SetConsoleMode(h_out, __yo_orig_console_mode_out);
+    }
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
+  if (fd < 0) return -EBADF;
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+
+  CONSOLE_SCREEN_BUFFER_INFO csbi;
+  if (!GetConsoleScreenBufferInfo(handle, &csbi)) {
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_out == INVALID_HANDLE_VALUE || !GetConsoleScreenBufferInfo(h_out, &csbi)) {
+      return -__yo_win_last_error_to_errno();
+    }
+  }
+  *width = (int32_t)(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+  *height = (int32_t)(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
+  return 0;
+}
+
+static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
+
 `);
 }
 
@@ -3648,105 +3747,7 @@ static int32_t __yo_process_term_signal(int32_t status) {
   return 0;
 }
 
-
-// ============================================================================
-// TTY Operations (Windows Console API)
-// ============================================================================
-
-static DWORD __yo_orig_console_mode_in = 0;
-static DWORD __yo_orig_console_mode_out = 0;
-static bool __yo_console_mode_saved = false;
-
-static int32_t __yo_tty_init(int32_t fd) {
-  if (!__yo_console_mode_saved) {
-    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h_in != INVALID_HANDLE_VALUE) {
-      GetConsoleMode(h_in, &__yo_orig_console_mode_in);
-    }
-    if (h_out != INVALID_HANDLE_VALUE) {
-      GetConsoleMode(h_out, &__yo_orig_console_mode_out);
-    }
-    __yo_console_mode_saved = true;
-  }
-  (void)fd;
-  return 0;
-}
-
-static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
-  if (fd < 0) return -EBADF;
-  HANDLE handle = (HANDLE)_get_osfhandle(fd);
-  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
-
-  DWORD console_mode = 0;
-  if (!GetConsoleMode(handle, &console_mode)) return -ENOTTY;
-
-  DWORD file_type = GetFileType(handle);
-  bool is_input = (file_type == FILE_TYPE_CHAR);
-  DWORD new_mode = 0;
-
-  switch (mode) {
-    case 0:  // TTY_MODE_NORMAL
-      if (is_input) {
-        new_mode = __yo_orig_console_mode_in;
-      } else {
-        new_mode = __yo_orig_console_mode_out;
-      }
-      break;
-    case 1:  // TTY_MODE_RAW
-      if (is_input) {
-        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
-      } else {
-        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
-      }
-      break;
-    case 2:  // TTY_MODE_IO
-      if (is_input) {
-        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
-      } else {
-        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-      }
-      break;
-    default:
-      return -EINVAL;
-  }
-
-  if (!SetConsoleMode(handle, new_mode)) return -__yo_win_last_error_to_errno();
-  return 0;
-}
-
-static int32_t __yo_tty_reset_mode(void) {
-  if (__yo_console_mode_saved) {
-    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h_in != INVALID_HANDLE_VALUE) {
-      SetConsoleMode(h_in, __yo_orig_console_mode_in);
-    }
-    if (h_out != INVALID_HANDLE_VALUE) {
-      SetConsoleMode(h_out, __yo_orig_console_mode_out);
-    }
-  }
-  return 0;
-}
-
-static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
-  if (fd < 0) return -EBADF;
-  HANDLE handle = (HANDLE)_get_osfhandle(fd);
-  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
-
-  CONSOLE_SCREEN_BUFFER_INFO csbi;
-  if (!GetConsoleScreenBufferInfo(handle, &csbi)) {
-    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h_out == INVALID_HANDLE_VALUE || !GetConsoleScreenBufferInfo(h_out, &csbi)) {
-      return -__yo_win_last_error_to_errno();
-    }
-  }
-  *width = (int32_t)(csbi.srWindow.Right - csbi.srWindow.Left + 1);
-  *height = (int32_t)(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
-  return 0;
-}
-
-static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
+// TTY functions are defined in the sync section above.
 
 // ============================================================================
 // FS Events (Windows - ReadDirectoryChangesW / FindFirstChangeNotification)
