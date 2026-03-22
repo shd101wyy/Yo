@@ -255,6 +255,9 @@ export function generateMatchExpression(
         exprIsFunctionCall(caseExpr) &&
         exprIsFunctionCallOf(caseExpr, "=>", 2)
       ) {
+        // Skip non-executed cases (comptime branch elimination)
+        if (!caseExpr.args[0]?.$?.caseExecuted) continue;
+
         const caseValue = caseExpr.args[0]!; // .None, .Some(ptr)
         const caseBody = caseExpr.args[1]!;
 
@@ -396,6 +399,9 @@ export function generateMatchExpression(
         exprIsFunctionCall(caseExpr) &&
         exprIsFunctionCallOf(caseExpr, "=>", 2)
       ) {
+        // Skip non-executed cases (comptime branch elimination)
+        if (!caseExpr.args[0]?.$?.caseExecuted) continue;
+
         // This is a case => value pair
         const caseValue = caseExpr.args[0];
         const caseBody = caseExpr.args[1];
@@ -486,6 +492,9 @@ export function generateMatchExpression(
       exprIsFunctionCall(caseExpr) &&
       exprIsFunctionCallOf(caseExpr, "=>", 2)
     ) {
+      // Skip non-executed cases (comptime branch elimination)
+      if (!caseExpr.args[0]?.$?.caseExecuted) continue;
+
       // This is a case => value pair
       const caseValue = caseExpr.args[0];
       let caseBody = caseExpr.args[1];
@@ -1056,6 +1065,9 @@ function generatePrimitiveMatchExpression(
       exprIsFunctionCall(caseExpr) &&
       exprIsFunctionCallOf(caseExpr, "=>", 2)
     ) {
+      // Skip non-executed cases (comptime branch elimination)
+      if (!caseExpr.args[0]?.$?.caseExecuted) continue;
+
       const caseValue = caseExpr.args[0];
       const caseBody = caseExpr.args[1];
 

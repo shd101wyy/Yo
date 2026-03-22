@@ -412,6 +412,16 @@ export interface EvaluatedExprData {
    * cond/match branch arrows (which are not function boundaries).
    */
   isAnonymousFunctionDefinition?: boolean;
+
+  /**
+   * For while loops with comptime-known terminating conditions and runtime bodies,
+   * this contains the unrolled body expressions (one per iteration).
+   * Used by codegen to emit the bodies sequentially instead of generating a C loop.
+   *
+   * Example: `i :: 0; while (i < 3), { printf("%d\n", i32(i)); i = (i + 1); };`
+   * produces 3 unrolled body expressions, each with `i` bound to 0, 1, 2 respectively.
+   */
+  comptimeUnrolledBodies?: Expr[];
 }
 
 export type AtomExpr = {

@@ -2428,3 +2428,98 @@ test "Test 'comptime_fn' function call and function overloading", {
   val2 :: op2.comptime_unwrap();
   comptime_assert(val2 == 55);
 };
+
+test "Test comptime while loop unrolling with runtime body", {
+  // 2-arg form: comptime counter with runtime accumulator
+  {
+    sum := 0;
+    i :: 0;
+    while (i < 5), {
+      sum = (sum + i32(i));
+      i = (i + 1);
+    };
+    assert((sum == 10), "2-arg unrolled sum should be 10");
+  };
+
+  // 3-arg form: comptime counter with step expression and runtime accumulator
+  {
+    sum := 0;
+    i :: 0;
+    while (i < 5), i = (i + 1), {
+      sum = (sum + i32(i));
+    };
+    assert((sum == 10), "3-arg unrolled sum should be 10");
+  };
+
+  // comptime condition initially false: body should not execute
+  {
+    sum := 0;
+    i :: 10;
+    while (i < 5), {
+      sum = (sum + i32(i));
+      i = (i + 1);
+    };
+    assert((sum == 0), "initially false condition should produce 0");
+  };
+
+  // single iteration unroll
+  {
+    sum := 0;
+    i :: 0;
+    while (i < 1), {
+      sum = (sum + i32(i));
+      i = (i + 1);
+    };
+    assert((sum == 0), "single iteration should produce 0");
+  };
+
+  // comptime unrolled while with multiple runtime side effects per iteration
+  {
+    a := 0;
+    b := 0;
+    i :: 0;
+    while (i < 3), {
+      a = (a + i32(i));
+      b = (b + i32((i * i)));
+      i = (i + 1);
+    };
+    assert((a == 3), "a should be 0+1+2 = 3");
+    assert((b == 5), "b should be 0+1+4 = 5");
+  };
+};
+
+test "Test comptime match branch elimination", {
+  // primitive match with comptime scrutinee — only matching branch should be emitted
+  {
+    x :: 2;
+    result := match(x,
+      1 => i32(10),
+      2 => i32(20),
+      3 => i32(30),
+      _ => i32(0)
+    );
+    assert((result == 20), "match on comptime 2 should yield 20");
+  };
+
+  // comptime scrutinee matching first branch
+  {
+    x :: 1;
+    result := match(x,
+      1 => i32(100),
+      2 => i32(200),
+      _ => i32(0)
+    );
+    assert((result == 100), "match on comptime 1 should yield 100");
+  };
+
+  // comptime scrutinee matching wildcard
+  {
+    x :: 99;
+    result := match(x,
+      1 => i32(10),
+      2 => i32(20),
+      _ => i32(999)
+    );
+    assert((result == 999), "match on comptime 99 should yield wildcard 999");
+  };
+};

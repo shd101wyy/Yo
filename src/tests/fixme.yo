@@ -1,15 +1,10 @@
-{ yield } :: import "std/async";
+open import "std/libc/stdio";
 
 main :: (fn(using(io : IO)) -> unit)({
-  task := io.async((using(io : IO)) => {
-    a := i32(10);
-    io.await(yield());
-    b := (a + i32(5));
-    io.await(yield());
-    c := i32(20);
-    io.await(yield());
-    return (b + c);
-  });
-  r := io.await(task);
+  i :: 0;
+  while (i < 3), {
+    printf("%d\n", i32(i));
+    i = (i + 1);
+  };
 });
 export main;

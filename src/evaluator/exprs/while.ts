@@ -1,6 +1,7 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  cloneExpr,
   type Expr,
   exprToString,
   type FnCallExpr,
@@ -230,13 +231,100 @@ export function evaluateWhile({
     }
 
     // If the condition is compile-time true AND the body has runtime values,
-    // we should stop compile-time evaluation to avoid infinite loops
+    // try to unroll the loop by re-evaluating the condition with the updated env.
+    // If the condition eventually becomes false, we can unroll completely.
+    // Otherwise, fall back to a runtime loop.
     if (
       isBooleanValue(conditionValue) &&
       conditionValue.value === true &&
       bodyHasRuntimeValue
     ) {
-      // The loop will run at runtime, but we can't evaluate it at compile-time
+      // Re-evaluate the condition with the updated env to check if it will terminate
+      const checkCondClone = cloneExpr(conditionExpr);
+      const checkCondResult = evaluateBeginExpression({
+        expr: checkCondClone,
+        env,
+        context: { ...context },
+        variablesToAdd: [],
+      });
+      const nextCondValue = checkCondResult.$?.value;
+
+      if (isBooleanValue(nextCondValue)) {
+        // Condition is still comptime-known — we can try to unroll
+        const MAX_UNROLL_ITERATIONS = 10000;
+        const unrolledBodies: Expr[] = [bodyExpr]; // First iteration already evaluated
+
+        let currentEnv = env;
+        let condStillTrue = nextCondValue.value;
+
+        for (
+          let iter = 1;
+          condStillTrue && iter < MAX_UNROLL_ITERATIONS;
+          iter++
+        ) {
+          // Clone and evaluate the body for this iteration
+          const clonedBody = cloneExpr(bodyExpr);
+          const evalBody = evaluateBeginExpression({
+            expr: clonedBody,
+            env: currentEnv,
+            context: {
+              ...context,
+              isEvaluatingLoopBody: { kind: "while", env: currentEnv },
+            },
+            variablesToAdd: [],
+          });
+          if (!evalBody.$) break;
+
+          unrolledBodies.push(clonedBody);
+          currentEnv = evalBody.$.env;
+
+          // Execute step if provided (3-argument form)
+          if (stepExpr) {
+            const clonedStep = cloneExpr(stepExpr);
+            const evalStep = evaluateExpression({
+              expr: clonedStep,
+              env: currentEnv,
+              context: { ...context },
+            });
+            if (!evalStep.$) break;
+            currentEnv = evalStep.$.env;
+          }
+
+          // Re-evaluate the condition with the updated env
+          const condClone = cloneExpr(conditionExpr);
+          const condResult = evaluateBeginExpression({
+            expr: condClone,
+            env: currentEnv,
+            context: { ...context },
+            variablesToAdd: [],
+          });
+          const condVal = condResult.$?.value;
+
+          if (isBooleanValue(condVal) && condVal.value === false) {
+            condStillTrue = false;
+          } else if (isBooleanValue(condVal) && condVal.value === true) {
+            condStillTrue = true;
+          } else {
+            // Condition became runtime — can't unroll further, fall back
+            break;
+          }
+        }
+
+        if (!condStillTrue) {
+          // Loop terminates — store unrolled bodies
+          expr.$ = {
+            env: currentEnv,
+            pathCollection: [],
+            type: VUnit.type,
+            value: undefined,
+            comptimeUnrolledBodies: unrolledBodies,
+          };
+          return expr;
+        }
+      }
+
+      // Unrolling failed (condition stayed true, became runtime, or hit max iterations)
+      // Fall back to runtime loop
       expr.$ = {
         env: env,
         pathCollection: [],
