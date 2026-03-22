@@ -335,3 +335,49 @@ Since only non-RC types are shared, no changes to the dispose function are neede
 - `src/codegen/exprs/match.ts`: Raw pattern fixes (3 locations)
 - `src/codegen/exprs/dyn.ts`: Raw pattern fix (1 location)
 - `tests/async_await.test.yo`: 4 new tests (114 total)
+
+## C Output Size Reduction
+
+After the SM optimization phases, additional work was done to reduce generated C output size:
+
+### Static linkage (all generated C functions)
+
+All generated C functions (both user-facing and internal helpers like `___dup`, `___drop`, RC helpers) are now declared `static`. This enables the C compiler's dead code elimination to strip unused functions, dramatically reducing binary size.
+
+**Impact**: Non-async hello world dropped from ~84KB to ~33KB (stripped binary).
+
+### Conditional async runtime emission
+
+The async runtime (~8K C lines) is only emitted when `context.usesAsync` is true. Detection is based on:
+
+- `isIoAsyncCall(expr)`, `isIoAwaitCall(expr)`, `isIoSpawnCall(expr)` during codegen scan
+- Extern "yo" calls matching `ASYNC_RUNTIME_EXTERN_PREFIXES`: `__yo_poll_*`, `__yo_fs_event_*`, `__yo_async_*`
+
+Parallelism runtime (~450 lines) is separately gated by `context.usesParallelism`.
+
+### Platform sync/async split
+
+Each platform runtime file was split into:
+
+- `generatePlatformSysRuntime{Platform}(emitter)` — sync helpers (pipe, dup, mmap, fcntl, socket, stat, signal, TTY), always emitted
+- `generateAsyncRuntimeIO{Platform}(emitter)` — async I/O (IOCP, io_uring, kqueue), conditionally emitted
+
+### Consistent `__yo_async_*` naming
+
+All `yo_async_*` identifiers renamed to `__yo_async_*` for consistency with other internal C helpers.
+
+### Commits (C output size reduction)
+
+1. `5e7bac89` — Conditional async runtime emission
+2. `e97d3fe8` — Conditional parallelism runtime emission
+3. `e8d1c778` — Static linkage for user-facing functions
+4. `42a3f569` — Static linkage for ALL internal C helpers
+5. `41233a7f` — Fix: add errno.h to base C includes
+6. `af57b323` — Refactor: extract non-async sys helpers
+7. `29763eae` — Extract platform sync helpers + restore conditional usesAsync detection
+8. `66e3fa69` — Fix: Windows sync helpers use lightweight WSA init
+9. `81746ed3` — Fix: remove duplicate yo_win_stat_t from async section
+10. `7f8253b4` — Fix: move Windows signal operations to sync section
+11. `32fd7f76` — Fix: move Windows TTY operations to sync section
+12. `742c8af5` — Rename yo*async*_ to \_*yo_async*_ for consistent naming
+13. `cd66e94c` — Fix: associate sockets with IOCP in async send/recv on Windows
