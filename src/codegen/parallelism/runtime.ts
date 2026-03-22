@@ -39,9 +39,9 @@ export function generateParallelismRuntime(
   const yieldCall = isWindows ? `SwitchToThread();` : `sched_yield();`;
 
   const poolMutexDecl = isWindows
-    ? `static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
+    ? `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
 static volatile int __yo_worker_pool_mutex_initialized = 0;`
-    : `static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = YO_THREAD_SYNC_INIT;  // Pool-level mutex`;
+    : `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = __YO_THREAD_SYNC_INIT;  // Pool-level mutex`;
 
   const windowsInitMutex = isWindows
     ? `
@@ -149,7 +149,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   args->closure = closure;
   
   // Create OS thread
-  int ret = yo_thread_create(&thread.handle, __yo_thread_entry, args);
+  int ret = __yo_thread_create(&thread.handle, __yo_thread_entry, args);
   if (ret != 0) {
     PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d)\\n", ret);
     __yo_free(args);
@@ -164,7 +164,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
 // Wait for thread to complete
 static void __yo_thread_join(__yo_thread_t thread) {
   PARALLELISM_DEBUG("[THREAD] Joining thread\\n");
-  yo_thread_join(thread.handle);
+  __yo_thread_join(thread.handle);
   PARALLELISM_DEBUG("[THREAD] Thread joined\\n");
 }
 
@@ -189,8 +189,8 @@ typedef struct __yo_worker_task_t {
 // Per-worker-thread state
 typedef struct __yo_worker_thread_t {
   YO_THREAD_TYPE handle;                // OS thread handle
-  YO_THREAD_SYNC_TYPE mutex;            // Mutex for task queue
-  YO_COND_TYPE cond;                    // Condition variable for task availability
+  __YO_THREAD_SYNC_TYPE mutex;            // Mutex for task queue
+  __YO_COND_TYPE cond;                    // Condition variable for task availability
   __yo_worker_task_t* queue_head;       // Head of task queue
   __yo_worker_task_t* queue_tail;       // Tail of task queue
   volatile int shutdown;                // Shutdown flag
@@ -221,14 +221,14 @@ ${workerEntrySignature}
     __yo_worker_task_t* task = NULL;
     
     // Wait for a task
-    yo_mutex_lock(&worker->mutex);
+    __yo_mutex_lock(&worker->mutex);
     while (worker->queue_head == NULL && !worker->shutdown) {
-      yo_cond_wait(&worker->cond, &worker->mutex);
+      __yo_cond_wait(&worker->cond, &worker->mutex);
     }
     
     // Check for shutdown
     if (worker->shutdown && worker->queue_head == NULL) {
-      yo_mutex_unlock(&worker->mutex);
+      __yo_mutex_unlock(&worker->mutex);
       break;
     }
     
@@ -240,7 +240,7 @@ ${workerEntrySignature}
         worker->queue_tail = NULL;
       }
     }
-    yo_mutex_unlock(&worker->mutex);
+    __yo_mutex_unlock(&worker->mutex);
     
     // Execute task
     if (task != NULL) {
@@ -281,15 +281,15 @@ static void __yo_worker_pool_init(size_t num_threads) {
   
   for (size_t i = 0; i < num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    yo_mutex_init(&worker->mutex);
-    yo_cond_init(&worker->cond);
+    __yo_mutex_init(&worker->mutex);
+    __yo_cond_init(&worker->cond);
     worker->queue_head = NULL;
     worker->queue_tail = NULL;
     worker->shutdown = 0;
     worker->running = 1;
     worker->started = 0;
     
-    int ret = yo_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
+    int ret = __yo_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
     if (ret != 0) {
       PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
@@ -325,20 +325,20 @@ static void __yo_worker_pool_shutdown(void) {
   // Signal all workers to shutdown
   for (size_t i = 0; i < __yo_worker_num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    yo_mutex_lock(&worker->mutex);
+    __yo_mutex_lock(&worker->mutex);
     worker->shutdown = 1;
-    yo_cond_signal(&worker->cond);
-    yo_mutex_unlock(&worker->mutex);
+    __yo_cond_signal(&worker->cond);
+    __yo_mutex_unlock(&worker->mutex);
   }
   
   // Wait for all workers to finish
   for (size_t i = 0; i < __yo_worker_num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
     if (worker->running) {
-      yo_thread_join(worker->handle);
+      __yo_thread_join(worker->handle);
     }
-    yo_mutex_destroy(&worker->mutex);
-    yo_cond_destroy(&worker->cond);
+    __yo_mutex_destroy(&worker->mutex);
+    __yo_cond_destroy(&worker->cond);
     
     // Free any remaining tasks in queue (shouldn't happen normally)
     __yo_worker_task_t* task = worker->queue_head;
@@ -374,7 +374,7 @@ ${getCpuId}
 // Set the number of worker threads (must be called before first spawn)
 static void __yo_worker_set_num_threads(size_t num) {
   ${initMutexCall}
-  YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   if (!__yo_worker_pool_initialized) {
     // Pool not initialized yet, just set for later
     __yo_worker_num_threads = num;
@@ -382,18 +382,18 @@ static void __yo_worker_set_num_threads(size_t num) {
   } else {
     PARALLELISM_DEBUG("[WORKER] Warning: Cannot change num_threads after pool is initialized\\n");
   }
-  YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
 }
 
 // Get the number of worker threads
 static size_t __yo_worker_get_num_threads(void) {
   ${initMutexCall}
-  YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   size_t num = __yo_worker_num_threads;
   if (num == 0) {
     num = __yo_get_hardware_threads();
   }
-  YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
   return num;
 }
 
@@ -401,7 +401,7 @@ static size_t __yo_worker_get_num_threads(void) {
 // Uses round-robin distribution for thread affinity
 static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
   ${initMutexCall}
-  YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   
   // Initialize pool on first spawn if not already done
   if (!__yo_worker_pool_initialized) {
@@ -416,7 +416,7 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
   size_t thread_idx = __yo_worker_next_thread % __yo_worker_num_threads;
   __yo_worker_next_thread++;
   
-  YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
+  __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
   
   PARALLELISM_DEBUG("[WORKER] Spawning task on worker thread %zu\\n", thread_idx);
   
@@ -428,7 +428,7 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
   
   // Enqueue task to the selected worker's queue
   __yo_worker_thread_t* worker = &__yo_worker_threads[thread_idx];
-  yo_mutex_lock(&worker->mutex);
+  __yo_mutex_lock(&worker->mutex);
   if (worker->queue_tail == NULL) {
     worker->queue_head = task;
     worker->queue_tail = task;
@@ -436,8 +436,8 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
     worker->queue_tail->next = task;
     worker->queue_tail = task;
   }
-  yo_cond_signal(&worker->cond);
-  yo_mutex_unlock(&worker->mutex);
+  __yo_cond_signal(&worker->cond);
+  __yo_mutex_unlock(&worker->mutex);
 }
 `);
 }

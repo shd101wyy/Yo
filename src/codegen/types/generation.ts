@@ -81,15 +81,15 @@ ${debugAsyncAwaitDefine}
 
 // GC mark states for QuickJS-style trial deletion cycle collection
 typedef enum {
-  YO_GC_UNMARKED = 0,      // Object not yet processed
-  YO_GC_CANDIDATE = 1,     // Object is a candidate for cycle collection
-  YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
-  YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
-  YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
+  __YO_GC_UNMARKED = 0,      // Object not yet processed
+  __YO_GC_CANDIDATE = 1,     // Object is a candidate for cycle collection
+  __YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
+  __YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
+  __YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
 } yo_gc_mark_t;
 
 // GC flags
-#define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+#define __YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
 `);
 
   // Thread synchronization — emit only target-specific types and macros
@@ -104,25 +104,25 @@ typedef enum {
 #endif
 #include <windows.h>
 #include <process.h>
-typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
-typedef CONDITION_VARIABLE YO_COND_TYPE;
+typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;
+typedef CONDITION_VARIABLE __YO_COND_TYPE;
 typedef HANDLE YO_THREAD_TYPE;
-#define YO_THREAD_SYNC_INIT {0}
-#define YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
-#define YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
-#define YO_COND_INIT CONDITION_VARIABLE_INIT
-#define yo_mutex_init(m) InitializeCriticalSection(m)
-#define yo_mutex_destroy(m) DeleteCriticalSection(m)
-#define yo_mutex_lock(m) EnterCriticalSection(m)
-#define yo_mutex_unlock(m) LeaveCriticalSection(m)
-#define yo_cond_init(c) InitializeConditionVariable(c)
-#define yo_cond_destroy(c) ((void)0)
-#define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
-#define yo_cond_signal(c) WakeConditionVariable(c)
-#define yo_cond_broadcast(c) WakeAllConditionVariable(c)
-#define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
-#define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
-#define yo_thread_self() ((uintptr_t)GetCurrentThreadId())`);
+#define __YO_THREAD_SYNC_INIT {0}
+#define __YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+#define __YO_COND_INIT CONDITION_VARIABLE_INIT
+#define __yo_mutex_init(m) InitializeCriticalSection(m)
+#define __yo_mutex_destroy(m) DeleteCriticalSection(m)
+#define __yo_mutex_lock(m) EnterCriticalSection(m)
+#define __yo_mutex_unlock(m) LeaveCriticalSection(m)
+#define __yo_cond_init(c) InitializeConditionVariable(c)
+#define __yo_cond_destroy(c) ((void)0)
+#define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+#define __yo_cond_signal(c) WakeConditionVariable(c)
+#define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#define __yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define __yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`);
   } else {
     // POSIX (Linux, macOS, FreeBSD, etc.)
     context.emitter
@@ -136,25 +136,25 @@ ${
 #include <sys/sysctl.h>`
     : ""
 }
-typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
-typedef pthread_cond_t YO_COND_TYPE;
+typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
+typedef pthread_cond_t __YO_COND_TYPE;
 typedef pthread_t YO_THREAD_TYPE;
-#define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
-#define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
-#define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
-#define YO_COND_INIT PTHREAD_COND_INITIALIZER
-#define yo_mutex_init(m) pthread_mutex_init(m, NULL)
-#define yo_mutex_destroy(m) pthread_mutex_destroy(m)
-#define yo_mutex_lock(m) pthread_mutex_lock(m)
-#define yo_mutex_unlock(m) pthread_mutex_unlock(m)
-#define yo_cond_init(c) pthread_cond_init(c, NULL)
-#define yo_cond_destroy(c) pthread_cond_destroy(c)
-#define yo_cond_wait(c, m) pthread_cond_wait(c, m)
-#define yo_cond_signal(c) pthread_cond_signal(c)
-#define yo_cond_broadcast(c) pthread_cond_broadcast(c)
-#define yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
-#define yo_thread_join(t) pthread_join(t, NULL)
-#define yo_thread_self() ((uintptr_t)pthread_self())`);
+#define __YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+#define __YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
+#define __YO_COND_INIT PTHREAD_COND_INITIALIZER
+#define __yo_mutex_init(m) pthread_mutex_init(m, NULL)
+#define __yo_mutex_destroy(m) pthread_mutex_destroy(m)
+#define __yo_mutex_lock(m) pthread_mutex_lock(m)
+#define __yo_mutex_unlock(m) pthread_mutex_unlock(m)
+#define __yo_cond_init(c) pthread_cond_init(c, NULL)
+#define __yo_cond_destroy(c) pthread_cond_destroy(c)
+#define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
+#define __yo_cond_signal(c) pthread_cond_signal(c)
+#define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#define __yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define __yo_thread_join(t) pthread_join(t, NULL)
+#define __yo_thread_self() ((uintptr_t)pthread_self())`);
   }
 
   // Thread handle type and helper functions
@@ -168,25 +168,25 @@ typedef struct __yo_thread_t {
 // Thread callback type for spawn
 typedef void (*__yo_thread_fn)(void* closure);
 
-static YO_THREAD_SYNC_TYPE yo_mutex_create(void);
-static YO_COND_TYPE yo_cond_create(void);
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
+static __YO_COND_TYPE __yo_cond_create(void);
 /**
  * Create and initialize a mutex (stack-allocated value)
- * Returns an initialized mutex that can be used with yo_mutex_lock/unlock
+ * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
  */
-static YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
-  YO_THREAD_SYNC_TYPE mutex;
-  yo_mutex_init(&mutex);
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void) {
+  __YO_THREAD_SYNC_TYPE mutex;
+  __yo_mutex_init(&mutex);
   return mutex;
 }
 
 /**
  * Create and initialize a condition variable (stack-allocated value)
- * Returns an initialized condition variable that can be used with yo_cond_wait/signal/broadcast
+ * Returns an initialized condition variable that can be used with __yo_cond_wait/signal/broadcast
  */
-static YO_COND_TYPE yo_cond_create(void) {
-  YO_COND_TYPE cond;
-  yo_cond_init(&cond);
+static __YO_COND_TYPE __yo_cond_create(void) {
+  __YO_COND_TYPE cond;
+  __yo_cond_init(&cond);
   return cond;
 }
 
@@ -792,7 +792,7 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
 ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
   iso->header.ref_count = 1;
-  iso->header.gc_mark = YO_GC_UNMARKED;
+  iso->header.gc_mark = __YO_GC_UNMARKED;
   iso->header.gc_flags = 0;
   iso->header.dispose_fn = __yo_dispose_iso_${isoTypeName};
   atomic_store(&iso->extracted, false);
@@ -979,7 +979,7 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
 ${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value) {
   ${arcTypeName} arc = (${arcTypeName})__yo_malloc(sizeof(${arcTypeName}_struct));
   arc->header.ref_count = 1;
-  arc->header.gc_mark = YO_GC_UNMARKED;
+  arc->header.gc_mark = __YO_GC_UNMARKED;
   arc->header.gc_flags = 0;
   arc->header.dispose_fn = __yo_dispose_arc_${arcTypeName};
   arc->value = value;

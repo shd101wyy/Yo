@@ -30,18 +30,18 @@ import type { FunctionGenerationContext } from "./context";
 // We must NOT emit `extern` declarations for these — the preprocessor would expand
 // the macro name, creating conflicting declarations with the real pthread functions.
 const THREADING_MACRO_FUNCTIONS = new Set([
-  "yo_mutex_init",
-  "yo_mutex_destroy",
-  "yo_mutex_lock",
-  "yo_mutex_unlock",
-  "yo_cond_init",
-  "yo_cond_destroy",
-  "yo_cond_wait",
-  "yo_cond_signal",
-  "yo_cond_broadcast",
-  "yo_thread_create",
-  "yo_thread_join",
-  "yo_thread_self",
+  "__yo_mutex_init",
+  "__yo_mutex_destroy",
+  "__yo_mutex_lock",
+  "__yo_mutex_unlock",
+  "__yo_cond_init",
+  "__yo_cond_destroy",
+  "__yo_cond_wait",
+  "__yo_cond_signal",
+  "__yo_cond_broadcast",
+  "__yo_thread_create",
+  "__yo_thread_join",
+  "__yo_thread_self",
 ]);
 
 /**
@@ -562,7 +562,7 @@ export function generateObjectConstructorDeclarations(
     `static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
   );
   emitter.emitDeclarationLine(
-    `static void yo_init_process_cleanup(void); // Initialize process cleanup`
+    `static void __yo_init_process_cleanup(void); // Initialize process cleanup`
   );
 
   // Generate constructor declarations for each object

@@ -977,7 +977,7 @@ function generateAsyncBlockConstructor(
     `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`
   );
   emitter.emitLine(`  sm->header.gc_flags = 0;`);
-  emitter.emitLine(`  sm->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`  sm->header.gc_mark = __YO_GC_UNMARKED;`);
   emitter.emitLine(`  sm->header.gc_next = NULL;`);
   emitter.emitLine(`  sm->header.gc_prev = NULL;`);
   emitter.emitLine(
@@ -1581,7 +1581,7 @@ export function generateIoAsyncSyncCall(
   emitter.emitLine(`${indent}memset(${resultVar}, 0, sizeof(${structName}));`);
   emitter.emitLine(`${indent}${resultVar}->header.ref_count = 1;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = __YO_GC_UNMARKED;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
   emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
   emitter.emitLine(

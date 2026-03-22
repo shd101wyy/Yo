@@ -96,7 +96,7 @@ export function generateDynBoxFunctions(
     );
     emitter.emitLine(`  box->header.ref_count = 1;`);
     emitter.emitLine(`  box->header.gc_flags = 0;`);
-    emitter.emitLine(`  box->header.gc_mark = YO_GC_UNMARKED;`);
+    emitter.emitLine(`  box->header.gc_mark = __YO_GC_UNMARKED;`);
     emitter.emitLine(`  box->header.gc_next = NULL;`);
     emitter.emitLine(`  box->header.gc_prev = NULL;`);
     emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
