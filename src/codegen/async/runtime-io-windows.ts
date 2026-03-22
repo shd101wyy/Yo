@@ -3043,6 +3043,7 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
   }
 
   SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  __yo_win_associate_handle((HANDLE)s);
   yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
   memset(ov, 0, sizeof(yo_win_overlapped_t));
   ov->future = future;
@@ -3082,6 +3083,7 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
   }
 
   SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  __yo_win_associate_handle((HANDLE)s);
   yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
   memset(ov, 0, sizeof(yo_win_overlapped_t));
   ov->future = future;
