@@ -376,8 +376,8 @@ All `yo_async_*` identifiers renamed to `__yo_async_*` for consistency with othe
 6. `af57b323` — Refactor: extract non-async sys helpers
 7. `29763eae` — Extract platform sync helpers + restore conditional usesAsync detection
 8. `66e3fa69` — Fix: Windows sync helpers use lightweight WSA init
-9. `81746ed3` — Fix: remove duplicate yo_win_stat_t from async section
+9. `81746ed3` — Fix: remove duplicate \_\_yo_win_stat_t from async section
 10. `7f8253b4` — Fix: move Windows signal operations to sync section
 11. `32fd7f76` — Fix: move Windows TTY operations to sync section
-12. `742c8af5` — Rename yo*async*_ to \_*yo_async*_ for consistent naming
+12. `742c8af5` — Rename `yo_async_*` to `__yo_async_*` for consistent naming
 13. `cd66e94c` — Fix: associate sockets with IOCP in async send/recv on Windows

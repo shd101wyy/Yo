@@ -75,7 +75,7 @@ export function generateDynCall(
 
   // Create a unique key for this impl combination
   const dynTypeCName =
-    context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
+    context.types[dynType.id]?.cName || `__yo_dyn_${dynType.id}`;
   // For boxed closures, concreteType is often `Impl(Fn(...))` which is a `SomeType`.
   // Prefer the corresponding FnTraitType's C name so generated symbols are stable.
   const concreteTypeCName = (() => {
@@ -156,7 +156,7 @@ export function generateDynCall(
   }
 
   // Generate: Dyn value = { .data = valueCode, .vtable = &vtable }
-  const vtableName = `yo_vtable_${implKey}`;
+  const vtableName = `__yo_vtable_${implKey}`;
   if (smFieldRef) {
     context.emitter.emitLine(`${indent}${smFieldRef} = (${dynTypeCName}){`);
     context.emitter.emitLine(`${indent}  .data = ${valueCode},`);

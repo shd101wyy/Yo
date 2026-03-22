@@ -756,7 +756,7 @@ export function getTypeString(
       const childTypeCName = getTypeString(childType, context);
 
       // Create a clean type name without pointer symbols
-      // For Box(i32) which is yo_struct_id31868*, we want Iso_yo_struct_id31868
+      // For Box(i32) which is __yo_struct_id31868*, we want Iso___yo_struct_id31868
       const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
       const isoTypeName = `Iso_${sanitizeForCIdentifier(cleanChildTypeName)}`;
 

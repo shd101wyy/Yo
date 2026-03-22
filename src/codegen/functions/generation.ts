@@ -934,11 +934,11 @@ export function generateFunctionBody(
           /// emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
           /// emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
           /// emitter.emitLine(
-          ///   `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+          ///   `${indent}_yo_future->header.dispose_fn = __yo_future_dispose;`
           /// );
           /// emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
           /// emitter.emitLine(
-          ///   `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
+          ///   `${indent}atomic_store_explicit(&_yo_future->state, __YO_FUTURE_COMPLETED, memory_order_relaxed);`
           /// );
           /// emitter.emitLine(
           ///   `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`

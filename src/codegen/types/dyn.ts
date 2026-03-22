@@ -207,7 +207,7 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
     const concreteTypeCName =
       context.types[resolvedConcreteType.id]?.cName ||
       `unknown_${resolvedConcreteType.id}`;
-    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+    const boxTypeName = `__yo_dyn_box_${concreteTypeCName}`;
 
     // Skip if already generated (multiple dyn() calls with same type)
     if (generatedBoxTypes.has(boxTypeName)) {

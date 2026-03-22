@@ -527,7 +527,7 @@ Each thread has its own event loop via thread-local storage:
 
 ```c
 // Thread-local async runtime state
-static __thread yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
+static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
 ```
 
 This means:
@@ -581,17 +581,17 @@ Since all async code runs on one thread:
 
 ```c
 // Non-atomic RC (single-threaded)
-struct yo_ref_header {
+struct __yo_ref_header {
   size_t ref_count;  // Simple size_t, not atomic!
 };
 
 // Increment - no atomics!
-static inline void yo_rc_inc(yo_ref_header_t* header) {
+static inline void yo_rc_inc(__yo_ref_header_t* header) {
   header->ref_count++;
 }
 
 // Decrement - no atomics!
-static inline bool yo_rc_dec(yo_ref_header_t* header) {
+static inline bool yo_rc_dec(__yo_ref_header_t* header) {
   return --header->ref_count == 0;
 }
 ```
@@ -635,11 +635,11 @@ export main;
 
 **Implementation Details:**
 
-The state machine struct includes a `yo_ref_header_t` as its first field:
+The state machine struct includes a `__yo_ref_header_t` as its first field:
 
 ```c
 struct async_block_state_t {
-  yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
+  __yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
   int state;
   // ... other fields ...
 };
@@ -673,7 +673,7 @@ future->__yo_resume_fn(future);  // Runs until first yield/await
 
 // 3. Event loop — runs ready tasks
 while (not_complete) {
-  yo_async_run_ready_tasks();  // Resumes queued tasks
+  __yo_async_run_ready_tasks();  // Resumes queued tasks
 }
 
 // 4. Completion
@@ -697,7 +697,7 @@ This is **not** static dispatch (where the concrete type is known and stack-allo
    - The event loop queues continuations as `(resume_fn, state_machine_ptr)` pairs — stable addresses are required
    - Multiple references (user code + event loop) can exist simultaneously
 
-2. **Reference counting**: Each state machine has a `yo_ref_header_t` as its first field. The RC is non-atomic because all async code runs on a single thread. The typical lifecycle is:
+2. **Reference counting**: Each state machine has a `__yo_ref_header_t` as its first field. The RC is non-atomic because all async code runs on a single thread. The typical lifecycle is:
 
    - Creation: `refcount = 1` (user owns)
    - Start (await/spawn): `refcount = 2` (user + event loop)

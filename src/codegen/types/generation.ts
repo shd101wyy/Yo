@@ -36,16 +36,16 @@ import {
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Always generate atomic reference counter header for objects and ref enums
   const debugGcDefine = context.debugGc
-    ? "#define YO_DEBUG_GC 1"
-    : "// #define YO_DEBUG_GC 1";
+    ? "#define __YO_DEBUG_GC 1"
+    : "// #define __YO_DEBUG_GC 1";
 
   const debugParallelismDefine = context.debugParallelism
-    ? "#define YO_DEBUG_PARALLELISM 1"
-    : "// #define YO_DEBUG_PARALLELISM 1";
+    ? "#define __YO_DEBUG_PARALLELISM 1"
+    : "// #define __YO_DEBUG_PARALLELISM 1";
 
   const debugAsyncAwaitDefine = context.debugAsyncAwait
-    ? "#define YO_DEBUG_ASYNC_AWAIT 1"
-    : "// #define YO_DEBUG_ASYNC_AWAIT 1";
+    ? "#define __YO_DEBUG_ASYNC_AWAIT 1"
+    : "// #define __YO_DEBUG_ASYNC_AWAIT 1";
 
   context.emitter
     .emitDeclarationLine(`// Non-atomic Reference Counting with Thread-Local Cycle Collection
@@ -55,7 +55,7 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
 // Debug flag for GC operations - use --debug-gc flag to enable
 ${debugGcDefine}
 
-#ifdef YO_DEBUG_GC
+#ifdef __YO_DEBUG_GC
   #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
 #else
   #define GC_DEBUG(...)
@@ -64,7 +64,7 @@ ${debugGcDefine}
 // Debug flag for parallelism operations - use --debug-parallelism flag to enable
 ${debugParallelismDefine}
 
-#ifdef YO_DEBUG_PARALLELISM
+#ifdef __YO_DEBUG_PARALLELISM
   #define PARALLELISM_DEBUG(...) fprintf(stderr, __VA_ARGS__)
 #else
   #define PARALLELISM_DEBUG(...)
@@ -73,7 +73,7 @@ ${debugParallelismDefine}
 // Debug flag for async/await operations - use --debug-async-await flag to enable
 ${debugAsyncAwaitDefine}
 
-#ifdef YO_DEBUG_ASYNC_AWAIT
+#ifdef __YO_DEBUG_ASYNC_AWAIT
   #define ASYNC_DEBUG(...) fprintf(stderr, "ASYNC: " __VA_ARGS__)
 #else
   #define ASYNC_DEBUG(...)
@@ -106,7 +106,7 @@ typedef enum {
 #include <process.h>
 typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;
 typedef CONDITION_VARIABLE __YO_COND_TYPE;
-typedef HANDLE YO_THREAD_TYPE;
+typedef HANDLE __YO_THREAD_TYPE;
 #define __YO_THREAD_SYNC_INIT {0}
 #define __YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
 #define __YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
@@ -138,7 +138,7 @@ ${
 }
 typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
 typedef pthread_cond_t __YO_COND_TYPE;
-typedef pthread_t YO_THREAD_TYPE;
+typedef pthread_t __YO_THREAD_TYPE;
 #define __YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
 #define __YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
 #define __YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
@@ -162,7 +162,7 @@ typedef pthread_t YO_THREAD_TYPE;
 // Thread handle type for parallelism - value type, stack allocated
 // Contains the OS thread handle (pthread_t or HANDLE)
 typedef struct __yo_thread_t {
-  YO_THREAD_TYPE handle;
+  __YO_THREAD_TYPE handle;
 } __yo_thread_t;
 
 // Thread callback type for spawn

@@ -35,17 +35,17 @@ Gc.collect();
 **Fix:** Replace the simple restore visitor with a recursive scan visitor that promotes GARBAGE children to LIVE and recursively scans their children:
 
 ```c
-static void yo_gc_scan_restore(void* ptr) {
+static void __yo_gc_scan_restore(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  if (!(header->gc_flags & YO_GC_TRACKED)) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
 
   header->ref_count++;  // Restore trial-deleted edge
 
-  if (header->gc_mark == YO_GC_GARBAGE) {
-    header->gc_mark = YO_GC_UNMARKED;  // Promote + mark scanned
+  if (header->gc_mark == __YO_GC_GARBAGE) {
+    header->gc_mark = __YO_GC_UNMARKED;  // Promote + mark scanned
     if (header->traverse_fn) {
-      header->traverse_fn(ptr, yo_gc_scan_restore);
+      header->traverse_fn(ptr, __yo_gc_scan_restore);
     }
   }
 }
@@ -56,10 +56,10 @@ And change the Phase 3 loop to only process initially-LIVE roots, marking them U
 ```c
 obj = head;
 while (obj != NULL) {
-  if (obj->gc_mark == YO_GC_LIVE) {
-    obj->gc_mark = YO_GC_UNMARKED;  // Mark scanned
+  if (obj->gc_mark == __YO_GC_LIVE) {
+    obj->gc_mark = __YO_GC_UNMARKED;  // Mark scanned
     if (obj->traverse_fn) {
-      obj->traverse_fn(obj, yo_gc_scan_restore);
+      obj->traverse_fn(obj, __yo_gc_scan_restore);
     }
   }
   obj = obj->gc_next;
@@ -92,15 +92,15 @@ Phase 4a: B.dispose → __yo_decr_rc(A) → A.RC = 2 - 1 = 1
 Expected: A.RC = 3 - 1 (only B removed) = 2  ← Off by 1!
 ```
 
-**Fix:** Add a thread-local `yo_gc_collecting` flag. During GC collection (Phase 4a/4b), `__yo_decr_rc` skips ALL tracked objects:
+**Fix:** Add a thread-local `__yo_gc_collecting` flag. During GC collection (Phase 4a/4b), `__yo_decr_rc` skips ALL tracked objects:
 
 ```c
-static _Thread_local int yo_gc_collecting = 0;
+static _Thread_local int __yo_gc_collecting = 0;
 
 void __yo_decr_rc(void* ptr) {
   ...
   // During GC, skip all tracked objects — GC handles their lifecycle
-  if (yo_gc_collecting && (header->gc_flags & YO_GC_TRACKED)) {
+  if (__yo_gc_collecting && (header->gc_flags & __YO_GC_TRACKED)) {
     return;
   }
   ...
@@ -112,7 +112,7 @@ Non-tracked RC children are still properly released by dispose (they weren't tri
 Also add re-entrance protection to `__yo_gc_register` to prevent recursive GC during dispose:
 
 ```c
-if (!yo_gc_collecting && tracked_count >= threshold) {
+if (!__yo_gc_collecting && tracked_count >= threshold) {
   __yo_gc_collect();
 }
 ```
@@ -166,13 +166,13 @@ If a field is a value-type struct/tuple containing RC objects, or an enum varian
 
 ## Status
 
-| Bug   | Severity | Status       | Fix                                                                        |
-| ----- | -------- | ------------ | -------------------------------------------------------------------------- |
-| Bug 1 | CRITICAL | **FIXED**    | Recursive `yo_gc_scan_restore_visitor` promotes GARBAGE children to LIVE   |
-| Bug 2 | CRITICAL | **FIXED**    | `yo_gc_collecting` flag skips `__yo_decr_rc` for tracked objects during GC |
-| Bug 3 | MEDIUM   | **FIXED**    | Enum variant traversal visits ALL RC fields, not just the first            |
-| Bug 4 | LOW      | **FIXED**    | Uses `getEnumVariantCName()` instead of manual string construction         |
-| Bug 5 | LOW      | **DEFERRED** | Requires coordinated changes in cycle detection + traversal                |
+| Bug   | Severity | Status       | Fix                                                                          |
+| ----- | -------- | ------------ | ---------------------------------------------------------------------------- |
+| Bug 1 | CRITICAL | **FIXED**    | Recursive `__yo_gc_scan_restore_visitor` promotes GARBAGE children to LIVE   |
+| Bug 2 | CRITICAL | **FIXED**    | `__yo_gc_collecting` flag skips `__yo_decr_rc` for tracked objects during GC |
+| Bug 3 | MEDIUM   | **FIXED**    | Enum variant traversal visits ALL RC fields, not just the first              |
+| Bug 4 | LOW      | **FIXED**    | Uses `getEnumVariantCName()` instead of manual string construction           |
+| Bug 5 | LOW      | **DEFERRED** | Requires coordinated changes in cycle detection + traversal                  |
 
 All fixes verified with 11 tests (including regression tests for Bugs 1-4) passing with AddressSanitizer.
 

@@ -534,7 +534,7 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 
 // Try to include liburing.h - if not available, disable I/O features
 #if __has_include(<liburing.h>)
-#define YO_HAS_LIBURING 1
+#define __YO_HAS_LIBURING 1
 #include <liburing.h>
 #include <errno.h>
 #include <sys/socket.h>
@@ -1386,7 +1386,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   return future;
 }
 
-#else // !YO_HAS_LIBURING
+#else // !__YO_HAS_LIBURING
 
 #include <time.h>
 
@@ -1593,7 +1593,7 @@ static inline void* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, i
   return NULL;
 }
 
-#endif // YO_HAS_LIBURING
+#endif // __YO_HAS_LIBURING
 
 `);
 }

@@ -6,8 +6,8 @@ import { getTypeString, sanitizeForCIdentifier } from "../utils";
 /**
  * Generate code for `typeid(T)`.
  *
- * Each unique type gets a `static const char yo_typeid_XXX = 0;` declaration.
- * The expression evaluates to `(uintptr_t)&yo_typeid_XXX`.
+ * Each unique type gets a `static const char __yo_typeid_XXX = 0;` declaration.
+ * The expression evaluates to `(uintptr_t)&__yo_typeid_XXX`.
  */
 export function generateTypeId(
   expr: FnCallExpr,
@@ -26,7 +26,7 @@ export function generateTypeId(
   // Use raw cName (without * for reference types) to match vtable typeid naming
   const typeCName =
     context.types[typeId]?.cName || getTypeString(type, context);
-  const staticVarName = `yo_typeid_${sanitizeForCIdentifier(typeCName)}`;
+  const staticVarName = `__yo_typeid_${sanitizeForCIdentifier(typeCName)}`;
 
   // Register the static declaration if not already registered
   if (!context.typeIdStatics) {

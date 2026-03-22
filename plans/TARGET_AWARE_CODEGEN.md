@@ -31,18 +31,18 @@ The evaluator **already eliminates dead branches** in `cond(platform == Platform
 
 The C runtime (async I/O, threading, GC, parallelism) is emitted as **hardcoded template strings** containing all platform variants with C preprocessor guards. This is where the bloat lives:
 
-| File                                      | Lines | What it protects                                |
-| ----------------------------------------- | ----- | ----------------------------------------------- |
-| `src/codegen/async/runtime-io-windows.ts` | 4,091 | IOCP async I/O (Windows only)                   |
-| `src/codegen/async/runtime-io-linux.ts`   | 1,761 | io_uring async I/O (Linux only)                 |
-| `src/codegen/async/runtime-io-macos.ts`   | 1,713 | kqueue async I/O (macOS only)                   |
-| `src/codegen/async/runtime-io-common.ts`  | 1,475 | POSIX file ops + cross-platform helpers         |
-| `src/codegen/types/generation.ts`         | 1,330 | Thread sync types (`YO_THREAD_SYNC_TYPE`, etc.) |
-| `src/codegen/functions/generation.ts`     | 1,888 | GC thread cleanup infrastructure                |
-| `src/codegen/async/runtime-core.ts`       | 372   | Event loop core (platform-specific init)        |
-| `src/codegen/parallelism/runtime.ts`      | 443   | Worker threads, CPU detection                   |
-| `src/codegen/c/collection.ts`             | 107   | Platform-specific `#include` headers            |
-| `src/codegen/exprs/inline-fns.ts`         | 227   | Inline platform functions (e.g., sleep)         |
+| File                                      | Lines | What it protects                                  |
+| ----------------------------------------- | ----- | ------------------------------------------------- |
+| `src/codegen/async/runtime-io-windows.ts` | 4,091 | IOCP async I/O (Windows only)                     |
+| `src/codegen/async/runtime-io-linux.ts`   | 1,761 | io_uring async I/O (Linux only)                   |
+| `src/codegen/async/runtime-io-macos.ts`   | 1,713 | kqueue async I/O (macOS only)                     |
+| `src/codegen/async/runtime-io-common.ts`  | 1,475 | POSIX file ops + cross-platform helpers           |
+| `src/codegen/types/generation.ts`         | 1,330 | Thread sync types (`__YO_THREAD_SYNC_TYPE`, etc.) |
+| `src/codegen/functions/generation.ts`     | 1,888 | GC thread cleanup infrastructure                  |
+| `src/codegen/async/runtime-core.ts`       | 372   | Event loop core (platform-specific init)          |
+| `src/codegen/parallelism/runtime.ts`      | 443   | Worker threads, CPU detection                     |
+| `src/codegen/c/collection.ts`             | 107   | Platform-specific `#include` headers              |
+| `src/codegen/exprs/inline-fns.ts`         | 227   | Inline platform functions (e.g., sleep)           |
 
 ### Classification of C macro usage patterns
 
@@ -65,7 +65,7 @@ The C runtime (async I/O, threading, GC, parallelism) is emitted as **hardcoded 
 
 **Pattern C — Abstraction layer macros** (most complex):
 
-- `types/generation.ts`: Defines `YO_THREAD_SYNC_TYPE`, `YO_COND_TYPE`, `yo_mutex_init`, `yo_cond_wait`, etc. as C macros that abstract over Windows CRITICAL_SECTION vs pthread_mutex_t
+- `types/generation.ts`: Defines `__YO_THREAD_SYNC_TYPE`, `__YO_COND_TYPE`, `__yo_mutex_init`, `__yo_cond_wait`, etc. as C macros that abstract over Windows CRITICAL_SECTION vs pthread_mutex_t
 
 → **Migration**: Replace C macro abstraction with direct types/calls for the target platform.
 
@@ -73,7 +73,7 @@ The C runtime (async I/O, threading, GC, parallelism) is emitted as **hardcoded 
 
 - `__has_include(<mimalloc.h>)` — genuine capability probe, not target-dependent
 - `_DIRENT_HAVE_D_TYPE` — optional struct member detection
-- `YO_DEBUG_GC`, `YO_DEBUG_PARALLELISM`, `YO_DEBUG_ASYNC_AWAIT` — debug flags
+- `__YO_DEBUG_GC`, `__YO_DEBUG_PARALLELISM`, `__YO_DEBUG_ASYNC_AWAIT` — debug flags
 
 → **No migration needed**. These are not platform macros.
 
@@ -153,18 +153,18 @@ function emitFileExtraOps(emitter: Emitter, targetInfo: TargetInfo): void {
 Replace the C macro abstraction layer with direct platform-specific types:
 
 ```typescript
-// Before: Emits YO_THREAD_SYNC_TYPE macro that resolves via C preprocessor
+// Before: Emits __YO_THREAD_SYNC_TYPE macro that resolves via C preprocessor
 // After: Directly emit the concrete type
 
 if (isTargetWindows(targetInfo)) {
-  emitter.emitLine(`typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;`);
+  emitter.emitLine(`typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;`);
   // ... or just use CRITICAL_SECTION directly everywhere
 } else {
-  emitter.emitLine(`typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;`);
+  emitter.emitLine(`typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;`);
 }
 ```
 
-Or better: eliminate the abstraction macros entirely and emit platform-specific code directly. This would require updating all sites that use `YO_THREAD_SYNC_*` macros to use the concrete APIs.
+Or better: eliminate the abstraction macros entirely and emit platform-specific code directly. This would require updating all sites that use `__YO_THREAD_SYNC_*` macros to use the concrete APIs.
 
 ### Phase 4: Platform-specific includes
 
@@ -208,13 +208,13 @@ if (isTargetWindows(targetInfo)) {
 - **Skip** thread cleanup infrastructure
 - **Keep** core data structures (ref counting, RC header, GC cycle collector — these work without threads)
 
-For the **thread sync abstraction macros** (`YO_THREAD_SYNC_TYPE`, etc.), wasm32 should get **no-op stubs**:
+For the **thread sync abstraction macros** (`__YO_THREAD_SYNC_TYPE`, etc.), wasm32 should get **no-op stubs**:
 
 ```c
 // WASM: No threads, no sync needed
-typedef int YO_THREAD_SYNC_TYPE;  // dummy
-#define YO_THREAD_SYNC_LOCK(m) ((void)0)
-#define YO_THREAD_SYNC_UNLOCK(m) ((void)0)
+typedef int __YO_THREAD_SYNC_TYPE;  // dummy
+#define __YO_THREAD_SYNC_LOCK(m) ((void)0)
+#define __YO_THREAD_SYNC_UNLOCK(m) ((void)0)
 ```
 
 This is actually **more correct** than the current approach, where the C compiler would fail to compile if it tried to use pthread or Windows thread APIs on wasm32.
@@ -243,7 +243,7 @@ Refactoring interleaved blocks requires splitting template strings but is straig
 
 Replacing the thread abstraction macros touches ~10 macro definitions and ~50+ usage sites across the runtime. This is the most invasive change but also the cleanest — it eliminates an entire layer of indirection.
 
-**Alternative**: Keep the `YO_THREAD_SYNC_*` macros but emit only the target's definitions. This is simpler and achieves 90% of the benefit.
+**Alternative**: Keep the `__YO_THREAD_SYNC_*` macros but emit only the target's definitions. This is simpler and achieves 90% of the benefit.
 
 ### ✅ Trivial (Phase 4)
 
@@ -253,12 +253,12 @@ Platform-specific includes are already partially conditional in `c/collection.ts
 
 Some C preprocessor usage is **not** platform detection and should remain:
 
-| Macro                                                           | Reason to keep                                                                                                             |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `__has_include(<mimalloc.h>)`                                   | Capability probe — mimalloc may or may not be installed                                                                    |
-| `YO_DEBUG_GC` / `YO_DEBUG_PARALLELISM` / `YO_DEBUG_ASYNC_AWAIT` | Debug flags controlled by Yo CLI flags, not platform                                                                       |
-| `IORING_OP_FTRUNCATE`                                           | Feature probe for newer io_uring ops (kernel version dependent)                                                            |
-| `#ifndef` guards for POSIX constants on Windows                 | Only relevant when targeting Windows — but in Phase 1+ these entire blocks won't be emitted for non-Windows targets anyway |
+| Macro                                                                 | Reason to keep                                                                                                             |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `__has_include(<mimalloc.h>)`                                         | Capability probe — mimalloc may or may not be installed                                                                    |
+| `__YO_DEBUG_GC` / `__YO_DEBUG_PARALLELISM` / `__YO_DEBUG_ASYNC_AWAIT` | Debug flags controlled by Yo CLI flags, not platform                                                                       |
+| `IORING_OP_FTRUNCATE`                                                 | Feature probe for newer io_uring ops (kernel version dependent)                                                            |
+| `#ifndef` guards for POSIX constants on Windows                       | Only relevant when targeting Windows — but in Phase 1+ these entire blocks won't be emitted for non-Windows targets anyway |
 
 ## Implementation Order
 
@@ -324,7 +324,7 @@ All 4 phases completed. Verified with 203 tests (98 async_await + 57 algebraic_e
 | Preprocessor directives | 264    | 9     | −96.6% |
 | Platform `#if`/`#ifdef` | 264    | 0     | −100%  |
 
-The 9 remaining preprocessor directives are debug feature flags (`YO_DEBUG_GC`, `YO_DEBUG_PARALLELISM`, `YO_DEBUG_ASYNC_AWAIT`) — these are intentional, not platform detection.
+The 9 remaining preprocessor directives are debug feature flags (`__YO_DEBUG_GC`, `__YO_DEBUG_PARALLELISM`, `__YO_DEBUG_ASYNC_AWAIT`) — these are intentional, not platform detection.
 
 ### Files modified
 

@@ -145,7 +145,7 @@ The evaluator treats Arc values identically to object values for ownership track
 ```c
 // Arc struct — same as Iso but without the `extracted` flag
 typedef struct {
-  yo_ref_header_t header;   // ref_count (used atomically), gc_mark, gc_flags, dispose_fn
+  __yo_ref_header_t header;   // ref_count (used atomically), gc_mark, gc_flags, dispose_fn
   ChildType value;           // Inner value
 } Arc_T_struct;
 typedef Arc_T_struct* Arc_T;
@@ -157,7 +157,7 @@ typedef Arc_T_struct* Arc_T;
 Arc_T __yo_create_arc_Arc_T(ChildType value) {
   Arc_T arc = (Arc_T)__yo_malloc(sizeof(Arc_T_struct));
   arc->header.ref_count = 1;
-  arc->header.gc_mark = YO_GC_UNMARKED;
+  arc->header.gc_mark = __YO_GC_UNMARKED;
   arc->header.gc_flags = 0;
   arc->header.dispose_fn = __yo_dispose_arc_Arc_T;
   arc->value = value;

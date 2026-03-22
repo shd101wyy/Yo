@@ -604,7 +604,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
   if (y == 0) {
     __yo_effect_escaped = 0;
     // Cast void* to concrete fn ptr type at call site
-    int32_t result = ((int32_t(*)(yo_string, int32_t))throw)(msg, 0);
+    int32_t result = ((int32_t(*)(__yo_string, int32_t))throw)(msg, 0);
     if (__yo_effect_escaped) return 0;
     return result;
   }

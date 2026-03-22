@@ -56,7 +56,7 @@ std/sys/
 ├── fallocate.yo    — fallocate (pre-allocate file space)
 ├── fcntl.yo        — getfl/setfl/getfd/setfd (file descriptor flags)
 ├── file.yo         — Async + sync file ops (openat, read, write, stat, fsync, etc.)
-├── future.yo       — IOFuture extern type wrapping yo_io_future_t
+├── future.yo       — IOFuture extern type wrapping __yo_io_future_t
 ├── iov.yo          — readv/writev/preadv/pwritev + iovec helpers
 ├── lock.yo         — flock advisory locking
 ├── mmap.yo         — mmap, munmap, mprotect, msync
@@ -71,7 +71,7 @@ std/sys/
 ├── socketpair.yo   — Connected socket pair
 ├── sockinfo.yo     — getsockname, getpeername, getsockopt, setsockopt
 ├── statfs.yo       — statfs + accessors (sync)
-├── statx.yo        — File metadata accessor object (wraps yo_statx_t)
+├── statx.yo        — File metadata accessor object (wraps __yo_statx_t)
 ├── sysinfo.yo      — uname, gethostname
 ├── tcp.yo          — Socket, bind, listen, accept, connect, send, recv, close
 ├── temp.yo         — mkdtemp, mkstemp
@@ -105,7 +105,7 @@ timer  :: import "std/sys/timer";
 | Signals          | `signals.yo`    | ✅ Complete | Platform-aware POSIX signal numbers                      |
 | Events           | `events.yo`     | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers           |
 | IOError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
-| IOFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `yo_io_future_t`                    |
+| IOFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `__yo_io_future_t`                  |
 | Externs          | `externs.yo`    | ✅ Complete | All C extern function declarations                       |
 | Statx            | `statx.yo`      | ✅ Complete | File metadata accessor object                            |
 | Timer            | `timer.yo`      | ✅ Complete | `sleep(ms)`                                              |
@@ -185,7 +185,7 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | **Event loop integration**  | ✅                    | ✅                     | ✅ (IOCP)                                             |
 | **File read/write**         | ✅                    | ✅                     | ✅ (IOCP)                                             |
 | **File open/close**         | ✅                    | ✅                     | ✅ (sync wrappers)                                    |
-| **Stat**                    | ✅ (statx)            | ✅ (struct stat)       | ✅ (yo_win_stat_t + FILETIME 100ns precision)         |
+| **Stat**                    | ✅ (statx)            | ✅ (struct stat)       | ✅ (\_\_yo_win_stat_t + FILETIME 100ns precision)     |
 | **mkdir/unlink/rename**     | ✅                    | ✅ (sync wrappers)     | ✅ (sync wrappers)                                    |
 | **symlink/link**            | ✅                    | ✅ (sync wrappers)     | ✅ (CreateSymbolicLinkW/CreateHardLinkW)              |
 | **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)     | ✅ (`_commit`)                                        |
@@ -437,7 +437,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 - **Windows `_waccess` does not support `X_OK`**: X_OK is stripped before calling `_waccess` (Windows has no executable bit).
 - **Windows `fchown(-1,-1)` returned `-ENOSYS`**: Now returns 0 for no-change sentinels.
 - **Windows `futime` failed on read-only fd**: Now reopens the file path with `FILE_WRITE_ATTRIBUTES` via `GetFinalPathNameByHandleW`.
-- **Windows statx nanosecond timestamps always 0**: Introduced `yo_win_stat_t` with nsec fields from `GetFileAttributesExW` (100 ns FILETIME precision, including birth time).
+- **Windows statx nanosecond timestamps always 0**: Introduced `__yo_win_stat_t` with nsec fields from `GetFileAttributesExW` (100 ns FILETIME precision, including birth time).
 - **Windows Win32 error codes not mapped to POSIX errno**: Added proper mapping in `__yo_win_last_error_to_errno` (e.g., `ERROR_FILE_NOT_FOUND` → `ENOENT`).
 - **Path test canonicalization on macOS (`/tmp` vs `/private/tmp`)**: `tests/io/path.test.yo` now compares `realpath(input)` with `realpath(expected_target)`.
 - **macOS FS event directory modification/delete detection**: Added snapshot-based diffing for directory watches alongside kqueue flags, reporting `FS_EVENT_CHANGE` for content updates and `FS_EVENT_RENAME` for create/delete.

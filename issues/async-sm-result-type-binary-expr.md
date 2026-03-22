@@ -42,7 +42,7 @@ export main;
 
 ```c
 struct _state_t_struct {
-  yo_ref_header_t header;
+  __yo_ref_header_t header;
   int state;
   void* result;    // ← BUG: should be int32_t
   ...

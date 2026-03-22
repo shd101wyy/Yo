@@ -20,7 +20,7 @@ function. The SM resume function is generated with `throw` as a bare identifier:
 // Generated — WRONG: `throw` is not declared in this scope
 int32_t fn_check_resume(fn_check_sm* sm) {
   ...
-  int32_t result = ((int32_t (*)(yo_dyn))throw)(error);  // ← 'throw' undeclared!
+  int32_t result = ((int32_t (*)(__yo_dyn))throw)(error);  // ← 'throw' undeclared!
   ...
 }
 ```
@@ -61,7 +61,7 @@ receive or access that function pointer.
 When `exn.throw(error)` is written **directly** in the `io.async` body, it compiles to:
 
 ```c
-((int32_t (*)(yo_dyn))sm->__capture.throw)(error);
+((int32_t (*)(__yo_dyn))sm->__capture.throw)(error);
 ```
 
 This works because the async SM knows about `__capture.throw`. But `IOError.check` is a
@@ -193,25 +193,25 @@ Examples:
 
 ```c
 // IOError.check with evidence passing:
-int32_t fn_check(int32_t result, void (*throw)(yo_dyn)) {
+int32_t fn_check(int32_t result, void (*throw)(__yo_dyn)) {
   if (result >= 0) return result;
-  yo_dyn err = make_io_error(0 - result);
+  __yo_dyn err = make_io_error(0 - result);
   throw(err);           // Never returns — handler called escape()
   __builtin_unreachable();
 }
 
 // Call site in async SM:
-int32_t fd = fn_check(result, (void (*)(yo_dyn))sm->__capture.throw);
+int32_t fd = fn_check(result, (void (*)(__yo_dyn))sm->__capture.throw);
 
 // Call site in sync context:
-int32_t fd = fn_check(result, (void (*)(yo_dyn))fn_my_throw_handler);
+int32_t fd = fn_check(result, (void (*)(__yo_dyn))fn_my_throw_handler);
 ```
 
 **Resumable handlers:**
 
 ```c
 // Function with resumable exception:
-int32_t fn_safe_divide(int32_t x, int32_t y, int32_t (*throw)(yo_dyn)) {
+int32_t fn_safe_divide(int32_t x, int32_t y, int32_t (*throw)(__yo_dyn)) {
   if (y == 0) {
     int32_t resume_val = throw(make_error("div by zero"));  // Returns resume value
     return resume_val;
@@ -230,7 +230,7 @@ with the same generated code.
 // write_file calls IOError.check — forwards the throw pointer:
 void write_file_resume(write_file_sm* sm) {
   ...
-  int32_t fd = fn_check(result, (void (*)(yo_dyn))sm->__capture.throw);
+  int32_t fd = fn_check(result, (void (*)(__yo_dyn))sm->__capture.throw);
   ...
 }
 ```
@@ -239,7 +239,7 @@ void write_file_resume(write_file_sm* sm) {
 
 ```c
 // Function with Raise effect:
-int64_t fn_raise_const(int32_t (*raise)(yo_string, yo_string)) {
+int64_t fn_raise_const(int32_t (*raise)(__yo_string, __yo_string)) {
   int32_t result = raise(msg1, msg2);
   return (int64_t)(8 + result + 10);
 }

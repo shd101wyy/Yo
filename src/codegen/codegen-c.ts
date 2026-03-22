@@ -137,9 +137,9 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`
 // Future state enum - shared by all Future types
 typedef enum {
-  YO_FUTURE_RUNNING = 0,    // Task is in progress (queued or executing)
-  YO_FUTURE_COMPLETED = 1,  // Task completed successfully
-  YO_FUTURE_ERROR = 2       // Task failed with error
+  __YO_FUTURE_RUNNING = 0,    // Task is in progress (queued or executing)
+  __YO_FUTURE_COMPLETED = 1,  // Task completed successfully
+  __YO_FUTURE_ERROR = 2       // Task failed with error
 } __yo_future_state_t;
 `);
 

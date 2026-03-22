@@ -1165,27 +1165,27 @@ static __yo_fs_event_entry_t* __yo_fs_event_snapshot_dir(const char* path, int* 
 }
 
 static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
-  int yo_event = 0;
+  int __yo_event = 0;
 
   if (handle->is_dir) {
     int snap_err = 0;
     __yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
     if (snap_err != 0) {
       if (snap_err == ENOENT) {
-        yo_event |= 1;
+        __yo_event |= 1;
       }
-      return yo_event;
+      return __yo_event;
     }
 
     __yo_fs_event_entry_t* ne = next_entries;
     while (ne) {
       __yo_fs_event_entry_t* oe = __yo_fs_event_find_entry(handle->entries, ne->name);
       if (!oe) {
-        yo_event |= 1;
+        __yo_event |= 1;
       } else if ((oe->mtime_sec != ne->mtime_sec) ||
                  (oe->mtime_nsec != ne->mtime_nsec) ||
                  (oe->size != ne->size)) {
-        yo_event |= 2;
+        __yo_event |= 2;
       }
       ne = ne->next;
     }
@@ -1193,14 +1193,14 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     __yo_fs_event_entry_t* oe = handle->entries;
     while (oe) {
       if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
-        yo_event |= 1;
+        __yo_event |= 1;
       }
       oe = oe->next;
     }
 
     __yo_fs_event_free_entries(handle->entries);
     handle->entries = next_entries;
-    return yo_event;
+    return __yo_event;
   }
 
   struct stat st;
@@ -1552,16 +1552,16 @@ ${
           char* ptr = buf;
           while (ptr < buf + len) {
             struct inotify_event* event = (struct inotify_event*)ptr;
-            int yo_event = 0;
+            int __yo_event = 0;
             if (event->mask & (IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO)) {
-              yo_event = 1;
+              __yo_event = 1;
             }
             if (event->mask & (IN_MODIFY | IN_ATTRIB)) {
-              yo_event |= 2;
+              __yo_event |= 2;
             }
             const char* name = (event->len > 0) ? event->name : "";
             if (fse->callback && fse->active) {
-              fse->callback(name, yo_event, fse->user_data);
+              fse->callback(name, __yo_event, fse->user_data);
               count++;
             }
             ptr += sizeof(struct inotify_event) + event->len;
@@ -1580,23 +1580,23 @@ ${
     while (fse) {
       __yo_fs_event_t* next = fse->next;
       if (fse->active && fse->watch_fd >= 0) {
-        int yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+        int __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
 
         struct kevent ev;
         struct timespec ts = {0, 0};
         int n = kevent(fse->watch_fd, NULL, 0, &ev, 1, &ts);
         if (n > 0) {
           if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
-            yo_event |= 1;
+            __yo_event |= 1;
           }
           if (ev.fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
-            yo_event |= 2;
+            __yo_event |= 2;
           }
         }
 
-        if (yo_event != 0) {
+        if (__yo_event != 0) {
           if (fse->callback && fse->active) {
-            fse->callback("", yo_event, fse->user_data);
+            fse->callback("", __yo_event, fse->user_data);
             count++;
           }
         }
@@ -1623,13 +1623,13 @@ ${
 
         int ret = poll(&pfd, 1, 0);
         if (ret > 0) {
-          int yo_events = 0;
-          if (pfd.revents & POLLIN)  yo_events |= 1;
-          if (pfd.revents & POLLOUT) yo_events |= 2;
-          if (pfd.revents & POLLHUP) yo_events |= 4;
-          if (pfd.revents & POLLPRI) yo_events |= 8;
+          int __yo_events = 0;
+          if (pfd.revents & POLLIN)  __yo_events |= 1;
+          if (pfd.revents & POLLOUT) __yo_events |= 2;
+          if (pfd.revents & POLLHUP) __yo_events |= 4;
+          if (pfd.revents & POLLPRI) __yo_events |= 8;
           if (ph->callback && ph->active) {
-            ph->callback(yo_events, 0, ph->user_data);
+            ph->callback(__yo_events, 0, ph->user_data);
             count++;
           }
         } else if (ret < 0) {

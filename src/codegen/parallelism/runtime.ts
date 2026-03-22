@@ -154,7 +154,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
     PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d)\\n", ret);
     __yo_free(args);
     // Return invalid thread handle (handle will be 0/NULL)
-    thread.handle = (YO_THREAD_TYPE){0};
+    thread.handle = (__YO_THREAD_TYPE){0};
   }
   
   PARALLELISM_DEBUG("[THREAD] Spawned thread\\n");
@@ -188,7 +188,7 @@ typedef struct __yo_worker_task_t {
 
 // Per-worker-thread state
 typedef struct __yo_worker_thread_t {
-  YO_THREAD_TYPE handle;                // OS thread handle
+  __YO_THREAD_TYPE handle;                // OS thread handle
   __YO_THREAD_SYNC_TYPE mutex;            // Mutex for task queue
   __YO_COND_TYPE cond;                    // Condition variable for task availability
   __yo_worker_task_t* queue_head;       // Head of task queue

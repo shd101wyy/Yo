@@ -4031,19 +4031,19 @@ static int __yo_poll_and_fs_event_tick(void) {
             char* ptr = fse->notify_buf;
             while (1) {
               FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
-              int yo_event = 0;
+              int __yo_event = 0;
               switch (info->Action) {
                 case FILE_ACTION_ADDED:
                 case FILE_ACTION_REMOVED:
                 case FILE_ACTION_RENAMED_OLD_NAME:
                 case FILE_ACTION_RENAMED_NEW_NAME:
-                  yo_event = 1;
+                  __yo_event = 1;
                   break;
                 case FILE_ACTION_MODIFIED:
-                  yo_event = 2;
+                  __yo_event = 2;
                   break;
               }
-              if (yo_event != 0 && fse->callback && fse->active) {
+              if (__yo_event != 0 && fse->callback && fse->active) {
                 char name_buf[MAX_PATH];
                 int name_len = WideCharToMultiByte(CP_UTF8, 0,
                   info->FileName, (int)(info->FileNameLength / sizeof(wchar_t)),
@@ -4053,7 +4053,7 @@ static int __yo_poll_and_fs_event_tick(void) {
                 } else {
                   name_buf[0] = '\\0';
                 }
-                fse->callback(name_buf, yo_event, fse->user_data);
+                fse->callback(name_buf, __yo_event, fse->user_data);
                 count++;
               }
               if (info->NextEntryOffset == 0) break;
@@ -4093,7 +4093,7 @@ static int __yo_poll_and_fs_event_tick(void) {
       __yo_poll_t* next = ph->next;
       if (ph->active) {
         HANDLE handle = (HANDLE)_get_osfhandle(ph->fd);
-        int yo_events = 0;
+        int __yo_events = 0;
 
         if (handle != INVALID_HANDLE_VALUE && __yo_win_is_socket_fd(ph->fd)) {
           SOCKET sock = (SOCKET)(uintptr_t)(uint32_t)ph->fd;
@@ -4110,9 +4110,9 @@ static int __yo_poll_and_fs_event_tick(void) {
 
           int ret = select(0, &read_fds, &write_fds, &except_fds, &tv);
           if (ret > 0) {
-            if (FD_ISSET(sock, &read_fds))  yo_events |= 1;
-            if (FD_ISSET(sock, &write_fds)) yo_events |= 2;
-            if (FD_ISSET(sock, &except_fds)) yo_events |= 4;
+            if (FD_ISSET(sock, &read_fds))  __yo_events |= 1;
+            if (FD_ISSET(sock, &write_fds)) __yo_events |= 2;
+            if (FD_ISSET(sock, &except_fds)) __yo_events |= 4;
           } else if (ret < 0) {
             if (ph->callback && ph->active) {
               ph->callback(0, -(int)WSAGetLastError(), ph->user_data);
@@ -4128,29 +4128,29 @@ static int __yo_poll_and_fs_event_tick(void) {
               DWORD avail = 0;
               BOOL ok = PeekNamedPipe(handle, NULL, 0, NULL, &avail, NULL);
               if (ok) {
-                if (avail > 0) yo_events |= 1;
+                if (avail > 0) __yo_events |= 1;
               } else {
                 DWORD err = GetLastError();
                 if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA) {
-                  yo_events |= 1;
-                  yo_events |= 4;
+                  __yo_events |= 1;
+                  __yo_events |= 4;
                 }
               }
             }
             if (ph->events & 2) {
-              yo_events |= 2;
+              __yo_events |= 2;
             }
           } else {
             DWORD wait_result = WaitForSingleObject(handle, 0);
             if (wait_result == WAIT_OBJECT_0) {
-              if (ph->events & 1) yo_events |= 1;
+              if (ph->events & 1) __yo_events |= 1;
             }
           }
         }
 
-        if (yo_events != 0) {
+        if (__yo_events != 0) {
           if (ph->callback && ph->active) {
-            ph->callback(yo_events, 0, ph->user_data);
+            ph->callback(__yo_events, 0, ph->user_data);
             count++;
           }
         }

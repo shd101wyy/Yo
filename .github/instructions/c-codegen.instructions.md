@@ -59,7 +59,7 @@ For the full design document with overhead analysis and language semantics, see 
 
 **How it works:**
 - A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
-- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(yo_string)`
+- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
 - Call sites pass the function pointer from their context:
   - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
@@ -202,13 +202,13 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 
 1. Extract `void*` future pointer from handle's `__future` field
 2. Cast to inline header struct to read `state` and `result` fields
-3. Poll loop: `while (state != -1 && state != -2) { yo_async_poll_step(); }`
+3. Poll loop: `while (state != -1 && state != -2) { __yo_async_poll_step(); }`
 4. On completion (state == -1): return `Option(T).Some(result)`
 5. On abort (state == -2): clear `__yo_effect_escaped`, return `Option(T).None`
 
 The inline header struct assumes the standard state machine layout:
 ```c
-struct { yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
+struct { __yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
 ```
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.

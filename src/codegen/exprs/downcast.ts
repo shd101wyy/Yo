@@ -57,7 +57,7 @@ export function generateDowncast(
   // Register typeid static for the target type
   // Use raw cName (without * for reference types) to match vtable typeid naming
   const typeIdCName = context.types[targetType.id]?.cName || targetTypeCName;
-  const staticVarName = `yo_typeid_${sanitizeForCIdentifier(typeIdCName)}`;
+  const staticVarName = `__yo_typeid_${sanitizeForCIdentifier(typeIdCName)}`;
   if (!context.typeIdStatics) {
     context.typeIdStatics = new Map();
   }

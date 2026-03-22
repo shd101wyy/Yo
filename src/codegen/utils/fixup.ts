@@ -21,7 +21,7 @@ export function fixupDynImplKeys(context: CodeGenContext): void {
 
   for (const [, impl] of context.dynImpls) {
     const dynTypeCName =
-      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+      context.types[impl.dynType.id]?.cName || `__yo_dyn_${impl.dynType.id}`;
     // Resolve SomeType to its concrete type for name lookup
     const resolvedConcreteType =
       isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType

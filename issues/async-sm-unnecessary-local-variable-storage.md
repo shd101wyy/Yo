@@ -29,13 +29,13 @@ export main;
 
 ```c
 struct state_t_struct {
-  yo_ref_header_t header;
+  __yo_ref_header_t header;
   int state;
   int32_t result;
   void (*continuation_fn)(void*);
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
-  yo_struct __capture;
+  __yo_struct __capture;
   // Local variables
   int32_t var_a;  // a — crosses await (used in segment 2) ✓ NEEDED
   int32_t var_b;  // b — only in segment 0 ✗ UNNECESSARY
@@ -53,13 +53,13 @@ struct state_t_struct {
 
 ```c
 struct state_t_struct {
-  yo_ref_header_t header;
+  __yo_ref_header_t header;
   int state;
   int32_t result;
   void (*continuation_fn)(void*);
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
-  yo_struct __capture;
+  __yo_struct __capture;
   // Local variables (only those crossing await boundaries)
   int32_t var_a;  // a — used in segments 0 and 2
   int32_t var_c;  // c — used in segments 1 and 2
