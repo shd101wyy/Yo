@@ -194,3 +194,51 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 **Duplicate method names across impl blocks are disallowed.** Defining `unwrap` in two separate impl blocks for the same type produces an error. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
+
+## Standard library module organization (`std/`)
+
+### When to use `index.yo`
+
+Only create `index.yo` when the directory contains a **single public module file whose name duplicates the directory name** (the `dir/dir.yo` pattern). Rename that file to `index.yo` so users get clean imports without repetition:
+
+```yo
+// std/url/url.yo → std/url/index.yo
+// Users write:
+{ Url } :: import "std/url";
+// Instead of the redundant:
+{ Url } :: import "std/url/url";
+```
+
+Modules that follow this pattern: `std/url`, `std/regex`, `std/glob`, `std/log`.
+
+### When NOT to use `index.yo`
+
+Do **not** create `index.yo` re-export files for directories with multiple distinct submodules. Users should import each submodule explicitly:
+
+```yo
+// CORRECT — explicit submodule imports:
+{ TcpStream } :: import "std/net/tcp";
+{ HashMap } :: import "std/collections/hash_map";
+open import "std/fs/file";
+
+// WRONG — don't create catch-all index.yo for these:
+// open import "std/net";   // which module? tcp? udp? dns?
+// open import "std/fs";    // which module? file? dir? walker?
+```
+
+Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/os`, `std/io`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
+
+### Multi-file modules with a primary file
+
+When a directory has a primary public file matching the directory name **plus** additional files, use an `index.yo` that re-exports all public submodules:
+
+```yo
+// std/http/ has http.yo (types) + client.yo (async fetch)
+// std/http/index.yo re-exports both:
+_http :: import "./http.yo";
+_client :: import "./client.yo";
+export ...(_http), ...(_client);
+
+// Users write:
+{ HttpRequest, fetch } :: import "std/http";
+```
