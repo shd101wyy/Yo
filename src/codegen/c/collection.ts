@@ -28,7 +28,6 @@ export function collectCIncludes(context: CodeGenContext): void {
  */
 export function emitCIncludes(context: CodeGenContext): void {
   const isWindows = isTargetWindows(context.targetInfo);
-  const hasRaylib = isWindows && context.cIncludes.has("<raylib.h>");
 
   // Emit platform-specific feature macros
   if (isWindows) {
@@ -38,20 +37,6 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(`#ifndef _WINSOCKAPI_`);
     context.emitter.emitHeaderLine(`#define _WINSOCKAPI_`);
     context.emitter.emitHeaderLine(`#endif`);
-    if (hasRaylib) {
-      context.emitter.emitHeaderLine(
-        `// Avoid Win32 symbol collisions with raylib.h on Windows`
-      );
-      context.emitter.emitHeaderLine(`#ifndef NOMINMAX`);
-      context.emitter.emitHeaderLine(`#define NOMINMAX`);
-      context.emitter.emitHeaderLine(`#endif`);
-      context.emitter.emitHeaderLine(`#ifndef NOGDI`);
-      context.emitter.emitHeaderLine(`#define NOGDI`);
-      context.emitter.emitHeaderLine(`#endif`);
-      context.emitter.emitHeaderLine(`#ifndef NOUSER`);
-      context.emitter.emitHeaderLine(`#define NOUSER`);
-      context.emitter.emitHeaderLine(`#endif`);
-    }
   } else {
     context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
     context.emitter.emitHeaderLine(

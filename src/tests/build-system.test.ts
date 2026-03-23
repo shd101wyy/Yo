@@ -553,6 +553,7 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([includeDir]);
       expect(result.libraryPaths).toEqual([libDir]);
       expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.defines).toEqual([]);
       expect(result.runtimeFiles).toEqual([runtimeDll]);
     } finally {
       if (previousVcpkgRoot === undefined) {
@@ -599,6 +600,7 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([fallbackInclude]);
       expect(result.libraryPaths).toEqual([fallbackLib]);
       expect(result.linkLibraries).toEqual(["yo_missing_lib"]);
+      expect(result.defines).toEqual([]);
       expect(result.runtimeFiles).toEqual([]);
     } finally {
       if (previousVcpkgRoot === undefined) {
@@ -668,6 +670,7 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([includeDir]);
       expect(result.libraryPaths).toEqual([debugLibDir]);
       expect(result.linkLibraries).toEqual(["yo_debug_pref"]);
+      expect(result.defines).toEqual([]);
       expect(result.runtimeFiles).toEqual([debugDll]);
     } finally {
       if (previousVcpkgRoot === undefined) {
@@ -719,6 +722,7 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([includeDir]);
       expect(result.libraryPaths).toEqual([libDir]);
       expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.defines).toEqual([]);
       expect(result.runtimeFiles).toEqual([runtimeDll, transitiveDll]);
     } finally {
       if (previousVcpkgRoot === undefined) {
@@ -733,6 +737,22 @@ describe("System library resolution", () => {
       }
       fs.rmSync(vcpkgRoot, { recursive: true, force: true });
     }
+  });
+
+  test("preserves explicit system-library defines metadata", () => {
+    const result = resolveSystemLibrary(
+      {
+        name: "yo_metadata_lib",
+        fallbackInclude: "",
+        fallbackLib: "",
+        fallbackLink: "yo_metadata_lib",
+        defines: ["YO_HEADER_FIXUP", "YO_EXTRA_DEFINE"],
+      },
+      false
+    );
+
+    expect(result.linkLibraries).toEqual(["yo_metadata_lib"]);
+    expect(result.defines).toEqual(["YO_HEADER_FIXUP", "YO_EXTRA_DEFINE"]);
   });
 });
 

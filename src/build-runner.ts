@@ -209,6 +209,7 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       artifact.includePaths.push(...sysLibFlags.includePaths);
       artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
       artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+      artifact.defines.push(...sysLibFlags.defines);
       artifact.cFlags.push(...sysLibFlags.cFlags);
       artifact.runtimeFiles ??= [];
       for (const runtimeFile of sysLibFlags.runtimeFiles) {

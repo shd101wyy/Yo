@@ -17,6 +17,7 @@ export interface PkgConfigResult {
   includePaths: string[];
   libraryPaths: string[];
   linkLibraries: string[];
+  defines: string[];
   runtimeFiles: string[];
 }
 
@@ -63,6 +64,7 @@ function queryPkgConfig(pkgName: string): PkgConfigResult | undefined {
       includePaths: [],
       libraryPaths: [],
       linkLibraries: [],
+      defines: [],
       runtimeFiles: [],
     };
 
@@ -102,6 +104,7 @@ function buildFallback(lib: BuildSystemLibrary): PkgConfigResult {
     includePaths: [],
     libraryPaths: [],
     linkLibraries: [],
+    defines: [],
     runtimeFiles: [],
   };
 
@@ -119,6 +122,18 @@ function buildFallback(lib: BuildSystemLibrary): PkgConfigResult {
   }
 
   return result;
+}
+
+function applySystemLibraryMetadata(
+  lib: BuildSystemLibrary,
+  result: PkgConfigResult
+): PkgConfigResult {
+  const explicitDefines = lib.defines ?? [];
+
+  return {
+    ...result,
+    defines: [...new Set([...result.defines, ...explicitDefines])],
+  };
 }
 
 /**
@@ -421,6 +436,7 @@ function resolveVcpkgLibrary(
         includePaths: [includePath],
         libraryPaths: [libraryPath],
         linkLibraries,
+        defines: [],
         runtimeFiles: resolveVcpkgRuntimeFiles(runtimeSearchDirs, searchNames),
       };
     }
@@ -443,7 +459,7 @@ export function resolveSystemLibrary(
       if (verbose) {
         console.log(`  ${lib.name}: found via pkg-config (${lib.name})`);
       }
-      return result;
+      return applySystemLibraryMetadata(lib, result);
     }
     if (verbose) {
       console.log(
@@ -458,9 +474,9 @@ export function resolveSystemLibrary(
 
   // Try vcpkg
   const vcpkgResult = resolveVcpkgLibrary(lib, verbose, options);
-  if (vcpkgResult) return vcpkgResult;
+  if (vcpkgResult) return applySystemLibraryMetadata(lib, vcpkgResult);
 
-  return buildFallback(lib);
+  return applySystemLibraryMetadata(lib, buildFallback(lib));
 }
 
 /**
@@ -477,6 +493,7 @@ export function resolveAllSystemLibraries(
     includePaths: [],
     libraryPaths: [],
     linkLibraries: [],
+    defines: [],
     runtimeFiles: [],
   };
 
@@ -493,6 +510,7 @@ export function resolveAllSystemLibraries(
     merged.includePaths.push(...result.includePaths);
     merged.libraryPaths.push(...result.libraryPaths);
     merged.linkLibraries.push(...result.linkLibraries);
+    merged.defines.push(...result.defines);
     for (const runtimeFile of result.runtimeFiles) {
       if (!merged.runtimeFiles.includes(runtimeFile)) {
         merged.runtimeFiles.push(runtimeFile);

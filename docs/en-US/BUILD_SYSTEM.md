@@ -744,11 +744,23 @@ build.system_library({
   name: "openssl",
   fallback_include: "/usr/include/openssl",
   fallback_lib: "/usr/lib",
-  fallback_link: "ssl crypto"
+  fallback_link: "ssl crypto",
+  defines: "OPENSSL_API_COMPAT=0x10100000L"
 });
 ```
 
 When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags using the `name` as the pkg-config package name. The fallback fields are used when `pkg-config` is not found (common on Windows).
+
+`defines` is a space-separated list of preprocessor definitions that Yo passes to the C compiler (`-D...` on clang/gcc, `/D...` on MSVC) for any artifact that links this system library. This is useful for header fixups, feature toggles, or platform-specific compatibility macros that belong to the library integration rather than the compiler itself.
+
+For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
+
+```yo
+raylib :: build.system_library({
+  name: "raylib",
+  defines: "NOMINMAX NOGDI NOUSER"
+});
+```
 
 ## `yo fetch` Reference
 

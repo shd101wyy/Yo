@@ -96,6 +96,7 @@ export interface BuildSystemLibrary {
   fallbackInclude: string;
   fallbackLib: string;
   fallbackLink: string;
+  defines?: string[];
 }
 
 export interface DependencyArtifactRef {
@@ -932,12 +933,19 @@ export function evaluateYoBuildFunctions({
             expr.token
           )
         : "";
+    const defines =
+      expr.args.length > 4
+        ? extractComptimeString(expr.args[4]!.$?.value, "defines", expr.token)
+            .split(/\s+/)
+            .filter(Boolean)
+        : [];
 
     registry.registerSystemLibrary({
       name,
       fallbackInclude,
       fallbackLib,
       fallbackLink,
+      defines,
     });
     return makeUnitResult(expr, env);
   }
