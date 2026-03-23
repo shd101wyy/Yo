@@ -24,7 +24,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
-- [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig (`yo build`, `yo init`, cross-compilation, WASM support).
+- [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig (`yo build`, `yo init`, cross-compilation).
 - **C** interop.
 - etc.
 
@@ -110,6 +110,8 @@ $ sudo pacman -S liburing
 ```
 
 ## Standard Library
+
+_Still In Design_
 
 Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/STD_LIBRARY_MODULES.md)**.
 
