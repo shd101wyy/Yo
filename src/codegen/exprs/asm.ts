@@ -4,7 +4,7 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { isTargetMSVC, isTargetWasm } from "../../target";
+import { isTargetWasm } from "../../target";
 import { isUnitType } from "../../types/guards";
 import { isComptimeStringValue, isTypeValue } from "../../value";
 import { type CodeGenContext, getTypeString } from "../utils";
@@ -474,13 +474,6 @@ export function generateAsm(
   }
 
   // Check target compatibility
-  if (isTargetMSVC(context.targetInfo)) {
-    emitter.emitLine(
-      `${indent}/* Error: inline assembly is not supported with MSVC x64 */`
-    );
-    emitter.emitLine(`${indent}abort();`);
-    return `(*((${getTypeString(returnType, context)}*)NULL))`;
-  }
   if (isTargetWasm(context.targetInfo)) {
     emitter.emitLine(
       `${indent}/* Error: inline assembly is not supported on WebAssembly */`
@@ -745,7 +738,7 @@ export function generateGlobalAsm(
   indent: string,
   context: CodeGenContext
 ): string {
-  if (isTargetMSVC(context.targetInfo) || isTargetWasm(context.targetInfo)) {
+  if (isTargetWasm(context.targetInfo)) {
     return `/* global_asm skipped: not supported on this target */`;
   }
 
