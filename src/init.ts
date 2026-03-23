@@ -165,7 +165,7 @@ Thumbs.db
 function generateReadme(name: string): string {
   return `# ${name}
 
-A [Yo](https://github.com/nicholasgasior/yo) project.
+A project written in Yo programming language.
 
 ## Build
 

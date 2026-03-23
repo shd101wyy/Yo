@@ -133,6 +133,13 @@ Key modules include:
 | Log         | `import "std/log"`                                      | Leveled logging                                             |
 | Formatting  | `import "std/fmt"`                                      | `print`, `println` for any `ToString` type                  |
 
+## Example Projects
+
+| Project                                             | Description                                                                                              |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo) | Comprehensive [raylib](https://www.raylib.com/) bindings — 35 struct types, 535 functions, 227 constants |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo) | Classic Tetris game built with raylib_yo, demonstrating Yo's build system and C interop                  |
+
 ## Code examples
 
 Check the [./tests](./tests/) and [./std](./std/) folders for code examples.
