@@ -80,47 +80,47 @@ String.parse_i32() → Option(i32)
 
 ## Implementation Plan
 
-### Phase 1: Project Setup
+### Phase 1: Project Setup ✅
 
-- [ ] `yo init http_server_demo_yo` to scaffold project
-- [ ] Configure `build.yo` (no external deps needed — pure std library)
-- [ ] Verify it compiles with `./yo-cli build`
+- [x] `yo init http_server_demo_yo` to scaffold project
+- [x] Configure `build.yo` (no external deps needed — pure std library)
+- [x] Verify it compiles with `./yo-cli build`
 
-### Phase 2: Minimal Echo Server
+### Phase 2: Minimal Echo Server ✅
 
-- [ ] Write a minimal TCP server that accepts a connection, reads bytes, and echoes them back
-- [ ] Verify the async/await pattern works: `TcpListener.bind` → `accept` → `read` → `write` → `close`
-- [ ] Test with `curl` or `nc`
+- [x] Write a minimal TCP server that accepts a connection, reads bytes, and echoes them back
+- [x] Verify the async/await pattern works: `TcpListener.bind` → `accept` → `read` → `write` → `close`
+- [x] Test with `curl` or `nc`
 
-### Phase 3: HTTP Request Parsing
+### Phase 3: HTTP Request Parsing ✅
 
-- [ ] Implement `parse_request(raw: String) → Result(HttpRequest, String)` in `main.yo`
+- [x] Implement `parse_request(raw: String) → Result(HttpRequest, String)` in `main.yo`
   - Parse request line: `GET /path HTTP/1.1\r\n`
   - Parse headers: `Key: Value\r\n` until `\r\n\r\n`
   - Extract body (if Content-Length present)
-- [ ] Test parsing with known request strings
+- [x] Test parsing with known request strings
 
-### Phase 4: HTTP Response Building
+### Phase 4: HTTP Response Building ✅
 
-- [ ] Use existing `HttpResponse` type or build response strings manually
-- [ ] Helper to serialize response: status line + headers + body
-- [ ] Support `Content-Type`, `Content-Length`, `Connection: close` headers
+- [x] Use existing `HttpResponse` type or build response strings manually
+- [x] Helper to serialize response: status line + headers + body
+- [x] Support `Content-Type`, `Content-Length`, `Connection: close` headers
 
-### Phase 5: Router + Handlers
+### Phase 5: Router + Handlers ✅
 
-- [ ] Simple route matching on `request.path`:
+- [x] Simple route matching on `request.path`:
   - `GET /` → Welcome page (HTML)
   - `GET /hello` → "Hello, World!" plain text
   - `GET /json` → JSON response `{"message": "Hello from Yo!"}`
   - `GET /echo` → Echo back request headers as HTML
   - `*` → 404 Not Found
-- [ ] Print request log to stdout: method, path, status code
+- [x] Print request log to stdout: method, path, status code
 
-### Phase 6: Polish & Documentation
+### Phase 6: Polish & Documentation ✅
 
-- [ ] Clean error handling (don't crash on malformed requests)
-- [ ] Graceful connection close
-- [ ] `README.md` with usage instructions, curl examples, code walkthrough
+- [x] Clean error handling (don't crash on malformed requests)
+- [x] Graceful connection close
+- [x] `README.md` with usage instructions, curl examples, code walkthrough
 - [ ] Update Yo README's example projects table
 
 ## Example Code Skeleton
