@@ -1083,65 +1083,27 @@ naked_fn :: asm_fn(fn(a: u64, b: u64) -> u64,
 
 ---
 
-## 14. Implementation Plan
+## 14. Design Decisions Summary
 
-### Phase 1: Core `asm` Builtin — ✅ COMPLETE
-
-| Step | File(s)                           | Description                                                                                                                                                    | Status |
-| ---- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1    | `src/expr.ts`                     | Added `asm` and `global_asm` to `BuiltinFunctions`                                                                                                             | ✅     |
-| 2    | `src/evaluator/builtins/asm.ts`   | Evaluator: parse operands, validate template, infer return type, block CTFE                                                                                    | ✅     |
-| 3    | `src/evaluator/exprs/_expr.ts`    | Wire `asm` and `global_asm` into the expression dispatcher                                                                                                     | ✅     |
-| 4    | `src/codegen/exprs/asm.ts`        | C codegen: emit `__asm__ __volatile__` with transformed template and operands                                                                                  | ✅     |
-| 5    | `src/codegen/exprs/generation.ts` | Wire `asm` and `global_asm` into the codegen dispatcher                                                                                                        | ✅     |
-| 6    | `tests/asm.test.yo`               | 12 tests covering nop, outputs, inputs, inout, named operands, clobbers, const_val, discarded, variable-target, multiple outputs, asm_options, comptime errors | ✅     |
-
-### Phase 2: `global_asm` — ✅ COMPLETE
-
-| Step | File(s)                         | Description                                                 | Status |
-| ---- | ------------------------------- | ----------------------------------------------------------- | ------ |
-| 7    | `src/expr.ts`                   | Added `global_asm` to `BuiltinFunctions` (done in Step 1)   | ✅     |
-| 8    | `src/evaluator/builtins/asm.ts` | Evaluator: validate comptime_string template                | ✅     |
-| 9    | `src/codegen/exprs/asm.ts`      | Codegen: emit top-level `__asm__` via `emitDeclarationLine` | ✅     |
-
-### Implementation Notes
-
-**Key design decisions made during implementation:**
-
-- `asm` and `global_asm` are `BuiltinFunctions` (not `BuiltinKeywords`), following the same pattern as `panic`.
-- Operand sub-calls (`in`, `out`, `inout`, etc.) are NOT registered as builtins — they are just regular function call expressions recognized by name inside the `asm()` evaluator.
-- Register class names (`reg`, `imm`, `mem`) are similarly not builtins — they are recognized as atoms by name.
-- The evaluator uses a "check before evaluate" pattern: before calling `evaluateExpression()` on an asm argument, it first checks if the argument is a known asm sub-call to avoid "Variable not found" errors.
-- `const_val` values are substituted bare (no prefix) into the template — the user provides the correct syntax prefix in the template itself (e.g., `#` for ARM, `$` for AT&T).
-- Clobber bare atoms (`memory`, `cc`) are recognized directly without evaluation.
-
-### Phase 3: `std/arch` Module (Future)
-
-| Step | File(s)               | Description                             |
-| ---- | --------------------- | --------------------------------------- |
-| 10   | `std/arch/x86_64.yo`  | Portable intrinsic wrappers for x86_64  |
-| 11   | `std/arch/aarch64.yo` | Portable intrinsic wrappers for aarch64 |
+| Decision                       | Choice                      | Rationale                                                                                  |
+| ------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------ |
+| Builtin function, not macro    | `asm(...)`                  | Yo has no macro system; builtins are the extension mechanism                               |
+| Named operands via string      | `in("name", ...)`           | Works with existing parser; no new syntax needed                                           |
+| Output via return type         | `x := asm(...)`             | Functional style, no mutable output parameters                                             |
+| Variable-target outputs        | `out(reg, var)`             | Supports uninitialized variables; initialization tracking                                  |
+| Volatile by default            | Explicit `pure` opt-in      | Most asm has side effects; safe default                                                    |
+| No `unsafe` wrapper            | Bare `asm(...)`             | Yo has no unsafe concept; trusts developer                                                 |
+| MSVC: compile-time error       | Not transpiled              | MSVC x64 has no inline asm; intrinsics are a separate feature                              |
+| GCC `__asm__` not `asm`        | Portable C keyword          | `__asm__` works in all C standard modes (C11 strict)                                       |
+| Abstract register classes      | `reg`, `imm`, `mem`         | Portable across architectures; raw fallback for advanced use                               |
+| `const_val` not `const`        | Avoids keyword clash        | `const` is a Yo keyword; `const_val` is unambiguous                                        |
+| Operand sub-calls not builtins | `out`, `in`, etc. are atoms | Recognized by name inside the `asm()` evaluator only; doesn't pollute the global namespace |
+| `const_val` bare substitution  | No `$` or `#` prefix added  | User provides the correct syntax prefix in the template for their target architecture      |
+| Clobber bare atoms             | `memory`, `cc` as atoms     | Recognized directly without evaluation for ergonomics                                      |
 
 ---
 
-## 15. Design Decisions Summary
-
-| Decision                    | Choice                 | Rationale                                                     |
-| --------------------------- | ---------------------- | ------------------------------------------------------------- |
-| Builtin function, not macro | `asm(...)`             | Yo has no macro system; builtins are the extension mechanism  |
-| Named operands via string   | `in("name", ...)`      | Works with existing parser; no new syntax needed              |
-| Output via return type      | `x := asm(...)`        | Functional style, no mutable output parameters                |
-| Variable-target outputs     | `out(reg, var)`        | Supports uninitialized variables; initialization tracking     |
-| Volatile by default         | Explicit `pure` opt-in | Most asm has side effects; safe default                       |
-| No `unsafe` wrapper         | Bare `asm(...)`        | Yo has no unsafe concept; trusts developer                    |
-| MSVC: compile-time error    | Not transpiled         | MSVC x64 has no inline asm; intrinsics are a separate feature |
-| GCC `__asm__` not `asm`     | Portable C keyword     | `__asm__` works in all C standard modes (C11 strict)          |
-| Abstract register classes   | `reg`, `imm`, `mem`    | Portable across architectures; raw fallback for advanced use  |
-| `const_val` not `const`     | Avoids keyword clash   | `const` is a Yo keyword; `const_val` is unambiguous           |
-
----
-
-## 16. Rust `asm!` Feature Parity
+## 15. Rust `asm!` Feature Parity
 
 Comprehensive comparison with Rust's inline assembly:
 
