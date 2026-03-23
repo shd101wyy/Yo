@@ -7,6 +7,8 @@
  */
 
 import { execSync } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 import type { BuildSystemLibrary } from "./evaluator/builtins/build";
 
 export interface PkgConfigResult {
@@ -113,6 +115,78 @@ function buildFallback(lib: BuildSystemLibrary): PkgConfigResult {
 }
 
 /**
+ * Try to resolve a library via vcpkg on Windows.
+ */
+function findVcpkgLibraryPath(
+  libraryDir: string,
+  libraryNames: readonly string[]
+): string | undefined {
+  for (const libraryName of libraryNames) {
+    const candidates = [
+      `${libraryName}.lib`,
+      `lib${libraryName}.lib`,
+      `${libraryName}.a`,
+      `lib${libraryName}.a`,
+    ];
+    for (const candidate of candidates) {
+      if (existsSync(join(libraryDir, candidate))) {
+        return libraryDir;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveVcpkgLibrary(
+  lib: BuildSystemLibrary,
+  verbose: boolean
+): PkgConfigResult | undefined {
+  const vcpkgRoot = process.env.VCPKG_ROOT;
+  if (!vcpkgRoot) return undefined;
+
+  const triplets = [
+    ...new Set(
+      [
+        process.env.VCPKG_DEFAULT_TRIPLET,
+        "x64-windows",
+        "x64-windows-static",
+        "x86-windows",
+      ].filter((t): t is string => !!t)
+    ),
+  ];
+
+  const linkLibraries = lib.fallbackLink
+    ? lib.fallbackLink.split(/\s+/).filter(Boolean)
+    : [lib.name];
+  const searchNames = [...new Set([lib.name, ...linkLibraries])];
+
+  for (const triplet of triplets) {
+    const includePath = join(vcpkgRoot, "installed", triplet, "include");
+    const releaseLibPath = join(vcpkgRoot, "installed", triplet, "lib");
+    const debugLibPath = join(vcpkgRoot, "installed", triplet, "debug", "lib");
+    const libraryPath =
+      findVcpkgLibraryPath(releaseLibPath, searchNames) ??
+      findVcpkgLibraryPath(debugLibPath, searchNames);
+
+    if (existsSync(includePath) && libraryPath) {
+      if (verbose) {
+        console.log(`  ${lib.name}: found via vcpkg (${triplet})`);
+      }
+      return {
+        cFlags: [],
+        ldFlags: [],
+        includePaths: [includePath],
+        libraryPaths: [libraryPath],
+        linkLibraries,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Resolve a system library, trying pkg-config first then falling back.
  */
 export function resolveSystemLibrary(
@@ -129,12 +203,18 @@ export function resolveSystemLibrary(
     }
     if (verbose) {
       console.log(
-        `  ${lib.name}: pkg-config query failed for "${lib.name}", using fallback`
+        `  ${lib.name}: pkg-config query failed for "${lib.name}", trying vcpkg/fallback`
       );
     }
   } else if (verbose) {
-    console.log(`  ${lib.name}: pkg-config not available, using fallback`);
+    console.log(
+      `  ${lib.name}: pkg-config not available, trying vcpkg/fallback`
+    );
   }
+
+  // Try vcpkg
+  const vcpkgResult = resolveVcpkgLibrary(lib, verbose);
+  if (vcpkgResult) return vcpkgResult;
 
   return buildFallback(lib);
 }

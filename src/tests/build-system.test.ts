@@ -5,6 +5,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
@@ -17,6 +18,7 @@ import {
 } from "../lock-file";
 import { parseTarget, clangTriple, type TargetInfo } from "../target";
 import { getGlobalCacheDir } from "../cache";
+import { selectStaticLibraryArchiver } from "../codegen";
 import {
   type BuildArtifact,
   BuildRegistry,
@@ -26,6 +28,7 @@ import {
   getRootBuildProjectDir,
   setRootBuildProjectDir,
 } from "../evaluator/builtins/build";
+import { resolveSystemLibrary } from "../pkg-config";
 
 // ── Lock file tests ──────────────────────────────────────────────────
 
@@ -460,6 +463,145 @@ describe("Global cache directory", () => {
     if (savedEnv.XDG_CACHE_HOME) {
       process.env.XDG_CACHE_HOME = savedEnv.XDG_CACHE_HOME;
     }
+  });
+});
+
+describe("System library resolution", () => {
+  test("resolves vcpkg libraries by matching a library file", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, "yo_fake_lib.lib"), "");
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_fake_lib",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([libDir]);
+      expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back when vcpkg root exists but the library is not installed", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const fallbackInclude = path.join("fallback", "include");
+    const fallbackLib = path.join("fallback", "lib");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_missing_lib",
+          fallbackInclude,
+          fallbackLib,
+          fallbackLink: "yo_missing_lib",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([fallbackInclude]);
+      expect(result.libraryPaths).toEqual([fallbackLib]);
+      expect(result.linkLibraries).toEqual(["yo_missing_lib"]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Windows static library archiver selection", () => {
+  const windowsTarget: TargetInfo = {
+    arch: "x86_64",
+    os: "windows",
+    abi: "msvc",
+    pointerSizeBits: 64,
+    triple: "x86_64-windows-msvc",
+  };
+
+  test("prefers llvm-ar for clang Windows builds when available", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "clang",
+        targetInfo: windowsTarget,
+        hasLlvmAr: true,
+      })
+    ).toEqual({
+      tool: "llvm-ar",
+      argsPrefix: [],
+    });
+  });
+
+  test("falls back to ar when llvm-ar is unavailable", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "clang",
+        targetInfo: windowsTarget,
+        hasLlvmAr: false,
+      })
+    ).toEqual({
+      tool: "ar",
+      argsPrefix: [],
+    });
+  });
+
+  test("uses zig ar for zig Windows builds", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "zig",
+        targetInfo: windowsTarget,
+      })
+    ).toEqual({
+      tool: "zig",
+      argsPrefix: ["ar"],
+    });
   });
 });
 

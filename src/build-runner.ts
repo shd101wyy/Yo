@@ -1273,10 +1273,11 @@ async function resolveDependencyArtifacts(
  */
 function getGitVersion(projectDir: string): string | undefined {
   try {
-    const result = execSync("git describe --tags --always 2>/dev/null", {
+    const result = execSync("git describe --tags --always", {
       cwd: projectDir,
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     return result || undefined;
   } catch {
