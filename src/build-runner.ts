@@ -26,6 +26,7 @@ import {
   swapBuildRegistry,
   setRootBuildProjectDir,
   setDependencyProjectRoot,
+  getDependencyProjectRoot,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import {
@@ -164,6 +165,24 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       sysroot: options.sysroot,
       verbose: options.verbose,
     });
+  }
+
+  // Evaluate all dependency build.yo files to set project roots for import resolution.
+  // This ensures `import "dep_name"` resolves to the dependency's declared root
+  // even when the dep has no artifact references (dependencyArtifacts).
+  for (const dep of [...registry.dependencies, ...registry.pathDependencies]) {
+    // Skip if the project root is already set (e.g., from resolveDependencyArtifacts)
+    const depDir = findDependencyDir(registry, projectDir, dep.name);
+    if (!depDir) continue;
+    if (getDependencyProjectRoot(depDir)) continue;
+
+    const depBuildFile = path.join(depDir, "build.yo");
+    if (!fs.existsSync(depBuildFile)) continue;
+
+    const depRegistry = evaluateDependencyBuildFile(depBuildFile);
+    if (depRegistry.project?.root) {
+      setDependencyProjectRoot(depDir, depRegistry.project.root);
+    }
   }
 
   for (const stepName of requestedSteps) {

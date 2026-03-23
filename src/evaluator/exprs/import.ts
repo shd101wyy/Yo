@@ -263,12 +263,9 @@ function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
   // Convention-based fallback
   const indexYo = path.join(depRoot, "index.yo");
   const namedYo = path.join(depRoot, depName + ".yo");
-  // Default convention from `yo init`: src/lib.yo
-  const srcLibYo = path.join(depRoot, "src", "lib.yo");
 
   if (existsSync(indexYo)) return indexYo;
   if (existsSync(namedYo)) return namedYo;
-  if (existsSync(srcLibYo)) return srcLibYo;
 
   return depRoot;
 }
