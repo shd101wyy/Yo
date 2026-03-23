@@ -157,14 +157,12 @@ build :: import "std/build";
 
 // Link against a system C library discovered via pkg-config
 build.system_library({
-  name: "openssl",
-  pkg_config: "openssl"
+  name: "openssl"
 });
 
 // Or with manual fallback paths (for systems without pkg-config)
 build.system_library({
   name: "zlib",
-  pkg_config: "zlib",
   fallback_include: "/usr/include",
   fallback_lib: "/usr/lib"
 });
@@ -180,8 +178,7 @@ build.executable({
 
 ```yo
 SystemLibrary :: struct(
-  name : comptime_string,                                // Identifier for referencing
-  pkg_config : comptime_string,                           // pkg-config package name
+  name : comptime_string,                                // Identifier and pkg-config package name
   (fallback_include : comptime_string) ?= "",             // Manual include path
   (fallback_lib : comptime_string) ?= "",                 // Manual library path
   (fallback_link : comptime_string) ?= ""                 // Manual -l flag
@@ -192,7 +189,7 @@ export SystemLibrary;
 ### 3.3 Resolution Flow
 
 ```
-build.system_library({ pkg_config: "openssl" })
+build.system_library({ name: "openssl" })
         │
         ▼
 Build runner (at build time, not comptime):
@@ -284,8 +281,7 @@ export interface BuildGitDependency {
 }
 
 export interface BuildSystemLibrary {
-  name: string; // Identifier
-  pkgConfig: string; // pkg-config package name
+  name: string; // Identifier and pkg-config package name
   fallbackInclude: string;
   fallbackLib: string;
   fallbackLink: string;

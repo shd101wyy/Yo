@@ -150,7 +150,6 @@ export PathDependency;
 
 SystemLibrary :: struct(
   name : comptime_string,
-  pkg_config : comptime_string,
   (fallback_include : comptime_string) ?= "",
   (fallback_lib : comptime_string) ?= "",
   (fallback_link : comptime_string) ?= ""
@@ -273,7 +272,7 @@ export path_dependency;
 
 // Register a system C library discovered via pkg-config. Returns a Step for linking.
 system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {
-  __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
+  __yo_build_system_library(config.name, config.fallback_include, config.fallback_lib, config.fallback_link);
   Step(name: config.name, kind: StepKind.SystemLibrary)
 };
 export system_library;

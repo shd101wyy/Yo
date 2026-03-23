@@ -274,8 +274,7 @@ lib :: build.shared_library({
 
 // System libraries (via pkg-config)
 openssl :: build.system_library({
-  name: "openssl",
-  pkg_config: "openssl"
+  name: "openssl"
 });
 
 exe :: build.executable({
@@ -743,14 +742,13 @@ Link against system C libraries discovered via `pkg-config`:
 ```yo
 build.system_library({
   name: "openssl",
-  pkg_config: "openssl",
   fallback_include: "/usr/include/openssl",
   fallback_lib: "/usr/lib",
   fallback_link: "ssl crypto"
 });
 ```
 
-When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags. The fallback fields are used when `pkg-config` is not found (common on Windows).
+When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags using the `name` as the pkg-config package name. The fallback fields are used when `pkg-config` is not found (common on Windows).
 
 ## `yo fetch` Reference
 

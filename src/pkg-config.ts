@@ -120,16 +120,16 @@ export function resolveSystemLibrary(
   verbose: boolean = false
 ): PkgConfigResult {
   if (isPkgConfigAvailable()) {
-    const result = queryPkgConfig(lib.pkgConfig);
+    const result = queryPkgConfig(lib.name);
     if (result) {
       if (verbose) {
-        console.log(`  ${lib.name}: found via pkg-config (${lib.pkgConfig})`);
+        console.log(`  ${lib.name}: found via pkg-config (${lib.name})`);
       }
       return result;
     }
     if (verbose) {
       console.log(
-        `  ${lib.name}: pkg-config query failed for "${lib.pkgConfig}", using fallback`
+        `  ${lib.name}: pkg-config query failed for "${lib.name}", using fallback`
       );
     }
   } else if (verbose) {

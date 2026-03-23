@@ -92,7 +92,6 @@ export interface BuildPathDependency {
 
 export interface BuildSystemLibrary {
   name: string;
-  pkgConfig: string;
   fallbackInclude: string;
   fallbackLib: string;
   fallbackLink: string;
@@ -892,12 +891,12 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_system_library(name, pkg_config, fallback_include, fallback_lib, fallback_link)
+  // __yo_build_system_library(name, fallback_include, fallback_lib, fallback_link)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library)) {
-    if (expr.args.length < 2) {
+    if (expr.args.length < 1) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_system_library expects at least 2 arguments (name, pkg_config), got ${expr.args.length}`,
+        errorMessage: `__yo_build_system_library expects at least 1 argument (name), got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -905,31 +904,26 @@ export function evaluateYoBuildFunctions({
       "name",
       expr.token
     );
-    const pkgConfig = extractComptimeString(
-      expr.args[1]!.$?.value,
-      "pkg_config",
-      expr.token
-    );
     const fallbackInclude =
-      expr.args.length > 2
+      expr.args.length > 1
         ? extractComptimeString(
-            expr.args[2]!.$?.value,
+            expr.args[1]!.$?.value,
             "fallback_include",
             expr.token
           )
         : "";
     const fallbackLib =
-      expr.args.length > 3
+      expr.args.length > 2
         ? extractComptimeString(
-            expr.args[3]!.$?.value,
+            expr.args[2]!.$?.value,
             "fallback_lib",
             expr.token
           )
         : "";
     const fallbackLink =
-      expr.args.length > 4
+      expr.args.length > 3
         ? extractComptimeString(
-            expr.args[4]!.$?.value,
+            expr.args[3]!.$?.value,
             "fallback_link",
             expr.token
           )
@@ -937,7 +931,6 @@ export function evaluateYoBuildFunctions({
 
     registry.registerSystemLibrary({
       name,
-      pkgConfig,
       fallbackInclude,
       fallbackLib,
       fallbackLink,

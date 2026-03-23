@@ -409,8 +409,7 @@ Register system libraries via `build.system_library()` and link them using the `
 ```yo
 // Register system libraries (returns Step)
 openssl :: build.system_library({
-  name: "openssl",
-  pkg_config: "openssl"
+  name: "openssl"
 });
 
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
