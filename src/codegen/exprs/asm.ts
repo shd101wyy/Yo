@@ -616,10 +616,13 @@ export function generateAsm(
   // --- Build GCC asm statement ---
   const volatileStr = asmOpts.isVolatile ? " __volatile__" : "";
 
-  // Wrap with intel syntax if needed
-  let finalTemplate = gccTemplate;
+  // When intel_syntax is requested, don't wrap with .intel_syntax/.att_syntax
+  // directives — GCC/clang operand substitution produces AT&T-style register
+  // names (e.g., %eax) regardless of inline directives. Instead, we set a
+  // context flag so the C compiler is invoked with -masm=intel.
+  const finalTemplate = gccTemplate;
   if (asmOpts.intelSyntax) {
-    finalTemplate = `.intel_syntax noprefix\\n${gccTemplate}\\n.att_syntax prefix`;
+    context.needsIntelAsmSyntax = true;
   }
 
   // Escape for C string

@@ -476,6 +476,11 @@ export class CodeGenerator {
           console.log(`Custom compiler flags added: ${options.cflags}`);
         }
 
+        // Add -masm=intel when inline assembly uses Intel syntax
+        if (!isMSVC && this.moduleManager.needsIntelAsmSyntax) {
+          compileArgs.splice(-2, 0, "-masm=intel");
+        }
+
         // Cross-compilation: add --target= and --sysroot= for clang/gcc
         const host = hostTarget();
         if (!isMSVC && targetInfo.triple !== host.triple) {
