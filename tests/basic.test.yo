@@ -1665,6 +1665,48 @@ test "Test 'while'", {
     assert(search_value(15, 10) == -1);
     assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
   };
+
+  // Test: infinite comptime while loop (literal true, no terminator) should error
+  {
+    comptime_expect_error(
+      while true, {
+        x := 1;
+      },
+      "Infinite compile-time while loop detected"
+    );
+  };
+
+  // Test: while true with break in conditional branch should compile (emits runtime loop)
+  {
+    while_with_break :: (fn() -> i32) {
+      i := 0;
+      while true, {
+        i = (i + 1);
+        cond(
+          (i >= 5) => break,
+          true => ()
+        );
+      };
+      i
+    };
+    assert((while_with_break() == 5), "while true with conditional break should terminate at 5");
+  };
+
+  // Test: while true with return in conditional branch should compile
+  {
+    while_with_return :: (fn() -> i32) {
+      i := 0;
+      while true, {
+        i = (i + 1);
+        cond(
+          (i >= 3) => { return i; },
+          true => ()
+        );
+      };
+      i32(0)
+    };
+    assert((while_with_return() == 3), "while true with conditional return should return 3");
+  };
 };
 
 test "Test control flows", {
