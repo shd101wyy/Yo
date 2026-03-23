@@ -1,4 +1,8 @@
-import type { Environment } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   exprIsFunctionCall,
@@ -271,6 +275,58 @@ function parseOperand(
       };
     }
 
+    // For variable-target mode, the variable might be uninitialized.
+    // Look up the variable directly to avoid "not initialized" errors.
+    // Skip variables that hold type values (e.g., i32, u32) — those are return-value mode.
+    if (valueOrTypeExpr.tag === "Atom") {
+      const varName = valueOrTypeExpr.token.value;
+      const variables = getVariablesFromEnv(env, varName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        // If the variable holds a type value, it's return-value mode (e.g., out(reg, i32))
+        if (variable.value && isTypeValue(variable.value[0])) {
+          // Fall through to evaluation path below
+        } else {
+          const varType = variable.type;
+          if (!isValidAsmOperandType(varType)) {
+            throw formatErrorMessage({
+              token: valueOrTypeExpr.token,
+              errorMessage: `asm ${kind}() target variable '${varName}' has type that is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
+            });
+          }
+          // Evaluate the expression to annotate it for codegen.
+          // If the variable is uninitialized, manually annotate instead of calling evaluateExpression.
+          let evaluated: Expr;
+          if (variable.initializedAtToken) {
+            evaluated = evaluateExpression({
+              expr: valueOrTypeExpr,
+              env,
+              context: { ...context },
+            });
+          } else {
+            // Uninitialized variable — annotate manually so codegen can reference it
+            evaluated = valueOrTypeExpr;
+            evaluated.$ = {
+              env,
+              type: varType,
+              value: undefined,
+              pathCollection: [],
+            };
+          }
+          return {
+            kind: kind as AsmOperand["kind"],
+            name,
+            constraint,
+            valueExpr: evaluated,
+            outputType: varType,
+            targetVarName: varName,
+            discarded: false,
+          };
+        }
+      }
+      // Not a variable or is a type variable — fall through to evaluate as type expression
+    }
+
     const evaluated = evaluateExpression({
       expr: valueOrTypeExpr,
       env,
@@ -293,33 +349,6 @@ function parseOperand(
         valueExpr: undefined,
         outputType,
         targetVarName: undefined,
-        discarded: false,
-      };
-    }
-
-    // Variable-target mode: the arg should be a variable reference
-    if (valueOrTypeExpr.tag === "Atom") {
-      const varName = valueOrTypeExpr.token.value;
-      if (!evaluated.$) {
-        throw formatErrorMessage({
-          token: valueOrTypeExpr.token,
-          errorMessage: `Failed to evaluate asm ${kind}() target variable '${varName}'.`,
-        });
-      }
-      const varType = evaluated.$.type;
-      if (!isValidAsmOperandType(varType)) {
-        throw formatErrorMessage({
-          token: valueOrTypeExpr.token,
-          errorMessage: `asm ${kind}() target variable '${varName}' has type that is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
-        });
-      }
-      return {
-        kind: kind as AsmOperand["kind"],
-        name,
-        constraint,
-        valueExpr: evaluated,
-        outputType: varType,
-        targetVarName: varName,
         discarded: false,
       };
     }
@@ -603,6 +632,26 @@ export function evaluateAsm({
 
     argIdx++;
   }
+
+  // --- Mark variable-target output variables as initialized ---
+  // asm writes to these variables, so they should be considered initialized after the call
+  let currentEnv = env;
+  for (const op of operands) {
+    if (op.targetVarName === undefined) continue;
+    if (op.kind !== "out" && op.kind !== "lateout") continue;
+
+    const variables = getVariablesFromEnv(currentEnv, op.targetVarName);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      if (!variable.initializedAtToken) {
+        currentEnv = updateExistingVariable(currentEnv, variable, {
+          ...variable,
+          initializedAtToken: expr.token,
+        });
+      }
+    }
+  }
+  env = currentEnv;
 
   // --- Infer return type ---
   // Collect output types from non-discarded, non-variable-target outputs

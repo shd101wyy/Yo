@@ -243,3 +243,26 @@ test "Test asm with asm_options", {
     true => ()
   );
 };
+
+test "Test asm uninitialized variable target", {
+  // out(reg, x) where x is declared but not initialized — asm initializes it
+  cond(
+    (arch == Arch.Aarch64) => {
+      x : i32;
+      asm(
+        "mov {0}, #42",
+        out(reg, x)
+      );
+      assert((x == i32(42)), "uninitialized var should be set to 42 by asm");
+    },
+    (arch == Arch.X86_64) => {
+      x : i32;
+      asm(
+        "mov {0}, 42",
+        out(reg, x)
+      );
+      assert((x == i32(42)), "uninitialized var should be set to 42 by asm");
+    },
+    true => ()
+  );
+};
