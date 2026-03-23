@@ -1,8 +1,12 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   cloneExpr,
   type Expr,
+  ExprTag,
+  exprIsAtomOf,
+  exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
   hasAnyControlFlow,
@@ -15,6 +19,45 @@ import { isBooleanValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
+
+/**
+ * Recursively check if an expression tree contains any `break`, `return`,
+ * or `escape` expressions — even inside branches of `cond`/`match`.
+ *
+ * This is needed because `controlFlow` flags on a `cond` expression only
+ * reflect **guaranteed** control flow (all branches). A `break` inside one
+ * branch of `cond` means the loop **may** terminate, but `controlFlow.break`
+ * won't be set on the `cond` expression itself.
+ */
+function exprContainsLoopTerminator(expr: Expr): boolean {
+  if (expr.tag === ExprTag.Atom) {
+    // break, return, escape can appear as bare atoms
+    return (
+      exprIsAtomOf(expr, BuiltinKeywords.break) ||
+      exprIsAtomOf(expr, BuiltinKeywords.return) ||
+      exprIsAtomOf(expr, BuiltinKeywords.escape)
+    );
+  }
+
+  // FnCallExpr
+  const fnCall = expr as FnCallExpr;
+
+  // Check if this is a return(expr) or escape(expr) call
+  if (
+    exprIsFunctionCallOf(fnCall, BuiltinKeywords.return) ||
+    exprIsFunctionCallOf(fnCall, BuiltinKeywords.escape)
+  ) {
+    return true;
+  }
+
+  // Recurse into func and all arguments
+  if (exprContainsLoopTerminator(fnCall.func)) return true;
+  for (const arg of fnCall.args) {
+    if (exprContainsLoopTerminator(arg)) return true;
+  }
+
+  return false;
+}
 
 /**
  * While loop
@@ -194,6 +237,47 @@ export function evaluateWhile({
         }
       }
       return expr;
+    }
+
+    // --- Static analysis for infinite compile-time while loops ---
+    // If the condition is compile-time `true` and the body has no expression
+    // that could terminate the loop (break, return, escape), the loop will run
+    // forever at compile time. Error out with a helpful message.
+    //
+    // We walk the body AST instead of checking `controlFlow` flags because
+    // controlFlow only reflects *guaranteed* control flow. A `break` inside
+    // one branch of `cond` means the loop *may* terminate at runtime, but
+    // `controlFlow.break` won't be set on the cond expression.
+    if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+      const bodyFlow = evaluatedBodyExpr.$.controlFlow;
+      const hasGuaranteedTerminator =
+        hasControlFlow(bodyFlow, "break") ||
+        hasControlFlow(bodyFlow, "return") ||
+        hasControlFlow(bodyFlow, "escape");
+      const hasPossibleTerminator = exprContainsLoopTerminator(bodyExpr);
+
+      if (!hasGuaranteedTerminator && !hasPossibleTerminator) {
+        // No terminator at all — this loop can never end
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage:
+            `Infinite compile-time while loop detected. ` +
+            `The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\n` +
+            `If you need an infinite runtime loop, use \`while runtime(true), { ... }\` instead of \`while true, { ... }\`.`,
+        });
+      }
+
+      if (!hasGuaranteedTerminator && hasPossibleTerminator) {
+        // A terminator exists but is conditional (e.g., break inside one cond branch).
+        // The loop cannot be fully unrolled at compile time — emit as runtime loop.
+        expr.$ = {
+          env: evaluatedBodyExpr.$.env,
+          pathCollection: [],
+          type: VUnit.type,
+          value: undefined, // Runtime value
+        };
+        return expr;
+      }
     }
 
     // The while loop body should return unit
