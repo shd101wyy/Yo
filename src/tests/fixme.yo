@@ -1,10 +1,11 @@
 open import "std/libc/stdio";
 
+test_fn :: (fn(comptime(T) : Type, v : T) -> T) {
+  return v;
+};
+
 main :: (fn(using(io : IO)) -> unit)({
-  i :: 0;
-  while (i < 3), {
-    printf("%d\n", i32(i));
-    i = (i + 1);
-  };
+  x := test_fn(i32, i32(42));
+  assert(x == 42);
 });
 export main;

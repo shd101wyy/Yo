@@ -10,6 +10,24 @@ The Yo standard library provides a comprehensive set of modules for common progr
 open import "std/string";
 ```
 
+Modules whose directory name matches the file name (e.g., `url/url.yo`) use `index.yo` for clean imports:
+
+```yo
+// Clean import — loads std/url/index.yo
+{ Url } :: import "std/url";
+{ Regex } :: import "std/regex";
+{ fetch, HttpRequest } :: import "std/http";
+```
+
+Modules with multiple distinct submodules require explicit imports:
+
+```yo
+// Explicit submodule imports
+{ TcpStream } :: import "std/net/tcp";
+open import "std/fs/file";
+{ toml_parse } :: import "std/encoding/toml";
+```
+
 ---
 
 ## Table of Contents
@@ -261,13 +279,18 @@ Network address types: `IpAddr`, `SocketAddr`.
 
 ## HTTP
 
-### HTTP Types (`std/http/http`)
+### HTTP (`std/http`)
 
 ```yo
-{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, http_parse_response } :: import "std/http/http";
+// Import via index (recommended)
+{ HttpMethod, HttpRequest, HttpResponse, fetch, FetchOptions } :: import "std/http";
+
+// Or import specific submodules
+{ HttpMethod, HttpRequest, HttpResponse } :: import "std/http/http";
+{ fetch, fetch_with, FetchOptions, HttpError } :: import "std/http/client";
 ```
 
-**HttpMethod** — enum: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`.
+**HttpMethod** — enum: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`.
 
 **HttpRequest** — Builder pattern for constructing HTTP requests:
 
@@ -281,7 +304,6 @@ s := req.to_string();  // Serializes to HTTP/1.1 format
 **HttpResponse** — Response with status helpers:
 
 ```yo
-resp := result.unwrap();
 resp.status_code  // i32
 resp.is_ok()      // 2xx
 resp.is_redirect() // 3xx
@@ -289,11 +311,57 @@ resp.is_error()   // 4xx/5xx
 resp.get_header(`Content-Type`)  // Option(String)
 ```
 
-**http_parse_response** — Parse an HTTP/1.1 response string into `HttpResponse`.
+**parse_response** — Parse an HTTP/1.1 response string into `HttpResponse`.
+
+### Async HTTP Client (`std/http/client`)
+
+**fetch** — High-level async HTTP GET, similar to JavaScript's `fetch`:
+
+```yo
+{ fetch } :: import "std/http";
+{ Exception } :: import "std/error";
+
+main :: (fn(using(io : IO)) -> unit)({
+  given(exn) := Exception(throw : ((err) -> {
+    println(err.message());
+    escape ();
+  }));
+  resp := io.await(fetch(`http://example.com/api/data`, using(io)));
+  cond(resp.is_ok() => println(resp.body), true => println(`Request failed`));
+});
+```
+
+**fetch_with** — Async HTTP request with custom options:
+
+```yo
+opts := FetchOptions.new()
+  .with_method(.POST)
+  .with_header(`Content-Type`, `application/json`)
+  .with_body(`{"key": "value"}`);
+resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
+```
+
+**FetchOptions** — Request configuration:
+
+| Method        | Description          |
+| ------------- | -------------------- |
+| `new()`       | Create default (GET) |
+| `with_method` | Set HTTP method      |
+| `with_header` | Add a header         |
+| `with_body`   | Set request body     |
+
+**HttpError** — enum: `ConnectionFailed`, `InvalidUrl`, `Timeout`, `TooManyRedirects`, `UnsupportedScheme`, `ResponseTooLarge`, `Other`.
 
 ---
 
 ## Encoding
+
+```yo
+// Import specific encoding modules
+open import "std/encoding/json";
+{ toml_parse, TomlValue } :: import "std/encoding/toml";
+{ base64_encode } :: import "std/encoding/base64";
+```
 
 ### JSON (`std/encoding/json`)
 
@@ -361,10 +429,10 @@ Cryptographic random number generation.
 
 ## Regular Expressions
 
-### Regex (`std/regex/regex`)
+### Regex (`std/regex`)
 
 ```yo
-open import "std/regex/regex";
+open import "std/regex";
 ```
 
 Full regex engine with compilation and matching.
@@ -404,10 +472,12 @@ args.get_positional(`input`)    // Option(String)
 
 ## TOML Parsing
 
-### TOML (`std/toml/toml`)
+### TOML (`std/encoding/toml`)
+
+TOML has been moved to the `std/encoding/` module for consistency with other data formats.
 
 ```yo
-{ toml_parse, TomlValue } :: import "std/toml/toml";
+{ toml_parse, TomlValue } :: import "std/encoding/toml";
 ```
 
 Basic TOML parser supporting strings, integers, booleans, and table sections.
@@ -443,10 +513,10 @@ port := srv.get(`port`).unwrap().as_int().unwrap();      // i64(8080)
 
 ## Glob Pattern Matching
 
-### Glob (`std/glob/glob`)
+### Glob (`std/glob`)
 
 ```yo
-{ glob_match, GlobPattern } :: import "std/glob/glob";
+{ glob_match, GlobPattern } :: import "std/glob";
 ```
 
 Unix-style glob pattern matching.
@@ -496,7 +566,11 @@ Writer :: trait(
 
 ## URL Parsing
 
-### URL (`std/url/url`)
+### URL (`std/url`)
+
+```yo
+{ Url, url_parse } :: import "std/url";
+```
 
 URL parsing and component extraction.
 
@@ -591,10 +665,10 @@ Display trait for formatted output.
 
 ## Logging
 
-### Log (`std/log/log`)
+### Log (`std/log`)
 
 ```yo
-open import "std/log/log";
+open import "std/log";
 ```
 
 Leveled logging: `log_debug`, `log_info`, `log_warn`, `log_error`.

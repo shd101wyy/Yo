@@ -39,6 +39,7 @@ import { fixupDynImplKeys } from "./utils/fixup";
 export class CodeGeneratorC {
   private emitter: Emitter;
   private exportedFunctionNames: Set<string> = new Set();
+  private _needsIntelAsmSyntax = false;
 
   constructor() {
     this.emitter = new Emitter();
@@ -207,6 +208,11 @@ static Slice_uint8_t_u42_ __yo_args;
 
     // Sixth pass: Generate the specialized function bodies
     generateSpecializedFunctions(context);
+
+    // Propagate codegen flags for C compiler invocation
+    if (context.needsIntelAsmSyntax) {
+      this._needsIntelAsmSyntax = true;
+    }
   }
 
   public print(): string {
@@ -215,5 +221,9 @@ static Slice_uint8_t_u42_ __yo_args;
 
   public getExportedFunctionNames(): Set<string> {
     return this.exportedFunctionNames;
+  }
+
+  public get needsIntelAsmSyntax(): boolean {
+    return this._needsIntelAsmSyntax;
   }
 }

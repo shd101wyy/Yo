@@ -258,6 +258,12 @@ export interface CodeGenContext {
   isLibrary?: boolean;
 
   /**
+   * Set to true when any asm block uses intel_syntax.
+   * Signals that `-masm=intel` must be passed to the C compiler.
+   */
+  needsIntelAsmSyntax?: boolean;
+
+  /**
    * The module ID of the current module being compiled (e.g., "yo3818ce2d").
    * Used in library mode to distinguish user-defined exports from std library functions.
    */

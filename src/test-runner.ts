@@ -372,8 +372,9 @@ function runSingleTest(
     }
     const yoCompileEnd = Date.now();
 
-    // Get the generated C code
+    // Get the generated C code and codegen flags
     const generatedCode = moduleManager.getGeneratedCode();
+    const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
 
     // Explicitly release the moduleManager to help GC
     moduleManager = null;
@@ -419,6 +420,11 @@ function runSingleTest(
         compileArgs.splice(-2, 0, "-lws2_32");
         compileArgs.splice(-2, 0, "-lbcrypt");
       }
+    }
+
+    // Add -masm=intel when inline assembly uses Intel syntax
+    if (!isMSVC && needsIntelAsmSyntax) {
+      compileArgs.splice(-2, 0, "-masm=intel");
     }
 
     // Add liburing on Linux for async I/O (uses system-installed liburing)

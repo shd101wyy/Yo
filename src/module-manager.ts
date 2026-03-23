@@ -385,4 +385,8 @@ export class ModuleManager {
   getExportedFunctionNames(): Set<string> {
     return this.codeGenratorC.getExportedFunctionNames();
   }
+
+  get needsIntelAsmSyntax(): boolean {
+    return this.codeGenratorC.needsIntelAsmSyntax;
+  }
 }

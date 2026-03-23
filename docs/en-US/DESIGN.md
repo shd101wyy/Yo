@@ -2776,6 +2776,31 @@ increment :: (fn(x : i32) -> i32)
 
 For more examples, see [comptime.test.yo](../tests/comptime.test.yo).
 
+## Inline Assembly
+
+Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, inspired by Rust's `asm!` macro. Features include:
+
+- **Operand types**: `in`, `out`, `inout`, `lateout`, `inlateout`, `const_val`, `sym`
+- **Register constraints**: `reg`, `imm`, `mem`, explicit register names (e.g., `"rax"`)
+- **Named operands**: `out("result", reg, i32)` with template references `{result}`
+- **Variable-target outputs**: `out(reg, x)` writes directly to a variable, including uninitialized ones
+- **Clobbers and options**: `clobber("memory")`, `asm_options(volatile, noreturn)`
+- **Multi-architecture**: x86_64 and aarch64 support
+
+```yo
+// Simple example: move immediate to register
+result := asm(
+  "mov {0}, #42",
+  out(reg, i32)
+);
+
+// Uninitialized variable output
+x : i32;
+asm("mov {0}, #42", out(reg, x));
+```
+
+For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md).
+
 ## In Design
 
 Please check [IN_DESIGN.md](./IN_DESIGN.md) for features that are still in design phase.
