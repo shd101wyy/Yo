@@ -467,6 +467,59 @@ describe("Global cache directory", () => {
 });
 
 describe("System library resolution", () => {
+  function writeTestDll(filePath: string, importedDllNames: string[]): void {
+    const sectionRva = 0x1000;
+    const sectionFileOffset = 0x200;
+    const descriptorSize = 20;
+    const descriptorTableSize = descriptorSize * (importedDllNames.length + 1);
+    let nextStringRva = sectionRva + descriptorTableSize;
+    const importStrings = importedDllNames.map((importedDllName) => {
+      const currentRva = nextStringRva;
+      nextStringRva += Buffer.byteLength(importedDllName, "ascii") + 1;
+      return { importedDllName, rva: currentRva };
+    });
+    const sectionSize = Math.ceil((nextStringRva - sectionRva) / 0x200) * 0x200;
+    const buffer = Buffer.alloc(sectionFileOffset + sectionSize, 0);
+
+    buffer.write("MZ", 0, "ascii");
+    buffer.writeUInt32LE(0x80, 0x3c);
+    buffer.write("PE\0\0", 0x80, "ascii");
+
+    const fileHeaderOffset = 0x84;
+    buffer.writeUInt16LE(0x8664, fileHeaderOffset);
+    buffer.writeUInt16LE(1, fileHeaderOffset + 2);
+    buffer.writeUInt16LE(0xf0, fileHeaderOffset + 16);
+    buffer.writeUInt16LE(0x2022, fileHeaderOffset + 18);
+
+    const optionalHeaderOffset = 0x98;
+    buffer.writeUInt16LE(0x20b, optionalHeaderOffset);
+    buffer.writeUInt32LE(16, optionalHeaderOffset + 108);
+    if (importedDllNames.length > 0) {
+      buffer.writeUInt32LE(sectionRva, optionalHeaderOffset + 120);
+      buffer.writeUInt32LE(descriptorTableSize, optionalHeaderOffset + 124);
+    }
+
+    const sectionHeaderOffset = optionalHeaderOffset + 0xf0;
+    buffer.write(".rdata", sectionHeaderOffset, "ascii");
+    buffer.writeUInt32LE(sectionSize, sectionHeaderOffset + 8);
+    buffer.writeUInt32LE(sectionRva, sectionHeaderOffset + 12);
+    buffer.writeUInt32LE(sectionSize, sectionHeaderOffset + 16);
+    buffer.writeUInt32LE(sectionFileOffset, sectionHeaderOffset + 20);
+    buffer.writeUInt32LE(0x40000040, sectionHeaderOffset + 36);
+
+    importStrings.forEach((importString, index) => {
+      const descriptorOffset = sectionFileOffset + index * descriptorSize;
+      buffer.writeUInt32LE(importString.rva, descriptorOffset + 12);
+      buffer.write(
+        importString.importedDllName,
+        sectionFileOffset + (importString.rva - sectionRva),
+        "ascii"
+      );
+    });
+
+    fs.writeFileSync(filePath, buffer);
+  }
+
   test("resolves vcpkg libraries by matching a library file", () => {
     const previousVcpkgRoot = process.env.VCPKG_ROOT;
     const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
@@ -474,11 +527,15 @@ describe("System library resolution", () => {
     const triplet = "x64-windows";
     const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
     const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const binDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const runtimeDll = path.join(binDir, "yo_fake_lib.dll");
 
     try {
       fs.mkdirSync(includeDir, { recursive: true });
       fs.mkdirSync(libDir, { recursive: true });
+      fs.mkdirSync(binDir, { recursive: true });
       fs.writeFileSync(path.join(libDir, "yo_fake_lib.lib"), "");
+      fs.writeFileSync(runtimeDll, "");
 
       process.env.VCPKG_ROOT = vcpkgRoot;
       process.env.VCPKG_DEFAULT_TRIPLET = triplet;
@@ -496,6 +553,7 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([includeDir]);
       expect(result.libraryPaths).toEqual([libDir]);
       expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.runtimeFiles).toEqual([runtimeDll]);
     } finally {
       if (previousVcpkgRoot === undefined) {
         delete process.env.VCPKG_ROOT;
@@ -541,6 +599,127 @@ describe("System library resolution", () => {
       expect(result.includePaths).toEqual([fallbackInclude]);
       expect(result.libraryPaths).toEqual([fallbackLib]);
       expect(result.linkLibraries).toEqual(["yo_missing_lib"]);
+      expect(result.runtimeFiles).toEqual([]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers debug vcpkg runtime files for debug builds", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const releaseLibDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const debugLibDir = path.join(
+      vcpkgRoot,
+      "installed",
+      triplet,
+      "debug",
+      "lib"
+    );
+    const releaseBinDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const debugBinDir = path.join(
+      vcpkgRoot,
+      "installed",
+      triplet,
+      "debug",
+      "bin"
+    );
+    const releaseDll = path.join(releaseBinDir, "yo_debug_pref.dll");
+    const debugDll = path.join(debugBinDir, "yo_debug_pref.dll");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(releaseLibDir, { recursive: true });
+      fs.mkdirSync(debugLibDir, { recursive: true });
+      fs.mkdirSync(releaseBinDir, { recursive: true });
+      fs.mkdirSync(debugBinDir, { recursive: true });
+      fs.writeFileSync(path.join(releaseLibDir, "yo_debug_pref.lib"), "");
+      fs.writeFileSync(path.join(debugLibDir, "yo_debug_pref.lib"), "");
+      fs.writeFileSync(releaseDll, "");
+      fs.writeFileSync(debugDll, "");
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_debug_pref",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false,
+        { preferDebugRuntime: true }
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([debugLibDir]);
+      expect(result.linkLibraries).toEqual(["yo_debug_pref"]);
+      expect(result.runtimeFiles).toEqual([debugDll]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers transitive vcpkg runtime DLL dependencies", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const binDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const runtimeDll = path.join(binDir, "yo_fake_lib.dll");
+    const transitiveDll = path.join(binDir, "yo_dependency.dll");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, "yo_fake_lib.lib"), "");
+      writeTestDll(runtimeDll, ["yo_dependency.dll"]);
+      writeTestDll(transitiveDll, []);
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_fake_lib",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([libDir]);
+      expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.runtimeFiles).toEqual([runtimeDll, transitiveDll]);
     } finally {
       if (previousVcpkgRoot === undefined) {
         delete process.env.VCPKG_ROOT;
@@ -622,6 +801,7 @@ function makeDefaultArtifactConfig() {
     defines: [] as string[],
     strip: false,
     staticLink: false,
+    runtimeFiles: [] as string[],
     linkedArtifacts: [] as string[],
     linkedSystemLibraries: [] as string[],
   };
@@ -927,6 +1107,7 @@ import {
   detectCycle,
   computeDependencyHash,
   getArtifactOutputFileName,
+  stageRuntimeFiles,
 } from "../build-runner";
 
 describe("buildDAG", () => {
@@ -1114,6 +1295,7 @@ function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
     sanitize: "none",
     strip: false,
     staticLink: false,
+    runtimeFiles: [],
     cSources: [],
     includePaths: [],
     libraryPaths: [],
@@ -1160,6 +1342,32 @@ describe("Artifact output naming", () => {
   });
 });
 
+describe("Runtime dependency staging", () => {
+  test("copies unique runtime files into the output directory", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-runtime-stage-"));
+    const runtimeDir = path.join(tempDir, "runtime");
+    const outputDir = path.join(tempDir, "out");
+    const runtimeDll = path.join(runtimeDir, "raylib.dll");
+
+    try {
+      fs.mkdirSync(runtimeDir, { recursive: true });
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.writeFileSync(runtimeDll, "runtime");
+
+      const stagedFiles = stageRuntimeFiles(
+        [runtimeDll, runtimeDll],
+        outputDir,
+        false
+      );
+      const stagedDll = path.join(outputDir, "raylib.dll");
+
+      expect(stagedFiles).toEqual([stagedDll]);
+      expect(fs.readFileSync(stagedDll, "utf8")).toBe("runtime");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
 // ── Root build project dir (transitive import resolution) ────────────
 
 describe("rootBuildProjectDir", () => {

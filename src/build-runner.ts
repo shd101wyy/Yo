@@ -83,6 +83,41 @@ export function getArtifactOutputFileName(
   return artifact.name;
 }
 
+export function stageRuntimeFiles(
+  runtimeFiles: readonly string[],
+  outputDir: string,
+  verbose: boolean = false
+): string[] {
+  const stagedFiles: string[] = [];
+  const seenDestinations = new Set<string>();
+
+  for (const runtimeFile of runtimeFiles) {
+    const sourcePath = path.resolve(runtimeFile);
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+
+    const destinationPath = path.join(outputDir, path.basename(sourcePath));
+    if (seenDestinations.has(destinationPath)) {
+      continue;
+    }
+    seenDestinations.add(destinationPath);
+
+    if (path.resolve(destinationPath) !== sourcePath) {
+      fs.copyFileSync(sourcePath, destinationPath);
+    }
+
+    stagedFiles.push(destinationPath);
+    if (verbose) {
+      console.log(
+        `  Staged runtime dependency: ${path.relative(process.cwd(), destinationPath)}`
+      );
+    }
+  }
+
+  return stagedFiles;
+}
+
 /**
  * Run the build system.
  *
@@ -168,12 +203,19 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       if (linkedLibs.length === 0) continue;
       const sysLibFlags = resolveAllSystemLibraries(
         linkedLibs,
-        options.verbose
+        options.verbose,
+        { preferDebugRuntime: artifact.optimize === "debug" }
       );
       artifact.includePaths.push(...sysLibFlags.includePaths);
       artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
       artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
       artifact.cFlags.push(...sysLibFlags.cFlags);
+      artifact.runtimeFiles ??= [];
+      for (const runtimeFile of sysLibFlags.runtimeFiles) {
+        if (!artifact.runtimeFiles.includes(runtimeFile)) {
+          artifact.runtimeFiles.push(runtimeFile);
+        }
+      }
     }
   }
 
@@ -870,6 +912,13 @@ async function compileArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
   });
+
+  if (
+    artifact.kind !== "static_library" &&
+    (artifact.runtimeFiles?.length ?? 0) > 0
+  ) {
+    stageRuntimeFiles(artifact.runtimeFiles ?? [], outputDir, ctx.verbose);
+  }
 }
 
 // ── Dependency artifact resolution ────────────────────────────────────
@@ -1497,6 +1546,13 @@ async function compileDependencyArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
   });
+
+  if (
+    artifact.kind !== "static_library" &&
+    (artifact.runtimeFiles?.length ?? 0) > 0
+  ) {
+    stageRuntimeFiles(artifact.runtimeFiles ?? [], outputDir, opts.verbose);
+  }
 }
 
 function mapOptimize(level: string): "0" | "1" | "2" | "3" | undefined {

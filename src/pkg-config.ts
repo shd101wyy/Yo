@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { BuildSystemLibrary } from "./evaluator/builtins/build";
 
@@ -17,6 +17,11 @@ export interface PkgConfigResult {
   includePaths: string[];
   libraryPaths: string[];
   linkLibraries: string[];
+  runtimeFiles: string[];
+}
+
+export interface ResolveSystemLibraryOptions {
+  preferDebugRuntime?: boolean;
 }
 
 /**
@@ -58,6 +63,7 @@ function queryPkgConfig(pkgName: string): PkgConfigResult | undefined {
       includePaths: [],
       libraryPaths: [],
       linkLibraries: [],
+      runtimeFiles: [],
     };
 
     // Parse cflags
@@ -96,6 +102,7 @@ function buildFallback(lib: BuildSystemLibrary): PkgConfigResult {
     includePaths: [],
     libraryPaths: [],
     linkLibraries: [],
+    runtimeFiles: [],
   };
 
   if (lib.fallbackInclude) {
@@ -138,9 +145,231 @@ function findVcpkgLibraryPath(
   return undefined;
 }
 
+function findVcpkgRuntimeFiles(
+  runtimeDir: string,
+  libraryNames: readonly string[]
+): string[] {
+  const runtimeFiles: string[] = [];
+
+  for (const libraryName of libraryNames) {
+    const candidates = [`${libraryName}.dll`, `lib${libraryName}.dll`];
+    for (const candidate of candidates) {
+      const runtimeFile = join(runtimeDir, candidate);
+      if (existsSync(runtimeFile)) {
+        runtimeFiles.push(runtimeFile);
+        break;
+      }
+    }
+  }
+
+  return runtimeFiles;
+}
+
+function readNullTerminatedAscii(
+  buffer: Buffer,
+  offset: number
+): string | undefined {
+  let end = offset;
+  while (end < buffer.length && buffer[end] !== 0) {
+    end++;
+  }
+
+  if (end >= buffer.length) {
+    return undefined;
+  }
+
+  return buffer.toString("ascii", offset, end);
+}
+
+function convertPeRvaToFileOffset(
+  buffer: Buffer,
+  rva: number,
+  sectionsOffset: number,
+  sectionCount: number
+): number | undefined {
+  for (let i = 0; i < sectionCount; i++) {
+    const sectionOffset = sectionsOffset + i * 40;
+    if (sectionOffset + 40 > buffer.length) {
+      return undefined;
+    }
+
+    const virtualSize = buffer.readUInt32LE(sectionOffset + 8);
+    const virtualAddress = buffer.readUInt32LE(sectionOffset + 12);
+    const rawSize = buffer.readUInt32LE(sectionOffset + 16);
+    const rawPointer = buffer.readUInt32LE(sectionOffset + 20);
+    const sectionSize = Math.max(virtualSize, rawSize);
+
+    if (rva >= virtualAddress && rva < virtualAddress + sectionSize) {
+      return rawPointer + (rva - virtualAddress);
+    }
+  }
+
+  return undefined;
+}
+
+function getPeImportedDllNames(filePath: string): string[] {
+  const buffer = readFileSync(filePath);
+  if (buffer.length < 0x40 || buffer.toString("ascii", 0, 2) !== "MZ") {
+    return [];
+  }
+
+  const peHeaderOffset = buffer.readUInt32LE(0x3c);
+  if (peHeaderOffset + 24 > buffer.length) {
+    return [];
+  }
+
+  if (
+    buffer.toString("ascii", peHeaderOffset, peHeaderOffset + 4) !== "PE\0\0"
+  ) {
+    return [];
+  }
+
+  const fileHeaderOffset = peHeaderOffset + 4;
+  const sectionCount = buffer.readUInt16LE(fileHeaderOffset + 2);
+  const optionalHeaderSize = buffer.readUInt16LE(fileHeaderOffset + 16);
+  const optionalHeaderOffset = fileHeaderOffset + 20;
+  if (optionalHeaderOffset + optionalHeaderSize > buffer.length) {
+    return [];
+  }
+
+  const optionalHeaderMagic = buffer.readUInt16LE(optionalHeaderOffset);
+  const dataDirectoryOffset =
+    optionalHeaderMagic === 0x10b
+      ? optionalHeaderOffset + 96
+      : optionalHeaderMagic === 0x20b
+        ? optionalHeaderOffset + 112
+        : undefined;
+  if (
+    dataDirectoryOffset === undefined ||
+    dataDirectoryOffset + 16 > buffer.length
+  ) {
+    return [];
+  }
+
+  const importDirectoryRva = buffer.readUInt32LE(dataDirectoryOffset + 8);
+  if (importDirectoryRva === 0) {
+    return [];
+  }
+
+  const sectionsOffset = optionalHeaderOffset + optionalHeaderSize;
+  const importDirectoryOffset = convertPeRvaToFileOffset(
+    buffer,
+    importDirectoryRva,
+    sectionsOffset,
+    sectionCount
+  );
+  if (importDirectoryOffset === undefined) {
+    return [];
+  }
+
+  const importedDllNames: string[] = [];
+  for (
+    let descriptorOffset = importDirectoryOffset;
+    descriptorOffset + 20 <= buffer.length;
+    descriptorOffset += 20
+  ) {
+    const originalFirstThunk = buffer.readUInt32LE(descriptorOffset);
+    const timeDateStamp = buffer.readUInt32LE(descriptorOffset + 4);
+    const forwarderChain = buffer.readUInt32LE(descriptorOffset + 8);
+    const nameRva = buffer.readUInt32LE(descriptorOffset + 12);
+    const firstThunk = buffer.readUInt32LE(descriptorOffset + 16);
+
+    if (
+      originalFirstThunk === 0 &&
+      timeDateStamp === 0 &&
+      forwarderChain === 0 &&
+      nameRva === 0 &&
+      firstThunk === 0
+    ) {
+      break;
+    }
+
+    const nameOffset = convertPeRvaToFileOffset(
+      buffer,
+      nameRva,
+      sectionsOffset,
+      sectionCount
+    );
+    if (nameOffset === undefined) {
+      continue;
+    }
+
+    const importedDllName = readNullTerminatedAscii(buffer, nameOffset);
+    if (importedDllName !== undefined) {
+      importedDllNames.push(importedDllName);
+    }
+  }
+
+  return [...new Set(importedDllNames)];
+}
+
+function findRuntimeDependencyPath(
+  runtimeDirs: readonly string[],
+  dllName: string
+): string | undefined {
+  for (const runtimeDir of runtimeDirs) {
+    const candidatePath = join(runtimeDir, dllName);
+    if (existsSync(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return undefined;
+}
+
+function collectTransitiveRuntimeFiles(
+  runtimeFiles: readonly string[],
+  runtimeDirs: readonly string[]
+): string[] {
+  const collectedRuntimeFiles = [...runtimeFiles];
+  const queue = [...runtimeFiles];
+  const seenRuntimeFiles = new Set(
+    runtimeFiles.map((runtimeFile) => runtimeFile.toLowerCase())
+  );
+
+  while (queue.length > 0) {
+    const currentRuntimeFile = queue.shift()!;
+    for (const importedDllName of getPeImportedDllNames(currentRuntimeFile)) {
+      const dependencyPath = findRuntimeDependencyPath(
+        runtimeDirs,
+        importedDllName
+      );
+      if (!dependencyPath) {
+        continue;
+      }
+
+      const normalizedDependencyPath = dependencyPath.toLowerCase();
+      if (seenRuntimeFiles.has(normalizedDependencyPath)) {
+        continue;
+      }
+
+      seenRuntimeFiles.add(normalizedDependencyPath);
+      collectedRuntimeFiles.push(dependencyPath);
+      queue.push(dependencyPath);
+    }
+  }
+
+  return collectedRuntimeFiles;
+}
+
+function resolveVcpkgRuntimeFiles(
+  runtimeDirs: readonly string[],
+  libraryNames: readonly string[]
+): string[] {
+  for (const runtimeDir of runtimeDirs) {
+    const runtimeFiles = findVcpkgRuntimeFiles(runtimeDir, libraryNames);
+    if (runtimeFiles.length > 0) {
+      return collectTransitiveRuntimeFiles(runtimeFiles, runtimeDirs);
+    }
+  }
+
+  return [];
+}
+
 function resolveVcpkgLibrary(
   lib: BuildSystemLibrary,
-  verbose: boolean
+  verbose: boolean,
+  options: ResolveSystemLibraryOptions
 ): PkgConfigResult | undefined {
   const vcpkgRoot = process.env.VCPKG_ROOT;
   if (!vcpkgRoot) return undefined;
@@ -160,14 +389,27 @@ function resolveVcpkgLibrary(
     ? lib.fallbackLink.split(/\s+/).filter(Boolean)
     : [lib.name];
   const searchNames = [...new Set([lib.name, ...linkLibraries])];
+  const preferDebugRuntime = options.preferDebugRuntime === true;
 
   for (const triplet of triplets) {
     const includePath = join(vcpkgRoot, "installed", triplet, "include");
     const releaseLibPath = join(vcpkgRoot, "installed", triplet, "lib");
     const debugLibPath = join(vcpkgRoot, "installed", triplet, "debug", "lib");
-    const libraryPath =
-      findVcpkgLibraryPath(releaseLibPath, searchNames) ??
-      findVcpkgLibraryPath(debugLibPath, searchNames);
+    const runtimeSearchDirs = preferDebugRuntime
+      ? [
+          join(vcpkgRoot, "installed", triplet, "debug", "bin"),
+          join(vcpkgRoot, "installed", triplet, "bin"),
+        ]
+      : [
+          join(vcpkgRoot, "installed", triplet, "bin"),
+          join(vcpkgRoot, "installed", triplet, "debug", "bin"),
+        ];
+    const librarySearchDirs = preferDebugRuntime
+      ? [debugLibPath, releaseLibPath]
+      : [releaseLibPath, debugLibPath];
+    const libraryPath = librarySearchDirs.find((candidatePath) =>
+      findVcpkgLibraryPath(candidatePath, searchNames)
+    );
 
     if (existsSync(includePath) && libraryPath) {
       if (verbose) {
@@ -179,6 +421,7 @@ function resolveVcpkgLibrary(
         includePaths: [includePath],
         libraryPaths: [libraryPath],
         linkLibraries,
+        runtimeFiles: resolveVcpkgRuntimeFiles(runtimeSearchDirs, searchNames),
       };
     }
   }
@@ -191,7 +434,8 @@ function resolveVcpkgLibrary(
  */
 export function resolveSystemLibrary(
   lib: BuildSystemLibrary,
-  verbose: boolean = false
+  verbose: boolean = false,
+  options: ResolveSystemLibraryOptions = {}
 ): PkgConfigResult {
   if (isPkgConfigAvailable()) {
     const result = queryPkgConfig(lib.name);
@@ -213,7 +457,7 @@ export function resolveSystemLibrary(
   }
 
   // Try vcpkg
-  const vcpkgResult = resolveVcpkgLibrary(lib, verbose);
+  const vcpkgResult = resolveVcpkgLibrary(lib, verbose, options);
   if (vcpkgResult) return vcpkgResult;
 
   return buildFallback(lib);
@@ -224,7 +468,8 @@ export function resolveSystemLibrary(
  */
 export function resolveAllSystemLibraries(
   libraries: BuildSystemLibrary[],
-  verbose: boolean = false
+  verbose: boolean = false,
+  options: ResolveSystemLibraryOptions = {}
 ): PkgConfigResult {
   const merged: PkgConfigResult = {
     cFlags: [],
@@ -232,6 +477,7 @@ export function resolveAllSystemLibraries(
     includePaths: [],
     libraryPaths: [],
     linkLibraries: [],
+    runtimeFiles: [],
   };
 
   if (libraries.length === 0) return merged;
@@ -241,12 +487,17 @@ export function resolveAllSystemLibraries(
   }
 
   for (const lib of libraries) {
-    const result = resolveSystemLibrary(lib, verbose);
+    const result = resolveSystemLibrary(lib, verbose, options);
     merged.cFlags.push(...result.cFlags);
     merged.ldFlags.push(...result.ldFlags);
     merged.includePaths.push(...result.includePaths);
     merged.libraryPaths.push(...result.libraryPaths);
     merged.linkLibraries.push(...result.linkLibraries);
+    for (const runtimeFile of result.runtimeFiles) {
+      if (!merged.runtimeFiles.includes(runtimeFile)) {
+        merged.runtimeFiles.push(runtimeFile);
+      }
+    }
   }
 
   return merged;

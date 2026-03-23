@@ -53,6 +53,7 @@ export interface BuildArtifact {
   defines: string[];
   strip: boolean;
   staticLink: boolean;
+  runtimeFiles?: string[];
   linkedArtifacts: string[]; // Names of Yo library artifacts to link
   linkedSystemLibraries: string[]; // Names of system libraries to link (via pkg-config)
 }
@@ -545,6 +546,7 @@ export function evaluateYoBuildFunctions({
       defines: [],
       strip: false,
       staticLink: false,
+      runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
     });
@@ -593,6 +595,7 @@ export function evaluateYoBuildFunctions({
       defines: [],
       strip: false,
       staticLink: false,
+      runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
     });
@@ -641,6 +644,7 @@ export function evaluateYoBuildFunctions({
       defines: [],
       strip: false,
       staticLink: false,
+      runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
     });
