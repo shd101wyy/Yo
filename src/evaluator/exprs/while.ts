@@ -20,6 +20,69 @@ import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 
 /**
+ * Maximum number of compile-time while loop iterations before the evaluator
+ * bails out. Configurable via the YO_MAX_COMPTIME_LOOP_ITERATIONS env variable.
+ * This is a safety net for non-literal conditions (e.g., `while (1 == 1)`)
+ * that the static analysis for literal `while true` doesn't catch.
+ */
+const MAX_COMPTIME_LOOP_ITERATIONS = (() => {
+  const envVal = process.env["YO_MAX_COMPTIME_LOOP_ITERATIONS"];
+  if (envVal !== undefined) {
+    const parsed = parseInt(envVal, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 10000;
+})();
+
+/**
+ * Check if the body has any terminator (break/return/escape) either via
+ * guaranteed controlFlow flags or via AST walking.
+ */
+function bodyHasAnyTerminator(
+  bodyExpr: Expr,
+  bodyControlFlow: Record<string, boolean> | undefined
+): { guaranteed: boolean; possible: boolean } {
+  const guaranteed =
+    hasControlFlow(bodyControlFlow, "break") ||
+    hasControlFlow(bodyControlFlow, "return") ||
+    hasControlFlow(bodyControlFlow, "escape");
+  const possible = guaranteed || exprContainsLoopTerminator(bodyExpr);
+  return { guaranteed, possible };
+}
+
+/**
+ * Throw an error for a compile-time while loop that exceeded the max iteration
+ * count without terminating.
+ */
+function throwMaxIterationsError(
+  expr: FnCallExpr,
+  bodyExpr: Expr,
+  bodyControlFlow: Record<string, boolean> | undefined
+): never {
+  const { possible } = bodyHasAnyTerminator(bodyExpr, bodyControlFlow);
+  if (possible) {
+    // Body has a conditional terminator, but iterations exceeded the limit.
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage:
+        `Compile-time while loop exceeded the maximum iteration count (${MAX_COMPTIME_LOOP_ITERATIONS}). ` +
+        `The loop body contains a conditional \`break\`, \`return\`, or \`escape\`, but the loop did not terminate within the limit.\n` +
+        `If this is an infinite runtime loop, use \`while runtime(true), { ... }\` instead.\n` +
+        `To increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
+    });
+  } else {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage:
+        `Infinite compile-time while loop detected. ` +
+        `The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\n` +
+        `If you need an infinite runtime loop, use \`while runtime(true), { ... }\` instead of \`while true, { ... }\`.\n` +
+        `To increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
+    });
+  }
+}
+
+/**
  * While loop
  *
  * while condition, body
@@ -29,10 +92,12 @@ export function evaluateWhile({
   expr,
   env,
   context,
+  _comptimeIterationCount = 0,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  _comptimeIterationCount?: number;
 }): FnCallExpr {
   // Support both 2-argument (while condition, body) and 3-argument (while condition, step, body) forms
   if (expr.args.length !== 2 && expr.args.length !== 3) {
@@ -185,6 +250,7 @@ export function evaluateWhile({
             context: {
               ...context,
             },
+            _comptimeIterationCount: _comptimeIterationCount + 1,
           });
         } else {
           // Runtime condition - treat as unit for this evaluation
@@ -229,25 +295,21 @@ export function evaluateWhile({
     })();
 
     if (isCondLiteralTrue) {
-      const bodyFlow = evaluatedBodyExpr.$.controlFlow;
-      const hasGuaranteedTerminator =
-        hasControlFlow(bodyFlow, "break") ||
-        hasControlFlow(bodyFlow, "return") ||
-        hasControlFlow(bodyFlow, "escape");
-      const hasPossibleTerminator = exprContainsLoopTerminator(bodyExpr);
+      const { guaranteed, possible } = bodyHasAnyTerminator(
+        bodyExpr,
+        evaluatedBodyExpr.$.controlFlow
+      );
 
-      if (!hasGuaranteedTerminator && !hasPossibleTerminator) {
+      if (!guaranteed && !possible) {
         // No terminator at all — this loop can never end
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage:
-            `Infinite compile-time while loop detected. ` +
-            `The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\n` +
-            `If you need an infinite runtime loop, use \`while runtime(true), { ... }\` instead of \`while true, { ... }\`.`,
-        });
+        throwMaxIterationsError(
+          expr,
+          bodyExpr,
+          evaluatedBodyExpr.$.controlFlow
+        );
       }
 
-      if (!hasGuaranteedTerminator && hasPossibleTerminator) {
+      if (!guaranteed && possible) {
         // A terminator exists but is conditional (e.g., break inside one cond branch).
         // The loop cannot be fully unrolled at compile time — emit as runtime loop.
         expr.$ = {
@@ -315,7 +377,6 @@ export function evaluateWhile({
 
       if (isBooleanValue(nextCondValue)) {
         // Condition is still comptime-known — we can try to unroll
-        const MAX_UNROLL_ITERATIONS = 10000;
         const unrolledBodies: Expr[] = [bodyExpr]; // First iteration already evaluated
 
         let currentEnv = env;
@@ -323,7 +384,7 @@ export function evaluateWhile({
 
         for (
           let iter = 1;
-          condStillTrue && iter < MAX_UNROLL_ITERATIONS;
+          condStillTrue && iter < MAX_COMPTIME_LOOP_ITERATIONS;
           iter++
         ) {
           // Clone and evaluate the body for this iteration
@@ -369,8 +430,15 @@ export function evaluateWhile({
           } else if (isBooleanValue(condVal) && condVal.value === true) {
             condStillTrue = true;
           } else {
-            // Condition became runtime — can't unroll further, fall back
-            break;
+            // Condition became runtime — can't unroll further, fall back to runtime loop
+            expr.$ = {
+              env: currentEnv,
+              pathCollection: [],
+              type: VUnit.type,
+              value: undefined,
+              comptimeUnrolledBodies: unrolledBodies,
+            };
+            return expr;
           }
         }
 
@@ -387,18 +455,21 @@ export function evaluateWhile({
         }
       }
 
-      // Unrolling failed (condition stayed true, became runtime, or hit max iterations)
-      // Fall back to runtime loop
-      expr.$ = {
-        env: env,
-        pathCollection: [],
-        type: VUnit.type,
-        value: undefined, // Runtime value
-      };
-      return expr;
+      // Unrolling failed: condition stayed comptime true and hit max iterations.
+      // Throw an error with helpful diagnostic.
+      throwMaxIterationsError(expr, bodyExpr, evaluatedBodyExpr.$.controlFlow);
     }
 
     if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+      // Safety net: check iteration count for non-literal `true` conditions
+      const nextCount = _comptimeIterationCount + 1;
+      if (nextCount >= MAX_COMPTIME_LOOP_ITERATIONS) {
+        throwMaxIterationsError(
+          expr,
+          bodyExpr,
+          evaluatedBodyExpr.$.controlFlow
+        );
+      }
       // Evaluate the condition again
       return evaluateWhile({
         expr: expr,
@@ -406,6 +477,7 @@ export function evaluateWhile({
         context: {
           ...context,
         },
+        _comptimeIterationCount: nextCount,
       });
     } else {
       // return the expr
