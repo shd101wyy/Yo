@@ -1,11 +1,25 @@
 open import "std/libc/stdio";
 
-test_fn :: (fn(comptime(T) : Type, v : T) -> T) {
-  return v;
-};
+c_include "<stdbool.h>",
+  test_fn :
+    fn() -> bool
+;
 
-main :: (fn(using(io : IO)) -> unit)({
-  x := test_fn(i32, i32(42));
-  assert(x == 42);
+check :: (fn(x: i32) -> bool)((x > i32(0)));
+
+// Wrapper around test_fn with a Yo body
+test_fn_yo :: (fn() -> bool)({
+  result := test_fn();
+  return result;
+});
+
+main :: (fn() -> unit)({
+  // Test 1: yo function - should work
+  a := not(check(i32(5)));
+  // Test 2: c_include function - broken
+  b := not(test_fn());
+  // Test 3: yo wrapper around c_include function
+  c := not(test_fn_yo());
+  printf("a=%d b=%d c=%d\n", a, b, c);
 });
 export main;

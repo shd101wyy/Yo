@@ -1633,24 +1633,35 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       // to the concrete type from the function body.  This enables static dispatch
       // for method calls on the return value.
       let finalReturnType = returnType;
-      if (
-        isSomeType(returnType) &&
-        functionToCall.value &&
-        isFunctionValue(functionToCall.value)
-      ) {
-        const functionBody = functionToCall.value.body;
-        if (functionBody.$?.type) {
-          // If the function body's type is also a SomeType with resolvedConcreteType,
-          // use that concrete type directly. This is important for async blocks which
-          // return SomeType(Impl(Future)) with resolvedConcreteType set to the capture struct.
-          let concreteType = functionBody.$.type;
-          if (isSomeType(concreteType) && concreteType.resolvedConcreteType) {
-            concreteType = concreteType.resolvedConcreteType;
+      if (isSomeType(returnType)) {
+        if (functionToCall.value && isFunctionValue(functionToCall.value)) {
+          const functionBody = functionToCall.value.body;
+          if (functionBody.$?.type) {
+            // If the function body's type is also a SomeType with resolvedConcreteType,
+            // use that concrete type directly. This is important for async blocks which
+            // return SomeType(Impl(Future)) with resolvedConcreteType set to the capture struct.
+            let concreteType = functionBody.$.type;
+            if (isSomeType(concreteType) && concreteType.resolvedConcreteType) {
+              concreteType = concreteType.resolvedConcreteType;
+            }
+            // Clone the SomeType and set its resolvedConcreteType
+            finalReturnType = {
+              ...returnType,
+              resolvedConcreteType: concreteType,
+            } as SomeType;
           }
-          // Clone the SomeType and set its resolvedConcreteType
+        } else if (
+          isFunctionType(functionToCall.type) &&
+          functionToCall.type.return?.type &&
+          !isSomeType(functionToCall.type.return.type)
+        ) {
+          // For extern C functions (and others without a FunctionValue body),
+          // use the declared return type from the function signature.
+          // This ensures forall type parameters (e.g., _Self in `not`) get
+          // resolvedConcreteType set so specialization works correctly.
           finalReturnType = {
             ...returnType,
-            resolvedConcreteType: concreteType,
+            resolvedConcreteType: functionToCall.type.return.type,
           } as SomeType;
         }
       }

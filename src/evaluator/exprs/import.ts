@@ -260,12 +260,15 @@ function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
     if (existsSync(resolved)) return resolved;
   }
 
-  // Convention-based fallback (no hardcoded src/lib.yo — that's the default Project.root)
+  // Convention-based fallback
   const indexYo = path.join(depRoot, "index.yo");
   const namedYo = path.join(depRoot, depName + ".yo");
+  // Default convention from `yo init`: src/lib.yo
+  const srcLibYo = path.join(depRoot, "src", "lib.yo");
 
   if (existsSync(indexYo)) return indexYo;
   if (existsSync(namedYo)) return namedYo;
+  if (existsSync(srcLibYo)) return srcLibYo;
 
   return depRoot;
 }

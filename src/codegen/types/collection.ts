@@ -347,14 +347,12 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isIsoType(type) ||
     isArcType(type)
   ) {
-    // Use the struct's id to generate a mangled C type name
-    const cTypeName =
-      // NOTE: OUTDATED
-      // isFutureTraitType(type)
-      // ? `__yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
-      // :
-      isSliceType(type)
-        ? getTypeString(type, context) // For slices, use the special slice type name
+    // Use the struct's id to generate a mangled C type name,
+    // or the extern C name if the type is from c_include with a definition
+    const cTypeName = isSliceType(type)
+      ? getTypeString(type, context) // For slices, use the special slice type name
+      : type.isExtern === "c" && type.externName
+        ? type.externName // Use the C header's type name directly
         : `__yo_${type.id}`;
     context.types[type.id] = {
       type,

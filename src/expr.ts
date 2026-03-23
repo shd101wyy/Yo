@@ -643,7 +643,6 @@ export const BuiltinKeywords = {
   if: ["if"],
   op_and: ["&&"],
   op_or: ["||"],
-  not: ["not"],
   gensym: ["gensym"],
 
   // dynamic dispatch type

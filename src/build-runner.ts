@@ -558,7 +558,11 @@ async function executeNode(
         description = `compile ${artifact.kind === "static_library" ? "lib" : artifact.kind === "shared_library" ? "shared lib" : "exe"} ${artifact.name} ${capitalize(optimize)} ${target}`;
         try {
           await compileArtifact(artifact, ctx);
-        } catch {
+        } catch (e) {
+          console.error(
+            `Compilation error: ${e instanceof Error ? e.message : String(e)}`
+          );
+          if (e instanceof Error && e.stack) console.error(e.stack);
           success = false;
         }
       }
