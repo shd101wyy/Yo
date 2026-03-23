@@ -38,6 +38,7 @@ import { ModuleManager } from "./module-manager";
 import { clearAllModuleCounters } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import { resolveAllSystemLibraries } from "./pkg-config";
+import { isTargetWindows, parseTarget } from "./target";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -60,6 +61,26 @@ export interface BuildOptions {
   sysroot?: string;
   /** Print build summary tree (like Zig's --summary) */
   summary?: boolean;
+}
+
+export function getArtifactOutputFileName(
+  artifact: Pick<BuildArtifact, "kind" | "name" | "target">,
+  targetTriple?: string
+): string {
+  if (artifact.kind === "static_library") {
+    return `lib${artifact.name}`;
+  }
+
+  const effectiveTarget =
+    targetTriple !== undefined
+      ? parseTarget(targetTriple)
+      : parseTarget(artifact.target);
+
+  if (artifact.kind === "executable" && isTargetWindows(effectiveTarget)) {
+    return `${artifact.name}.exe`;
+  }
+
+  return artifact.name;
 }
 
 /**
@@ -798,8 +819,10 @@ async function compileArtifact(
   }
 
   // For static libraries, output is lib<name>.a; for others, just the name
-  const outputName =
-    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputName = getArtifactOutputFileName(
+    artifact,
+    ctx.targetTriple ?? artifact.target
+  );
   const outputPath = path.join(outputDir, outputName);
 
   const projectName = ctx.registry.project?.name ?? artifact.name;
@@ -1428,8 +1451,10 @@ async function compileDependencyArtifact(
     process.exit(1);
   }
 
-  const outputName =
-    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputName = getArtifactOutputFileName(
+    artifact,
+    opts.targetTriple ?? artifact.target
+  );
   const outputPath = path.join(outputDir, outputName);
 
   console.log(
@@ -1499,7 +1524,10 @@ async function runExecutable(
   const { projectDir } = ctx;
 
   const outputDir = path.join(projectDir, "yo-out", "bin");
-  const exePath = path.join(outputDir, artifact.name);
+  const exePath = path.join(
+    outputDir,
+    getArtifactOutputFileName(artifact, ctx.targetTriple ?? artifact.target)
+  );
 
   if (!fs.existsSync(exePath)) {
     console.error(`Error: Compiled executable not found at ${exePath}`);

@@ -13,6 +13,7 @@ import {
 } from "./evaluator/builtins/build";
 import { initProject } from "./init";
 import { ModuleManager } from "./module-manager";
+import { hostTarget, isTargetWindows, parseTarget } from "./target";
 import { findTestFiles, runTests } from "./test-runner";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
@@ -267,10 +268,16 @@ yo --version                     Show version number
       }
 
       const absolutePath = `file://` + fs.realpathSync(file);
+      const targetInfo = argv.t ? parseTarget(argv.t as string) : hostTarget();
+      const requestedOutput = argv.o as string;
+      const outputPath =
+        isTargetWindows(targetInfo) && path.extname(requestedOutput) === ""
+          ? `${requestedOutput}.exe`
+          : requestedOutput;
 
       const codeGenerator = new CodeGenerator();
       codeGenerator.compileModule(absolutePath, {
-        output: argv.o as string,
+        output: outputPath,
         cCompiler,
         target: "c",
         targetTriple: argv.t as string | undefined,

@@ -922,7 +922,12 @@ describe("swapBuildRegistry", () => {
 
 // ── DAG builder tests ────────────────────────────────────────────────
 
-import { buildDAG, detectCycle, computeDependencyHash } from "../build-runner";
+import {
+  buildDAG,
+  detectCycle,
+  computeDependencyHash,
+  getArtifactOutputFileName,
+} from "../build-runner";
 
 describe("buildDAG", () => {
   test("empty step produces empty DAG", () => {
@@ -1119,6 +1124,41 @@ function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
     cFlags: [],
   };
 }
+
+describe("Artifact output naming", () => {
+  test("appends .exe for Windows executables", () => {
+    expect(
+      getArtifactOutputFileName(
+        {
+          kind: "executable",
+          name: "app",
+          target: "x86_64-linux-gnu",
+        },
+        "x86_64-windows-msvc"
+      )
+    ).toBe("app.exe");
+  });
+
+  test("keeps bare executable name on non-Windows targets", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "executable",
+        name: "app",
+        target: "x86_64-linux-gnu",
+      })
+    ).toBe("app");
+  });
+
+  test("keeps static library base name unchanged", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "static_library",
+        name: "mylib",
+        target: "x86_64-windows-msvc",
+      })
+    ).toBe("libmylib");
+  });
+});
 
 // ── Root build project dir (transitive import resolution) ────────────
 
