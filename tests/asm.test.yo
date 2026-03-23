@@ -21,7 +21,8 @@ test "Test asm single output", {
     (arch == Arch.X86_64) => {
       result := asm(
         "mov {0}, 42",
-        out(reg, i32)
+        out(reg, i32),
+        asm_options(intel_syntax)
       );
       assert((result == i32(42)), "asm single output should be 42");
     },
@@ -70,7 +71,8 @@ test "Test asm inout operand", {
       x := i32(20);
       result := asm(
         "add {0}, 3",
-        inout(reg, x)
+        inout(reg, x),
+        asm_options(intel_syntax)
       );
       assert((result == i32(23)), "asm inout should produce 23");
     },
@@ -98,7 +100,8 @@ test "Test asm named operands", {
         "mov {result}, {a}\nadd {result}, {b}",
         out("result", reg, i32),
         in("a", reg, a),
-        in("b", reg, b)
+        in("b", reg, b),
+        asm_options(intel_syntax)
       );
       assert((result == i32(10)), "asm named operands should produce 10");
     },
@@ -146,7 +149,8 @@ test "Test asm variable target output", {
       x := i32(0);
       asm(
         "mov {0}, 99",
-        out(reg, x)
+        out(reg, x),
+        asm_options(intel_syntax)
       );
       assert((x == i32(99)), "asm variable target should set x to 99");
     },
@@ -170,7 +174,8 @@ test "Test asm multiple outputs", {
       result := asm(
         "mov {0}, 10\nmov {1}, 20",
         out(reg, i32),
-        out(reg, i32)
+        out(reg, i32),
+        asm_options(intel_syntax)
       );
       assert((result.0 == i32(10)), "asm tuple first element should be 10");
       assert((result.1 == i32(20)), "asm tuple second element should be 20");
@@ -194,7 +199,8 @@ test "Test asm const_val operand", {
       result := asm(
         "mov {0}, {1}",
         out(reg, i32),
-        const_val(i32(77))
+        const_val(i32(77)),
+        asm_options(intel_syntax)
       );
       assert((result == i32(77)), "asm const_val should produce 77");
     },
@@ -259,7 +265,8 @@ test "Test asm uninitialized variable target", {
       x : i32;
       asm(
         "mov {0}, 42",
-        out(reg, x)
+        out(reg, x),
+        asm_options(intel_syntax)
       );
       assert((x == i32(42)), "uninitialized var should be set to 42 by asm");
     },
