@@ -82,6 +82,7 @@ import { generateMatchExpression } from "./match";
 import { generateOpen } from "./open";
 import { generateOtherFunctionCall } from "./other-fn-call";
 import { generatePanic } from "./panic";
+import { generateAsm, generateGlobalAsm } from "./asm";
 import { generateYoThreadSetMaximumThreads } from "./parallelism";
 import { generateFieldAccess } from "./property-access";
 import { generateAddressOf } from "./ptr-fns";
@@ -718,6 +719,16 @@ function generateFuncCall(
   // panic - print error message and call abort() [C stdlib]
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
     return generatePanic(expr, indent, context);
+  }
+
+  // asm - inline assembly
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.asm)) {
+    return generateAsm(expr, indent, context);
+  }
+
+  // global_asm - module-level assembly
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.global_asm)) {
+    return generateGlobalAsm(expr, indent, context);
   }
 
   // test - test declaration, skipped during normal compilation

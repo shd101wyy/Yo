@@ -1196,6 +1196,10 @@ export const BuiltinFunctions = {
   __yo_build_system_library: ["__yo_build_system_library"],
   __yo_build_option: ["__yo_build_option"],
   __yo_build_dep_artifact: ["__yo_build_dep_artifact"],
+
+  // Inline assembly
+  asm: ["asm"],
+  global_asm: ["global_asm"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

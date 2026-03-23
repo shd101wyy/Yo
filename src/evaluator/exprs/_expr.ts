@@ -47,6 +47,7 @@ import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl-constraint";
 import { evaluateMacroExpand } from "../builtins/macro-expand";
 import { evaluatePanic } from "../builtins/panic";
+import { evaluateAsm, evaluateGlobalAsm } from "../builtins/asm";
 import { evaluateYoProcessFunctions } from "../builtins/process";
 import { evaluateYoBuildFunctions } from "../builtins/build";
 import { evaluateAddressCall } from "../builtins/ptr-fns";
@@ -572,6 +573,20 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
       // panic
       return evaluatePanic({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.asm)) {
+      // inline assembly
+      return evaluateAsm({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.global_asm)) {
+      // global assembly
+      return evaluateGlobalAsm({
         expr,
         env,
         context: { ...context },
