@@ -175,9 +175,13 @@ function hashDirectory(
       hash.update(`dir:${entryRelative}\n`);
       hashDirectory(hash, basePath, entryRelative);
     } else if (entry.isFile()) {
+      // Skip the sidecar hash file itself so it doesn't affect the hash.
+      if (entry.name === SIDECAR_FILENAME) continue;
       hash.update(`file:${entryRelative}\n`);
       const content = fs.readFileSync(path.join(basePath, entryRelative));
-      hash.update(content);
+      // Normalize \r\n → \n so the hash is identical on Windows and Linux
+      // regardless of git's core.autocrlf setting.
+      hash.update(normalizeLineEndings(content));
     }
   }
 }
@@ -190,6 +194,38 @@ function comparePathNames(a: string, b: string): number {
   if (a < b) return -1;
   if (a > b) return 1;
   return 0;
+}
+
+const CR = 0x0d; // \r
+const LF = 0x0a; // \n
+
+/**
+ * Strip \r from \r\n sequences in a Buffer so the same git tree
+ * hashes identically on Windows (CRLF checkout) and Linux (LF).
+ */
+function normalizeLineEndings(buf: Buffer): Buffer {
+  // Quick scan: if there's no \r, return as-is (common on Linux).
+  if (!buf.includes(CR)) return buf;
+
+  // Build a new buffer with \r removed before \n.
+  const out: number[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === CR && i + 1 < buf.length && buf[i + 1] === LF) {
+      continue; // skip \r, the next iteration writes \n
+    }
+    out.push(buf[i]!);
+  }
+  return Buffer.from(out);
+}
+
+const SIDECAR_FILENAME = ".yo-content-hash";
+
+function writeSidecarHash(cachedPath: string, contentHash: string): void {
+  fs.writeFileSync(
+    path.join(cachedPath, SIDECAR_FILENAME),
+    contentHash + "\n",
+    "utf-8"
+  );
 }
 
 function getCachedDependencyDir(
@@ -220,7 +256,17 @@ function inspectCachedDependency(
     return { status: "missing_hash", cachedPath };
   }
 
-  const actualHash = computeContentHash(cachedPath);
+  // Read the sidecar hash file (written at fetch time) for O(1) verification.
+  const sidecarPath = path.join(cachedPath, SIDECAR_FILENAME);
+  let actualHash: string | undefined;
+  try {
+    actualHash = fs.readFileSync(sidecarPath, "utf-8").trim();
+  } catch {
+    // Sidecar missing — fall back to full re-hash.
+    actualHash = computeContentHash(cachedPath);
+    writeSidecarHash(cachedPath, actualHash);
+  }
+
   if (actualHash !== entry.hash) {
     return {
       status: "hash_mismatch",
@@ -336,8 +382,9 @@ function fetchDependency(
   }
   const clonedPath = cloneRepo(cacheDir, dep.url, commit, dep.name);
 
-  // Compute content hash
+  // Compute content hash and write sidecar for fast verification later
   const contentHash = computeContentHash(clonedPath);
+  writeSidecarHash(clonedPath, contentHash);
 
   // Update lock entry
   const entry: LockEntry = {

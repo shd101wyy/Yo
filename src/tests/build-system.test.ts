@@ -676,6 +676,10 @@ describe("Dependency cache integrity", () => {
         expect(cachedDir).toBeDefined();
 
         writeTestFile(path.join(cachedDir!, "tampered.txt"), "tampered\n");
+        // Remove the sidecar so the next check falls back to full re-hash
+        // and detects the tampering.
+        const sidecarPath = path.join(cachedDir!, ".yo-content-hash");
+        if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
 
         expect(areDependenciesCached(projectDir, [dep])).toBe(false);
         expect(() => resolveDependencyPath(projectDir, dep.name)).toThrow(
