@@ -238,7 +238,9 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Append a build.dependency() or build.path_dependency() call to build.yo.
+ * Insert a build.dependency() or build.path_dependency() call into build.yo.
+ * Inserts before the first build.executable/build.static_library/build.test call
+ * so the dependency binding is available for exe.add_import().
  */
 function appendDependencyToBuildFile(
   buildFilePath: string,
@@ -259,16 +261,27 @@ function appendDependencyToBuildFile(
   // Build the dependency declaration
   let depLine: string;
   if (parsed.kind === "path") {
-    depLine = `\n// Added by yo install\n${parsed.name} :: build.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n`;
+    depLine = `${parsed.name} :: build.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n\n`;
   } else {
-    depLine = `\n// Added by yo install\n${parsed.name} :: build.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n`;
+    depLine = `${parsed.name} :: build.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n\n`;
   }
 
-  // Append at end of file
-  if (!content.endsWith("\n")) {
-    content += "\n";
+  // Try to insert before the first artifact declaration so the binding
+  // is available for exe.add_import() calls below it.
+  const artifactPattern =
+    /^[a-zA-Z_]\w*\s*::?\s*build\.(executable|static_library|shared_library|test)\s*\(/m;
+  const match = artifactPattern.exec(content);
+
+  if (match?.index !== undefined) {
+    content =
+      content.slice(0, match.index) + depLine + content.slice(match.index);
+  } else {
+    // Fallback: append at end
+    if (!content.endsWith("\n")) {
+      content += "\n";
+    }
+    content += "\n" + depLine;
   }
-  content += depLine;
 
   fs.writeFileSync(buildFilePath, content, "utf-8");
 
