@@ -116,7 +116,7 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+build.module({ name: "my-app", root: "./src/lib.yo" });
 
 exe :: build.executable({
   name: "my-app",
@@ -184,7 +184,7 @@ The build runner (`src/build-runner.ts`) flow:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+build.module({ name: "my-app", root: "./src/lib.yo" });
 
 linux :: build.executable({
   name: "my-app-linux",
@@ -218,7 +218,7 @@ install.depend_on(wasm);
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-lib", root: "./src/lib.yo" });
+build.module({ name: "my-lib", root: "./src/lib.yo" });
 
 lib :: build.static_library({ name: "mylib", root: "./src/lib.yo" });
 
@@ -258,7 +258,7 @@ export main;
 
 ```yo
 build :: import "std/build";
-build.project({ name: "demo", root: "./src/lib.yo" });
+build.module({ name: "demo", root: "./src/lib.yo" });
 
 lib :: build.static_library({ name: "add", root: "./add.yo" });
 exe :: build.executable({ name: "demo", root: "./demo.yo" });
@@ -546,7 +546,7 @@ my-project/
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-project", root: "./src/lib.yo" });
+build.module({ name: "my-project", root: "./src/lib.yo" });
 
 exe :: build.executable({ name: "my-project", root: "./src/main.yo" });
 

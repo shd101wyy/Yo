@@ -2,7 +2,7 @@
  * `yo build` — build system runner.
  *
  * Evaluates `build.yo` using the Yo evaluator at compile time.
- * Build functions (build.project, build.executable, etc.) are backed by
+ * Build functions (build.module, build.executable, etc.) are backed by
  * evaluator builtins that register artifacts in a global BuildRegistry.
  * After evaluation, the build runner reads the registry and orchestrates
  * compilation for each artifact.
@@ -27,8 +27,6 @@ import {
   getBuildRegistry,
   swapBuildRegistry,
   setRootBuildProjectDir,
-  setDependencyProjectRoot,
-  getDependencyProjectRoot,
   setModuleImportRoot,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
@@ -251,25 +249,6 @@ export async function runBuild(options: BuildOptions): Promise<void> {
   // to discover modules, collect their system library requirements,
   // and propagate C flags to consumer artifacts.
   resolveImportedModules(registry, projectDir, options.verbose);
-
-  // Evaluate all dependency build.yo files to set project roots for import resolution.
-  // This ensures `import "dep_name"` resolves to the dependency's declared root
-  // even when the dep has no artifact references (dependencyArtifacts).
-  for (const dep of [...registry.dependencies, ...registry.pathDependencies]) {
-    // Skip if the project root is already set (e.g., from resolveDependencyArtifacts)
-    const depDir = findDependencyDir(registry, projectDir, dep.name);
-    if (!depDir) continue;
-    if (getDependencyProjectRoot(depDir)) continue;
-
-    const depRegistry = getOrEvaluateDepRegistry(depDir);
-    if (!depRegistry) continue;
-    if (depRegistry.project?.root) {
-      setDependencyProjectRoot(depDir, depRegistry.project.root);
-    } else if (depRegistry.modules.length === 1) {
-      // Fallback: use sole module's root as entry point
-      setDependencyProjectRoot(depDir, depRegistry.modules[0]!.root);
-    }
-  }
 
   for (const stepName of requestedSteps) {
     if (options.dryRun) {
@@ -891,10 +870,9 @@ async function compileArtifact(
   const outputPath = path.join(outputDir, outputName);
 
   const projectName =
-    ctx.registry.project?.name ??
-    (ctx.registry.modules.length > 0
+    ctx.registry.modules.length > 0
       ? ctx.registry.modules[0]!.name
-      : artifact.name);
+      : artifact.name;
   const gitVersion = getGitVersion(projectDir);
   const versionSuffix = gitVersion ? ` ${gitVersion}` : "";
   console.log(
@@ -1073,11 +1051,6 @@ async function resolveTransitiveDependencyArtifacts(
       }
       subRegistry = evaluateDependencyBuildFile(subBuildFile);
 
-      // Store the sub-dependency's Project.root for import resolution
-      if (subRegistry.project?.root) {
-        setDependencyProjectRoot(subDepDir, subRegistry.project.root);
-      }
-
       // Recurse further if sub-dep has its own sub-deps
       if (subRegistry.dependencyArtifacts.length > 0) {
         await resolveTransitiveDependencyArtifacts(
@@ -1247,11 +1220,6 @@ async function resolveDependencyArtifacts(
       }
       // 3. Evaluate the dependency's build.yo in isolation
       depRegistry = evaluateDependencyBuildFile(depBuildFile);
-
-      // Store the dependency's Project.root for import resolution
-      if (depRegistry.project?.root) {
-        setDependencyProjectRoot(depDir, depRegistry.project.root);
-      }
 
       // Recursively resolve sub-dependencies (transitive)
       // If this dep has its own dependencyArtifacts, compile those first
@@ -1600,26 +1568,11 @@ function resolveImportedModule(
     process.exit(1);
   }
 
-  // Store project root for import resolution
-  if (depRegistry.project?.root) {
-    setDependencyProjectRoot(depDir, depRegistry.project.root);
-  }
-
   // Find the requested module
   let depModule: BuildModuleEntry | undefined;
   if (imported.moduleName === "") {
     // Default: sole module
     if (depRegistry.modules.length === 0) {
-      // Fallback: if dependency has project but no modules, use project root
-      if (depRegistry.project?.root) {
-        imported.resolvedRoot = path.resolve(depDir, depRegistry.project.root);
-        if (verbose) {
-          console.log(
-            `  Module import "${imported.importName}": using project root from ${depName}`
-          );
-        }
-        return;
-      }
       console.error(
         `Error: Dependency "${depName}" has no modules defined. ` +
           `Add build.module() to its build.yo.`
@@ -1637,19 +1590,11 @@ function resolveImportedModule(
   } else {
     depModule = depRegistry.findModule(imported.moduleName);
     if (!depModule) {
-      // Fallback: if no module found but project exists, use project root
-      if (depRegistry.project?.root && depRegistry.modules.length === 0) {
-        imported.resolvedRoot = path.resolve(depDir, depRegistry.project.root);
-        if (verbose) {
-          console.log(
-            `  Module import "${imported.importName}": fallback to project root from ${depName}`
-          );
-        }
-        return;
-      }
+      const available =
+        depRegistry.modules.map((m) => m.name).join(", ") || "(none)";
       console.error(
         `Error: Module "${imported.moduleName}" not found in dependency "${depName}". ` +
-          `Available modules: ${depRegistry.modules.map((m) => m.name).join(", ") || "(none)"}`
+          `Available modules: ${available}`
       );
       process.exit(1);
     }

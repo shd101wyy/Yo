@@ -6,7 +6,7 @@
 //
 // Usage in build.yo:
 //   build :: import "std/build";
-//   build.project({ name: "my-app", root: "./src/lib.yo" });
+//   mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 //   exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 //   install :: build.step("install", "Build all artifacts");
 //   install.depend_on(exe);
@@ -60,12 +60,6 @@ export target_host;
 // Struct types with defaults, like Zig's options structs.
 // Usage: build.executable({ name: "app", root: "./src/main.yo" })
 // Unspecified fields get their default values.
-
-Project :: struct(
-  name : comptime_string,
-  (root : comptime_string) ?= "./src/lib.yo"
-);
-export Project;
 
 Executable :: struct(
   name : comptime_string,
@@ -216,12 +210,6 @@ impl(Dependency,
 // All registration functions return a Step value, allowing steps to be
 // wired together as dependencies via step.depend_on(dep).
 
-// Register project metadata.
-project :: (fn(comptime(config) : Project) -> comptime(unit)) {
-  __yo_build_project(config.name, config.root);
-};
-export project;
-
 // Register an executable artifact. Returns a Step for dependency wiring.
 executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
   opt_str :: match(config.optimize,
@@ -325,11 +313,11 @@ export ModuleConfig;
 
 // Register a named module. Returns a BuildModule for linking system libraries
 // and importing into executables/libraries.
-module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule)) {
+_module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule)) {
   __yo_build_module(config.name, config.root);
   BuildModule(name: config.name, root: config.root, _dep: "")
 };
-export module;
+export module : _module;
 
 // Declare a user-configurable build option.
 // Returns the option value (from CLI -Dname=value, or the default).

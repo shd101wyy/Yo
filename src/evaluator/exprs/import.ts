@@ -15,7 +15,6 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   getBuildRegistry,
   getRootBuildProjectDir,
-  getDependencyProjectRoot,
   getModuleImportRoot,
 } from "../builtins/build";
 
@@ -152,7 +151,7 @@ export function evaluateImport({
       }
 
       if (depRoot) {
-        // Resolve entry point: check Project.root from build.yo, then convention
+        // Resolve entry point: convention
         const entryPoint = resolveDependencyEntryPoint(
           depRoot,
           modulePathToImport
@@ -278,18 +277,10 @@ function findProjectRoot(filePath: string): string | undefined {
  * Resolve the entry point file for a dependency.
  *
  * Resolution order:
- * 1. If the dependency has a Project.root stored from its build.yo evaluation, use that
- * 2. Convention: index.yo → <name>.yo
- * 3. Fall back to the dependency root directory itself
+ * 1. Convention: index.yo → <name>.yo
+ * 2. Fall back to the dependency root directory itself
  */
 function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
-  // Check if the dependency's build.yo specified a Project.root
-  const projectRoot = getDependencyProjectRoot(depRoot);
-  if (projectRoot) {
-    const resolved = path.resolve(depRoot, projectRoot);
-    if (existsSync(resolved)) return resolved;
-  }
-
   // Convention-based fallback
   const indexYo = path.join(depRoot, "index.yo");
   const namedYo = path.join(depRoot, depName + ".yo");

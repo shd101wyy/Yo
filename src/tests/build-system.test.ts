@@ -1257,18 +1257,14 @@ describe("BuildRegistry steps", () => {
 
   test("register run step", () => {
     const reg = new BuildRegistry();
-    reg.registerRun("my-app", []);
+    reg.runSteps.push({
+      name: "run:my-app",
+      artifactName: "my-app",
+      args: [],
+    });
     expect(reg.runSteps).toHaveLength(1);
     expect(reg.runSteps[0]!.name).toBe("run:my-app");
     expect(reg.runSteps[0]!.artifactName).toBe("my-app");
-  });
-
-  test("register project metadata", () => {
-    const reg = new BuildRegistry();
-    reg.registerProject("my-app", "./src/lib.yo");
-    expect(reg.project).toBeDefined();
-    expect(reg.project!.name).toBe("my-app");
-    expect(reg.project!.root).toBe("./src/lib.yo");
   });
 
   test("addStepDependency adds dependency to existing step", () => {
@@ -1349,20 +1345,28 @@ describe("swapBuildRegistry", () => {
     // Start clean
     clearBuildRegistry();
     const original = getBuildRegistry();
-    original.registerProject("root", "./src/lib.yo");
+    original.registerModule({
+      name: "root",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
 
     const fresh = new BuildRegistry();
-    fresh.registerProject("dep", "./src/lib.yo");
+    fresh.registerModule({
+      name: "dep",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
 
     const prev = swapBuildRegistry(fresh);
     expect(prev).toBe(original);
     expect(getBuildRegistry()).toBe(fresh);
-    expect(getBuildRegistry().project?.name).toBe("dep");
+    expect(getBuildRegistry().modules[0]?.name).toBe("dep");
 
     // Restore
     swapBuildRegistry(prev);
     expect(getBuildRegistry()).toBe(original);
-    expect(getBuildRegistry().project?.name).toBe("root");
+    expect(getBuildRegistry().modules[0]?.name).toBe("root");
 
     // Clean up
     clearBuildRegistry();

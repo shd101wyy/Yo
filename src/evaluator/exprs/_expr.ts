@@ -996,7 +996,6 @@ ${exprToString(expr)}`,
     }
     // Build system functions
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_static_library) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_shared_library) ||

@@ -1178,7 +1178,6 @@ export const BuiltinFunctions = {
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
 
   // Build system functions (compile-time only)
-  __yo_build_project: ["__yo_build_project"],
   __yo_build_executable: ["__yo_build_executable"],
   __yo_build_static_library: ["__yo_build_static_library"],
   __yo_build_shared_library: ["__yo_build_shared_library"],

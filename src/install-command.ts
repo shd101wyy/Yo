@@ -259,9 +259,9 @@ function appendDependencyToBuildFile(
   // Build the dependency declaration
   let depLine: string;
   if (parsed.kind === "path") {
-    depLine = `\n// Added by yo install\nbuild.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n`;
+    depLine = `\n// Added by yo install\n${parsed.name} :: build.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n`;
   } else {
-    depLine = `\n// Added by yo install\nbuild.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n`;
+    depLine = `\n// Added by yo install\n${parsed.name} :: build.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n`;
   }
 
   // Append at end of file

@@ -73,13 +73,13 @@ Functions that only execute at compile time (e.g., build system functions, macro
 
 ```yo
 // WRONG — unit return without comptime means runtime:
-project :: (fn(comptime(config) : Project) -> unit) {
-  __yo_build_project(config.name, config.version);
+register_module :: (fn(comptime(config) : ModuleConfig) -> unit) {
+  __yo_build_module(config);
 };
 
 // CORRECT — comptime(unit) signals compile-time only:
-project :: (fn(comptime(config) : Project) -> comptime(unit)) {
-  __yo_build_project(config.name, config.version);
+register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit)) {
+  __yo_build_module(config);
 };
 
 // CORRECT — comptime(Step) for functions returning compile-time values:

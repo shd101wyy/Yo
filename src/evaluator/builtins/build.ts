@@ -32,11 +32,6 @@ import type { EvaluatorContext } from "../context";
 
 // ── Build Registry ────────────────────────────────────────────────────
 
-export interface BuildProject {
-  name: string;
-  root: string;
-}
-
 export interface BuildArtifact {
   kind: "executable" | "static_library" | "shared_library";
   name: string;
@@ -123,7 +118,6 @@ export interface ImportedModule {
 }
 
 export class BuildRegistry {
-  project: BuildProject | undefined;
   artifacts: BuildArtifact[] = [];
   testSuites: BuildTestSuite[] = [];
   runSteps: BuildRunStep[] = [];
@@ -142,10 +136,6 @@ export class BuildRegistry {
   /** Set CLI options parsed from -Dname=value flags */
   setCliOptions(options: Map<string, string>): void {
     this.cliOptions = options;
-  }
-
-  registerProject(name: string, root: string): void {
-    this.project = { name, root };
   }
 
   registerExecutable(config: Omit<BuildArtifact, "kind">): void {
@@ -381,7 +371,6 @@ export class BuildRegistry {
   }
 
   clear(): void {
-    this.project = undefined;
     this.artifacts = [];
     this.testSuites = [];
     this.runSteps = [];
@@ -402,11 +391,6 @@ let globalRegistry: BuildRegistry | undefined;
 // can fall back to the root project's yo.lock.
 let rootBuildProjectDir: string | undefined;
 
-// Map from dependency directory → Project.root entry point.
-// Populated by the build runner when evaluating dependency build.yo files.
-// Used by import resolution to respect custom entry points.
-const dependencyProjectRoots = new Map<string, string>();
-
 // Map from import name → resolved absolute file path.
 // Populated by the build runner from artifact.importedModules[].resolvedRoot.
 // Used by import resolution to handle `import "dep_name"` via module system.
@@ -420,16 +404,7 @@ export function setRootBuildProjectDir(dir: string | undefined): void {
   rootBuildProjectDir = dir;
 }
 
-export function getDependencyProjectRoot(depDir: string): string | undefined {
-  return dependencyProjectRoots.get(depDir);
-}
-
-export function setDependencyProjectRoot(depDir: string, root: string): void {
-  dependencyProjectRoots.set(depDir, root);
-}
-
-export function clearDependencyProjectRoots(): void {
-  dependencyProjectRoots.clear();
+export function clearModuleImportRoots(): void {
   moduleImportRoots.clear();
 }
 
@@ -442,10 +417,6 @@ export function setModuleImportRoot(
   resolvedRoot: string
 ): void {
   moduleImportRoots.set(importName, resolvedRoot);
-}
-
-export function clearModuleImportRoots(): void {
-  moduleImportRoots.clear();
 }
 
 export function getBuildRegistry(): BuildRegistry {
@@ -551,26 +522,6 @@ export function evaluateYoBuildFunctions({
   }
 
   const registry = getBuildRegistry();
-
-  // __yo_build_project(name, root)
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project)) {
-    if (expr.args.length < 1) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `__yo_build_project expects at least 1 argument (name), got ${expr.args.length}`,
-      });
-    }
-    const name = extractComptimeString(
-      expr.args[0]!.$?.value,
-      "name",
-      expr.token
-    );
-    const root = expr.args[1]
-      ? extractComptimeString(expr.args[1].$?.value, "root", expr.token)
-      : "./src/lib.yo";
-    registry.registerProject(name, root);
-    return makeUnitResult(expr, env);
-  }
 
   // __yo_build_executable(name, root, target, optimize, allocator, sanitize)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable)) {

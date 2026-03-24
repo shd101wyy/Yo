@@ -52,7 +52,7 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 ```yo
 build :: import "std/build";
 
-// Module metadata — replaces build.project()
+// Module metadata
 mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
 // Define artifacts — each returns a Step for dependency wiring
@@ -87,14 +87,12 @@ test_step.depend_on(tests);
 
 Build artifacts use struct types with default field values (like Zig's options pattern). Only `name` and `root` are required — everything else has sensible defaults:
 
-### `Project`
+### `BuildModule`
 
-| Field  | Type              | Default          | Description                       |
-| ------ | ----------------- | ---------------- | --------------------------------- |
-| `name` | `comptime_string` | _(required)_     | Project name                      |
-| `root` | `comptime_string` | `"./src/lib.yo"` | Library entry point for consumers |
-
-Versioning follows Go's approach: versions are determined by **git tags** (e.g., `v1.0.0`) rather than a manifest field. This avoids version mismatch between the declared version and the actual tag.
+| Field  | Type              | Default      | Description                                  |
+| ------ | ----------------- | ------------ | -------------------------------------------- |
+| `name` | `comptime_string` | _(required)_ | Module name (importable as `"name"`)         |
+| `root` | `comptime_string` | _(required)_ | Path to root source file (e.g. `src/lib.yo`) |
 
 ### `Executable`
 
@@ -343,27 +341,12 @@ When you run `yo build`, the build system:
 
 This means the consumer doesn't need to declare `build.system_library({ name: "raylib" })` — it's automatically propagated from the dependency's module definition.
 
-### Comparison with `build.project()`
-
-`build.project()` is the older API for declaring a project's entry point. `build.module()` replaces it with explicit module declarations that support system library propagation:
-
-| Feature                       | `build.project()` | `build.module()` |
-| ----------------------------- | ----------------- | ---------------- |
-| Declares entry point          | ✓                 | ✓                |
-| Transitive system libraries   | ✗                 | ✓                |
-| Multiple modules per project  | ✗                 | ✓                |
-| Explicit imports by consumers | ✗ (implicit)      | ✓ (`add_import`) |
-
-`build.project()` is still supported for backward compatibility but new projects should use `build.module()`.
-
 ## Linking Libraries
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Yo libraries
 lib :: build.shared_library({
@@ -429,8 +412,6 @@ export main;
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "cross-module-demo", root: "./src/lib.yo" });
 
 lib :: build.static_library({
   name: "add",
@@ -607,7 +588,8 @@ Define multiple artifacts with different targets in a single `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+// Module definition
+mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 
 // Native build
 native :: build.executable({
@@ -643,8 +625,6 @@ Declare git-hosted dependencies in `build.yo`:
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Add a git dependency — returns a Dependency handle
 dep :: build.dependency({
@@ -697,8 +677,6 @@ If a dependency has its own `build.yo` that defines artifacts (e.g., a static li
 ```yo
 build :: import "std/build";
 
-build.project({ name: "demo" });
-
 // Register a dependency (git or path)
 dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
 
@@ -717,7 +695,6 @@ The dependency's `build.yo` defines the static library:
 
 ```yo
 build :: import "std/build";
-build.project({ name: "dep_lib" });
 
 lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
 
@@ -745,8 +722,6 @@ Use `path_dependency` to depend on a local package by filesystem path. Like `dep
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
-
 // Depend on a sibling project — returns a Dependency handle
 dep :: build.path_dependency({
   name: "mylib",
@@ -773,10 +748,9 @@ export main;
 **Entry point resolution order** for path dependencies:
 
 1. Module root from `add_import()` (if the consumer uses `exe.add_import()`)
-2. `Project.root` field from the dependency's `build.yo` (defaults to `./src/lib.yo`)
-3. Sole module root from the dependency's `build.yo` (if exactly one module is defined)
-4. `index.yo`
-5. `<name>.yo`
+2. Sole module root from the dependency's `build.yo` (if exactly one module is defined)
+3. `index.yo`
+4. `<name>.yo`
 
 Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
 
