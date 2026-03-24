@@ -306,8 +306,11 @@ Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
 ```yo
 build :: import "std/build";
 
-// Local path dependency (or git dependency)
-raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
+// Git dependency
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+
+// Or local path dependency:
+// raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
 
 exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
 
