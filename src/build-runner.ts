@@ -118,6 +118,19 @@ export function stageRuntimeFiles(
   return stagedFiles;
 }
 
+function resolveDependencyPathOrExit(
+  projectDir: string,
+  depName: string,
+  depPath: string = ""
+): string | undefined {
+  try {
+    return resolveDependencyPath(projectDir, depName, depPath);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
 /**
  * Run the build system.
  *
@@ -1013,7 +1026,7 @@ async function resolveTransitiveDependencyArtifacts(
       subDepDir = path.resolve(depDir, pathDep.path);
     } else {
       // Git dependency: should be in root yo.lock via fetchTransitiveDependencies
-      subDepDir = resolveDependencyPath(rootProjectDir, subDepName);
+      subDepDir = resolveDependencyPathOrExit(rootProjectDir, subDepName);
     }
 
     if (!subDepDir) {
@@ -1374,7 +1387,7 @@ function findDependencyDir(
   }
 
   // Check git dependencies via yo.lock cache
-  return resolveDependencyPath(projectDir, depName);
+  return resolveDependencyPathOrExit(projectDir, depName);
 }
 
 /**
@@ -1437,7 +1450,7 @@ function fetchTransitiveDependencies(
     const dep = queue.shift()!;
 
     // Find the cached directory for this dependency
-    const depDir = resolveDependencyPath(projectDir, dep.name);
+    const depDir = resolveDependencyPathOrExit(projectDir, dep.name);
     if (!depDir) continue;
 
     // Check if it has a build.yo

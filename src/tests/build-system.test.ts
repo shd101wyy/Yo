@@ -5,9 +5,11 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import {
   parseLockFile,
   writeLockFileContent,
@@ -20,7 +22,14 @@ import { parseTarget, clangTriple, type TargetInfo } from "../target";
 import { getGlobalCacheDir } from "../cache";
 import { selectStaticLibraryArchiver } from "../codegen";
 import {
+  areDependenciesCached,
+  computeContentHash,
+  fetchAllDependencies,
+  resolveDependencyPath,
+} from "../fetch";
+import {
   type BuildArtifact,
+  type BuildGitDependency,
   BuildRegistry,
   clearBuildRegistry,
   getBuildRegistry,
@@ -29,6 +38,106 @@ import {
   setRootBuildProjectDir,
 } from "../evaluator/builtins/build";
 import { resolveSystemLibrary } from "../pkg-config";
+
+function withTemporaryYoCache<T>(run: (cacheRoot: string) => T): T {
+  const previousYoCacheDir = process.env.YO_CACHE_DIR;
+  const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-cache-"));
+
+  process.env.YO_CACHE_DIR = cacheRoot;
+
+  try {
+    return run(cacheRoot);
+  } finally {
+    if (previousYoCacheDir === undefined) {
+      delete process.env.YO_CACHE_DIR;
+    } else {
+      process.env.YO_CACHE_DIR = previousYoCacheDir;
+    }
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  }
+}
+
+function writeTestFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf-8");
+}
+
+function createCachedDependency(
+  cacheRoot: string,
+  depName: string,
+  commit: string,
+  files: Record<string, string>
+): string {
+  const depDir = path.join(
+    cacheRoot,
+    "deps",
+    `${depName}-${commit.slice(0, 12)}`
+  );
+  fs.mkdirSync(depDir, { recursive: true });
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeTestFile(path.join(depDir, relativePath), content);
+  }
+
+  return depDir;
+}
+
+function writeDependencyLockFile(projectDir: string, entry: LockEntry): void {
+  fs.writeFileSync(
+    path.join(projectDir, "yo.lock"),
+    writeLockFileContent({ dependencies: [entry] }),
+    "utf-8"
+  );
+}
+
+function createTestDependency(
+  name: string,
+  url: string = "https://example.com/test-dep.git",
+  ref: string = "main"
+): BuildGitDependency {
+  return {
+    name,
+    url,
+    ref,
+    path: "",
+  };
+}
+
+function createTempGitRepo(files: Record<string, string>): {
+  repoDir: string;
+  url: string;
+  commit: string;
+} {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-git-dep-"));
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeTestFile(path.join(repoDir, relativePath), content);
+  }
+
+  execSync("git init", { cwd: repoDir, stdio: "pipe" });
+  execSync('git config user.email "yo-tests@example.com"', {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execSync('git config user.name "Yo Tests"', {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+  execSync('git commit -m "Initial commit"', { cwd: repoDir, stdio: "pipe" });
+
+  const commit = execSync("git rev-parse HEAD", {
+    cwd: repoDir,
+    encoding: "utf-8",
+    stdio: "pipe",
+  }).trim();
+
+  return {
+    repoDir,
+    url: pathToFileURL(repoDir).href,
+    commit,
+  };
+}
 
 // ── Lock file tests ──────────────────────────────────────────────────
 
@@ -463,6 +572,141 @@ describe("Global cache directory", () => {
     if (savedEnv.XDG_CACHE_HOME) {
       process.env.XDG_CACHE_HOME = savedEnv.XDG_CACHE_HOME;
     }
+  });
+});
+
+describe("Dependency cache integrity", () => {
+  test("areDependenciesCached returns true when the cached hash matches yo.lock", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "0123456789abcdef0123456789abcdef01234567";
+
+      try {
+        const cachedDir = createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+          "src/lib.yo": "value :: i32(1);\n",
+        });
+        const hash = computeContentHash(cachedDir);
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash,
+        });
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(true);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("areDependenciesCached returns false when the cached hash mismatches yo.lock", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "fedcba9876543210fedcba9876543210fedcba98";
+
+      try {
+        createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+        });
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash: "sha256-not-the-real-hash",
+        });
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(false);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("resolveDependencyPath throws on an integrity mismatch", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+      try {
+        createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+        });
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash: "sha256-bad-hash",
+        });
+
+        expect(() => resolveDependencyPath(projectDir, dep.name)).toThrow(
+          /failed integrity check/i
+        );
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("fetchAllDependencies refetches a cached dependency after a hash mismatch", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const repo = createTempGitRepo({
+        "build.yo": 'build :: import "std/build";\n',
+        "src/lib.yo": "answer :: i32(42);\n",
+      });
+      const dep = createTestDependency("demo-dep", repo.url, "HEAD");
+
+      try {
+        const firstResult = fetchAllDependencies(projectDir, [dep]);
+        const firstEntry = findLockEntry(firstResult.lockFile, dep.name);
+        const cachedDir = firstResult.resolvedPaths.get(dep.name);
+
+        expect(firstEntry).toBeDefined();
+        expect(cachedDir).toBeDefined();
+
+        writeTestFile(path.join(cachedDir!, "tampered.txt"), "tampered\n");
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(false);
+        expect(() => resolveDependencyPath(projectDir, dep.name)).toThrow(
+          /failed integrity check/i
+        );
+
+        const secondResult = fetchAllDependencies(projectDir, [dep]);
+        const secondEntry = findLockEntry(secondResult.lockFile, dep.name);
+        const repairedDir = secondResult.resolvedPaths.get(dep.name);
+
+        expect(secondEntry).toBeDefined();
+        expect(secondEntry!.commit).toBe(repo.commit);
+        expect(secondEntry!.hash).toBe(firstEntry!.hash);
+        expect(repairedDir).toBeDefined();
+        expect(fs.existsSync(path.join(repairedDir!, "tampered.txt"))).toBe(
+          false
+        );
+        expect(
+          fs
+            .readFileSync(path.join(repairedDir!, "src/lib.yo"), "utf-8")
+            .replace(/\r\n/g, "\n")
+        ).toBe("answer :: i32(42);\n");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+        fs.rmSync(repo.repoDir, { recursive: true, force: true });
+        fs.rmSync(path.join(cacheRoot, "deps"), {
+          recursive: true,
+          force: true,
+        });
+      }
+    });
   });
 });
 

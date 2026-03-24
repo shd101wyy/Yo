@@ -98,6 +98,20 @@ export function evaluateImport({
     const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
     const projectDir = findProjectRoot(currentFilePath);
     if (projectDir) {
+      const resolveGitDependencyPath = (
+        rootDir: string
+      ): string | undefined => {
+        try {
+          return resolveDependencyPath(rootDir, modulePathToImport);
+        } catch (error) {
+          throw formatErrorMessage({
+            token: moduleArg.token,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+
       // Check path dependencies first (from build registry)
       const registry = getBuildRegistry();
       const pathDep = registry.findPathDependency(modulePathToImport);
@@ -108,7 +122,7 @@ export function evaluateImport({
         depRoot = path.resolve(projectDir, pathDep.path);
       } else {
         // Try git dependency via yo.lock cache
-        depRoot = resolveDependencyPath(projectDir, modulePathToImport);
+        depRoot = resolveGitDependencyPath(projectDir);
       }
 
       // Fallback: try the root build project directory for transitive deps
@@ -117,7 +131,7 @@ export function evaluateImport({
       if (!depRoot) {
         const rootDir = getRootBuildProjectDir();
         if (rootDir && rootDir !== projectDir) {
-          depRoot = resolveDependencyPath(rootDir, modulePathToImport);
+          depRoot = resolveGitDependencyPath(rootDir);
         }
       }
 
