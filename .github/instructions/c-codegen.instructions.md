@@ -8,6 +8,20 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 
+## Async/await threading model
+
+Yo's async/await runs on a **single-threaded event loop**, similar to C#'s async model. All async I/O submissions and completions are processed on the same thread — there is no concurrent access from multiple threads within the async runtime.
+
+**Platform implementations:**
+- **Linux**: `io_uring` — single event loop thread submits SQEs and processes CQEs
+- **macOS**: GCD (`dispatch_io`) — callbacks dispatch to the IO queue, but the event loop itself is single-threaded. GCD manages its own thread pool internally for dispatch callbacks, so `__yo_pending_io_count` uses `_Atomic` on macOS.
+- **Windows**: IOCP — `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
+
+**Implications for runtime code:**
+- Do **not** add mutexes, atomics, or other synchronization to Linux/Windows async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are only accessed from the event loop thread.
+- macOS is the exception: GCD dispatches completion callbacks on its own thread pool threads, so shared counters like `__yo_pending_io_count` must be `_Atomic` on macOS.
+- The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
+
 ## Compilation commands
 
 - Emit C only: `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release`

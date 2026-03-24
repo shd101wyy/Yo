@@ -651,8 +651,14 @@ static void __yo_io_cleanup(void) {
     dispatch_semaphore_wait(__yo_io_semaphore, dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC));
   }
   
-  // Note: ARC manages dispatch objects in modern macOS, but we use manual retain/release for C code
-  // dispatch_release(__yo_io_queue);  // Commented out - let it leak on cleanup for simplicity
+  if (__yo_io_queue) {
+    dispatch_release(__yo_io_queue);
+    __yo_io_queue = NULL;
+  }
+  if (__yo_io_semaphore) {
+    dispatch_release(__yo_io_semaphore);
+    __yo_io_semaphore = NULL;
+  }
   __yo_io_initialized = false;
   ASYNC_DEBUG("[IO] dispatch_io cleaned up\\n");
 }

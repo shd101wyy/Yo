@@ -382,6 +382,7 @@ static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
 
 static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
   strncpy(((struct sockaddr_un*)addr)->sun_path, path, sizeof(((struct sockaddr_un*)addr)->sun_path) - 1);
+  ((struct sockaddr_un*)addr)->sun_path[sizeof(((struct sockaddr_un*)addr)->sun_path) - 1] = '\\0';
 }
 
 static char* __yo_sockaddr_un_get_path(void* addr) {

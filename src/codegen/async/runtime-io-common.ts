@@ -235,9 +235,10 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
   }
 
+  int err = (copied < 0) ? errno : 0;
   close(src_fd);
   close(dst_fd);
-  return (copied < 0) ? -errno : 0;
+  return (err != 0) ? -err : 0;
 }
 `);
   } else if (isMacos) {

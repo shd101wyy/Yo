@@ -356,7 +356,7 @@ static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int
     if (_fstat64(fd, &st) != 0) return -errno;
     if ((__int64)st.st_size < target) {
       int result = _chsize_s(fd, target);
-      if (result != 0) return -errno;
+      if (result != 0) return -result;
     }
   }
 
@@ -2735,7 +2735,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   atomic_init(&future->continuation_sm, NULL);
 
   int result = _chsize_s(fd, (size_t)length);
-  future->result = (result != 0) ? -errno : 0;
+  future->result = (result != 0) ? -result : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -2861,7 +2861,7 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
     size_t path_len = wcslen(path_buf);
     wchar_t* pattern = (wchar_t*)__yo_malloc((path_len + 3) * sizeof(wchar_t));
     wcscpy(pattern, path_buf);
-    if (pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
+    if (path_len > 0 && pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
       pattern[path_len] = L'\\\\';
       pattern[path_len + 1] = L'*';
       pattern[path_len + 2] = L'\\0';

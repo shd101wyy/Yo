@@ -69,6 +69,10 @@ Yo source → Lexer → Parser → AST (expr.ts)
 - When an async task is escaped, the Future enters `FutureState.Aborted` (state = -2).
 - C's `abort()` (process termination on panic) is a **different thing** — never confuse the two.
 
+### Async/await threading model
+
+Yo's async/await is **single-threaded** (like C#). All I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables on Linux/Windows. macOS is the exception — GCD dispatches callbacks on its own thread pool, so shared counters use `_Atomic` there. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
+
 ---
 
 ## Build & Test Commands
