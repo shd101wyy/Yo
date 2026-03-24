@@ -263,8 +263,11 @@ function fetchDependency(
       ? inspectCachedDependency(cacheDir, dep.name, existingEntry)
       : undefined;
 
+  const refChanged = existingEntry ? existingEntry.ref !== dep.ref : false;
+
   if (
     !update &&
+    !refChanged &&
     existingEntry &&
     existingEntry.commit &&
     existingCachedState?.status === "ok"
@@ -295,10 +298,19 @@ function fetchDependency(
       if (verbose) {
         console.log(`  ${dep.name}: up to date (${commit.slice(0, 8)})`);
       }
+      // If the ref changed but resolves to the same commit (e.g. re-tag),
+      // update the lock entry to reflect the new ref.
+      let updatedLock = lockFile;
+      if (refChanged) {
+        updatedLock = upsertLockEntry(lockFile, {
+          ...existingEntry,
+          ref: dep.ref,
+        });
+      }
       const subPath = dep.path
         ? path.join(cachedState.cachedPath, dep.path)
         : cachedState.cachedPath;
-      return { lockFile, depPath: subPath };
+      return { lockFile: updatedLock, depPath: subPath };
     }
 
     if (verbose) {
