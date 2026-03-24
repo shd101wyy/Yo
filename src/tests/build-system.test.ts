@@ -1072,6 +1072,7 @@ function makeDefaultArtifactConfig() {
     runtimeFiles: [] as string[],
     linkedArtifacts: [] as string[],
     linkedSystemLibraries: [] as string[],
+    importedModules: [],
   };
 }
 
@@ -1570,6 +1571,7 @@ function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
     linkLibraries: [],
     linkedArtifacts: [],
     linkedSystemLibraries: [],
+    importedModules: [],
     defines: [],
     cFlags: [],
   };
@@ -1787,5 +1789,174 @@ describe("Transitive dependency support", () => {
     expect(depARegistry.findArtifact("libA")?.linkedArtifacts).toContain(
       "libB"
     );
+  });
+});
+
+// ── Module system tests ──────────────────────────────────────────────
+
+describe("Module registration", () => {
+  test("register and find module", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-module",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    const found = reg.findModule("my-module");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("my-module");
+    expect(found!.root).toBe("./src/lib.yo");
+    expect(found!.linkedSystemLibraries).toEqual([]);
+  });
+
+  test("register module with linked system libraries", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "raylib_yo",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("raylib_yo", "raylib");
+    const found = reg.findModule("raylib_yo");
+    expect(found).toBeDefined();
+    expect(found!.linkedSystemLibraries).toEqual(["raylib"]);
+  });
+
+  test("duplicate module link is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("my-mod", "raylib");
+    reg.registerModuleLink("my-mod", "raylib");
+    const found = reg.findModule("my-mod");
+    expect(found!.linkedSystemLibraries).toEqual(["raylib"]);
+  });
+
+  test("multiple system libraries can be linked to a module", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("my-mod", "raylib");
+    reg.registerModuleLink("my-mod", "openssl");
+    const found = reg.findModule("my-mod");
+    expect(found!.linkedSystemLibraries).toEqual(["raylib", "openssl"]);
+  });
+
+  test("duplicate module registration is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/other.yo",
+      linkedSystemLibraries: [],
+    });
+    expect(reg.modules).toHaveLength(1);
+    expect(reg.findModule("my-mod")!.root).toBe("./src/lib.yo");
+  });
+
+  test("findModule returns undefined for non-existent module", () => {
+    const reg = new BuildRegistry();
+    expect(reg.findModule("non-existent")).toBeUndefined();
+  });
+});
+
+describe("Imported modules on artifacts", () => {
+  test("register imported module on artifact", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(1);
+    expect(artifact!.importedModules[0]!.importName).toBe("raylib_yo");
+    expect(artifact!.importedModules[0]!.dependencyName).toBe("raylib_yo");
+  });
+
+  test("duplicate import name is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "other",
+      dependencyName: "raylib_yo",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(1);
+  });
+
+  test("multiple imported modules on same artifact", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerImportedModule("app", {
+      importName: "math_lib",
+      moduleName: "math",
+      dependencyName: "math_lib",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(2);
+  });
+
+  test("imported module on non-existent artifact is silently ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerImportedModule("non-existent", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    // No error thrown
+  });
+
+  test("swap preserves imported modules", () => {
+    clearBuildRegistry();
+    const reg = getBuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: ["raylib"],
+    });
+
+    const saved = swapBuildRegistry(new BuildRegistry());
+    expect(saved).toBeDefined();
+    expect(saved!.findArtifact("app")!.importedModules).toHaveLength(1);
+    expect(saved!.modules).toHaveLength(1);
+    expect(saved!.findModule("my-mod")!.linkedSystemLibraries).toEqual([
+      "raylib",
+    ]);
+
+    // Current registry is fresh
+    const current = getBuildRegistry();
+    expect(current.modules).toHaveLength(0);
+
+    // Cleanup
+    clearBuildRegistry();
   });
 });

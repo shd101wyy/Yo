@@ -18,15 +18,18 @@ import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
   type BuildGitDependency,
+  type BuildModuleEntry,
   BuildRegistry,
   type BuildTestSuite,
   type DependencyArtifactRef,
+  type ImportedModule,
   clearBuildRegistry,
   getBuildRegistry,
   swapBuildRegistry,
   setRootBuildProjectDir,
   setDependencyProjectRoot,
   getDependencyProjectRoot,
+  setModuleImportRoot,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import {
@@ -244,6 +247,11 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     });
   }
 
+  // Resolve imported modules — evaluate dependency build.yo files
+  // to discover modules, collect their system library requirements,
+  // and propagate C flags to consumer artifacts.
+  resolveImportedModules(registry, projectDir, options.verbose);
+
   // Evaluate all dependency build.yo files to set project roots for import resolution.
   // This ensures `import "dep_name"` resolves to the dependency's declared root
   // even when the dep has no artifact references (dependencyArtifacts).
@@ -253,12 +261,13 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     if (!depDir) continue;
     if (getDependencyProjectRoot(depDir)) continue;
 
-    const depBuildFile = path.join(depDir, "build.yo");
-    if (!fs.existsSync(depBuildFile)) continue;
-
-    const depRegistry = evaluateDependencyBuildFile(depBuildFile);
+    const depRegistry = getOrEvaluateDepRegistry(depDir);
+    if (!depRegistry) continue;
     if (depRegistry.project?.root) {
       setDependencyProjectRoot(depDir, depRegistry.project.root);
+    } else if (depRegistry.modules.length === 1) {
+      // Fallback: use sole module's root as entry point
+      setDependencyProjectRoot(depDir, depRegistry.modules[0]!.root);
     }
   }
 
@@ -881,7 +890,11 @@ async function compileArtifact(
   );
   const outputPath = path.join(outputDir, outputName);
 
-  const projectName = ctx.registry.project?.name ?? artifact.name;
+  const projectName =
+    ctx.registry.project?.name ??
+    (ctx.registry.modules.length > 0
+      ? ctx.registry.modules[0]!.name
+      : artifact.name);
   const gitVersion = getGitVersion(projectDir);
   const versionSuffix = gitVersion ? ` ${gitVersion}` : "";
   console.log(
@@ -1492,6 +1505,245 @@ function fetchTransitiveDependencies(
       queue.push(...newDeps);
     }
   }
+}
+
+// ── Imported module resolution ────────────────────────────────────────
+
+/** Cache of evaluated dependency registries for module resolution */
+const evaluatedDepRegistries = new Map<string, BuildRegistry>();
+
+/**
+ * Resolve imported modules for all artifacts.
+ *
+ * For each artifact's importedModules:
+ * 1. Find the dependency directory
+ * 2. Evaluate the dependency's build.yo
+ * 3. Find the requested module (or default to sole module)
+ * 4. Collect system library requirements from the module
+ * 5. Resolve those system libraries via pkg-config/vcpkg
+ * 6. Merge flags into the consumer artifact
+ * 7. Store the resolved root file path for import resolution
+ */
+function resolveImportedModules(
+  registry: BuildRegistry,
+  projectDir: string,
+  verbose: boolean = false
+): void {
+  for (const artifact of registry.artifacts) {
+    if (artifact.importedModules.length === 0) continue;
+
+    for (const imported of artifact.importedModules) {
+      resolveImportedModule(registry, artifact, imported, projectDir, verbose);
+
+      // Register the resolved root in the global module import map
+      // so that `import "name"` in Yo source resolves to the correct file
+      if (imported.resolvedRoot) {
+        setModuleImportRoot(imported.importName, imported.resolvedRoot);
+      }
+    }
+  }
+}
+
+function resolveImportedModule(
+  registry: BuildRegistry,
+  artifact: BuildArtifact,
+  imported: ImportedModule,
+  projectDir: string,
+  verbose: boolean
+): void {
+  const depName = imported.dependencyName;
+  if (!depName) {
+    // Local module — just resolve root relative to project
+    const localModule = registry.findModule(imported.moduleName);
+    if (localModule) {
+      imported.resolvedRoot = path.resolve(projectDir, localModule.root);
+      // Propagate system libraries from local module
+      if (localModule.linkedSystemLibraries.length > 0) {
+        propagateSystemLibraries(
+          registry,
+          artifact,
+          localModule.linkedSystemLibraries,
+          verbose
+        );
+        imported.propagatedSystemLibraries = [
+          ...localModule.linkedSystemLibraries,
+        ];
+      }
+    } else {
+      const available =
+        registry.modules.map((m) => m.name).join(", ") || "(none)";
+      console.error(
+        `Error: Local module "${imported.moduleName}" not found. ` +
+          `Available modules: ${available}`
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Find the dependency directory
+  const depDir = findDependencyDir(registry, projectDir, depName);
+  if (!depDir) {
+    console.error(
+      `Error: Cannot resolve dependency "${depName}" for module import "${imported.importName}". ` +
+        `Run 'yo fetch' to download dependencies.`
+    );
+    process.exit(1);
+  }
+
+  // Evaluate the dependency's build.yo (cached)
+  const depRegistry = getOrEvaluateDepRegistry(depDir);
+  if (!depRegistry) {
+    console.error(
+      `Error: Dependency "${depName}" has no build.yo at ${path.join(depDir, "build.yo")}.`
+    );
+    process.exit(1);
+  }
+
+  // Store project root for import resolution
+  if (depRegistry.project?.root) {
+    setDependencyProjectRoot(depDir, depRegistry.project.root);
+  }
+
+  // Find the requested module
+  let depModule: BuildModuleEntry | undefined;
+  if (imported.moduleName === "") {
+    // Default: sole module
+    if (depRegistry.modules.length === 0) {
+      // Fallback: if dependency has project but no modules, use project root
+      if (depRegistry.project?.root) {
+        imported.resolvedRoot = path.resolve(depDir, depRegistry.project.root);
+        if (verbose) {
+          console.log(
+            `  Module import "${imported.importName}": using project root from ${depName}`
+          );
+        }
+        return;
+      }
+      console.error(
+        `Error: Dependency "${depName}" has no modules defined. ` +
+          `Add build.module() to its build.yo.`
+      );
+      process.exit(1);
+    } else if (depRegistry.modules.length === 1) {
+      depModule = depRegistry.modules[0]!;
+    } else {
+      console.error(
+        `Error: Dependency "${depName}" has ${depRegistry.modules.length} modules. ` +
+          `Specify a module name: dep.module("name").`
+      );
+      process.exit(1);
+    }
+  } else {
+    depModule = depRegistry.findModule(imported.moduleName);
+    if (!depModule) {
+      // Fallback: if no module found but project exists, use project root
+      if (depRegistry.project?.root && depRegistry.modules.length === 0) {
+        imported.resolvedRoot = path.resolve(depDir, depRegistry.project.root);
+        if (verbose) {
+          console.log(
+            `  Module import "${imported.importName}": fallback to project root from ${depName}`
+          );
+        }
+        return;
+      }
+      console.error(
+        `Error: Module "${imported.moduleName}" not found in dependency "${depName}". ` +
+          `Available modules: ${depRegistry.modules.map((m) => m.name).join(", ") || "(none)"}`
+      );
+      process.exit(1);
+    }
+  }
+
+  // Resolve the module's root file
+  imported.resolvedRoot = path.resolve(depDir, depModule.root);
+
+  if (verbose) {
+    console.log(
+      `  Module import "${imported.importName}": ${depModule.name} → ${imported.resolvedRoot}`
+    );
+  }
+
+  // Propagate system libraries from the module
+  if (depModule.linkedSystemLibraries.length > 0) {
+    // Find the system library definitions from the dependency's registry
+    const sysLibs = depModule.linkedSystemLibraries
+      .map((name) => depRegistry.findSystemLibrary(name))
+      .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+
+    if (sysLibs.length > 0) {
+      if (verbose) {
+        console.log(
+          `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
+        );
+      }
+
+      const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+        preferDebugRuntime: artifact.optimize === "debug",
+      });
+
+      artifact.includePaths.push(...sysLibFlags.includePaths);
+      artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+      artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+      artifact.defines.push(...sysLibFlags.defines);
+      artifact.cFlags.push(...sysLibFlags.cFlags);
+      artifact.runtimeFiles ??= [];
+      for (const runtimeFile of sysLibFlags.runtimeFiles) {
+        if (!artifact.runtimeFiles.includes(runtimeFile)) {
+          artifact.runtimeFiles.push(runtimeFile);
+        }
+      }
+    }
+
+    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
+  }
+}
+
+/**
+ * Propagate system libraries from a local module to an artifact.
+ */
+function propagateSystemLibraries(
+  registry: BuildRegistry,
+  artifact: BuildArtifact,
+  sysLibNames: string[],
+  verbose: boolean
+): void {
+  const sysLibs = sysLibNames
+    .map((name) => registry.findSystemLibrary(name))
+    .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+
+  if (sysLibs.length === 0) return;
+
+  const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+    preferDebugRuntime: artifact.optimize === "debug",
+  });
+
+  artifact.includePaths.push(...sysLibFlags.includePaths);
+  artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+  artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+  artifact.defines.push(...sysLibFlags.defines);
+  artifact.cFlags.push(...sysLibFlags.cFlags);
+  artifact.runtimeFiles ??= [];
+  for (const runtimeFile of sysLibFlags.runtimeFiles) {
+    if (!artifact.runtimeFiles.includes(runtimeFile)) {
+      artifact.runtimeFiles.push(runtimeFile);
+    }
+  }
+}
+
+/**
+ * Get or evaluate a dependency's build.yo registry (with caching).
+ */
+function getOrEvaluateDepRegistry(depDir: string): BuildRegistry | undefined {
+  const cached = evaluatedDepRegistries.get(depDir);
+  if (cached) return cached;
+
+  const depBuildFile = path.join(depDir, "build.yo");
+  if (!fs.existsSync(depBuildFile)) return undefined;
+
+  const depRegistry = evaluateDependencyBuildFile(depBuildFile);
+  evaluatedDepRegistries.set(depDir, depRegistry);
+  return depRegistry;
 }
 
 /**

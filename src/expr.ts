@@ -1195,6 +1195,10 @@ export const BuiltinFunctions = {
   __yo_build_system_library: ["__yo_build_system_library"],
   __yo_build_option: ["__yo_build_option"],
   __yo_build_dep_artifact: ["__yo_build_dep_artifact"],
+  __yo_build_module: ["__yo_build_module"],
+  __yo_build_module_link: ["__yo_build_module_link"],
+  __yo_build_add_import: ["__yo_build_add_import"],
+  __yo_build_dep_module: ["__yo_build_dep_module"],
 
   // Inline assembly
   asm: ["asm"],

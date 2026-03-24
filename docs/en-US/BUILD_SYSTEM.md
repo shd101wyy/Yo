@@ -52,8 +52,8 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 ```yo
 build :: import "std/build";
 
-// Project metadata
-build.project({ name: "my-project", root: "./src/lib.yo" });
+// Module metadata — replaces build.project()
+mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
 // Define artifacts — each returns a Step for dependency wiring
 exe :: build.executable({
@@ -256,6 +256,102 @@ install success
 ```
 
 Each node shows: step description, success/failure status, duration, and peak memory usage (MaxRSS). The tree structure reflects the DAG dependency edges.
+
+## Modules
+
+Modules are the unit of reuse across Yo dependencies. A module declares its source root and system library requirements. When another project imports a module, its system libraries are automatically propagated to the consumer's build — no manual `system_library` or `link` calls needed.
+
+### Defining a Module
+
+```yo
+build :: import "std/build";
+
+raylib :: build.system_library({
+  name: "raylib",
+  defines: "NOMINMAX NOGDI NOUSER"
+});
+
+// Declare a module with its root source file
+mod :: build.module({ name: "raylib_yo", root: "./src/lib.yo" });
+
+// Link system libraries the module depends on
+mod.link(raylib);
+
+exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
+exe.link(raylib);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+### `BuildModule`
+
+Returned by `build.module()`. Has one method:
+
+| Method          | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `mod.link(lib)` | Declare that this module depends on a system library |
+
+### `ModuleConfig`
+
+| Field  | Type              | Default      | Description           |
+| ------ | ----------------- | ------------ | --------------------- |
+| `name` | `comptime_string` | _(required)_ | Module name           |
+| `root` | `comptime_string` | _(required)_ | Root source file path |
+
+### Importing a Module from a Dependency
+
+Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
+
+```yo
+build :: import "std/build";
+
+// Local path dependency (or git dependency)
+raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
+
+exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
+
+// Import the module — system libraries (raylib) are transitively propagated
+exe.add_import({ name: "raylib_yo", module: raylib_yo.module("") });
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+- `dep.module("")` — get the sole module from a dependency (empty name defaults to the only module)
+- `dep.module("name")` — get a specific module by name if the dependency defines multiple modules
+- `exe.add_import({ name, module })` — register a module import on an artifact
+
+### `ImportEntry`
+
+| Field    | Type              | Description                            |
+| -------- | ----------------- | -------------------------------------- |
+| `name`   | `comptime_string` | Import name (used in `import "name"`)  |
+| `module` | `BuildModule`     | Module to import (from `dep.module()`) |
+
+### How It Works
+
+When you run `yo build`, the build system:
+
+1. **Evaluates the dependency's `build.yo`** to discover its modules and linked system libraries
+2. **Resolves system libraries** via `pkg-config` (or fallback flags) for each module
+3. **Propagates flags** — include paths, library paths, link flags, and defines from the module's system libraries are merged into the consumer artifact's compile command
+4. **Sets up import resolution** — `import "raylib_yo"` in the consumer's source resolves to the module's root file
+
+This means the consumer doesn't need to declare `build.system_library({ name: "raylib" })` — it's automatically propagated from the dependency's module definition.
+
+### Comparison with `build.project()`
+
+`build.project()` is the older API for declaring a project's entry point. `build.module()` replaces it with explicit module declarations that support system library propagation:
+
+| Feature                       | `build.project()` | `build.module()` |
+| ----------------------------- | ----------------- | ---------------- |
+| Declares entry point          | ✓                 | ✓                |
+| Transitive system libraries   | ✗                 | ✓                |
+| Multiple modules per project  | ✗                 | ✓                |
+| Explicit imports by consumers | ✗ (implicit)      | ✓ (`add_import`) |
+
+`build.project()` is still supported for backward compatibility but new projects should use `build.module()`.
 
 ## Linking Libraries
 
@@ -673,9 +769,11 @@ export main;
 
 **Entry point resolution order** for path dependencies:
 
-1. `Project.root` field from the dependency's `build.yo` (defaults to `./src/lib.yo`)
-2. `index.yo`
-3. `<name>.yo`
+1. Module root from `add_import()` (if the consumer uses `exe.add_import()`)
+2. `Project.root` field from the dependency's `build.yo` (defaults to `./src/lib.yo`)
+3. Sole module root from the dependency's `build.yo` (if exactly one module is defined)
+4. `index.yo`
+5. `<name>.yo`
 
 Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
 
@@ -843,6 +941,7 @@ Package specifier formats:
 1. Infers the name from the directory basename
 2. Validates that the path exists
 3. Appends `build.path_dependency(...)` to `build.yo`
+4. Prints `add_import` guidance for wiring the dependency's module
 
 ## `yo cache` Reference
 

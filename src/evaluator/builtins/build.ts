@@ -56,6 +56,7 @@ export interface BuildArtifact {
   runtimeFiles?: string[];
   linkedArtifacts: string[]; // Names of Yo library artifacts to link
   linkedSystemLibraries: string[]; // Names of system libraries to link (via pkg-config)
+  importedModules: ImportedModule[]; // Module imports registered via add_import
 }
 
 export interface BuildTestSuite {
@@ -104,6 +105,23 @@ export interface DependencyArtifactRef {
   artifactName: string;
 }
 
+export interface BuildModuleEntry {
+  name: string;
+  root: string;
+  linkedSystemLibraries: string[];
+}
+
+export interface ImportedModule {
+  importName: string;
+  moduleName: string;
+  /** Dependency name, or empty for local modules */
+  dependencyName: string;
+  /** Resolved root file path (set by build runner) */
+  resolvedRoot?: string;
+  /** System libraries propagated from this module (set by build runner) */
+  propagatedSystemLibraries?: string[];
+}
+
 export class BuildRegistry {
   project: BuildProject | undefined;
   artifacts: BuildArtifact[] = [];
@@ -114,6 +132,7 @@ export class BuildRegistry {
   pathDependencies: BuildPathDependency[] = [];
   systemLibraries: BuildSystemLibrary[] = [];
   dependencyArtifacts: DependencyArtifactRef[] = [];
+  modules: BuildModuleEntry[] = [];
   /** User-provided build options from CLI -Dname=value */
   cliOptions: Map<string, string> = new Map();
   /** Declared build options (name → { description, default }) */
@@ -191,6 +210,40 @@ export class BuildRegistry {
     ) {
       this.dependencyArtifacts.push(ref);
     }
+  }
+
+  registerModule(entry: BuildModuleEntry): void {
+    // Check for duplicate module names
+    if (this.modules.some((m) => m.name === entry.name)) {
+      return; // Silently ignore duplicates (same module registered twice)
+    }
+    this.modules.push(entry);
+  }
+
+  registerModuleLink(moduleName: string, systemLibraryName: string): void {
+    const mod = this.modules.find((m) => m.name === moduleName);
+    if (mod && !mod.linkedSystemLibraries.includes(systemLibraryName)) {
+      mod.linkedSystemLibraries.push(systemLibraryName);
+    }
+  }
+
+  registerImportedModule(artifactName: string, imported: ImportedModule): void {
+    const artifact = this.findArtifact(artifactName);
+    if (artifact) {
+      if (
+        artifact.importedModules.some(
+          (m) => m.importName === imported.importName
+        )
+      ) {
+        return; // Duplicate import name — will be caught at compile time
+      }
+      artifact.importedModules.push(imported);
+    }
+  }
+
+  /** Find a module by name */
+  findModule(name: string): BuildModuleEntry | undefined {
+    return this.modules.find((m) => m.name === name);
   }
 
   /** Register a link relationship: artifact links to a library */
@@ -337,6 +390,7 @@ export class BuildRegistry {
     this.pathDependencies = [];
     this.systemLibraries = [];
     this.dependencyArtifacts = [];
+    this.modules = [];
   }
 }
 
@@ -352,6 +406,11 @@ let rootBuildProjectDir: string | undefined;
 // Populated by the build runner when evaluating dependency build.yo files.
 // Used by import resolution to respect custom entry points.
 const dependencyProjectRoots = new Map<string, string>();
+
+// Map from import name → resolved absolute file path.
+// Populated by the build runner from artifact.importedModules[].resolvedRoot.
+// Used by import resolution to handle `import "dep_name"` via module system.
+const moduleImportRoots = new Map<string, string>();
 
 export function getRootBuildProjectDir(): string | undefined {
   return rootBuildProjectDir;
@@ -371,6 +430,22 @@ export function setDependencyProjectRoot(depDir: string, root: string): void {
 
 export function clearDependencyProjectRoots(): void {
   dependencyProjectRoots.clear();
+  moduleImportRoots.clear();
+}
+
+export function getModuleImportRoot(importName: string): string | undefined {
+  return moduleImportRoots.get(importName);
+}
+
+export function setModuleImportRoot(
+  importName: string,
+  resolvedRoot: string
+): void {
+  moduleImportRoots.set(importName, resolvedRoot);
+}
+
+export function clearModuleImportRoots(): void {
+  moduleImportRoots.clear();
 }
 
 export function getBuildRegistry(): BuildRegistry {
@@ -550,6 +625,7 @@ export function evaluateYoBuildFunctions({
       runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
+      importedModules: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -599,6 +675,7 @@ export function evaluateYoBuildFunctions({
       runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
+      importedModules: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -648,6 +725,7 @@ export function evaluateYoBuildFunctions({
       runtimeFiles: [],
       linkedArtifacts: [],
       linkedSystemLibraries: [],
+      importedModules: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -1004,6 +1082,129 @@ export function evaluateYoBuildFunctions({
 
     registry.registerDependencyArtifact({ dependencyName, artifactName });
     return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_module(name, root)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_module)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_module expects 2 arguments (name, root), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    registry.registerModule({ name, root, linkedSystemLibraries: [] });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_module_link(module_name, system_library_name)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_module_link)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_module_link expects 2 arguments (module_name, system_library_name), got ${expr.args.length}`,
+      });
+    }
+    const moduleName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "module_name",
+      expr.token
+    );
+    const systemLibraryName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "system_library_name",
+      expr.token
+    );
+    registry.registerModuleLink(moduleName, systemLibraryName);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_add_import(artifact_name, import_name, module_name, dependency_name)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_import)) {
+    if (expr.args.length < 4) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_add_import expects 4 arguments (artifact_name, import_name, module_name, dependency_name), got ${expr.args.length}`,
+      });
+    }
+    const artifactName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+    const importName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "import_name",
+      expr.token
+    );
+    const moduleName = extractComptimeString(
+      expr.args[2]!.$?.value,
+      "module_name",
+      expr.token
+    );
+    const dependencyName = extractComptimeString(
+      expr.args[3]!.$?.value,
+      "dependency_name",
+      expr.token
+    );
+
+    // Check for duplicate import names
+    const artifact = registry.findArtifact(artifactName);
+    if (artifact) {
+      const existing = artifact.importedModules.find(
+        (m) => m.importName === importName
+      );
+      if (existing) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Duplicate import name "${importName}" on artifact "${artifactName}". Already imported from module "${existing.moduleName}".`,
+        });
+      }
+    }
+
+    registry.registerImportedModule(artifactName, {
+      importName,
+      moduleName,
+      dependencyName,
+    });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_dep_module(dependency_name, module_name)
+  // Returns comptime_string encoding: "dep_name\0module_name"
+  // The build runner interprets this to resolve the module at build time.
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_module)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${expr.args.length}`,
+      });
+    }
+    const dependencyName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "dependency_name",
+      expr.token
+    );
+    const moduleName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "module_name",
+      expr.token
+    );
+    // Encode as "dep_name\0module_name" — decoded by add_import handler
+    return makeComptimeStringResult(
+      expr,
+      env,
+      `${dependencyName}\0${moduleName}`
+    );
   }
 
   throw formatErrorMessage({

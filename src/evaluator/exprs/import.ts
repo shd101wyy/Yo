@@ -16,6 +16,7 @@ import {
   getBuildRegistry,
   getRootBuildProjectDir,
   getDependencyProjectRoot,
+  getModuleImportRoot,
 } from "../builtins/build";
 
 /**
@@ -90,6 +91,21 @@ export function evaluateImport({
     // Ensure it starts with "./" or "../" for consistency
     if (!modulePathToImport.startsWith(".")) {
       modulePathToImport = "./" + modulePathToImport;
+    }
+  }
+
+  if (!modulePathToImport.startsWith(".")) {
+    // Check module import roots first (from build.module() + add_import())
+    const moduleRoot = getModuleImportRoot(modulePathToImport);
+    if (moduleRoot) {
+      const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
+      modulePathToImport = path.relative(
+        path.dirname(currentFilePath),
+        moduleRoot
+      );
+      if (!modulePathToImport.startsWith(".")) {
+        modulePathToImport = "./" + modulePathToImport;
+      }
     }
   }
 

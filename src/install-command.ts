@@ -316,6 +316,7 @@ export async function runInstall(options: InstallOptions): Promise<void> {
       `Installing local dependency "${parsed.name}" from ${parsed.path}...`
     );
     appendDependencyToBuildFile(resolvedBuildFile, parsed);
+    printAddImportGuidance(parsed.name);
     console.log("Done.");
     return;
   }
@@ -377,4 +378,14 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     fetchAllDependencies(projectDir, dependencies, verbose);
     console.log("Done. Lock file updated: yo.lock");
   }
+
+  printAddImportGuidance(parsed.name);
+}
+
+function printAddImportGuidance(depName: string): void {
+  console.log();
+  console.log("To use this dependency in your project, add to your build.yo:");
+  console.log(
+    `  exe.add_import({ name: "${depName}", module: ${depName}.module("") });`
+  );
 }

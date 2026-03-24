@@ -97,7 +97,7 @@ export function initProject(options: InitOptions): void {
 function generateBuildYo(name: string): string {
   return `build :: import "std/build";
 
-build.project({ name: "${name}", root: "./src/lib.yo" });
+mod :: build.module({ name: "${name}", root: "./src/lib.yo" });
 
 exe :: build.executable({ name: "${name}", root: "./src/main.yo" });
 
