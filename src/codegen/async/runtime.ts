@@ -10,7 +10,7 @@
  * The runtime is split into modules:
  * - runtime-core.ts: Scheduler, continuation queue, spawn/wait, concurrency helpers
  * - runtime-io-linux.ts: Linux io_uring async I/O operations
- * - runtime-io-macos.ts: macOS Grand Central Dispatch async I/O operations
+ * - runtime-io-macos.ts: macOS kqueue async I/O operations
  * - runtime-io-windows.ts: Windows IOCP-based async I/O operations
  * - runtime-io-common.ts: Timer, directory scanning, DNS, process, FS events, poll, tick
  *   (also exports generateSysRuntime for non-async system helpers: stat, signal, TTY, etc.)

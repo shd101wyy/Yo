@@ -14,12 +14,11 @@ Yo's async/await runs on a **single-threaded event loop**, similar to C#'s async
 
 **Platform implementations:**
 - **Linux**: `io_uring` — single event loop thread submits SQEs and processes CQEs
-- **macOS**: GCD (`dispatch_io`) — callbacks dispatch to the IO queue, but the event loop itself is single-threaded. GCD manages its own thread pool internally for dispatch callbacks, so `__yo_pending_io_count` uses `_Atomic` on macOS.
+- **macOS**: `kqueue` — single event loop thread registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
 - **Windows**: IOCP — `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**
-- Do **not** add mutexes, atomics, or other synchronization to Linux/Windows async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are only accessed from the event loop thread.
-- macOS is the exception: GCD dispatches completion callbacks on its own thread pool threads, so shared counters like `__yo_pending_io_count` must be `_Atomic` on macOS.
+- Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are only accessed from the event loop thread.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
 
 ## Compilation commands

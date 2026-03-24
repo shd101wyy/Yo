@@ -65,13 +65,13 @@ wasm32-wasi              (WebAssembly)
 
 ### 1.3 Supported Operating Systems
 
-| OS        | Async I/O Backend      | Notes                  |
-| --------- | ---------------------- | ---------------------- |
-| `linux`   | io_uring               | Primary tier           |
-| `macos`   | Grand Central Dispatch | Primary tier           |
-| `windows` | IOCP                   | Primary tier           |
-| `wasi`    | N/A (no async I/O)     | WASM target            |
-| `freebsd` | kqueue                 | Tertiary tier (future) |
+| OS        | Async I/O Backend  | Notes                  |
+| --------- | ------------------ | ---------------------- |
+| `linux`   | io_uring           | Primary tier           |
+| `macos`   | kqueue             | Primary tier           |
+| `windows` | IOCP               | Primary tier           |
+| `wasi`    | N/A (no async I/O) | WASM target            |
+| `freebsd` | kqueue             | Tertiary tier (future) |
 
 ### 1.4 ABI
 

@@ -562,12 +562,12 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 
 ### Platform-Specific I/O Backends
 
-| Platform | Backend                           | File                    |
-| -------- | --------------------------------- | ----------------------- |
-| Linux    | `io_uring` (via liburing)         | `runtime-io-linux.ts`   |
-| macOS    | Grand Central Dispatch (GCD)      | `runtime-io-macos.ts`   |
-| Windows  | I/O Completion Ports (IOCP)       | `runtime-io-windows.ts` |
-| WASM     | No I/O runtime (computation only) | —                       |
+| Platform | Backend                                         | File                    |
+| -------- | ----------------------------------------------- | ----------------------- |
+| Linux    | `io_uring` (via liburing)                       | `runtime-io-linux.ts`   |
+| macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `runtime-io-macos.ts`   |
+| Windows  | I/O Completion Ports (IOCP)                     | `runtime-io-windows.ts` |
+| WASM     | No I/O runtime (computation only)               | —                       |
 
 ## Memory Management
 

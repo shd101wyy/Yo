@@ -71,7 +71,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 
 ### Async/await threading model
 
-Yo's async/await is **single-threaded** (like C#). All I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables on Linux/Windows. macOS is the exception — GCD dispatches callbacks on its own thread pool, so shared counters use `_Atomic` there. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
+Yo's async/await is **single-threaded** (like C#). All I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
 
 ---
 
