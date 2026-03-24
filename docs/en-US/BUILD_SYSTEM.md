@@ -698,6 +698,33 @@ yo cache clean
 3. `~/.cache/yo` (Linux/macOS default)
 4. `%LOCALAPPDATA%\yo\cache` (Windows default)
 
+### Cache Integrity
+
+Every cached dependency has a **content hash** stored in `yo.lock`:
+
+```toml
+[[dependencies]]
+name = "json-parser"
+url = "https://github.com/user/json-parser.git"
+ref = "v1.0.0"
+commit = "abc123..."
+hash = "sha256-7c19c1..."
+```
+
+**How it works:**
+
+1. **At fetch time** — `yo fetch` clones the dependency, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+
+2. **At build time** — `yo build` reads the sidecar file (O(1)) and compares it against the `yo.lock` hash. If they match, the cache is trusted. If the sidecar is missing (e.g. older caches), a full re-hash is performed and the sidecar is written for future builds.
+
+3. **On mismatch** — If the hash doesn't match (e.g. files were tampered with or corrupted), `yo build` reports an error with the expected vs actual hash and suggests running `yo fetch`. Running `yo fetch` automatically deletes the corrupted cache and reclones.
+
+**Cross-platform stability:**
+
+The content hash normalizes `\r\n` → `\n` during hashing, so the same dependency produces the same hash on Windows (which may check out CRLF) and Linux (LF). File names are sorted using locale-independent Unicode ordering (case-insensitive primary, codepoint tiebreaker) rather than locale-sensitive collation, ensuring hashes are deterministic regardless of the system locale.
+
+This approach follows Zig's model of hashing extracted content rather than npm/Go's approach of hashing archive bytes. It requires no archive storage and verifies the actual source files that the compiler reads.
+
 ### Shared Dependencies
 
 When multiple packages depend on the same dependency (same URL+ref or same path), the build system uses **content-addressed caching** to compile the dependency only once:
@@ -773,9 +800,9 @@ Options:
   --update, -u           Re-resolve git refs to latest commits and update yo.lock
 ```
 
-`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, and records everything in `yo.lock`.
+`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, computes a content hash, and records everything in `yo.lock`.
 
-Without `--update`, cached dependencies (matching commit in `yo.lock`) are skipped. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
+Without `--update`, cached dependencies are verified against their `yo.lock` hash using a sidecar file. If the hash matches, fetching is skipped entirely (no network access required). If the hash mismatches, the corrupted cache entry is deleted and the dependency is recloned automatically. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
 
 **Auto-pruning**: If a dependency is removed from `build.yo`, `yo fetch` automatically removes the stale entry from `yo.lock`. The cached files in the global cache are not deleted (use `yo cache clean` to purge the cache).
 
