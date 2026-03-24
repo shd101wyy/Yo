@@ -938,19 +938,23 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   
   __yo_io_future_t* fut = future;
   off_t write_offset = use_random ? (off_t)offset : 0;
+  __block bool completed = false;
   
   dispatch_io_write(channel, write_offset, data, __yo_io_queue,
     ^(bool done, dispatch_data_t remaining, int error) {
+      if (completed) {
+        return;
+      }
       if (error) {
+        completed = true;
         fut->result = -error;
-        if (done) {
-          dispatch_io_close(channel, DISPATCH_IO_STOP);
-          __yo_io_wake_continuation(fut);
-        }
+        dispatch_io_close(channel, DISPATCH_IO_STOP);
+        __yo_io_wake_continuation(fut);
         return;
       }
       
       if (done) {
+        completed = true;
         fut->result = (int32_t)size;  // All bytes written
         dispatch_io_close(channel, 0);
         ASYNC_DEBUG("[IO] Write completed: %d bytes\\n", fut->result);

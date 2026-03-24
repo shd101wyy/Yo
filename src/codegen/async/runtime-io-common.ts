@@ -609,8 +609,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   timer_future->read_buf = buf;
   io_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
               (unsigned long long)milliseconds, __yo_pending_io_count);
@@ -995,12 +994,15 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
 
   if (stdin_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stdin_fd, 0);
+    if (stdin_fd != 0) posix_spawn_file_actions_addclose(&actions, stdin_fd);
   }
   if (stdout_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stdout_fd, 1);
+    if (stdout_fd != 1) posix_spawn_file_actions_addclose(&actions, stdout_fd);
   }
   if (stderr_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stderr_fd, 2);
+    if (stderr_fd != 2) posix_spawn_file_actions_addclose(&actions, stderr_fd);
   }
 
   pid_t pid = 0;

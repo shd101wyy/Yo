@@ -581,6 +581,15 @@ static inline bool __yo_has_pending_io(void) {
 // Forward declaration for poll/fs_event tick (defined in runtime-io-common)
 static int __yo_poll_and_fs_event_tick(void);
 
+// Submit an SQE to io_uring with an event-loop RC reference.
+// The reference is released in __yo_io_process_cqe after the CQE is consumed,
+// preventing use-after-free if the user drops the future before completion.
+static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
+  future->header.ref_count++;    // io_uring holds a reference until CQE
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+}
+
 // Process completions from CQ
 // The future pointer is stored directly in the SQE user data
 static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
@@ -608,6 +617,11 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   }
 
   io_uring_cqe_seen(&__yo_io_ring, cqe);
+  
+  // Release the io_uring event loop reference.
+  // This must be AFTER io_uring_cqe_seen and AFTER reading all future fields,
+  // because decr_rc may free the future if user already dropped their ref.
+  __yo_decr_rc((void*)future);
 }
 
 // Poll for I/O completions (non-blocking)
@@ -680,8 +694,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   
   io_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
   io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
@@ -719,8 +732,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   
   io_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
   io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
@@ -751,8 +763,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   
   io_uring_prep_openat(sqe, dirfd, path, flags, (mode_t)mode);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
               dirfd, path, flags, mode, __yo_pending_io_count);
@@ -782,8 +793,7 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   
   io_uring_prep_close(sqe, fd);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
@@ -813,8 +823,7 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
   
   io_uring_prep_statx(sqe, dirfd, path, flags, mask, (struct statx*)statxbuf);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
               dirfd, path, flags, mask, __yo_pending_io_count);
@@ -844,8 +853,7 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   
   io_uring_prep_mkdirat(sqe, dirfd, path, (mode_t)mode);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
               dirfd, path, mode, __yo_pending_io_count);
@@ -875,8 +883,7 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   
   io_uring_prep_unlinkat(sqe, dirfd, path, flags);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
               dirfd, path, flags, __yo_pending_io_count);
@@ -906,8 +913,7 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   
   io_uring_prep_renameat(sqe, olddirfd, oldpath, newdirfd, newpath, 0);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
               olddirfd, oldpath, newdirfd, newpath, __yo_pending_io_count);
@@ -937,8 +943,7 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   
   io_uring_prep_symlinkat(sqe, target, newdirfd, linkpath);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
               target, newdirfd, linkpath, __yo_pending_io_count);
@@ -968,8 +973,7 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   
   io_uring_prep_linkat(sqe, olddirfd, oldpath, newdirfd, newpath, flags);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
               olddirfd, oldpath, newdirfd, newpath, flags, __yo_pending_io_count);
@@ -999,8 +1003,7 @@ static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   
   io_uring_prep_fsync(sqe, fd, 0);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
@@ -1029,8 +1032,7 @@ static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   
   io_uring_prep_fsync(sqe, fd, IORING_FSYNC_DATASYNC);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
@@ -1060,8 +1062,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
 
   io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, 0, (uint64_t)length);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
 
   ASYNC_DEBUG("[IO] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
               fd, (long long)length, __yo_pending_io_count);
@@ -1170,8 +1171,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   
   io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
@@ -1200,8 +1200,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   
   io_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
@@ -1230,8 +1229,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   
   io_uring_prep_send(sqe, sockfd, buf, len, flags);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
@@ -1260,8 +1258,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   
   io_uring_prep_recv(sqe, sockfd, buf, len, flags);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[IO] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
