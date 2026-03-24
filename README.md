@@ -113,7 +113,7 @@ $ sudo pacman -S liburing
 
 _Still In Design_
 
-Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/STD_LIBRARY_MODULES.md)**.
+Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/en-US/STD_LIBRARY_MODULES.md)**.
 
 Key modules include:
 
@@ -133,6 +133,48 @@ Key modules include:
 | Log         | `import "std/log"`                                      | Leveled logging                                             |
 | Formatting  | `import "std/fmt"`                                      | `print`, `println` for any `ToString` type                  |
 
+## Quick Start
+
+```bash
+$ yo init my-project        # Scaffold a new project
+$ cd my-project
+$ yo build run              # Build and run
+Hello, world!
+```
+
+`yo init` generates a project with a build file, source, and tests:
+
+```
+my-project/
+├── build.yo              # Build configuration
+├── src/
+│   ├── main.yo           # Entry point
+│   └── lib.yo            # Library module
+└── tests/
+    └── main.test.yo      # Unit tests
+```
+
+`src/main.yo`:
+
+```typescript
+{ println } :: import "std/fmt";
+
+main :: (fn() -> unit)({
+  println("Hello, world!");
+});
+
+export main;
+```
+
+Common build commands:
+
+```bash
+$ yo build                  # Build all artifacts
+$ yo build run              # Build and run the executable
+$ yo build test             # Run tests
+$ yo build --list-steps     # List available build steps
+```
+
 ## Example Projects
 
 | Project                                                                 | Description                                                                                              |
@@ -143,7 +185,7 @@ Key modules include:
 
 ## Code examples
 
-Check the [./tests](./tests/) and [./std](./std/) folders for code examples.
+Check the [./tests](./tests/) and [./std](./std/) folders for more code examples.
 
 ### Hello World
 
