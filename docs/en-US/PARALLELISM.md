@@ -165,20 +165,25 @@ Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer 
 ```yo
 { Channel } :: import "std/sync/channel";
 
-// Create a bounded channel (capacity 10)
-ch := Channel(i32).new(usize(10));
+// Create a bounded channel (capacity 10), wrapped in Arc for cross-thread sharing
+ch := arc(Channel(i32).new(usize(10)));
 
 // Producer thread
 Thread.spawn(() => {
-  ch.send(42);
+  ch.(*).send(i32(42));
 });
 
 // Consumer thread
 Thread.spawn(() => {
-  value := ch.recv();
-  printf("Got %d\n", value);
+  val := ch.(*).recv();
+  cond(
+    val.is_some() => printf("Got %d\n", val.unwrap()),
+    true => ()
+  );
 });
 ```
+
+`Channel` is a thread-local `object`, so it must be wrapped in `arc()` (`Arc(T)` — atomic reference counting) to share across threads. Use `ch.(*)` to dereference the `Arc` before calling methods.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
@@ -260,10 +265,10 @@ thread.join();
 // Thread pool task
 Worker.spawn(() => { /* work */ });
 
-// Communication
-ch := Channel(i32).new(usize(10));
-ch.send(42);
-value := ch.recv();
+// Communication (Arc for cross-thread sharing)
+ch := arc(Channel(i32).new(usize(10)));
+ch.(*).send(i32(42));
+val := ch.(*).recv();
 ```
 
 ### Key Principles
