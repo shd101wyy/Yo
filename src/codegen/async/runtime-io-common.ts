@@ -624,8 +624,8 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
 // Timer Operations (macOS - kqueue EVFILT_TIMER)
 // ============================================================================
 
-// Monotonically increasing timer ID for unique kqueue ident values
-static uintptr_t __yo_timer_next_id = 1;
+// Monotonically increasing timer ID for unique kqueue ident values (per-thread)
+static _Thread_local uintptr_t __yo_timer_next_id = 1;
 
 // Timer context stored as kevent udata
 typedef struct __yo_timer_ctx_t {
@@ -1113,7 +1113,7 @@ ${
   struct __yo_fs_event_s* next;
 } __yo_fs_event_t;
 
-static __yo_fs_event_t* __yo_active_fs_events = NULL;
+static _Thread_local __yo_fs_event_t* __yo_active_fs_events = NULL;
 `);
 
     // macOS-specific FS event helpers
@@ -1493,7 +1493,7 @@ typedef struct __yo_poll_s {
   struct __yo_poll_s* next;
 } __yo_poll_t;
 
-static __yo_poll_t* __yo_active_polls = NULL;
+static _Thread_local __yo_poll_t* __yo_active_polls = NULL;
 
 static void* __yo_poll_init(int32_t fd) {
   __yo_poll_t* handle = (__yo_poll_t*)__yo_malloc(sizeof(__yo_poll_t));

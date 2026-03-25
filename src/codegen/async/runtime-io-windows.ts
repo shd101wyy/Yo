@@ -1927,8 +1927,8 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 // Async I/O Runtime (Windows - IOCP)
 // ============================================================================
 // __yo_io_initialized is defined in runtime-core
-static size_t __yo_pending_io_count = 0;
-static HANDLE __yo_io_iocp = NULL;
+static __declspec(thread) size_t __yo_pending_io_count = 0;
+static __declspec(thread) HANDLE __yo_io_iocp = NULL;
 static CRITICAL_SECTION __yo_dir_state_mutex;
 
 typedef struct __yo_win_timer_entry_t {
@@ -1937,7 +1937,7 @@ typedef struct __yo_win_timer_entry_t {
   struct __yo_win_timer_entry_t* next;
 } __yo_win_timer_entry_t;
 
-static __yo_win_timer_entry_t* __yo_win_timer_head = NULL;
+static __declspec(thread) __yo_win_timer_entry_t* __yo_win_timer_head = NULL;
 
 typedef struct {
   OVERLAPPED overlapped;
@@ -3792,7 +3792,7 @@ typedef struct __yo_fs_event_s {
   struct __yo_fs_event_s* next;
 } __yo_fs_event_t;
 
-static __yo_fs_event_t* __yo_active_fs_events = NULL;
+static __declspec(thread) __yo_fs_event_t* __yo_active_fs_events = NULL;
 
 static void* __yo_fs_event_init(void) {
   __yo_fs_event_t* handle = (__yo_fs_event_t*)__yo_malloc(sizeof(__yo_fs_event_t));
@@ -3966,7 +3966,7 @@ typedef struct __yo_poll_s {
   struct __yo_poll_s* next;
 } __yo_poll_t;
 
-static __yo_poll_t* __yo_active_polls = NULL;
+static __declspec(thread) __yo_poll_t* __yo_active_polls = NULL;
 
 static void* __yo_poll_init(int32_t fd) {
   __yo_poll_t* handle = (__yo_poll_t*)__yo_malloc(sizeof(__yo_poll_t));
