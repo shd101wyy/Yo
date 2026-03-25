@@ -202,7 +202,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     generateParallelismRuntime(
       context.emitter,
       context.debugParallelism,
-      context.targetInfo
+      context.targetInfo,
+      context.usesAsync ?? false
     );
   }
 

@@ -267,6 +267,7 @@ export function generateClosureConstruction(
       context.implClosureCallMap.set(captureType.id, {
         functionCName,
         callTypeId: fnModule.isFn.callType.id,
+        callType: fnModule.isFn.callType,
       });
       return captureTempVar;
     }
@@ -284,6 +285,7 @@ export function generateClosureConstruction(
           context.implClosureCallMap.set(someType.resolvedConcreteType.id, {
             functionCName,
             callTypeId: fnModule.isFn.callType.id,
+            callType: fnModule.isFn.callType,
           });
 
           const concreteCName = getTypeString(

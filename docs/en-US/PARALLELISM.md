@@ -7,7 +7,7 @@ Yo provides two mechanisms for parallel execution:
 1. **Thread** - A dedicated OS thread (wrapper around pthread)
 2. **Worker** - A task that runs on a thread pool with thread affinity
 
-Communication between threads is done via **Channel** (implemented separately).
+Communication between threads is done via **Channel** (`std/sync/channel.yo`) — a bounded, multi-producer multi-consumer queue with blocking send/recv.
 
 This is similar to:
 
@@ -26,38 +26,59 @@ This is similar to:
 
 See `ASYNC_AWAIT.md` for single-threaded concurrency.
 
+## Per-Thread Event Loop
+
+Each OS thread (both Thread and Worker) gets its own async event loop:
+
+- **Linux**: per-thread `io_uring` instance
+- **macOS**: per-thread `kqueue` descriptor
+- **Windows**: per-thread IOCP handle
+
+This means spawned threads and worker tasks can perform async I/O via `io.async`/`io.await` without contention — each thread's event loop is fully independent.
+
+The runtime automatically initializes the event loop when the thread starts (`__yo_async_scheduler_init()`) and drains pending tasks when the closure completes (`__yo_async_wait_all()`). I/O backend state is `_Thread_local`, so no synchronization is needed.
+
 ## Thread - Dedicated OS Thread
 
 `Thread` is a simple wrapper around OS threads (pthread on Unix, Windows threads on Windows).
 
 ### API
 
-```rust
+```yo
 Thread :: struct(
-  handle : __yo_thread_t,
-
-  // Spawn a new OS thread running the given function
-  // The function must be Send (no captured non-Send references)
-  spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> Thread),
+  handle : __yo_thread_t
+);
+impl(Thread,
+  // Spawn a new OS thread running the given closure.
+  // The closure receives its own per-thread IO event loop.
+  spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> Self),
 
   // Wait for the thread to complete (blocking)
-  join :: (fn(self : Thread) -> unit),
-
-  // Get current thread ID
-  get_id :: (fn() -> usize),
+  join : (fn(self : *(Self)) -> unit)
 );
 ```
 
 ### Usage
 
-```rust
-// Spawn a dedicated thread
-thread := Thread.spawn(() => {
-  printf("Hello from thread %zu\n", Thread.get_id());
-  // Do work...
-});
+```yo
+{ Thread } :: import "std/thread";
+{ yield } :: import "std/async";
 
-// Wait for completion
+// Spawn a dedicated thread (no async)
+thread := Thread.spawn(() => {
+  printf("Hello from thread\n");
+});
+thread.join();
+
+// Spawn a thread with async I/O
+thread := Thread.spawn((using(io : IO)) => {
+  task := io.async((using(io : IO)) => {
+    io.await(yield());
+    return i32(42);
+  });
+  result := io.await(task);
+  assert(result == i32(42), "async result");
+});
 thread.join();
 ```
 
@@ -74,33 +95,38 @@ thread.join();
 
 ### API
 
-```rust
-Worker :: impl {
-  // Spawn a task on the thread pool
-  // Returns immediately, task runs in background
-  spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(...);
+```yo
+Worker :: import "std/worker";
 
-  // Configure thread pool (call before first spawn)
-  set_num_threads :: (fn(n : usize) -> unit)(...),
+// Spawn a task on the thread pool
+Worker.spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit);
 
-  // Get number of threads in pool (default: hardware threads)
-  get_num_threads :: (fn() -> usize)(...);
+// Configure thread pool size (call before first spawn)
+Worker.set_num_threads : (fn(n : usize) -> unit);
 
-  export spawn, set_num_threads, get_num_threads;
-};
+// Get number of threads in pool (default: hardware threads)
+Worker.get_num_threads : (fn() -> usize);
 ```
 
 ### Usage
 
-```rust
-// Spawn many tasks on thread pool
-for i in range(0, 100), {
-  Worker.spawn(() => {
-    // Each task runs on a thread from the pool
-    // with thread affinity (stays on same OS thread)
-    do_work(i);
+```yo
+Worker :: import "std/worker";
+{ yield } :: import "std/async";
+
+// Simple tasks on thread pool
+Worker.set_num_threads(4);
+Worker.spawn(() => {
+  do_work();
+});
+
+// Async tasks on thread pool
+Worker.spawn((using(io : IO)) => {
+  task := io.async((using(io : IO)) => {
+    io.await(yield());
   });
-};
+  io.await(task);
+});
 ```
 
 ### Thread Pool Design
@@ -113,12 +139,14 @@ for i in range(0, 100), {
 │  │ OS Thread 0  │  │ OS Thread 1  │  │ OS Thread 2  │  ...     │
 │  │ (CPU 0)      │  │ (CPU 1)      │  │ (CPU 2)      │          │
 │  ├──────────────┤  ├──────────────┤  ├──────────────┤          │
+│  │ Event Loop   │  │ Event Loop   │  │ Event Loop   │          │
 │  │ Task Queue   │  │ Task Queue   │  │ Task Queue   │          │
 │  │ [A, D, G]    │  │ [B, E, H]    │  │ [C, F, I]    │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 │                                                                │
 │  - Thread-per-core: one OS thread per CPU core                 │
 │  - Thread affinity: tasks stay on assigned thread              │
+│  - Per-thread event loop: async I/O without contention         │
 │  - No work stealing: predictable, cache-friendly               │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -130,35 +158,29 @@ for i in range(0, 100), {
 - When you don't need to wait for individual tasks
 - Task parallelism (map-reduce style)
 
-## Channel - Inter-Thread Communication (Future)
+## Channel - Inter-Thread Communication
 
-Channels will be implemented separately to enable communication between threads/workers.
+Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer communication between threads.
 
-```rust
-// Future API (not yet implemented)
-Channel :: (fn(comptime(T) : Type) -> comptime(Type)) {
-  object(
-    send :: (fn(self : Self, value : T) -> Result(unit, T)),
-    recv :: (fn(self : Self) -> Result(T, unit)),
-    close :: (fn(self : Self) -> unit),
-  )
-};
+```yo
+{ Channel } :: import "std/sync/channel";
 
-// Create a channel pair (sender, receiver)
-(tx, rx) := Channel(i32).create();
+// Create a bounded channel (capacity 10)
+ch := Channel(i32).new(usize(10));
 
 // Producer thread
 Thread.spawn(() => {
-  tx.send(42);
-  tx.close();
+  ch.send(42);
 });
 
-// Consumer
-match rx.recv(), {
-  .Ok(value) => printf("Got %d\n", value),
-  .Err(()) => printf("Channel closed\n"),
-};
+// Consumer thread
+Thread.spawn(() => {
+  value := ch.recv();
+  printf("Got %d\n", value);
+});
 ```
+
+Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
 ## Sendable Types
 
@@ -167,7 +189,7 @@ Only types that implement `Send` can cross thread boundaries:
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
 - **Not Sendable**: `object(...)`, `Dyn`, closures capturing non-Send values
 
-```rust
+```yo
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
 Thread.spawn(() => {
@@ -192,45 +214,56 @@ Each OS thread has:
 - **Separate heap**: GC-managed allocations are thread-local
 - **Non-atomic RC**: Reference counting uses non-atomic operations
 - **Thread-local cycle collector**: GC runs independently per thread
+- **Thread-local event loop**: I/O state is `_Thread_local`
 
 This means:
 
 - No data races on GC-managed values (they can't be shared)
 - No atomic overhead for reference counting
 - No stop-the-world GC pauses
+- No contention on async I/O
 
 ## Comparison: Thread vs Worker
 
 | Aspect          | Thread                   | Worker                     |
 | --------------- | ------------------------ | -------------------------- |
 | OS Thread       | Dedicated (1:1)          | Shared (thread pool)       |
-| Lifecycle       | Explicit (join/kill)     | Fire-and-forget            |
+| Lifecycle       | Explicit (join)          | Fire-and-forget            |
 | Overhead        | Higher (thread creation) | Lower (reuses threads)     |
 | Use Case        | Long-running tasks       | Short-lived tasks          |
 | Thread Affinity | N/A                      | Yes (task stays on thread) |
+| Async I/O       | Own event loop           | Shared per-thread loop     |
 
 ## Summary
 
-| Component   | Purpose                | API                     |
-| ----------- | ---------------------- | ----------------------- |
-| **Thread**  | Dedicated OS thread    | `spawn`, `join`, `kill` |
-| **Worker**  | Thread pool task       | `spawn`                 |
-| **Channel** | Communication (future) | `send`, `recv`, `close` |
+| Component   | Purpose                | API                   |
+| ----------- | ---------------------- | --------------------- |
+| **Thread**  | Dedicated OS thread    | `spawn`, `join`       |
+| **Worker**  | Thread pool task       | `spawn`               |
+| **Channel** | Blocking communication | `new`, `send`, `recv` |
 
 ### Quick Reference
 
-```rust
-// Dedicated thread
-thread := Thread.spawn(() => { /* work */ });
+```yo
+{ Thread } :: import "std/thread";
+Worker :: import "std/worker";
+{ Channel } :: import "std/sync/channel";
+
+// Dedicated thread with async I/O
+thread := Thread.spawn((using(io : IO)) => {
+  // This thread has its own event loop
+  task := io.async((using(io : IO)) => { io.await(yield()); });
+  io.await(task);
+});
 thread.join();
 
 // Thread pool task
 Worker.spawn(() => { /* work */ });
 
-// Communication (future)
-(tx, rx) := Channel(i32).create();
-tx.send(42);
-value := rx.recv();
+// Communication
+ch := Channel(i32).new(usize(10));
+ch.send(42);
+value := ch.recv();
 ```
 
 ### Key Principles
@@ -240,3 +273,4 @@ value := rx.recv();
 3. **Thread-local GC** - no cross-thread GC coordination
 4. **Non-atomic RC** - no atomic overhead for thread-local objects
 5. **Thread affinity** - Worker tasks stay on assigned OS thread
+6. **Per-thread event loop** - each thread gets independent async I/O

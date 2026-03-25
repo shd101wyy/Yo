@@ -159,6 +159,8 @@ export interface CodeGenContext {
     {
       functionCName: string;
       callTypeId: TypeId;
+      /** The Fn call type — used to determine evidence parameters for spawn wrappers */
+      callType?: FunctionType;
     }
   >;
 

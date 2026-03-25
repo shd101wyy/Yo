@@ -18,7 +18,8 @@ import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
 export function generateParallelismRuntime(
   emitter: Emitter,
   _debugParallelism: boolean,
-  targetInfo: TargetInfo
+  targetInfo: TargetInfo,
+  usesAsync: boolean
 ): void {
   const isWindows = isTargetWindows(targetInfo);
   const isLinux = isTargetLinux(targetInfo);
@@ -116,9 +117,23 @@ ${threadEntrySignature}
   
   // Initialize thread-local GC for this thread
   __yo_gc_init_thread();
+  ${
+    usesAsync
+      ? `
+  // Initialize per-thread async event loop (io_uring/kqueue/IOCP)
+  __yo_async_scheduler_init();`
+      : ""
+  }
   
   // Call user's function with closure
   args->fn(args->closure);
+  ${
+    usesAsync
+      ? `
+  // Drain per-thread event loop — wait for all async tasks spawned in this thread
+  __yo_async_wait_all();`
+      : ""
+  }
   
   PARALLELISM_DEBUG("[THREAD] Thread completed (tid=%zu)\\n", (size_t)__yo_get_thread_id());
   
@@ -213,6 +228,13 @@ ${workerEntrySignature}
   
   // Initialize thread-local GC for this worker thread
   __yo_gc_init_thread();
+  ${
+    usesAsync
+      ? `
+  // Initialize per-thread async event loop (io_uring/kqueue/IOCP)
+  __yo_async_scheduler_init();`
+      : ""
+  }
   
   // Signal that this thread has started
   worker->started = 1;
@@ -246,6 +268,13 @@ ${workerEntrySignature}
     if (task != NULL) {
       PARALLELISM_DEBUG("[WORKER] Executing task (tid=%zu)\\n", (size_t)__yo_get_thread_id());
       task->fn(task->closure);
+      ${
+        usesAsync
+          ? `
+      // Drain per-thread event loop — wait for all async tasks from this task
+      __yo_async_wait_all();`
+          : ""
+      }
       
       // Free task closure and task node
       if (task->closure) {
