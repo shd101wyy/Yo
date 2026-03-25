@@ -64,7 +64,7 @@ test "Worker get_num_threads returns configured value", {
 test "Worker with async task", {
   Worker.set_num_threads(2);
   
-  Worker.spawn((using(io : IO)) => {
+  Worker.spawn((using(io)) => {
     task := io.async((using(io : IO)) => {
       io.await(yield());
     });
@@ -75,7 +75,7 @@ test "Worker with async task", {
 test "Worker with async returning value", {
   Worker.set_num_threads(2);
   
-  Worker.spawn((using(io : IO)) => {
+  Worker.spawn((using(io)) => {
     x := 10;
     y := 20;
     task := io.async((using(io : IO)) => {
@@ -90,7 +90,7 @@ test "Worker with async returning value", {
 test "Worker with async loop", {
   Worker.set_num_threads(2);
 
-  Worker.spawn((using(io : IO)) => {
+  Worker.spawn((using(io)) => {
     task := io.async((using(io : IO)) => {
       counter := 0;
       while runtime(counter < i32(3)), {
