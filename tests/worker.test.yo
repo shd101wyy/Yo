@@ -1,6 +1,7 @@
 open import "std/libc/stdio";
 { get_thread_id } :: import "std/thread";
 Worker :: import "std/worker";
+{ yield } :: import "std/async";
 
 test "Worker spawn simple task", {
   Worker.set_num_threads(2);
@@ -58,4 +59,47 @@ test "Worker get_num_threads returns configured value", {
   n := Worker.get_num_threads();
   // Note: get_num_threads returns configured value or hardware threads if 0
   assert((n > 0));
+};
+
+test "Worker with async task", {
+  Worker.set_num_threads(2);
+  
+  Worker.spawn((using(io)) => {
+    task := io.async((using(io : IO)) => {
+      io.await(yield());
+    });
+    io.await(task);
+  });
+};
+
+test "Worker with async returning value", {
+  Worker.set_num_threads(2);
+  
+  Worker.spawn((using(io)) => {
+    x := 10;
+    y := 20;
+    task := io.async((using(io : IO)) => {
+      io.await(yield());
+      return (x + y);
+    });
+    result := io.await(task);
+    assert(result == i32(30), "async result should be 30");
+  });
+};
+
+test "Worker with async loop", {
+  Worker.set_num_threads(2);
+
+  Worker.spawn((using(io)) => {
+    task := io.async((using(io : IO)) => {
+      counter := 0;
+      while runtime(counter < i32(3)), {
+        counter = (counter + 1);
+        io.await(yield());
+      };
+      return counter;
+    });
+    result := io.await(task);
+    assert(result == i32(3), "counter should be 3");
+  });
 };

@@ -14,13 +14,17 @@ export function generateAsyncRuntimeCore(
   targetInfo: TargetInfo
 ): void {
   const hasIO = !isTargetWasm(targetInfo);
+  const threadLocal = isTargetWindows(targetInfo)
+    ? "__declspec(thread)"
+    : "_Thread_local";
 
   emitter.emitLine(`
 // ============================================================================
-// Async/Await Runtime - Single-Threaded Cooperative Scheduler
+// Async/Await Runtime - Per-Thread Cooperative Scheduler
 // ============================================================================
-// This implements a cooperative async runtime for single-threaded concurrency.
-// All async tasks run on the SAME thread - no parallelism, just interleaving.
+// This implements a cooperative async runtime with per-thread event loops.
+// Each OS thread has its own scheduler and I/O backend — no shared state.
+// Multiple workers on the same thread cooperatively share the event loop.
 // Uses non-atomic reference counting (everything is thread-local).
 //
 // LAZY EXECUTION MODEL:
@@ -55,16 +59,16 @@ ${
     : `static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};`
 }
 
-// Async scheduler initialized flag
-static bool __yo_async_scheduler_initialized = false;
+// Async scheduler initialized flag (per-thread — each thread has its own event loop)
+static ${threadLocal} bool __yo_async_scheduler_initialized = false;
 
-// Count of active poll/fs_event watches (used by all platforms)
-static size_t __yo_active_watch_count = 0;
+// Count of active poll/fs_event watches (per-thread event loop state)
+static ${threadLocal} size_t __yo_active_watch_count = 0;
 
 ${
   hasIO
-    ? `// Whether the I/O subsystem has been initialized
-static bool __yo_io_initialized = false;
+    ? `// Whether the I/O subsystem has been initialized (per-thread)
+static ${threadLocal} bool __yo_io_initialized = false;
 
 // Forward declarations for I/O functions
 static void __yo_io_init(void);

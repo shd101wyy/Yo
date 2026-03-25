@@ -8,7 +8,7 @@ extern "Yo",
 // Low-level runtime types and functions for Thread
 extern "Yo",
   __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
 ;
 
@@ -17,8 +17,9 @@ Thread :: struct(
   handle : __yo_thread_t
 );
 impl(Thread,
-  // Spawn a new OS thread running the given closure
-  spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> Self)({
+  // Spawn a new OS thread running the given closure.
+  // The closure receives its own per-thread IO event loop.
+  spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> Self)({
     raw := __yo_thread_spawn(cb);
     Self(raw)
   }),

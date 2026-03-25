@@ -617,10 +617,10 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 #include <time.h>
 #include <errno.h>
 
-// kqueue file descriptor for async I/O
-static int __yo_io_kq = -1;
+// kqueue file descriptor for async I/O (per-thread — each thread has its own event loop)
+static _Thread_local int __yo_io_kq = -1;
 // __yo_io_initialized is defined in runtime-core
-static size_t __yo_pending_io_count = 0;  // no _Atomic — single-threaded event loop
+static _Thread_local size_t __yo_pending_io_count = 0;  // per-thread event loop counter
 
 // Pending operation types for kqueue completion dispatch
 typedef enum {

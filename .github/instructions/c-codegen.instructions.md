@@ -10,15 +10,17 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 
 ## Async/await threading model
 
-Yo's async/await runs on a **single-threaded event loop**, similar to C#'s async model. All async I/O submissions and completions are processed on the same thread — there is no concurrent access from multiple threads within the async runtime.
+Each OS thread has its own **single-threaded event loop**. Within a single thread, async I/O submissions and completions are processed cooperatively — no concurrent access from multiple threads within one event loop. Worker threads from the parallelism runtime (`src/codegen/parallelism/`) share a thread pool; multiple workers may sit on the same OS thread and share that thread's event loop.
 
 **Platform implementations:**
-- **Linux**: `io_uring` — single event loop thread submits SQEs and processes CQEs
-- **macOS**: `kqueue` — single event loop thread registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
-- **Windows**: IOCP — `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
+- **Linux**: `io_uring` — per-thread event loop submits SQEs and processes CQEs
+- **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
+- **Windows**: IOCP — per-thread `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**
-- Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are only accessed from the event loop thread.
+- Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are `_Thread_local` and only accessed from their owning thread's event loop.
+- All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_io_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
+- Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
 
 ## Compilation commands

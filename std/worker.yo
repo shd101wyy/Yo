@@ -7,9 +7,10 @@
 // Thread-per-core: By default, one worker thread per CPU core.
 // Thread affinity: Each task runs on a specific worker thread.
 // Thread-local GC: Each worker thread has its own GC heap.
+// Per-thread IO: Each worker thread has its own async event loop, shared by all tasks on that thread.
 
 extern "Yo",
-  __yo_worker_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> unit),
+  __yo_worker_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num: usize) -> unit)
 ;
@@ -17,7 +18,8 @@ extern "Yo",
 // Spawn a task on the thread pool.
 // Returns immediately, task runs in background.
 // Tasks are distributed round-robin to worker threads.
-spawn :: (fn(cb : Impl(Fn() -> unit, Send)) -> unit)({
+// The closure receives the worker thread's IO event loop.
+spawn :: (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit)({
   __yo_worker_spawn(cb);
 });
 

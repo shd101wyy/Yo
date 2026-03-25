@@ -7,7 +7,46 @@ import {
   getTypeString,
   getVariableNameForCodegen,
 } from "../utils";
+import { getEvidenceParameters } from "../functions/declarations";
 import { generateExpr } from "./expr";
+
+/**
+ * Generate a wrapper function name for thread/worker spawn when the closure
+ * has evidence parameters (e.g., IO module fields). The wrapper bridges
+ * __yo_thread_fn (void(*)(void*)) to the actual closure signature with
+ * NULL evidence args.
+ */
+function maybeGenerateSpawnWrapper(
+  closureFunctionCName: string,
+  closureInfo: { callType?: import("../../types/definitions").FunctionType },
+  context: CodeGenContext,
+  prefix: string
+): string {
+  if (!closureInfo.callType) {
+    return closureFunctionCName;
+  }
+
+  const evidenceParams = getEvidenceParameters(closureInfo.callType);
+  if (evidenceParams.length === 0) {
+    return closureFunctionCName;
+  }
+
+  // Generate NULL args for evidence parameters
+  const nullArgs = evidenceParams.map(() => "NULL").join(", ");
+
+  // Generate a wrapper function that bridges void(*)(void*) to the closure signature
+  const wrapperId = randomId(prefix);
+  const wrapperName = `__yo_spawn_wrapper_${wrapperId}`;
+
+  context.emitter.emitDeclarationLine(`
+// Spawn wrapper: bridges __yo_thread_fn to closure with evidence params
+static void ${wrapperName}(void* closure) {
+  ${closureFunctionCName}(closure, ${nullArgs});
+}
+`);
+
+  return wrapperName;
+}
 
 /**
  * Generate C code for __yo_thread_spawn(cb : Impl(Fn() -> unit, Send)) call.
@@ -67,6 +106,14 @@ export function generateThreadSpawnCall(
   const closureFunctionCName = closureInfo.functionCName;
   const captureStructCName = getTypeString(concreteType, context);
 
+  // Generate wrapper if the closure has evidence parameters (e.g., IO)
+  const spawnFnName = maybeGenerateSpawnWrapper(
+    closureFunctionCName,
+    closureInfo,
+    context,
+    expr.$?.env.modulePath ?? ""
+  );
+
   // Generate the argument code
   const cbArgCode = generateExpr(cbArg, indent, context);
 
@@ -87,12 +134,12 @@ export function generateThreadSpawnCall(
   const tempVar = expr.$?.variableName;
   if (tempVar) {
     context.emitter.emitLine(
-      `${indent}__yo_thread_t ${tempVar} = __yo_thread_spawn(${closureFunctionCName}, ${heapDataVar});`
+      `${indent}__yo_thread_t ${tempVar} = __yo_thread_spawn(${spawnFnName}, ${heapDataVar});`
     );
     return tempVar;
   } else {
     // Return inline expression (though usually __yo_thread_spawn result is assigned)
-    return `__yo_thread_spawn(${closureFunctionCName}, ${heapDataVar})`;
+    return `__yo_thread_spawn(${spawnFnName}, ${heapDataVar})`;
   }
 }
 
@@ -147,6 +194,14 @@ export function generateWorkerSpawnCall(
   const closureFunctionCName = closureInfo.functionCName;
   const captureStructCName = getTypeString(concreteType, context);
 
+  // Generate wrapper if the closure has evidence parameters (e.g., IO)
+  const spawnFnName = maybeGenerateSpawnWrapper(
+    closureFunctionCName,
+    closureInfo,
+    context,
+    expr.$?.env.modulePath ?? ""
+  );
+
   // Generate the argument code
   const cbArgCode = generateExpr(cbArg, indent, context);
 
@@ -165,7 +220,7 @@ export function generateWorkerSpawnCall(
 
   // __yo_worker_spawn returns void (unit), so just emit the call
   context.emitter.emitLine(
-    `${indent}__yo_worker_spawn(${closureFunctionCName}, ${heapDataVar});`
+    `${indent}__yo_worker_spawn(${spawnFnName}, ${heapDataVar});`
   );
 
   return "";

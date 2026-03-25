@@ -523,19 +523,30 @@ The async runtime uses a simple **single-threaded event loop**:
 
 ### Thread-Local Event Loop
 
-Each thread has its own event loop via thread-local storage:
+Each OS thread has its own event loop. All async runtime state is thread-local (`_Thread_local` on POSIX, `__declspec(thread)` on Windows):
 
 ```c
-// Thread-local async runtime state
-static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
+// Per-thread task queue
+static _Thread_local __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
+
+// Per-thread event loop state
+static _Thread_local bool __yo_async_scheduler_initialized = false;
+static _Thread_local bool __yo_io_initialized = false;
+static _Thread_local size_t __yo_pending_io_count = 0;
+static _Thread_local size_t __yo_active_watch_count = 0;
+
+// Per-thread I/O backend (Linux example)
+static _Thread_local struct io_uring __yo_io_ring;
 ```
 
 This means:
 
 - **Main thread**: Has its own event loop for `io.async`/`io.await` tasks
 - **Worker threads** (from `Task.spawn`): Each gets an independent event loop
+- **Multiple workers per thread**: Workers on the same OS thread cooperatively share that thread's event loop
 - **No cross-thread task migration**: Tasks always run on the thread that created them
 - **No locking needed**: Queue operations are single-threaded by design
+- **Process-global state** (signal handlers, WSA init, TTY settings) stays `static` — shared across all threads
 
 ### Runtime Initialization
 
