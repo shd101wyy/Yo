@@ -21,6 +21,10 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
     - [Installing Clang](#installing-clang)
   - [Linux liburing Requirement](#linux-liburing-requirement)
     - [Installing liburing (Linux)](#installing-liburing-linux)
+  - [pkg-config / vcpkg Requirement](#pkg-config--vcpkg-requirement)
+    - [Installing pkg-config (Linux)](#installing-pkg-config-linux)
+    - [Installing pkgconf (macOS)](#installing-pkgconf-macos)
+    - [Installing vcpkg (Windows)](#installing-vcpkg-windows)
 - [Quick Start](#quick-start)
 - [Prelude](#prelude)
 - [Standard Library](#standard-library)
@@ -150,6 +154,46 @@ $ sudo dnf install liburing-devel
 # Arch Linux
 $ sudo pacman -S liburing
 ```
+
+### pkg-config / vcpkg Requirement
+
+Yo's build system uses **pkg-config** (on Linux and macOS) or **vcpkg** (on Windows) to discover system C libraries when linking with external dependencies.
+
+#### Installing pkg-config (Linux)
+
+```bash
+# Ubuntu/Debian
+$ sudo apt-get update
+$ sudo apt-get install pkg-config
+
+# Fedora/RHEL
+$ sudo dnf install pkgconf-pkg-config
+
+# Arch Linux
+$ sudo pacman -S pkgconf
+```
+
+#### Installing pkgconf (macOS)
+
+```bash
+# Homebrew
+$ brew install pkgconf
+```
+
+#### Installing vcpkg (Windows)
+
+```bash
+# Using Git
+$ git clone https://github.com/microsoft/vcpkg.git
+$ .\vcpkg\bootstrap-vcpkg.bat
+
+# Then set the VCPKG_ROOT environment variable to the vcpkg directory
+
+# Or using Scoop
+$ scoop install vcpkg
+```
+
+For more information, see the [vcpkg documentation](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started).
 
 ## Quick Start
 
