@@ -262,3 +262,69 @@ export function exprContainsAwait(expr: Expr): boolean {
 
   return false;
 }
+
+/**
+ * Traverse an evaluated expression tree to check if it contains any
+ * loop terminator (`break`, `return`, or `escape`). Follows the same
+ * boundary rules as `evaluatedBodyContainsEscape`: skips function/closure
+ * boundaries but recurses into cond/match branch arms.
+ *
+ * Used by the while loop evaluator to detect whether a `while true` body
+ * can possibly terminate. Unlike `controlFlow` flags (which reflect
+ * *guaranteed* control flow), this finds terminators in *any* branch.
+ */
+export function exprContainsLoopTerminator(expr: Expr): boolean {
+  if (exprIsAtom(expr)) {
+    return (
+      exprIsAtomOf(expr, BuiltinKeywords.break) ||
+      exprIsAtomOf(expr, BuiltinKeywords.return) ||
+      exprIsAtomOf(expr, BuiltinKeywords.escape)
+    );
+  }
+  if (exprIsFunctionCall(expr)) {
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) return true;
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) return true;
+
+    if (expr.$?.macroExpansion) {
+      return exprContainsLoopTerminator(expr.$.macroExpansion);
+    }
+
+    // Handle cond/match explicitly — recurse into branches without treating => as function boundary
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+    ) {
+      return traverseCondMatchBranches(expr, exprContainsLoopTerminator);
+    }
+
+    if (isFunctionBoundaryArrow(expr)) {
+      return false;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      isFunctionType(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      typeImplementsFn(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+
+    if (exprContainsLoopTerminator(expr.func)) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (exprContainsLoopTerminator(arg)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

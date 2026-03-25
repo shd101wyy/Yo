@@ -52,8 +52,8 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 ```yo
 build :: import "std/build";
 
-// Project metadata
-build.project({ name: "my-project", root: "./src/lib.yo" });
+// Module metadata
+mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
 // Define artifacts — each returns a Step for dependency wiring
 exe :: build.executable({
@@ -87,14 +87,12 @@ test_step.depend_on(tests);
 
 Build artifacts use struct types with default field values (like Zig's options pattern). Only `name` and `root` are required — everything else has sensible defaults:
 
-### `Project`
+### `BuildModule`
 
-| Field  | Type              | Default          | Description                       |
-| ------ | ----------------- | ---------------- | --------------------------------- |
-| `name` | `comptime_string` | _(required)_     | Project name                      |
-| `root` | `comptime_string` | `"./src/lib.yo"` | Library entry point for consumers |
-
-Versioning follows Go's approach: versions are determined by **git tags** (e.g., `v1.0.0`) rather than a manifest field. This avoids version mismatch between the declared version and the actual tag.
+| Field  | Type              | Default      | Description                                  |
+| ------ | ----------------- | ------------ | -------------------------------------------- |
+| `name` | `comptime_string` | _(required)_ | Module name (importable as `"name"`)         |
+| `root` | `comptime_string` | _(required)_ | Path to root source file (e.g. `src/lib.yo`) |
 
 ### `Executable`
 
@@ -257,14 +255,98 @@ install success
 
 Each node shows: step description, success/failure status, duration, and peak memory usage (MaxRSS). The tree structure reflects the DAG dependency edges.
 
+## Modules
+
+Modules are the unit of reuse across Yo dependencies. A module declares its source root and system library requirements. When another project imports a module, its system libraries are automatically propagated to the consumer's build — no manual `system_library` or `link` calls needed.
+
+### Defining a Module
+
+```yo
+build :: import "std/build";
+
+raylib :: build.system_library({
+  name: "raylib",
+  defines: "NOMINMAX NOGDI NOUSER"
+});
+
+// Declare a module with its root source file
+mod :: build.module({ name: "raylib_yo", root: "./src/lib.yo" });
+
+// Link system libraries the module depends on
+mod.link(raylib);
+
+exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
+exe.link(raylib);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+### `BuildModule`
+
+Returned by `build.module()`. Has one method:
+
+| Method          | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `mod.link(lib)` | Declare that this module depends on a system library |
+
+### `ModuleConfig`
+
+| Field  | Type              | Default      | Description           |
+| ------ | ----------------- | ------------ | --------------------- |
+| `name` | `comptime_string` | _(required)_ | Module name           |
+| `root` | `comptime_string` | _(required)_ | Root source file path |
+
+### Importing a Module from a Dependency
+
+Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
+
+```yo
+build :: import "std/build";
+
+// Git dependency
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+
+// Or local path dependency:
+// raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
+
+exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
+
+// Import the module — system libraries (raylib) are transitively propagated
+exe.add_import({ name: "raylib_yo", module: raylib_yo.module("") });
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+- `dep.module("")` — get the sole module from a dependency (empty name defaults to the only module)
+- `dep.module("name")` — get a specific module by name if the dependency defines multiple modules
+- `exe.add_import({ name, module })` — register a module import on an artifact
+
+### `ImportEntry`
+
+| Field    | Type              | Description                            |
+| -------- | ----------------- | -------------------------------------- |
+| `name`   | `comptime_string` | Import name (used in `import "name"`)  |
+| `module` | `BuildModule`     | Module to import (from `dep.module()`) |
+
+### How It Works
+
+When you run `yo build`, the build system:
+
+1. **Evaluates the dependency's `build.yo`** to discover its modules and linked system libraries
+2. **Resolves system libraries** via `pkg-config` (or fallback flags) for each module
+3. **Propagates flags** — include paths, library paths, link flags, and defines from the module's system libraries are merged into the consumer artifact's compile command
+4. **Sets up import resolution** — `import "raylib_yo"` in the consumer's source resolves to the module's root file
+
+This means the consumer doesn't need to declare `build.system_library({ name: "raylib" })` — it's automatically propagated from the dependency's module definition.
+
 ## Linking Libraries
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Yo libraries
 lib :: build.shared_library({
@@ -274,8 +356,7 @@ lib :: build.shared_library({
 
 // System libraries (via pkg-config)
 openssl :: build.system_library({
-  name: "openssl",
-  pkg_config: "openssl"
+  name: "openssl"
 });
 
 exe :: build.executable({
@@ -331,8 +412,6 @@ export main;
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "cross-module-demo", root: "./src/lib.yo" });
 
 lib :: build.static_library({
   name: "add",
@@ -509,7 +588,8 @@ Define multiple artifacts with different targets in a single `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+// Module definition
+mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 
 // Native build
 native :: build.executable({
@@ -545,8 +625,6 @@ Declare git-hosted dependencies in `build.yo`:
 
 ```yo
 build :: import "std/build";
-
-build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Add a git dependency — returns a Dependency handle
 dep :: build.dependency({
@@ -599,8 +677,6 @@ If a dependency has its own `build.yo` that defines artifacts (e.g., a static li
 ```yo
 build :: import "std/build";
 
-build.project({ name: "demo" });
-
 // Register a dependency (git or path)
 dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
 
@@ -619,7 +695,6 @@ The dependency's `build.yo` defines the static library:
 
 ```yo
 build :: import "std/build";
-build.project({ name: "dep_lib" });
 
 lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
 
@@ -647,8 +722,6 @@ Use `path_dependency` to depend on a local package by filesystem path. Like `dep
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
-
 // Depend on a sibling project — returns a Dependency handle
 dep :: build.path_dependency({
   name: "mylib",
@@ -674,9 +747,10 @@ export main;
 
 **Entry point resolution order** for path dependencies:
 
-1. `Project.root` field from the dependency's `build.yo` (defaults to `./src/lib.yo`)
-2. `index.yo`
-3. `<name>.yo`
+1. Module root from `add_import()` (if the consumer uses `exe.add_import()`)
+2. Sole module root from the dependency's `build.yo` (if exactly one module is defined)
+3. `index.yo`
+4. `<name>.yo`
 
 Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
 
@@ -698,6 +772,33 @@ yo cache clean
 2. `$XDG_CACHE_HOME/yo` (XDG standard)
 3. `~/.cache/yo` (Linux/macOS default)
 4. `%LOCALAPPDATA%\yo\cache` (Windows default)
+
+### Cache Integrity
+
+Every cached dependency has a **content hash** stored in `yo.lock`:
+
+```toml
+[[dependencies]]
+name = "json-parser"
+url = "https://github.com/user/json-parser.git"
+ref = "v1.0.0"
+commit = "abc123..."
+hash = "sha256-7c19c1..."
+```
+
+**How it works:**
+
+1. **At fetch time** — `yo fetch` clones the dependency, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+
+2. **At build time** — `yo build` reads the sidecar file (O(1)) and compares it against the `yo.lock` hash. If they match, the cache is trusted. If the sidecar is missing (e.g. older caches), a full re-hash is performed and the sidecar is written for future builds.
+
+3. **On mismatch** — If the hash doesn't match (e.g. files were tampered with or corrupted), `yo build` reports an error with the expected vs actual hash and suggests running `yo fetch`. Running `yo fetch` automatically deletes the corrupted cache and reclones.
+
+**Cross-platform stability:**
+
+The content hash normalizes `\r\n` → `\n` during hashing, so the same dependency produces the same hash on Windows (which may check out CRLF) and Linux (LF). File names are sorted using locale-independent Unicode ordering (case-insensitive primary, codepoint tiebreaker) rather than locale-sensitive collation, ensuring hashes are deterministic regardless of the system locale.
+
+This approach follows Zig's model of hashing extracted content rather than npm/Go's approach of hashing archive bytes. It requires no archive storage and verifies the actual source files that the compiler reads.
 
 ### Shared Dependencies
 
@@ -743,14 +844,25 @@ Link against system C libraries discovered via `pkg-config`:
 ```yo
 build.system_library({
   name: "openssl",
-  pkg_config: "openssl",
   fallback_include: "/usr/include/openssl",
   fallback_lib: "/usr/lib",
-  fallback_link: "ssl crypto"
+  fallback_link: "ssl crypto",
+  defines: "OPENSSL_API_COMPAT=0x10100000L"
 });
 ```
 
-When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags. The fallback fields are used when `pkg-config` is not found (common on Windows).
+When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags using the `name` as the pkg-config package name. The fallback fields are used when `pkg-config` is not found (common on Windows).
+
+`defines` is a space-separated list of preprocessor definitions that Yo passes to the C compiler (`-D...` on clang/gcc, `/D...` on MSVC) for any artifact that links this system library. This is useful for header fixups, feature toggles, or platform-specific compatibility macros that belong to the library integration rather than the compiler itself.
+
+For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
+
+```yo
+raylib :: build.system_library({
+  name: "raylib",
+  defines: "NOMINMAX NOGDI NOUSER"
+});
+```
 
 ## `yo fetch` Reference
 
@@ -763,9 +875,9 @@ Options:
   --update, -u           Re-resolve git refs to latest commits and update yo.lock
 ```
 
-`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, and records everything in `yo.lock`.
+`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, computes a content hash, and records everything in `yo.lock`.
 
-Without `--update`, cached dependencies (matching commit in `yo.lock`) are skipped. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
+Without `--update`, cached dependencies are verified against their `yo.lock` hash using a sidecar file. If the hash matches, fetching is skipped entirely (no network access required). If the hash mismatches, the corrupted cache entry is deleted and the dependency is recloned automatically. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
 
 **Auto-pruning**: If a dependency is removed from `build.yo`, `yo fetch` automatically removes the stale entry from `yo.lock`. The cached files in the global cache are not deleted (use `yo cache clean` to purge the cache).
 
@@ -806,6 +918,7 @@ Package specifier formats:
 1. Infers the name from the directory basename
 2. Validates that the path exists
 3. Appends `build.path_dependency(...)` to `build.yo`
+4. Prints `add_import` guidance for wiring the dependency's module
 
 ## `yo cache` Reference
 

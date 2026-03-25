@@ -7,9 +7,11 @@
  *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
  *    that do NOT depend on IOFuture or the async event loop.
  *
- * 2. generateAsyncRuntimeIOMacOS — async I/O via Grand Central Dispatch
- *    (dispatch_io).  Provides async read, write, openat, close, statx, mkdir,
- *    unlink, rename, symlink, link, fsync, fdatasync, ftruncate, chmod, chown,
+ * 2. generateAsyncRuntimeIOMacOS — async I/O via kqueue.
+ *    Single-threaded event loop using kevent() for socket I/O readiness
+ *    notifications, and synchronous pread/pwrite for regular file I/O.
+ *    Provides async read, write, openat, close, statx, mkdir, unlink,
+ *    rename, symlink, link, fsync, fdatasync, ftruncate, chmod, chown,
  *    readlink, dup, pipe, and socket operations.
  */
 
@@ -585,22 +587,26 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Async I/O runtime (macOS) — Grand Central Dispatch
+// 2. Async I/O runtime (macOS) — kqueue
 // ---------------------------------------------------------------------------
 
 /**
- * Emits the macOS async I/O runtime using Grand Central Dispatch (dispatch_io).
+ * Emits the macOS async I/O runtime using kqueue.
  * Provides async read, write, openat, close, statx, mkdir, unlink, rename,
  * symlink, link, fsync, fdatasync, ftruncate, chmod, chown, readlink, dup,
  * pipe, and socket operations.  Requires the IOFuture type and event loop.
+ *
+ * Single-threaded event loop: all I/O completions are processed inline on
+ * the event loop thread via kevent(), matching the Linux io_uring and
+ * Windows IOCP models.  No atomics, mutexes, or cross-thread queues needed.
  */
 export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
   emitter.emitLine(`
 // ============================================================================
-// Async I/O Runtime (macOS - dispatch_io via Grand Central Dispatch)
+// Async I/O Runtime (macOS - kqueue)
 // ============================================================================
 
-#include <dispatch/dispatch.h>
+#include <sys/event.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -610,118 +616,79 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 #include <sys/uio.h>
 #include <time.h>
 #include <errno.h>
-#include <pthread.h>
 
-// Global dispatch queue for I/O completions
-static dispatch_queue_t __yo_io_queue = NULL;
+// kqueue file descriptor for async I/O
+static int __yo_io_kq = -1;
 // __yo_io_initialized is defined in runtime-core
-static _Atomic size_t __yo_pending_io_count = 0;
+static size_t __yo_pending_io_count = 0;  // no _Atomic — single-threaded event loop
 
-// Semaphore for blocking wait
-static dispatch_semaphore_t __yo_io_semaphore = NULL;
+// Pending operation types for kqueue completion dispatch
+typedef enum {
+  __YO_IO_OP_READ,
+  __YO_IO_OP_WRITE,
+  __YO_IO_OP_ACCEPT,
+  __YO_IO_OP_CONNECT,
+  __YO_IO_OP_SEND,
+  __YO_IO_OP_RECV,
+  __YO_IO_OP_SENDTO,
+  __YO_IO_OP_RECVFROM,
+} __yo_io_op_type;
 
-// Cross-thread continuation queue (dispatch callbacks run on GCD threads)
-typedef struct __yo_io_continuation_t {
-  void (*resume_fn)(void*);
-  void* state_machine;
-  struct __yo_io_continuation_t* next;
-} __yo_io_continuation_t;
+// Context for a pending kqueue operation — stored alongside the future
+typedef struct __yo_io_pending_op_t {
+  __yo_io_op_type op;
+  __yo_io_future_t* future;
+  union {
+    struct { int fd; void* buf; uint32_t size; } read;
+    struct { int fd; const void* buf; uint32_t size; } write;
+    struct { int fd; void* addr; uint32_t* addrlen; } accept;
+    struct { int fd; } connect;
+    struct { int fd; const void* buf; size_t len; int flags; } send;
+    struct { int fd; void* buf; size_t len; int flags; } recv;
+    struct { int fd; const void* buf; size_t len; int flags; const void* addr; uint32_t addrlen; } sendto;
+    struct { int fd; void* buf; size_t len; int flags; void* addr; uint32_t* addrlen; } recvfrom;
+  };
+} __yo_io_pending_op_t;
 
-static pthread_mutex_t __yo_io_ready_mutex = PTHREAD_MUTEX_INITIALIZER;
-static __yo_io_continuation_t* __yo_io_ready_head = NULL;
-static __yo_io_continuation_t* __yo_io_ready_tail = NULL;
-
-// Initialize dispatch_io subsystem
+// Initialize kqueue subsystem
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
   
-  // Create a serial queue for I/O completions to ensure thread safety
-  __yo_io_queue = dispatch_queue_create("yo.io.completion", DISPATCH_QUEUE_SERIAL);
-  __yo_io_semaphore = dispatch_semaphore_create(0);
+  __yo_io_kq = kqueue();
+  if (__yo_io_kq < 0) {
+    fprintf(stderr, "panic: kqueue() failed: %s\\n", strerror(errno));
+    abort();
+  }
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] dispatch_io initialized\\n");
+  ASYNC_DEBUG("[IO] kqueue initialized: kq=%d\\n", __yo_io_kq);
 }
 
-// Cleanup dispatch_io
+// Cleanup kqueue
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
   
-  // Wait for pending I/O to complete
-  while (atomic_load(&__yo_pending_io_count) > 0) {
-    dispatch_semaphore_wait(__yo_io_semaphore, dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC));
+  if (__yo_io_kq >= 0) {
+    close(__yo_io_kq);
+    __yo_io_kq = -1;
   }
-  
-  // Note: ARC manages dispatch objects in modern macOS, but we use manual retain/release for C code
-  // dispatch_release(__yo_io_queue);  // Commented out - let it leak on cleanup for simplicity
   __yo_io_initialized = false;
-  ASYNC_DEBUG("[IO] dispatch_io cleaned up\\n");
+  ASYNC_DEBUG("[IO] kqueue cleaned up\\n");
 }
 
 // Check if there are pending I/O operations
 static inline bool __yo_has_pending_io(void) {
-  return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
 }
 
 // Forward declaration for poll/fs_event tick (defined in runtime-io-common)
 static int __yo_poll_and_fs_event_tick(void);
 
-// Process completions - on macOS, GCD handles this automatically via callback
-// This function processes any completions that have been queued
-static int __yo_io_poll(void) {
-  // dispatch_io delivers completions on GCD threads.
-  // Drain cross-thread ready continuations and enqueue to event-loop thread.
-  __yo_io_continuation_t* local_head = NULL;
-  __yo_io_continuation_t* local_tail = NULL;
-
-  pthread_mutex_lock(&__yo_io_ready_mutex);
-  local_head = __yo_io_ready_head;
-  local_tail = __yo_io_ready_tail;
-  __yo_io_ready_head = NULL;
-  __yo_io_ready_tail = NULL;
-  pthread_mutex_unlock(&__yo_io_ready_mutex);
-
-  int count = 0;
-  __yo_io_continuation_t* node = local_head;
-  while (node) {
-    __yo_io_continuation_t* next = node->next;
-    __yo_async_spawn_task(node->resume_fn, node->state_machine);
-    __yo_free(node);
-    count++;
-    node = next;
-  }
-
-  if (count > 0) {
-    ASYNC_DEBUG("[IO] Polled %d completions from GCD threads\\n", count);
-  }
-  
-  // Also tick poll/fs_event handles
-  count += __yo_poll_and_fs_event_tick();
-  
-  return count;
-}
-
-// Wait for at least one I/O completion
-static int __yo_io_wait(void) {
-  if (atomic_load(&__yo_pending_io_count) == 0 && __yo_active_watch_count > 0) {
-    // Only watches pending, use short sleep then tick
-    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC);
-    dispatch_semaphore_wait(__yo_io_semaphore, timeout);
-    return __yo_poll_and_fs_event_tick();
-  }
-  if (atomic_load(&__yo_pending_io_count) == 0) return 0;
-  
-  // Wait on semaphore with timeout
-  dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC);
-  dispatch_semaphore_wait(__yo_io_semaphore, timeout);
-  return 1;
-}
-
-// Helper to wake continuation from I/O completion
+// Helper to wake continuation from I/O completion (inline, single-threaded)
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   // Mark as completed
   atomic_store_explicit(&future->state, -1, memory_order_release);
   
-  // Wake continuation if registered
+  // Wake continuation if registered — enqueue directly (same thread)
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
   
@@ -729,30 +696,140 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
               (void*)cont_fn, cont_sm, future->result);
   
   if (cont_fn && cont_sm) {
-    __yo_io_continuation_t* node = (__yo_io_continuation_t*)__yo_malloc(sizeof(__yo_io_continuation_t));
-    node->resume_fn = cont_fn;
-    node->state_machine = cont_sm;
-    node->next = NULL;
-
-    pthread_mutex_lock(&__yo_io_ready_mutex);
-    if (__yo_io_ready_tail) {
-      __yo_io_ready_tail->next = node;
-      __yo_io_ready_tail = node;
-    } else {
-      __yo_io_ready_head = node;
-      __yo_io_ready_tail = node;
-    }
-    pthread_mutex_unlock(&__yo_io_ready_mutex);
+    __yo_async_spawn_task(cont_fn, cont_sm);
   }
-  
-  // Signal semaphore for waiting threads
-  dispatch_semaphore_signal(__yo_io_semaphore);
-  
-  // Decrement pending count
-  atomic_fetch_sub(&__yo_pending_io_count, 1);
 }
 
-// Create and start an async read operation using dispatch_io
+// Process a single completed kqueue event
+static void __yo_io_process_event(struct kevent* ev) {
+  // Timer events use a different context struct
+  if (ev->filter == EVFILT_TIMER) {
+    typedef struct { __yo_io_future_t* future; } __yo_timer_ctx_t;
+    __yo_timer_ctx_t* ctx = (__yo_timer_ctx_t*)ev->udata;
+    ctx->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
+    __yo_pending_io_count--;
+    __yo_io_wake_continuation(ctx->future);
+    __yo_free(ctx);
+    return;
+  }
+  
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)ev->udata;
+  __yo_io_future_t* future = pending->future;
+  
+  switch (pending->op) {
+    case __YO_IO_OP_READ: {
+      ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_WRITE: {
+      ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_ACCEPT: {
+      int r = accept(pending->accept.fd, (struct sockaddr*)pending->accept.addr,
+                     (socklen_t*)pending->accept.addrlen);
+      if (r >= 0) {
+        int fl = fcntl(r, F_GETFL, 0);
+        if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+      }
+      future->result = (r < 0) ? -errno : r;
+      break;
+    }
+    case __YO_IO_OP_CONNECT: {
+      int so_error = 0;
+      socklen_t len = sizeof(so_error);
+      getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+      future->result = (so_error == 0) ? 0 : -so_error;
+      break;
+    }
+    case __YO_IO_OP_SEND: {
+      ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_RECV: {
+      ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_SENDTO: {
+      ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
+                         pending->sendto.flags, (const struct sockaddr*)pending->sendto.addr,
+                         (socklen_t)pending->sendto.addrlen);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_RECVFROM: {
+      ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
+                           pending->recvfrom.flags, (struct sockaddr*)pending->recvfrom.addr,
+                           (socklen_t*)pending->recvfrom.addrlen);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+  }
+  
+  __yo_pending_io_count--;
+  __yo_io_wake_continuation(future);
+  __yo_free(pending);
+}
+
+// Process completions (non-blocking poll)
+static int __yo_io_poll(void) {
+  struct kevent events[64];
+  struct timespec ts = {0, 0};  // non-blocking
+  int n = kevent(__yo_io_kq, NULL, 0, events, 64, &ts);
+  
+  for (int i = 0; i < n; i++) {
+    __yo_io_process_event(&events[i]);
+  }
+  
+  if (n > 0) {
+    ASYNC_DEBUG("[IO] Polled %d kqueue completions\\n", n);
+  }
+  
+  // Also tick poll/fs_event handles
+  int extra = __yo_poll_and_fs_event_tick();
+  return (n > 0 ? n : 0) + extra;
+}
+
+// Wait for at least one I/O completion (blocking)
+static int __yo_io_wait(void) {
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
+    // Only watches pending, use short sleep then tick
+    struct timespec ts = {0, 10 * 1000 * 1000};  // 10ms
+    nanosleep(&ts, NULL);
+    return __yo_poll_and_fs_event_tick();
+  }
+  if (__yo_pending_io_count == 0) return 0;
+  
+  struct kevent events[64];
+  struct timespec timeout = {0, 100 * 1000 * 1000};  // 100ms timeout
+  int n = kevent(__yo_io_kq, NULL, 0, events, 64, &timeout);
+  
+  for (int i = 0; i < n; i++) {
+    __yo_io_process_event(&events[i]);
+  }
+  
+  return (n > 0) ? n : 0;
+}
+
+// Helper to register a kevent and track the pending operation
+static void __yo_io_register_kevent(__yo_io_pending_op_t* pending, int fd, int16_t filter) {
+  struct kevent ev;
+  EV_SET(&ev, fd, filter, EV_ADD | EV_ONESHOT, 0, 0, (void*)pending);
+  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
+    // Registration failed — complete immediately with error
+    pending->future->result = -errno;
+    __yo_io_wake_continuation(pending->future);
+    __yo_free(pending);
+    return;
+  }
+  __yo_pending_io_count++;
+}
+
+// Create and start an async read operation
 static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   __yo_io_init();
   
@@ -765,111 +842,43 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  atomic_fetch_add(&__yo_pending_io_count, 1);
-  
-  // Use random I/O only for seekable regular/block files.
-  // Pipes/sockets/ttys must use stream mode or writes/reads fail with ESPIPE.
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
-  if (dispatch_fd < 0) {
-    future->result = -errno;
-    atomic_store(&future->state, -1);
-    atomic_fetch_sub(&__yo_pending_io_count, 1);
-    ASYNC_DEBUG("[IO] Failed to dup fd for read: fd=%d errno=%d\\n", fd, errno);
-    return future;
-  }
+  // Determine if this is a regular file (seekable) or pipe/socket/tty
   struct stat st;
-  bool use_random = false;
+  bool is_regular = false;
   if (fstat(fd, &st) == 0) {
-    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
-  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
-    if (error) {
-      ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
-    }
-  });
-  
-  if (!channel) {
-    close((int)dispatch_fd);
-    future->result = -errno;
+  if (is_regular) {
+    // Regular files: synchronous pread (fast, backed by unified buffer cache)
+    ssize_t result = pread(fd, buffer, size, (off_t)offset);
+    future->result = (result < 0) ? -errno : (int32_t)result;
     atomic_store(&future->state, -1);
-    atomic_fetch_sub(&__yo_pending_io_count, 1);
-    ASYNC_DEBUG("[IO] Failed to create dispatch_io channel: %d\\n", errno);
+    ASYNC_DEBUG("[IO] Sync file read completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
-
-  // Ensure callbacks deliver data promptly
-  dispatch_io_set_low_water(channel, 1);
-  dispatch_io_set_high_water(channel, (size_t)size);
   
-  // Capture buffer pointer for the block
-  void* buf = buffer;
-  __yo_io_future_t* fut = future;
-  uint32_t sz = size;
-  __block size_t total = 0;
-  __block bool completed = false;
-  off_t read_offset = use_random ? (off_t)offset : 0;
+  // Pipes/sockets/ttys: try non-blocking read first
+  ssize_t result = read(fd, buffer, size);
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[IO] Non-blocking read completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
   
-  dispatch_io_read(channel, read_offset, (size_t)size, __yo_io_queue,
-    ^(bool done, dispatch_data_t data, int error) {
-      if (completed) {
-        return;
-      }
-      if (error) {
-        fut->result = -error;
-        if (done || !use_random) {
-          completed = true;
-          dispatch_io_close(channel, DISPATCH_IO_STOP);
-          __yo_io_wake_continuation(fut);
-        }
-        return;
-      }
-      
-      if (data) {
-        // Copy data to buffer (respect region offsets)
-        dispatch_data_apply(data, ^bool(dispatch_data_t region, size_t region_offset, const void* region_buffer, size_t region_size) {
-          (void)region;
-          size_t to_copy = region_size;
-          if (region_offset >= sz) {
-            return false;
-          }
-          if (region_offset + to_copy > sz) {
-            to_copy = sz - region_offset;
-          }
-          if (to_copy > 0) {
-            memcpy((char*)buf + region_offset, region_buffer, to_copy);
-            size_t end = region_offset + to_copy;
-            if (end > total) {
-              total = end;
-            }
-          }
-          return true;
-        });
-      }
-
-      // For stream descriptors (pipes/sockets/ttys), complete as soon as any data arrives,
-      // matching read(2) semantics for "up to size" bytes.
-      if (!use_random && total > 0) {
-        completed = true;
-        fut->result = (int32_t)total;
-        dispatch_io_close(channel, DISPATCH_IO_STOP);
-        ASYNC_DEBUG("[IO] Stream read completed: %d bytes\\n", fut->result);
-        __yo_io_wake_continuation(fut);
-        return;
-      }
-      
-      if (done) {
-        completed = true;
-        fut->result = (int32_t)total;
-        dispatch_io_close(channel, 0);
-        ASYNC_DEBUG("[IO] Read completed: %d bytes\\n", fut->result);
-        __yo_io_wake_continuation(fut);
-      }
-    });
+  // Would block — register kevent(EVFILT_READ) for readability notification
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_READ;
+  pending->future = future;
+  pending->read.fd = fd;
+  pending->read.buf = buffer;
+  pending->read.size = size;
+  
+  __yo_io_register_kevent(pending, fd, EVFILT_READ);
   
   ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
-              fd, buffer, size, (unsigned long long)offset, atomic_load(&__yo_pending_io_count));
+              fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
 }
@@ -887,88 +896,55 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // For O_APPEND fds, dispatch_io with DISPATCH_IO_RANDOM uses pwrite() which
-  // ignores O_APPEND. Fall back to synchronous write() which respects it.
-  int fl = fcntl(fd, F_GETFL);
-  if (fl != -1 && (fl & O_APPEND)) {
-    ssize_t written = write(fd, buffer, size);
-    if (written < 0) {
-      future->result = -errno;
-    } else {
-      future->result = (int32_t)written;
-    }
-    atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] Synchronous append write: fd=%d result=%d\\n", fd, future->result);
-    return future;
-  }
-  
-  atomic_fetch_add(&__yo_pending_io_count, 1);
-  
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
-  if (dispatch_fd < 0) {
-    future->result = -errno;
-    atomic_store(&future->state, -1);
-    atomic_fetch_sub(&__yo_pending_io_count, 1);
-    ASYNC_DEBUG("[IO] Failed to dup fd for write: fd=%d errno=%d\\n", fd, errno);
-    return future;
-  }
+  // Determine if this is a regular file (seekable) or pipe/socket/tty
   struct stat st;
-  bool use_random = false;
+  bool is_regular = false;
   if (fstat(fd, &st) == 0) {
-    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
-  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
-    if (error) {
-      ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
+  if (is_regular) {
+    // Regular files: synchronous pwrite (fast, backed by unified buffer cache)
+    // For O_APPEND fds, use write() which respects the append flag
+    int fl = fcntl(fd, F_GETFL);
+    ssize_t written;
+    if (fl != -1 && (fl & O_APPEND)) {
+      written = write(fd, buffer, size);
+    } else {
+      written = pwrite(fd, buffer, size, (off_t)offset);
     }
-  });
-  
-  if (!channel) {
-    close((int)dispatch_fd);
-    future->result = -errno;
+    future->result = (written < 0) ? -errno : (int32_t)written;
     atomic_store(&future->state, -1);
-    atomic_fetch_sub(&__yo_pending_io_count, 1);
+    ASYNC_DEBUG("[IO] Sync file write completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
   
-  // Create dispatch_data from buffer
-  dispatch_data_t data = dispatch_data_create(buffer, size, __yo_io_queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+  // Pipes/sockets/ttys: try non-blocking write first
+  ssize_t result = write(fd, buffer, size);
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[IO] Non-blocking write completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
   
-  __yo_io_future_t* fut = future;
-  off_t write_offset = use_random ? (off_t)offset : 0;
+  // Would block — register kevent(EVFILT_WRITE) for writability notification
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_WRITE;
+  pending->future = future;
+  pending->write.fd = fd;
+  pending->write.buf = buffer;
+  pending->write.size = size;
   
-  dispatch_io_write(channel, write_offset, data, __yo_io_queue,
-    ^(bool done, dispatch_data_t remaining, int error) {
-      if (error) {
-        fut->result = -error;
-        if (done) {
-          dispatch_io_close(channel, DISPATCH_IO_STOP);
-          __yo_io_wake_continuation(fut);
-        }
-        return;
-      }
-      
-      if (done) {
-        fut->result = (int32_t)size;  // All bytes written
-        dispatch_io_close(channel, 0);
-        ASYNC_DEBUG("[IO] Write completed: %d bytes\\n", fut->result);
-        __yo_io_wake_continuation(fut);
-      }
-    });
-  
-  // dispatch_data is retained by the write operation
-  dispatch_release(data);
+  __yo_io_register_kevent(pending, fd, EVFILT_WRITE);
   
   ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
-              fd, (void*)buffer, size, (unsigned long long)offset, atomic_load(&__yo_pending_io_count));
+              fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
 }
 
-// Async openat - on macOS we use synchronous open wrapped in an immediately-completed future
-// because dispatch_io requires an already-open fd
+// Async openat - synchronous open wrapped in immediately-completed future
 static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
   __yo_io_init();
   
@@ -1250,7 +1226,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
 #include <arpa/inet.h>
 #include <sys/un.h>
 
-// Async socket - create socket (non-blocking for async dispatch_source operations)
+// Async socket - create socket (non-blocking for async kqueue operations)
 static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
   __yo_io_init();
   
@@ -1315,7 +1291,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   return future;
 }
 
-// Async accept - accept incoming connection using dispatch_source for true async
+// Async accept - accept incoming connection using kqueue for true async
 static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_io_init();
   
@@ -1345,47 +1321,24 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     return future;
   }
   
-  // Socket not ready — wait for readable via dispatch_source
+  // Socket not ready — wait for readable via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
-  void* a = addr;
-  uint32_t* al = addrlen;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_ACCEPT;
+  pending->future = future;
+  pending->accept.fd = sockfd;
+  pending->accept.addr = addr;
+  pending->accept.addrlen = addrlen;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  dispatch_source_set_event_handler(source, ^{
-    int r = accept(sfd, (struct sockaddr*)a, (socklen_t*)al);
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      return; // Spurious wake, wait for next event
-    }
-    if (r >= 0) {
-      int fl = fcntl(r, F_GETFL, 0);
-      if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
-      fut->result = r;
-    } else {
-      fut->result = -errno;
-    }
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] accept completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] accept waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] accept waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async connect - connect to remote address using dispatch_source for true async
+// Async connect - connect to remote address using kqueue for true async
 static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
   
@@ -1412,38 +1365,22 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
     return future;
   }
   
-  // Connection in progress — wait for writable via dispatch_source
+  // Connection in progress — wait for writable via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_CONNECT;
+  pending->future = future;
+  pending->connect.fd = sockfd;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  dispatch_source_set_event_handler(source, ^{
-    int so_error = 0;
-    socklen_t len = sizeof(so_error);
-    getsockopt(sfd, SOL_SOCKET, SO_ERROR, &so_error, &len);
-    fut->result = (so_error == 0) ? 0 : -so_error;
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] connect completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] connect waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] connect waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async send - send data on socket using dispatch_source for true async
+// Async send - send data on socket using kqueue for true async
 static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
@@ -1470,42 +1407,25 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
     return future;
   }
   
-  // Socket not writable — wait via dispatch_source
+  // Socket not writable — wait via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
-  const void* b = buf;
-  size_t l = len;
-  int32_t f = flags;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_SEND;
+  pending->future = future;
+  pending->send.fd = sockfd;
+  pending->send.buf = buf;
+  pending->send.len = len;
+  pending->send.flags = flags;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  dispatch_source_set_event_handler(source, ^{
-    ssize_t r = send(sfd, b, l, f);
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      return; // Spurious wake, wait for next event
-    }
-    fut->result = (r >= 0) ? (int32_t)r : -errno;
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] send completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] send waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] send waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async recv - receive data from socket using dispatch_source for true async
+// Async recv - receive data from socket using kqueue for true async
 static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
@@ -1532,42 +1452,25 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     return future;
   }
   
-  // No data available — wait for readable via dispatch_source
+  // No data available — wait for readable via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
-  void* b = buf;
-  size_t l = len;
-  int32_t f = flags;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_RECV;
+  pending->future = future;
+  pending->recv.fd = sockfd;
+  pending->recv.buf = buf;
+  pending->recv.len = len;
+  pending->recv.flags = flags;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  dispatch_source_set_event_handler(source, ^{
-    ssize_t r = recv(sfd, b, l, f);
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      return; // Spurious wake, wait for next event
-    }
-    fut->result = (r >= 0) ? (int32_t)r : -errno;
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] recv completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] recv waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] recv waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async sendto - send data to specific address (UDP) using dispatch_source for true async
+// Async sendto - send data to specific address (UDP) using kqueue for true async
 static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
   __yo_io_init();
@@ -1595,44 +1498,27 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
     return future;
   }
   
-  // Socket not writable — wait via dispatch_source
+  // Socket not writable — wait via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
-  const void* b = buf;
-  size_t l = len;
-  int32_t f = flags;
-  const void* da = dest_addr;
-  uint32_t al = addrlen;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_SENDTO;
+  pending->future = future;
+  pending->sendto.fd = sockfd;
+  pending->sendto.buf = buf;
+  pending->sendto.len = len;
+  pending->sendto.flags = flags;
+  pending->sendto.addr = dest_addr;
+  pending->sendto.addrlen = addrlen;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  dispatch_source_set_event_handler(source, ^{
-    ssize_t r = sendto(sfd, b, l, f, (const struct sockaddr*)da, (socklen_t)al);
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      return; // Spurious wake, wait for next event
-    }
-    fut->result = (r >= 0) ? (int32_t)r : -errno;
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] sendto completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] sendto waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] sendto waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async recvfrom - receive data with source address (UDP) using dispatch_source for true async
+// Async recvfrom - receive data with source address (UDP) using kqueue for true async
 static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
   __yo_io_init();
@@ -1660,40 +1546,23 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
     return future;
   }
   
-  // No data available — wait for readable via dispatch_source
+  // No data available — wait for readable via kqueue
   atomic_init(&future->state, 0);
   future->result = 0;
-  atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  __yo_io_future_t* fut = future;
-  int32_t sfd = sockfd;
-  void* b = buf;
-  size_t l = len;
-  int32_t f = flags;
-  void* sa = src_addr;
-  uint32_t* al = addrlen;
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  pending->op = __YO_IO_OP_RECVFROM;
+  pending->future = future;
+  pending->recvfrom.fd = sockfd;
+  pending->recvfrom.buf = buf;
+  pending->recvfrom.len = len;
+  pending->recvfrom.flags = flags;
+  pending->recvfrom.addr = src_addr;
+  pending->recvfrom.addrlen = addrlen;
   
-  dispatch_source_t source = dispatch_source_create(
-    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  dispatch_source_set_event_handler(source, ^{
-    ssize_t r = recvfrom(sfd, b, l, f, (struct sockaddr*)sa, (socklen_t*)al);
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      return; // Spurious wake, wait for next event
-    }
-    fut->result = (r >= 0) ? (int32_t)r : -errno;
-    dispatch_source_cancel(source);
-    __yo_io_wake_continuation(fut);
-    ASYNC_DEBUG("[IO] recvfrom completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
-  });
-  
-  dispatch_source_set_cancel_handler(source, ^{
-    dispatch_release(source);
-  });
-  
-  dispatch_resume(source);
-  
-  ASYNC_DEBUG("[IO] recvfrom waiting via dispatch_source: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[IO] recvfrom waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 

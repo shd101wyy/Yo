@@ -2,7 +2,7 @@
  * `yo build` — build system runner.
  *
  * Evaluates `build.yo` using the Yo evaluator at compile time.
- * Build functions (build.project, build.executable, etc.) are backed by
+ * Build functions (build.module, build.executable, etc.) are backed by
  * evaluator builtins that register artifacts in a global BuildRegistry.
  * After evaluation, the build runner reads the registry and orchestrates
  * compilation for each artifact.
@@ -18,14 +18,16 @@ import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
   type BuildGitDependency,
+  type BuildModuleEntry,
   BuildRegistry,
   type BuildTestSuite,
   type DependencyArtifactRef,
+  type ImportedModule,
   clearBuildRegistry,
   getBuildRegistry,
   swapBuildRegistry,
   setRootBuildProjectDir,
-  setDependencyProjectRoot,
+  setModuleImportRoot,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import {
@@ -37,6 +39,7 @@ import { ModuleManager } from "./module-manager";
 import { clearAllModuleCounters } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import { resolveAllSystemLibraries } from "./pkg-config";
+import { isTargetWindows, parseTarget } from "./target";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -59,6 +62,74 @@ export interface BuildOptions {
   sysroot?: string;
   /** Print build summary tree (like Zig's --summary) */
   summary?: boolean;
+}
+
+export function getArtifactOutputFileName(
+  artifact: Pick<BuildArtifact, "kind" | "name" | "target">,
+  targetTriple?: string
+): string {
+  if (artifact.kind === "static_library") {
+    return `lib${artifact.name}`;
+  }
+
+  const effectiveTarget =
+    targetTriple !== undefined
+      ? parseTarget(targetTriple)
+      : parseTarget(artifact.target);
+
+  if (artifact.kind === "executable" && isTargetWindows(effectiveTarget)) {
+    return `${artifact.name}.exe`;
+  }
+
+  return artifact.name;
+}
+
+export function stageRuntimeFiles(
+  runtimeFiles: readonly string[],
+  outputDir: string,
+  verbose: boolean = false
+): string[] {
+  const stagedFiles: string[] = [];
+  const seenDestinations = new Set<string>();
+
+  for (const runtimeFile of runtimeFiles) {
+    const sourcePath = path.resolve(runtimeFile);
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+
+    const destinationPath = path.join(outputDir, path.basename(sourcePath));
+    if (seenDestinations.has(destinationPath)) {
+      continue;
+    }
+    seenDestinations.add(destinationPath);
+
+    if (path.resolve(destinationPath) !== sourcePath) {
+      fs.copyFileSync(sourcePath, destinationPath);
+    }
+
+    stagedFiles.push(destinationPath);
+    if (verbose) {
+      console.log(
+        `  Staged runtime dependency: ${path.relative(process.cwd(), destinationPath)}`
+      );
+    }
+  }
+
+  return stagedFiles;
+}
+
+function resolveDependencyPathOrExit(
+  projectDir: string,
+  depName: string,
+  depPath: string = ""
+): string | undefined {
+  try {
+    return resolveDependencyPath(projectDir, depName, depPath);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
 /**
@@ -146,12 +217,20 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       if (linkedLibs.length === 0) continue;
       const sysLibFlags = resolveAllSystemLibraries(
         linkedLibs,
-        options.verbose
+        options.verbose,
+        { preferDebugRuntime: artifact.optimize === "debug" }
       );
       artifact.includePaths.push(...sysLibFlags.includePaths);
       artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
       artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+      artifact.defines.push(...sysLibFlags.defines);
       artifact.cFlags.push(...sysLibFlags.cFlags);
+      artifact.runtimeFiles ??= [];
+      for (const runtimeFile of sysLibFlags.runtimeFiles) {
+        if (!artifact.runtimeFiles.includes(runtimeFile)) {
+          artifact.runtimeFiles.push(runtimeFile);
+        }
+      }
     }
   }
 
@@ -165,6 +244,11 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       verbose: options.verbose,
     });
   }
+
+  // Resolve imported modules — evaluate dependency build.yo files
+  // to discover modules, collect their system library requirements,
+  // and propagate C flags to consumer artifacts.
+  resolveImportedModules(registry, projectDir, options.verbose);
 
   for (const stepName of requestedSteps) {
     if (options.dryRun) {
@@ -558,7 +642,11 @@ async function executeNode(
         description = `compile ${artifact.kind === "static_library" ? "lib" : artifact.kind === "shared_library" ? "shared lib" : "exe"} ${artifact.name} ${capitalize(optimize)} ${target}`;
         try {
           await compileArtifact(artifact, ctx);
-        } catch {
+        } catch (e) {
+          console.error(
+            `Compilation error: ${e instanceof Error ? e.message : String(e)}`
+          );
+          if (e instanceof Error && e.stack) console.error(e.stack);
           success = false;
         }
       }
@@ -775,11 +863,16 @@ async function compileArtifact(
   }
 
   // For static libraries, output is lib<name>.a; for others, just the name
-  const outputName =
-    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputName = getArtifactOutputFileName(
+    artifact,
+    ctx.targetTriple ?? artifact.target
+  );
   const outputPath = path.join(outputDir, outputName);
 
-  const projectName = ctx.registry.project?.name ?? artifact.name;
+  const projectName =
+    ctx.registry.modules.length > 0
+      ? ctx.registry.modules[0]!.name
+      : artifact.name;
   const gitVersion = getGitVersion(projectDir);
   const versionSuffix = gitVersion ? ` ${gitVersion}` : "";
   console.log(
@@ -824,6 +917,13 @@ async function compileArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
   });
+
+  if (
+    artifact.kind !== "static_library" &&
+    (artifact.runtimeFiles?.length ?? 0) > 0
+  ) {
+    stageRuntimeFiles(artifact.runtimeFiles ?? [], outputDir, ctx.verbose);
+  }
 }
 
 // ── Dependency artifact resolution ────────────────────────────────────
@@ -917,7 +1017,7 @@ async function resolveTransitiveDependencyArtifacts(
       subDepDir = path.resolve(depDir, pathDep.path);
     } else {
       // Git dependency: should be in root yo.lock via fetchTransitiveDependencies
-      subDepDir = resolveDependencyPath(rootProjectDir, subDepName);
+      subDepDir = resolveDependencyPathOrExit(rootProjectDir, subDepName);
     }
 
     if (!subDepDir) {
@@ -950,11 +1050,6 @@ async function resolveTransitiveDependencyArtifacts(
         console.log(`    Evaluating transitive dep: ${subDepName}/build.yo...`);
       }
       subRegistry = evaluateDependencyBuildFile(subBuildFile);
-
-      // Store the sub-dependency's Project.root for import resolution
-      if (subRegistry.project?.root) {
-        setDependencyProjectRoot(subDepDir, subRegistry.project.root);
-      }
 
       // Recurse further if sub-dep has its own sub-deps
       if (subRegistry.dependencyArtifacts.length > 0) {
@@ -1126,11 +1221,6 @@ async function resolveDependencyArtifacts(
       // 3. Evaluate the dependency's build.yo in isolation
       depRegistry = evaluateDependencyBuildFile(depBuildFile);
 
-      // Store the dependency's Project.root for import resolution
-      if (depRegistry.project?.root) {
-        setDependencyProjectRoot(depDir, depRegistry.project.root);
-      }
-
       // Recursively resolve sub-dependencies (transitive)
       // If this dep has its own dependencyArtifacts, compile those first
       if (depRegistry.dependencyArtifacts.length > 0) {
@@ -1250,10 +1340,11 @@ async function resolveDependencyArtifacts(
  */
 function getGitVersion(projectDir: string): string | undefined {
   try {
-    const result = execSync("git describe --tags --always 2>/dev/null", {
+    const result = execSync("git describe --tags --always", {
       cwd: projectDir,
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     return result || undefined;
   } catch {
@@ -1277,7 +1368,7 @@ function findDependencyDir(
   }
 
   // Check git dependencies via yo.lock cache
-  return resolveDependencyPath(projectDir, depName);
+  return resolveDependencyPathOrExit(projectDir, depName);
 }
 
 /**
@@ -1340,7 +1431,7 @@ function fetchTransitiveDependencies(
     const dep = queue.shift()!;
 
     // Find the cached directory for this dependency
-    const depDir = resolveDependencyPath(projectDir, dep.name);
+    const depDir = resolveDependencyPathOrExit(projectDir, dep.name);
     if (!depDir) continue;
 
     // Check if it has a build.yo
@@ -1384,6 +1475,222 @@ function fetchTransitiveDependencies(
   }
 }
 
+// ── Imported module resolution ────────────────────────────────────────
+
+/** Cache of evaluated dependency registries for module resolution */
+const evaluatedDepRegistries = new Map<string, BuildRegistry>();
+
+/**
+ * Resolve imported modules for all artifacts.
+ *
+ * For each artifact's importedModules:
+ * 1. Find the dependency directory
+ * 2. Evaluate the dependency's build.yo
+ * 3. Find the requested module (or default to sole module)
+ * 4. Collect system library requirements from the module
+ * 5. Resolve those system libraries via pkg-config/vcpkg
+ * 6. Merge flags into the consumer artifact
+ * 7. Store the resolved root file path for import resolution
+ */
+function resolveImportedModules(
+  registry: BuildRegistry,
+  projectDir: string,
+  verbose: boolean = false
+): void {
+  for (const artifact of registry.artifacts) {
+    if (artifact.importedModules.length === 0) continue;
+
+    for (const imported of artifact.importedModules) {
+      resolveImportedModule(registry, artifact, imported, projectDir, verbose);
+
+      // Register the resolved root in the global module import map
+      // so that `import "name"` in Yo source resolves to the correct file
+      if (imported.resolvedRoot) {
+        setModuleImportRoot(imported.importName, imported.resolvedRoot);
+      }
+    }
+  }
+}
+
+function resolveImportedModule(
+  registry: BuildRegistry,
+  artifact: BuildArtifact,
+  imported: ImportedModule,
+  projectDir: string,
+  verbose: boolean
+): void {
+  const depName = imported.dependencyName;
+  if (!depName) {
+    // Local module — just resolve root relative to project
+    const localModule = registry.findModule(imported.moduleName);
+    if (localModule) {
+      imported.resolvedRoot = path.resolve(projectDir, localModule.root);
+      // Propagate system libraries from local module
+      if (localModule.linkedSystemLibraries.length > 0) {
+        propagateSystemLibraries(
+          registry,
+          artifact,
+          localModule.linkedSystemLibraries,
+          verbose
+        );
+        imported.propagatedSystemLibraries = [
+          ...localModule.linkedSystemLibraries,
+        ];
+      }
+    } else {
+      const available =
+        registry.modules.map((m) => m.name).join(", ") || "(none)";
+      console.error(
+        `Error: Local module "${imported.moduleName}" not found. ` +
+          `Available modules: ${available}`
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Find the dependency directory
+  const depDir = findDependencyDir(registry, projectDir, depName);
+  if (!depDir) {
+    console.error(
+      `Error: Cannot resolve dependency "${depName}" for module import "${imported.importName}". ` +
+        `Run 'yo fetch' to download dependencies.`
+    );
+    process.exit(1);
+  }
+
+  // Evaluate the dependency's build.yo (cached)
+  const depRegistry = getOrEvaluateDepRegistry(depDir);
+  if (!depRegistry) {
+    console.error(
+      `Error: Dependency "${depName}" has no build.yo at ${path.join(depDir, "build.yo")}.`
+    );
+    process.exit(1);
+  }
+
+  // Find the requested module
+  let depModule: BuildModuleEntry | undefined;
+  if (imported.moduleName === "") {
+    // Default: sole module
+    if (depRegistry.modules.length === 0) {
+      console.error(
+        `Error: Dependency "${depName}" has no modules defined. ` +
+          `Add build.module() to its build.yo.`
+      );
+      process.exit(1);
+    } else if (depRegistry.modules.length === 1) {
+      depModule = depRegistry.modules[0]!;
+    } else {
+      console.error(
+        `Error: Dependency "${depName}" has ${depRegistry.modules.length} modules. ` +
+          `Specify a module name: dep.module("name").`
+      );
+      process.exit(1);
+    }
+  } else {
+    depModule = depRegistry.findModule(imported.moduleName);
+    if (!depModule) {
+      const available =
+        depRegistry.modules.map((m) => m.name).join(", ") || "(none)";
+      console.error(
+        `Error: Module "${imported.moduleName}" not found in dependency "${depName}". ` +
+          `Available modules: ${available}`
+      );
+      process.exit(1);
+    }
+  }
+
+  // Resolve the module's root file
+  imported.resolvedRoot = path.resolve(depDir, depModule.root);
+
+  if (verbose) {
+    console.log(
+      `  Module import "${imported.importName}": ${depModule.name} → ${imported.resolvedRoot}`
+    );
+  }
+
+  // Propagate system libraries from the module
+  if (depModule.linkedSystemLibraries.length > 0) {
+    // Find the system library definitions from the dependency's registry
+    const sysLibs = depModule.linkedSystemLibraries
+      .map((name) => depRegistry.findSystemLibrary(name))
+      .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+
+    if (sysLibs.length > 0) {
+      if (verbose) {
+        console.log(
+          `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
+        );
+      }
+
+      const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+        preferDebugRuntime: artifact.optimize === "debug",
+      });
+
+      artifact.includePaths.push(...sysLibFlags.includePaths);
+      artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+      artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+      artifact.defines.push(...sysLibFlags.defines);
+      artifact.cFlags.push(...sysLibFlags.cFlags);
+      artifact.runtimeFiles ??= [];
+      for (const runtimeFile of sysLibFlags.runtimeFiles) {
+        if (!artifact.runtimeFiles.includes(runtimeFile)) {
+          artifact.runtimeFiles.push(runtimeFile);
+        }
+      }
+    }
+
+    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
+  }
+}
+
+/**
+ * Propagate system libraries from a local module to an artifact.
+ */
+function propagateSystemLibraries(
+  registry: BuildRegistry,
+  artifact: BuildArtifact,
+  sysLibNames: string[],
+  verbose: boolean
+): void {
+  const sysLibs = sysLibNames
+    .map((name) => registry.findSystemLibrary(name))
+    .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+
+  if (sysLibs.length === 0) return;
+
+  const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+    preferDebugRuntime: artifact.optimize === "debug",
+  });
+
+  artifact.includePaths.push(...sysLibFlags.includePaths);
+  artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+  artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+  artifact.defines.push(...sysLibFlags.defines);
+  artifact.cFlags.push(...sysLibFlags.cFlags);
+  artifact.runtimeFiles ??= [];
+  for (const runtimeFile of sysLibFlags.runtimeFiles) {
+    if (!artifact.runtimeFiles.includes(runtimeFile)) {
+      artifact.runtimeFiles.push(runtimeFile);
+    }
+  }
+}
+
+/**
+ * Get or evaluate a dependency's build.yo registry (with caching).
+ */
+function getOrEvaluateDepRegistry(depDir: string): BuildRegistry | undefined {
+  const cached = evaluatedDepRegistries.get(depDir);
+  if (cached) return cached;
+
+  const depBuildFile = path.join(depDir, "build.yo");
+  if (!fs.existsSync(depBuildFile)) return undefined;
+
+  const depRegistry = evaluateDependencyBuildFile(depBuildFile);
+  evaluatedDepRegistries.set(depDir, depRegistry);
+  return depRegistry;
+}
+
 /**
  * Compile a dependency artifact (static library, shared library, etc.).
  */
@@ -1404,8 +1711,10 @@ async function compileDependencyArtifact(
     process.exit(1);
   }
 
-  const outputName =
-    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputName = getArtifactOutputFileName(
+    artifact,
+    opts.targetTriple ?? artifact.target
+  );
   const outputPath = path.join(outputDir, outputName);
 
   console.log(
@@ -1448,6 +1757,13 @@ async function compileDependencyArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
   });
+
+  if (
+    artifact.kind !== "static_library" &&
+    (artifact.runtimeFiles?.length ?? 0) > 0
+  ) {
+    stageRuntimeFiles(artifact.runtimeFiles ?? [], outputDir, opts.verbose);
+  }
 }
 
 function mapOptimize(level: string): "0" | "1" | "2" | "3" | undefined {
@@ -1475,7 +1791,10 @@ async function runExecutable(
   const { projectDir } = ctx;
 
   const outputDir = path.join(projectDir, "yo-out", "bin");
-  const exePath = path.join(outputDir, artifact.name);
+  const exePath = path.join(
+    outputDir,
+    getArtifactOutputFileName(artifact, ctx.targetTriple ?? artifact.target)
+  );
 
   if (!fs.existsSync(exePath)) {
     console.error(`Error: Compiled executable not found at ${exePath}`);

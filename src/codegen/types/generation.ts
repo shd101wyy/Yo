@@ -255,6 +255,11 @@ typedef struct __yo_io_future_t {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
+    // Skip forward declarations for extern C types — the C header provides them
+    if (type.isExtern === "c" && type.externName) {
+      continue;
+    }
+
     if (isFutureTraitType(type)) {
       // Forward declaration for Future types (they don't use _struct pattern)
       context.emitter.emitDeclarationLine(
@@ -316,6 +321,10 @@ typedef struct __yo_io_future_t {
     if (typeContainsSomeType(type)) {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
+    // Skip extern C types — the C header provides their definition
+    if (type.isExtern === "c" && type.externName) {
+      continue;
+    }
 
     if (isEnumType(type) && canOptimizeAsSimpleEnum(type)) {
       generateEnumDeclaration(type, cName, context);
@@ -333,6 +342,10 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
+      continue;
+    }
+    // Skip extern C types — the C header provides their definition
+    if (type.isExtern === "c" && type.externName) {
       continue;
     }
 
@@ -656,6 +669,10 @@ typedef struct __yo_io_future_t {
     if (typeContainsSomeType(type)) {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
+    // Skip extern C types — the C header provides their definition
+    if (type.isExtern === "c" && type.externName) {
+      continue;
+    }
 
     if (isEnumType(type) && canOptimizeAsNullablePointer(type)) {
       generateEnumDeclaration(type, cName, context);
@@ -667,6 +684,10 @@ typedef struct __yo_io_future_t {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+    // Skip extern C types — the C header provides their definition
+    if (type.isExtern === "c" && type.externName) {
+      continue;
     }
 
     if (isDynType(type)) {

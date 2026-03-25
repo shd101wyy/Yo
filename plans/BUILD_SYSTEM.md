@@ -65,13 +65,13 @@ wasm32-wasi              (WebAssembly)
 
 ### 1.3 Supported Operating Systems
 
-| OS        | Async I/O Backend      | Notes                  |
-| --------- | ---------------------- | ---------------------- |
-| `linux`   | io_uring               | Primary tier           |
-| `macos`   | Grand Central Dispatch | Primary tier           |
-| `windows` | IOCP                   | Primary tier           |
-| `wasi`    | N/A (no async I/O)     | WASM target            |
-| `freebsd` | kqueue                 | Tertiary tier (future) |
+| OS        | Async I/O Backend  | Notes                  |
+| --------- | ------------------ | ---------------------- |
+| `linux`   | io_uring           | Primary tier           |
+| `macos`   | kqueue             | Primary tier           |
+| `windows` | IOCP               | Primary tier           |
+| `wasi`    | N/A (no async I/O) | WASM target            |
+| `freebsd` | kqueue             | Tertiary tier (future) |
 
 ### 1.4 ABI
 
@@ -116,7 +116,7 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+build.module({ name: "my-app", root: "./src/lib.yo" });
 
 exe :: build.executable({
   name: "my-app",
@@ -184,7 +184,7 @@ The build runner (`src/build-runner.ts`) flow:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", root: "./src/lib.yo" });
+build.module({ name: "my-app", root: "./src/lib.yo" });
 
 linux :: build.executable({
   name: "my-app-linux",
@@ -218,7 +218,7 @@ install.depend_on(wasm);
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-lib", root: "./src/lib.yo" });
+build.module({ name: "my-lib", root: "./src/lib.yo" });
 
 lib :: build.static_library({ name: "mylib", root: "./src/lib.yo" });
 
@@ -258,7 +258,7 @@ export main;
 
 ```yo
 build :: import "std/build";
-build.project({ name: "demo", root: "./src/lib.yo" });
+build.module({ name: "demo", root: "./src/lib.yo" });
 
 lib :: build.static_library({ name: "add", root: "./add.yo" });
 exe :: build.executable({ name: "demo", root: "./demo.yo" });
@@ -409,8 +409,7 @@ Register system libraries via `build.system_library()` and link them using the `
 ```yo
 // Register system libraries (returns Step)
 openssl :: build.system_library({
-  name: "openssl",
-  pkg_config: "openssl"
+  name: "openssl"
 });
 
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
@@ -547,7 +546,7 @@ my-project/
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-project", root: "./src/lib.yo" });
+build.module({ name: "my-project", root: "./src/lib.yo" });
 
 exe :: build.executable({ name: "my-project", root: "./src/main.yo" });
 

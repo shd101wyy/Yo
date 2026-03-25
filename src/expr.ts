@@ -643,7 +643,6 @@ export const BuiltinKeywords = {
   if: ["if"],
   op_and: ["&&"],
   op_or: ["||"],
-  not: ["not"],
   gensym: ["gensym"],
 
   // dynamic dispatch type
@@ -1179,7 +1178,6 @@ export const BuiltinFunctions = {
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
 
   // Build system functions (compile-time only)
-  __yo_build_project: ["__yo_build_project"],
   __yo_build_executable: ["__yo_build_executable"],
   __yo_build_static_library: ["__yo_build_static_library"],
   __yo_build_shared_library: ["__yo_build_shared_library"],
@@ -1196,6 +1194,10 @@ export const BuiltinFunctions = {
   __yo_build_system_library: ["__yo_build_system_library"],
   __yo_build_option: ["__yo_build_option"],
   __yo_build_dep_artifact: ["__yo_build_dep_artifact"],
+  __yo_build_module: ["__yo_build_module"],
+  __yo_build_module_link: ["__yo_build_module_link"],
+  __yo_build_add_import: ["__yo_build_add_import"],
+  __yo_build_dep_module: ["__yo_build_dep_module"],
 
   // Inline assembly
   asm: ["asm"],

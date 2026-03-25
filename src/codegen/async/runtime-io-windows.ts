@@ -356,7 +356,7 @@ static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int
     if (_fstat64(fd, &st) != 0) return -errno;
     if ((__int64)st.st_size < target) {
       int result = _chsize_s(fd, target);
-      if (result != 0) return -errno;
+      if (result != 0) return -result;
     }
   }
 
@@ -1927,7 +1927,7 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 // Async I/O Runtime (Windows - IOCP)
 // ============================================================================
 // __yo_io_initialized is defined in runtime-core
-static _Atomic size_t __yo_pending_io_count = 0;
+static size_t __yo_pending_io_count = 0;
 static HANDLE __yo_io_iocp = NULL;
 static CRITICAL_SECTION __yo_dir_state_mutex;
 
@@ -2002,7 +2002,7 @@ static bool __yo_win_associate_handle(HANDLE handle) {
 static int __yo_poll_and_fs_event_tick(void);
 
 static inline bool __yo_has_pending_io(void) {
-  return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
 }
 
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
@@ -2015,7 +2015,7 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
     __yo_async_spawn_task(cont_fn, cont_sm);
   }
 
-  atomic_fetch_sub(&__yo_pending_io_count, 1);
+  __yo_pending_io_count--;
 }
 
 static uint64_t __yo_win_now_ms(void) {
@@ -2023,7 +2023,7 @@ static uint64_t __yo_win_now_ms(void) {
 }
 
 static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) {
-  atomic_fetch_add(&__yo_pending_io_count, 1);
+  __yo_pending_io_count++;
 
   __yo_win_timer_entry_t* node = (__yo_win_timer_entry_t*)__yo_malloc(sizeof(__yo_win_timer_entry_t));
   if (!node) {
@@ -2130,11 +2130,11 @@ static int __yo_io_poll(void) {
 
 static int __yo_io_wait(void) {
   if (!__yo_io_iocp) return 0;
-  if (atomic_load(&__yo_pending_io_count) == 0 && __yo_active_watch_count > 0) {
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
     Sleep(10);
     return __yo_poll_and_fs_event_tick();
   }
-  if (atomic_load(&__yo_pending_io_count) == 0) return 0;
+  if (__yo_pending_io_count == 0) return 0;
 
   DWORD bytes = 0;
   ULONG_PTR key = 0;
@@ -2283,7 +2283,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     return future;
   }
 
-  atomic_fetch_add(&__yo_pending_io_count, 1);
+  __yo_pending_io_count++;
   return future;
 }
 
@@ -2354,7 +2354,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     return future;
   }
 
-  atomic_fetch_add(&__yo_pending_io_count, 1);
+  __yo_pending_io_count++;
   return future;
 }
 
@@ -2735,7 +2735,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   atomic_init(&future->continuation_sm, NULL);
 
   int result = _chsize_s(fd, (size_t)length);
-  future->result = (result != 0) ? -errno : 0;
+  future->result = (result != 0) ? -result : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -2861,7 +2861,7 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
     size_t path_len = wcslen(path_buf);
     wchar_t* pattern = (wchar_t*)__yo_malloc((path_len + 3) * sizeof(wchar_t));
     wcscpy(pattern, path_buf);
-    if (pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
+    if (path_len > 0 && pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
       pattern[path_len] = L'\\\\';
       pattern[path_len + 1] = L'*';
       pattern[path_len + 2] = L'\\0';
@@ -3072,7 +3072,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   }
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
-    atomic_fetch_add(&__yo_pending_io_count, 1);
+    __yo_pending_io_count++;
     return future;
   }
 
@@ -3121,7 +3121,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   }
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
-    atomic_fetch_add(&__yo_pending_io_count, 1);
+    __yo_pending_io_count++;
     return future;
   }
 

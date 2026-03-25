@@ -15,7 +15,7 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   getBuildRegistry,
   getRootBuildProjectDir,
-  getDependencyProjectRoot,
+  getModuleImportRoot,
 } from "../builtins/build";
 
 /**
@@ -94,10 +94,39 @@ export function evaluateImport({
   }
 
   if (!modulePathToImport.startsWith(".")) {
+    // Check module import roots first (from build.module() + add_import())
+    const moduleRoot = getModuleImportRoot(modulePathToImport);
+    if (moduleRoot) {
+      const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
+      modulePathToImport = path.relative(
+        path.dirname(currentFilePath),
+        moduleRoot
+      );
+      if (!modulePathToImport.startsWith(".")) {
+        modulePathToImport = "./" + modulePathToImport;
+      }
+    }
+  }
+
+  if (!modulePathToImport.startsWith(".")) {
     // Try to resolve as a dependency name (e.g., "json-parser" → .yo-cache/deps/...)
     const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
     const projectDir = findProjectRoot(currentFilePath);
     if (projectDir) {
+      const resolveGitDependencyPath = (
+        rootDir: string
+      ): string | undefined => {
+        try {
+          return resolveDependencyPath(rootDir, modulePathToImport);
+        } catch (error) {
+          throw formatErrorMessage({
+            token: moduleArg.token,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+
       // Check path dependencies first (from build registry)
       const registry = getBuildRegistry();
       const pathDep = registry.findPathDependency(modulePathToImport);
@@ -108,7 +137,7 @@ export function evaluateImport({
         depRoot = path.resolve(projectDir, pathDep.path);
       } else {
         // Try git dependency via yo.lock cache
-        depRoot = resolveDependencyPath(projectDir, modulePathToImport);
+        depRoot = resolveGitDependencyPath(projectDir);
       }
 
       // Fallback: try the root build project directory for transitive deps
@@ -117,12 +146,12 @@ export function evaluateImport({
       if (!depRoot) {
         const rootDir = getRootBuildProjectDir();
         if (rootDir && rootDir !== projectDir) {
-          depRoot = resolveDependencyPath(rootDir, modulePathToImport);
+          depRoot = resolveGitDependencyPath(rootDir);
         }
       }
 
       if (depRoot) {
-        // Resolve entry point: check Project.root from build.yo, then convention
+        // Resolve entry point: convention
         const entryPoint = resolveDependencyEntryPoint(
           depRoot,
           modulePathToImport
@@ -248,19 +277,11 @@ function findProjectRoot(filePath: string): string | undefined {
  * Resolve the entry point file for a dependency.
  *
  * Resolution order:
- * 1. If the dependency has a Project.root stored from its build.yo evaluation, use that
- * 2. Convention: index.yo → <name>.yo
- * 3. Fall back to the dependency root directory itself
+ * 1. Convention: index.yo → <name>.yo
+ * 2. Fall back to the dependency root directory itself
  */
 function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
-  // Check if the dependency's build.yo specified a Project.root
-  const projectRoot = getDependencyProjectRoot(depRoot);
-  if (projectRoot) {
-    const resolved = path.resolve(depRoot, projectRoot);
-    if (existsSync(resolved)) return resolved;
-  }
-
-  // Convention-based fallback (no hardcoded src/lib.yo — that's the default Project.root)
+  // Convention-based fallback
   const indexYo = path.join(depRoot, "index.yo");
   const namedYo = path.join(depRoot, depName + ".yo");
 

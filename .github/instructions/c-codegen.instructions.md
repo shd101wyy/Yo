@@ -8,6 +8,19 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 
+## Async/await threading model
+
+Yo's async/await runs on a **single-threaded event loop**, similar to C#'s async model. All async I/O submissions and completions are processed on the same thread — there is no concurrent access from multiple threads within the async runtime.
+
+**Platform implementations:**
+- **Linux**: `io_uring` — single event loop thread submits SQEs and processes CQEs
+- **macOS**: `kqueue` — single event loop thread registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
+- **Windows**: IOCP — `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
+
+**Implications for runtime code:**
+- Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are only accessed from the event loop thread.
+- The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
+
 ## Compilation commands
 
 - Emit C only: `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release`

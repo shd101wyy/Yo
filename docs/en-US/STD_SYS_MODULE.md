@@ -4,14 +4,14 @@
 
 Yo integrates platform-native async I/O APIs with the single-threaded async/await event loop:
 
-| Platform    | Backend                   | Status      | Description                                                   |
-| ----------- | ------------------------- | ----------- | ------------------------------------------------------------- |
-| **Linux**   | io_uring                  | ✅ Complete | True async I/O with kernel-performed operations (kernel 5.1+) |
-| **macOS**   | dispatch_io + GCD sources | ✅ Complete | Grand Central Dispatch for true async file I/O and sockets    |
-| **Windows** | IOCP                      | ✅ Complete | I/O Completion Ports with overlapped I/O                      |
-| **FreeBSD** | kqueue                    | 🔜 Planned  | Event notification + non-blocking I/O                         |
+| Platform    | Backend  | Status      | Description                                                                                    |
+| ----------- | -------- | ----------- | ---------------------------------------------------------------------------------------------- |
+| **Linux**   | io_uring | ✅ Complete | True async I/O with kernel-performed operations (kernel 5.1+)                                  |
+| **macOS**   | kqueue   | ✅ Complete | kqueue event loop with non-blocking I/O for sockets/pipes, sync pread/pwrite for regular files |
+| **Windows** | IOCP     | ✅ Complete | I/O Completion Ports with overlapped I/O                                                       |
+| **FreeBSD** | kqueue   | 🔜 Planned  | Event notification + non-blocking I/O                                                          |
 
-All async I/O operations run on the **same thread** as other async tasks — no worker threads involved (except for dispatch_io's internal thread pool on macOS, managed by the system).
+All async I/O operations run on the **same thread** as other async tasks — no worker threads involved.
 
 ### Why Not libuv?
 
@@ -25,14 +25,14 @@ We considered using **libuv** (Node.js's cross-platform async I/O library) but c
 | **Control**      | Limited to libuv's model          | Full control over state machine integration |
 | **Complexity**   | Lower initial, higher integration | Higher initial, cleaner long-term           |
 
-**Key Insight**: Yo's async/await compiles to state machines. Platform-native async I/O (io_uring, dispatch_io, IOCP) integrates perfectly with this model — completions wake state machines directly. libuv's callback-based design would require an awkward bridge layer.
+**Key Insight**: Yo's async/await compiles to state machines. Platform-native async I/O (io_uring, kqueue, IOCP) integrates perfectly with this model — completions wake state machines directly. libuv's callback-based design would require an awkward bridge layer.
 
 ## Design Goals
 
 1. **Single-threaded**: All async I/O runs on the event loop thread
 2. **Non-atomic RC**: No synchronization overhead (single thread)
 3. **Cross-platform**: Unified API across Linux/macOS/Windows
-4. **Efficient**: Platform-native backends (io_uring/dispatch_io+GCD/IOCP)
+4. **Efficient**: Platform-native backends (io_uring/kqueue/IOCP)
 5. **Simple API**: async/await syntax, no callbacks
 6. **Memory efficient**: State machines (~200 bytes) per operation
 
@@ -169,18 +169,18 @@ timer  :: import "std/sys/timer";
 
 The C runtime is split into focused modules under `src/codegen/async/`:
 
-| File                    | Responsibility                                                                       |
-| ----------------------- | ------------------------------------------------------------------------------------ |
-| `runtime.ts`            | Thin coordinator — calls the other runtime modules                                   |
-| `runtime-core.ts`       | Core scheduler: continuation queue, spawn, wait, concurrency helpers                 |
-| `runtime-io-linux.ts`   | Linux io_uring async I/O                                                             |
-| `runtime-io-macos.ts`   | macOS GCD (dispatch_io + dispatch_source) async I/O                                  |
-| `runtime-io-windows.ts` | Windows IOCP async I/O                                                               |
-| `runtime-io-common.ts`  | Cross-platform: stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll |
+| File                    | Responsibility                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `runtime.ts`            | Thin coordinator — calls the other runtime modules                                       |
+| `runtime-core.ts`       | Core scheduler: continuation queue, spawn, wait, concurrency helpers                     |
+| `runtime-io-linux.ts`   | Linux io_uring async I/O                                                                 |
+| `runtime-io-macos.ts`   | macOS kqueue async I/O (non-blocking sockets/pipes, sync pread/pwrite for regular files) |
+| `runtime-io-windows.ts` | Windows IOCP async I/O                                                                   |
+| `runtime-io-common.ts`  | Cross-platform: stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll     |
 
 ### Per-Platform Feature Matrix
 
-| Category                    | Linux (io_uring)      | macOS (GCD)            | Windows (IOCP)                                        |
+| Category                    | Linux (io_uring)      | macOS (kqueue)         | Windows (IOCP)                                        |
 | --------------------------- | --------------------- | ---------------------- | ----------------------------------------------------- |
 | **Event loop integration**  | ✅                    | ✅                     | ✅ (IOCP)                                             |
 | **File read/write**         | ✅                    | ✅                     | ✅ (IOCP)                                             |
@@ -193,8 +193,8 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | **chmod/chown**             | ✅ (sync)             | ✅ (sync)              | ✅ (sync; chmod only; chown returns 0 for -1/-1)      |
 | **readlink**                | ✅ (sync)             | ✅ (sync)              | ✅ (GetFinalPathNameByHandleW)                        |
 | **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
-| **Socket ops**              | ✅                    | ✅ (dispatch_source)   | ✅ (IOCP WSASend/WSARecv)                             |
-| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (dispatch_after)    | ✅ (IOCP wait timeout)                                |
+| **Socket ops**              | ✅                    | ✅ (kqueue readiness)  | ✅ (IOCP WSASend/WSARecv)                             |
+| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (EVFILT_TIMER)      | ✅ (IOCP wait timeout)                                |
 | **getdents/readdir**        | ✅ (getdents64)       | ✅ (readdir emulation) | ✅ (FindFirstFileW/FindNextFileW)                     |
 | **access/realpath**         | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
 | **utime**                   | ✅ (sync)             | ✅ (sync)              | ✅ (sync, FILE_WRITE_ATTRIBUTES reopen)               |
@@ -310,18 +310,19 @@ The Yo compiler detects liburing via `pkg-config liburing --cflags --libs`. Link
 | **5.6+**       | Registered buffers, linked operations |
 | **5.11+**      | Better performance, more operations   |
 
-### macOS: dispatch_io + GCD dispatch_source
+### macOS: kqueue
 
-For **file I/O**, macOS uses Grand Central Dispatch's `dispatch_io` API, which provides true async file operations with kernel-managed background threads.
+macOS uses `kqueue` for async I/O — a single-threaded, pull-based event notification mechanism similar to Linux's io_uring.
 
-For **socket I/O**, macOS uses `dispatch_source` with `DISPATCH_SOURCE_TYPE_READ` / `DISPATCH_SOURCE_TYPE_WRITE`:
+For **file I/O**, macOS uses synchronous `pread`/`pwrite` for regular files (fast on macOS with the unified buffer cache). For pipes, sockets, and TTYs, non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications is used.
 
-- Sockets are set to `O_NONBLOCK` at creation
-- Each `accept`/`recv`/`recvfrom` first attempts a non-blocking call; if `EAGAIN`/`EWOULDBLOCK` occurs, a `DISPATCH_SOURCE_TYPE_READ` source is created
-- `connect`/`send`/`sendto` use `DISPATCH_SOURCE_TYPE_WRITE` with `SO_ERROR` check for connect completion
-- GCD callbacks run on background threads; a cross-thread continuation queue drains completions on the event-loop thread during polling
+For **socket I/O**, all sockets are set to `O_NONBLOCK`:
 
-**Timer**: `dispatch_after` delivers completions to the serial I/O queue.
+- Each `accept`/`recv`/`recvfrom` first attempts a non-blocking call; if `EAGAIN`/`EWOULDBLOCK` occurs, a `EVFILT_READ` kevent with `EV_ONESHOT` is registered
+- `connect`/`send`/`sendto` use `EVFILT_WRITE` with `EV_ONESHOT`; connect completion checks `SO_ERROR`
+- All completions are harvested on the event loop thread via `kevent()` — no cross-thread synchronization needed
+
+**Timer**: `EVFILT_TIMER` with `EV_ONESHOT` and `NOTE_USECONDS` provides one-shot timer delivery.
 
 ### Windows: IOCP
 
@@ -388,12 +389,12 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 
 ### Latency
 
-| Stage                  | Approximate Cost |
-| ---------------------- | ---------------- |
-| io_uring submission    | ~50–100 ns       |
-| io_uring completion    | ~100–200 ns      |
-| dispatch_io completion | ~500 ns–1 µs     |
-| IOCP completion        | ~100–300 ns      |
+| Stage               | Approximate Cost |
+| ------------------- | ---------------- |
+| io_uring submission | ~50–100 ns       |
+| io_uring completion | ~100–200 ns      |
+| kqueue kevent()     | ~200–500 ns      |
+| IOCP completion     | ~100–300 ns      |
 
 ---
 
@@ -413,7 +414,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 - **Module namespace constant access in C codegen**: Expressions like `fcntl_io.O_NONBLOCK` emitted invalid C (`/* skip generating: module */.FIELD`) because module values have no runtime representation. Fixed in `src/codegen/exprs/property-access.ts`.
 - **Barrel re-export removed**: `std/sys/index.yo` removed to avoid naming conflicts. Users import submodules directly.
 - **SSA variable mutation in async loops**: Variable reassignment inside loops created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original ID, causing infinite loops. Fixed by adding `variableIdRemapping` in the await analysis. Also fixed `break` inside async while loops breaking the C `switch` instead of the loop.
-- **macOS async continuation threading**: GCD callbacks run on background threads but the async task queue is thread-local. Added a cross-thread continuation queue drained on the event-loop thread during polling.
+- **macOS async continuation threading**: Migrated from GCD to kqueue. All I/O completions are now processed on the event loop thread — no cross-thread continuation queue needed.
 - **macOS getdents linker fix**: Replaced unavailable `getdirentries` with a `readdir`-based emulation using `dup(fd)` + `fdopendir` to avoid 64-bit inode stub symbols on arm64.
 - **Windows test runner missing ws2_32**: The test runner did not link `-lws2_32` on Windows. Fixed in `src/test-runner.ts`.
 - **Windows tty test unistd header**: `tests/io/tty.test.yo` imported `std/libc/unistd` unconditionally, including `<unistd.h>` on Windows. Fixed by moving the import into the non-Windows branch.
@@ -426,7 +427,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 - **Comptime constant C macro name collision**: Compile-time-only constants (e.g., `AF_INET`) passed as function arguments created local C variables conflicting with header macros. Fixed in `src/codegen/exprs/other-fn-call.ts` by inlining the literal directly.
 - **Pointer-to-nullable-pointer codegen bug**: `*(?*(T))` generated `uint8_t*` instead of `uint8_t**`. Fixed in `src/codegen/utils/index.ts` `getTypeString()`.
 - **Async state machine dangling reassignment temps**: Reassignment inside begin blocks emitted undeclared temp variable references. Fixed in `src/codegen/exprs/assignment.ts` to return `""` when `skippedTempVar` is true.
-- **macOS socket ops async**: `accept`, `connect`, `send`, `recv`, `sendto`, `recvfrom` now use GCD `dispatch_source` instead of blocking POSIX calls.
+- **macOS socket ops async**: `accept`, `connect`, `send`, `recv`, `sendto`, `recvfrom` use kqueue `EVFILT_READ`/`EVFILT_WRITE` with `EV_ONESHOT` for readiness notifications.
 - **macOS getnameinfo NI_NUMERICHOST wrong value**: Added platform-aware `NI__*` constants to `std/sys/socket.yo`.
 - **Compile-time constants not inlined in async state machines**: Two bugs: (1) atom.ts state machine variable lookup fallback did not check `isCompileTimeOnly`; (2) inlined literals were erroneously sanitized via `sanitizeForCIdentifier`. Both fixed.
 - **Windows socket close used `_close()` instead of `closesocket()`**: Fixed in `__yo_async_close_start`.
@@ -457,10 +458,10 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 - [liburing](https://github.com/axboe/liburing)
 - [io_uring man pages](https://man7.org/linux/man-pages/man7/io_uring.7.html)
 
-### macOS (GCD)
+### macOS (kqueue)
 
-- [dispatch_io documentation](https://developer.apple.com/documentation/dispatch/dispatch_io)
-- [dispatch_source documentation](https://developer.apple.com/documentation/dispatch/dispatch_source)
+- [kqueue(2) man page](https://www.freebsd.org/cgi/man.cgi?query=kqueue&sektion=2)
+- [Apple kqueue documentation](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kqueue.2.html)
 
 ### Windows (IOCP)
 

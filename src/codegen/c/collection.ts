@@ -77,14 +77,26 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(
       `    #define __yo_aligned_alloc mi_aligned_alloc`
     );
+    context.emitter.emitHeaderLine(`    #define __yo_aligned_free mi_free`);
     context.emitter.emitHeaderLine(`  #else`);
     context.emitter.emitHeaderLine(`    #define __yo_malloc malloc`);
     context.emitter.emitHeaderLine(`    #define __yo_calloc calloc`);
     context.emitter.emitHeaderLine(`    #define __yo_realloc realloc`);
     context.emitter.emitHeaderLine(`    #define __yo_free free`);
-    context.emitter.emitHeaderLine(
-      `    #define __yo_aligned_alloc aligned_alloc`
-    );
+    if (isWindows) {
+      // Windows: _aligned_malloc(size, alignment) has reversed params vs aligned_alloc(alignment, size)
+      context.emitter.emitHeaderLine(
+        `    static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }`
+      );
+      context.emitter.emitHeaderLine(
+        `    #define __yo_aligned_free _aligned_free`
+      );
+    } else {
+      context.emitter.emitHeaderLine(
+        `    #define __yo_aligned_alloc aligned_alloc`
+      );
+      context.emitter.emitHeaderLine(`    #define __yo_aligned_free free`);
+    }
     context.emitter.emitHeaderLine(`  #endif`);
     context.emitter.emitHeaderLine(`#else`);
     context.emitter.emitHeaderLine(
@@ -94,9 +106,19 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(`  #define __yo_calloc calloc`);
     context.emitter.emitHeaderLine(`  #define __yo_realloc realloc`);
     context.emitter.emitHeaderLine(`  #define __yo_free free`);
-    context.emitter.emitHeaderLine(
-      `  #define __yo_aligned_alloc aligned_alloc`
-    );
+    if (isWindows) {
+      context.emitter.emitHeaderLine(
+        `  static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }`
+      );
+      context.emitter.emitHeaderLine(
+        `  #define __yo_aligned_free _aligned_free`
+      );
+    } else {
+      context.emitter.emitHeaderLine(
+        `  #define __yo_aligned_alloc aligned_alloc`
+      );
+      context.emitter.emitHeaderLine(`  #define __yo_aligned_free free`);
+    }
     context.emitter.emitHeaderLine(`#endif`);
   } else {
     context.emitter.emitHeaderLine(`// Using libc allocator`);
@@ -104,7 +126,17 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(`#define __yo_calloc calloc`);
     context.emitter.emitHeaderLine(`#define __yo_realloc realloc`);
     context.emitter.emitHeaderLine(`#define __yo_free free`);
-    context.emitter.emitHeaderLine(`#define __yo_aligned_alloc aligned_alloc`);
+    if (isWindows) {
+      context.emitter.emitHeaderLine(
+        `static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }`
+      );
+      context.emitter.emitHeaderLine(`#define __yo_aligned_free _aligned_free`);
+    } else {
+      context.emitter.emitHeaderLine(
+        `#define __yo_aligned_alloc aligned_alloc`
+      );
+      context.emitter.emitHeaderLine(`#define __yo_aligned_free free`);
+    }
   }
   context.emitter.emitHeaderLine(``);
 }

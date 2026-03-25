@@ -9,6 +9,32 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 > The name `Yo` comes from the Chinese word `柚` (yòu), meaning `pomelo`, a large citrus fruit similar to grapefruit. It's my daughter's nickname.
 
+📖 [My Story with Programming Languages](./docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) — the journey from Java at 16 to building Yo.
+
+<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
+
+<!-- code_chunk_output -->
+
+- [Features](#features)
+- [Installation](#installation)
+  - [C Compiler Requirement](#c-compiler-requirement)
+    - [Installing Clang](#installing-clang)
+  - [Linux liburing Requirement](#linux-liburing-requirement)
+    - [Installing liburing (Linux)](#installing-liburing-linux)
+- [Quick Start](#quick-start)
+- [Prelude](#prelude)
+- [Standard Library](#standard-library)
+- [Code examples](#code-examples)
+  - [Hello World](#hello-world)
+  - [Example Projects](#example-projects)
+- [Contributing](#contributing)
+  - [Setup](#setup)
+- [Editor Support](#editor-support)
+- [Star History](#star-history)
+- [License](#license)
+
+<!-- /code_chunk_output -->
+
 ## Features
 
 For the design of the language, please refer to [DESIGN.md](./docs/en-US/DESIGN.md).
@@ -79,6 +105,12 @@ $ brew install llvm
 
 **Windows:**
 
+Clang on Windows requires a linker and Windows SDK headers. Install **Visual Studio** (Community edition is free) or the **Build Tools for Visual Studio** with the "Desktop development with C++" workload:
+
+1. Download from [https://visualstudio.microsoft.com/downloads/](https://visualstudio.microsoft.com/downloads/)
+2. In the installer, select **"Desktop development with C++"** (this includes MSVC, Windows SDK, and the linker)
+3. Then install LLVM/Clang:
+
 ```bash
 # Using Chocolatey
 $ choco install llvm
@@ -87,6 +119,16 @@ $ choco install llvm
 $ scoop install llvm
 
 # Or download from https://releases.llvm.org/
+```
+
+Alternatively, you can use `zig` as the C compiler (no Visual Studio needed):
+
+```bash
+# Using Chocolatey
+$ choco install zig
+
+# Then compile with:
+$ yo compile main.yo --c-compiler zig --release -o main
 ```
 
 Alternatively, you can use other C compilers like `gcc` or `zig` by specifying the compiler with the `--c-compiler` flag.
@@ -109,33 +151,69 @@ $ sudo dnf install liburing-devel
 $ sudo pacman -S liburing
 ```
 
+## Quick Start
+
+```bash
+$ yo init my-project        # Scaffold a new project
+$ cd my-project
+$ yo build run              # Build and run
+Hello, world!
+```
+
+`yo init` generates a project with a build file, source, and tests:
+
+```
+my-project/
+├── build.yo              # Build configuration
+├── src/
+│   ├── main.yo           # Entry point
+│   └── lib.yo            # Library module
+└── tests/
+    └── main.test.yo      # Unit tests
+```
+
+`src/main.yo`:
+
+```typescript
+{ println } :: import "std/fmt";
+
+main :: (fn() -> unit)({
+  println("Hello, world!");
+});
+
+export main;
+```
+
+Common build commands:
+
+```bash
+$ yo build                  # Build all artifacts
+$ yo build run              # Build and run the executable
+$ yo build test             # Run tests
+$ yo build --list-steps     # List available build steps
+```
+
+## Prelude
+
+Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, which provides the core types, traits, and builtins available without any explicit import:
+
+- **Primitive types**: `bool`, `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `isize`, `usize`, `str`
+- **C-compatible types**: `int`, `uint`, `short`, `long`, `longlong`, `char`, etc.
+- **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Dispose`, `Send`, `Rc`, `Acyclic`, etc.
+- **Metaprogramming**: `Type`, `Expr`, `ExprList`, `Var`
+- **Async**: `IO`, `FutureState`, `JoinHandle`
+- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Box`, `box`
+- etc.
+
 ## Standard Library
 
 _Still In Design_
 
-Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/STD_LIBRARY_MODULES.md)**.
-
-Key modules include:
-
-| Module      | Import                                                  | Description                                                 |
-| ----------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| String      | `import "std/string"`                                   | UTF-8 strings with parsing, search, transform               |
-| Collections | `import "std/collections/array_list"`, `hash_map`, etc. | ArrayList, HashMap, HashSet, BTreeMap, Deque, PriorityQueue |
-| File System | `import "std/fs/file"`                                  | Async file I/O, directories, metadata                       |
-| Networking  | `import "std/net/tcp"`                                  | TCP/UDP sockets, DNS resolution                             |
-| HTTP        | `import "std/http"`                                     | HTTP types, async client, `fetch` function                  |
-| JSON        | `import "std/encoding/json"`                            | Full JSON parser/stringifier                                |
-| TOML        | `import "std/encoding/toml"`                            | TOML config file parser                                     |
-| Regex       | `import "std/regex"`                                    | Regular expression engine                                   |
-| Crypto      | `import "std/crypto/sha256"`                            | SHA-256, MD5, random                                        |
-| URL         | `import "std/url"`                                      | URL parsing and formatting                                  |
-| Glob        | `import "std/glob"`                                     | Unix-style glob pattern matching                            |
-| Log         | `import "std/log"`                                      | Leveled logging                                             |
-| Formatting  | `import "std/fmt"`                                      | `print`, `println` for any `ToString` type                  |
+Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/en-US/STD_LIBRARY_MODULES.md)**.
 
 ## Code examples
 
-Check the [./tests](./tests/) and [./std](./std/) folders for code examples.
+Check the [./tests](./tests/) and [./std](./std/) folders for more code examples.
 
 ### Hello World
 
@@ -153,7 +231,15 @@ export main;
 // $ ./main
 ```
 
-## Development
+### Example Projects
+
+| Project                                                                 | Description                                                                                              |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                     | Comprehensive [raylib](https://www.raylib.com/) bindings — 35 struct types, 535 functions, 227 constants |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo)                     | Classic Tetris game built with raylib_yo, demonstrating Yo's build system and C interop                  |
+| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo) | Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing & routing         |
+
+## Contributing
 
 The `Yo` compiler is written in [TypeScript](https://www.typescriptlang.org/) and uses [Bun](https://bun.sh/) as the runtime.
 

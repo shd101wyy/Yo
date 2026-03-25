@@ -235,9 +235,10 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
   }
 
+  int err = (copied < 0) ? errno : 0;
   close(src_fd);
   close(dst_fd);
-  return (copied < 0) ? -errno : 0;
+  return (err != 0) ? -err : 0;
 }
 `);
   } else if (isMacos) {
@@ -609,8 +610,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   timer_future->read_buf = buf;
   io_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
   io_uring_sqe_set_data(sqe, future);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
+  __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
               (unsigned long long)milliseconds, __yo_pending_io_count);
@@ -621,10 +621,18 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   } else if (isMacos) {
     emitter.emitLine(`
 // ============================================================================
-// Timer Operations (macOS - dispatch_after)
+// Timer Operations (macOS - kqueue EVFILT_TIMER)
 // ============================================================================
 
-// macOS timer using dispatch_after
+// Monotonically increasing timer ID for unique kqueue ident values
+static uintptr_t __yo_timer_next_id = 1;
+
+// Timer context stored as kevent udata
+typedef struct __yo_timer_ctx_t {
+  __yo_io_future_t* future;
+} __yo_timer_ctx_t;
+
+// macOS timer using kqueue EVFILT_TIMER
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
   
@@ -637,20 +645,25 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  atomic_fetch_add(&__yo_pending_io_count, 1);
+  __yo_timer_ctx_t* ctx = (__yo_timer_ctx_t*)__yo_malloc(sizeof(__yo_timer_ctx_t));
+  ctx->future = future;
   
-  __yo_io_future_t* fut = future;
-  dispatch_after(
-    dispatch_time(DISPATCH_TIME_NOW, (int64_t)(milliseconds * NSEC_PER_MSEC)),
-    __yo_io_queue,
-    ^{
-      fut->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
-      __yo_io_wake_continuation(fut);
-    }
-  );
+  uintptr_t timer_id = __yo_timer_next_id++;
+  
+  struct kevent ev;
+  EV_SET(&ev, timer_id, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_USECONDS, (intptr_t)(milliseconds * 1000), (void*)ctx);
+  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
+    future->result = -errno;
+    atomic_store(&future->state, -1);
+    __yo_free(ctx);
+    ASYNC_DEBUG("[TIMER] Failed to register timer: errno=%d\\n", errno);
+    return future;
+  }
+  
+  __yo_pending_io_count++;
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
-              (unsigned long long)milliseconds, atomic_load(&__yo_pending_io_count));
+              (unsigned long long)milliseconds, __yo_pending_io_count);
   
   return future;
 }
@@ -995,12 +1008,15 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
 
   if (stdin_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stdin_fd, 0);
+    if (stdin_fd != 0) posix_spawn_file_actions_addclose(&actions, stdin_fd);
   }
   if (stdout_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stdout_fd, 1);
+    if (stdout_fd != 1) posix_spawn_file_actions_addclose(&actions, stdout_fd);
   }
   if (stderr_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stderr_fd, 2);
+    if (stderr_fd != 2) posix_spawn_file_actions_addclose(&actions, stderr_fd);
   }
 
   pid_t pid = 0;

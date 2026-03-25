@@ -2,6 +2,7 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 import path from "path";
 import {
+  checkCompilerAvailable,
   getCompilerInfo,
   getSanitizerFlags,
   isLiburingAvailable,
@@ -18,6 +19,35 @@ import {
   setCurrentTarget,
 } from "../target";
 import { setTargetPointerSize } from "../types/utils";
+
+export interface StaticLibraryArchiver {
+  tool: string;
+  argsPrefix: string[];
+}
+
+export function selectStaticLibraryArchiver(options: {
+  compiler: string;
+  targetInfo: TargetInfo;
+  hasLlvmAr?: boolean;
+}): StaticLibraryArchiver {
+  const { compiler, targetInfo, hasLlvmAr } = options;
+
+  if (compiler === "cl") {
+    return { tool: "lib", argsPrefix: [] };
+  }
+
+  if (isTargetWindows(targetInfo)) {
+    if (compiler === "zig") {
+      return { tool: "zig", argsPrefix: ["ar"] };
+    }
+
+    if (hasLlvmAr ?? checkCompilerAvailable("llvm-ar")) {
+      return { tool: "llvm-ar", argsPrefix: [] };
+    }
+  }
+
+  return { tool: "ar", argsPrefix: [] };
+}
 
 export class CodeGenerator {
   private moduleManager: ModuleManager;
@@ -147,6 +177,15 @@ export class CodeGenerator {
     setTargetPointerSize(targetInfo.pointerSizeBits);
 
     const isLibrary = !!(options.staticLibrary || options.shared);
+    const isWasm = isTargetWasm(targetInfo);
+    const requestedAllocator =
+      options.allocator ?? (isWasm ? "libc" : "mimalloc");
+    const effectiveAllocator =
+      requestedAllocator === "mimalloc" &&
+      !isWasm &&
+      !isTargetWindows(targetInfo)
+        ? "mimalloc"
+        : "libc";
 
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
@@ -154,7 +193,7 @@ export class CodeGenerator {
         debugGc: options.debugGc,
         debugParallelism: options.debugParallelism,
         debugAsyncAwait: options.debugAsyncAwait,
-        allocator: options.allocator ?? "mimalloc",
+        allocator: effectiveAllocator,
         isLibrary,
       });
 
@@ -192,6 +231,7 @@ export class CodeGenerator {
         // Static library: compile to .o then create .a archive
         if (options.staticLibrary) {
           const objectFile = outputFile + ".o";
+          const needsPositionIndependentCode = !isTargetWindows(targetInfo);
 
           // Step 1: Compile .c to .o
           const compileToObjArgs = isMSVC
@@ -200,7 +240,7 @@ export class CodeGenerator {
                 ...(compiler === "zig" ? ["cc"] : []),
                 "-std=c11",
                 "-c",
-                "-fPIC",
+                ...(needsPositionIndependentCode ? ["-fPIC"] : []),
                 "-w",
                 tempCFile,
                 "-o",
@@ -241,10 +281,14 @@ export class CodeGenerator {
           const archiveFile = outputFile.endsWith(".a")
             ? outputFile
             : `${outputFile}.a`;
-          const arTool = isMSVC ? "lib" : "ar";
+          const archiver = selectStaticLibraryArchiver({
+            compiler,
+            targetInfo,
+          });
+          const arTool = archiver.tool;
           const arArgs = isMSVC
             ? [`/OUT:${archiveFile}`, objectFile]
-            : ["rcs", archiveFile, objectFile];
+            : [...archiver.argsPrefix, "rcs", archiveFile, objectFile];
 
           console.log(`Creating archive: ${arTool} ${arArgs.join(" ")}`);
           const arResult = spawnSync(arTool, arArgs, { stdio: "inherit" });
@@ -337,7 +381,11 @@ export class CodeGenerator {
         // Add shared library flags if requested
         if (options.shared) {
           if (!isMSVC) {
-            compileArgs.splice(-2, 0, "-shared", "-fPIC");
+            const sharedFlags = ["-shared"];
+            if (!isTargetWindows(targetInfo)) {
+              sharedFlags.push("-fPIC");
+            }
+            compileArgs.splice(-2, 0, ...sharedFlags);
             console.log("Shared library mode enabled");
           } else {
             compileArgs.splice(-1, 0, "/LD"); // DLL mode for MSVC
@@ -404,7 +452,6 @@ export class CodeGenerator {
 
         // Add libraries from -l option
         const libraries = [...(options.libraries ?? [])];
-        const isWasm = isTargetWasm(targetInfo);
 
         // Platform-specific system libraries (skip for WASM)
         if (!isWasm) {
@@ -425,8 +472,17 @@ export class CodeGenerator {
         });
 
         // Add mimalloc if using mimalloc allocator (not available for WASM)
-        const allocator = isWasm ? "libc" : (options.allocator ?? "mimalloc");
-        if (allocator === "mimalloc") {
+        if (
+          requestedAllocator === "mimalloc" &&
+          effectiveAllocator === "libc" &&
+          isTargetWindows(targetInfo)
+        ) {
+          console.warn(
+            "Bundled mimalloc is not currently supported on Windows builds; falling back to libc."
+          );
+        }
+
+        if (effectiveAllocator === "mimalloc") {
           const stdPath = this.moduleManager.stdPath;
           const vendorPath = path.join(path.dirname(stdPath), "vendor");
 

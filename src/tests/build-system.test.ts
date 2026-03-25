@@ -5,8 +5,11 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { execSync } from "child_process";
+import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import {
   parseLockFile,
   writeLockFileContent,
@@ -17,8 +20,16 @@ import {
 } from "../lock-file";
 import { parseTarget, clangTriple, type TargetInfo } from "../target";
 import { getGlobalCacheDir } from "../cache";
+import { selectStaticLibraryArchiver } from "../codegen";
+import {
+  areDependenciesCached,
+  computeContentHash,
+  fetchAllDependencies,
+  resolveDependencyPath,
+} from "../fetch";
 import {
   type BuildArtifact,
+  type BuildGitDependency,
   BuildRegistry,
   clearBuildRegistry,
   getBuildRegistry,
@@ -26,6 +37,107 @@ import {
   getRootBuildProjectDir,
   setRootBuildProjectDir,
 } from "../evaluator/builtins/build";
+import { resolveSystemLibrary } from "../pkg-config";
+
+function withTemporaryYoCache<T>(run: (cacheRoot: string) => T): T {
+  const previousYoCacheDir = process.env.YO_CACHE_DIR;
+  const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-cache-"));
+
+  process.env.YO_CACHE_DIR = cacheRoot;
+
+  try {
+    return run(cacheRoot);
+  } finally {
+    if (previousYoCacheDir === undefined) {
+      delete process.env.YO_CACHE_DIR;
+    } else {
+      process.env.YO_CACHE_DIR = previousYoCacheDir;
+    }
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  }
+}
+
+function writeTestFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf-8");
+}
+
+function createCachedDependency(
+  cacheRoot: string,
+  depName: string,
+  commit: string,
+  files: Record<string, string>
+): string {
+  const depDir = path.join(
+    cacheRoot,
+    "deps",
+    `${depName}-${commit.slice(0, 12)}`
+  );
+  fs.mkdirSync(depDir, { recursive: true });
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeTestFile(path.join(depDir, relativePath), content);
+  }
+
+  return depDir;
+}
+
+function writeDependencyLockFile(projectDir: string, entry: LockEntry): void {
+  fs.writeFileSync(
+    path.join(projectDir, "yo.lock"),
+    writeLockFileContent({ dependencies: [entry] }),
+    "utf-8"
+  );
+}
+
+function createTestDependency(
+  name: string,
+  url: string = "https://example.com/test-dep.git",
+  ref: string = "main"
+): BuildGitDependency {
+  return {
+    name,
+    url,
+    ref,
+    path: "",
+  };
+}
+
+function createTempGitRepo(files: Record<string, string>): {
+  repoDir: string;
+  url: string;
+  commit: string;
+} {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-git-dep-"));
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeTestFile(path.join(repoDir, relativePath), content);
+  }
+
+  execSync("git init", { cwd: repoDir, stdio: "pipe" });
+  execSync('git config user.email "yo-tests@example.com"', {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execSync('git config user.name "Yo Tests"', {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+  execSync('git commit -m "Initial commit"', { cwd: repoDir, stdio: "pipe" });
+
+  const commit = execSync("git rev-parse HEAD", {
+    cwd: repoDir,
+    encoding: "utf-8",
+    stdio: "pipe",
+  }).trim();
+
+  return {
+    repoDir,
+    url: pathToFileURL(repoDir).href,
+    commit,
+  };
+}
 
 // ── Lock file tests ──────────────────────────────────────────────────
 
@@ -463,6 +575,483 @@ describe("Global cache directory", () => {
   });
 });
 
+describe("Dependency cache integrity", () => {
+  test("areDependenciesCached returns true when the cached hash matches yo.lock", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "0123456789abcdef0123456789abcdef01234567";
+
+      try {
+        const cachedDir = createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+          "src/lib.yo": "value :: i32(1);\n",
+        });
+        const hash = computeContentHash(cachedDir);
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash,
+        });
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(true);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("areDependenciesCached returns false when the cached hash mismatches yo.lock", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "fedcba9876543210fedcba9876543210fedcba98";
+
+      try {
+        createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+        });
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash: "sha256-not-the-real-hash",
+        });
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(false);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("resolveDependencyPath throws on an integrity mismatch", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const dep = createTestDependency("demo-dep");
+      const commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+      try {
+        createCachedDependency(cacheRoot, dep.name, commit, {
+          "build.yo": 'build :: import "std/build";\n',
+        });
+
+        writeDependencyLockFile(projectDir, {
+          name: dep.name,
+          url: dep.url,
+          ref: dep.ref,
+          commit,
+          hash: "sha256-bad-hash",
+        });
+
+        expect(() => resolveDependencyPath(projectDir, dep.name)).toThrow(
+          /failed integrity check/i
+        );
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("fetchAllDependencies refetches a cached dependency after a hash mismatch", () => {
+    withTemporaryYoCache((cacheRoot) => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
+      const repo = createTempGitRepo({
+        "build.yo": 'build :: import "std/build";\n',
+        "src/lib.yo": "answer :: i32(42);\n",
+      });
+      const dep = createTestDependency("demo-dep", repo.url, "HEAD");
+
+      try {
+        const firstResult = fetchAllDependencies(projectDir, [dep]);
+        const firstEntry = findLockEntry(firstResult.lockFile, dep.name);
+        const cachedDir = firstResult.resolvedPaths.get(dep.name);
+
+        expect(firstEntry).toBeDefined();
+        expect(cachedDir).toBeDefined();
+
+        writeTestFile(path.join(cachedDir!, "tampered.txt"), "tampered\n");
+        // Remove the sidecar so the next check falls back to full re-hash
+        // and detects the tampering.
+        const sidecarPath = path.join(cachedDir!, ".yo-content-hash");
+        if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
+
+        expect(areDependenciesCached(projectDir, [dep])).toBe(false);
+        expect(() => resolveDependencyPath(projectDir, dep.name)).toThrow(
+          /failed integrity check/i
+        );
+
+        const secondResult = fetchAllDependencies(projectDir, [dep]);
+        const secondEntry = findLockEntry(secondResult.lockFile, dep.name);
+        const repairedDir = secondResult.resolvedPaths.get(dep.name);
+
+        expect(secondEntry).toBeDefined();
+        expect(secondEntry!.commit).toBe(repo.commit);
+        expect(secondEntry!.hash).toBe(firstEntry!.hash);
+        expect(repairedDir).toBeDefined();
+        expect(fs.existsSync(path.join(repairedDir!, "tampered.txt"))).toBe(
+          false
+        );
+        expect(
+          fs
+            .readFileSync(path.join(repairedDir!, "src/lib.yo"), "utf-8")
+            .replace(/\r\n/g, "\n")
+        ).toBe("answer :: i32(42);\n");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+        fs.rmSync(repo.repoDir, { recursive: true, force: true });
+        fs.rmSync(path.join(cacheRoot, "deps"), {
+          recursive: true,
+          force: true,
+        });
+      }
+    });
+  });
+});
+
+describe("System library resolution", () => {
+  function writeTestDll(filePath: string, importedDllNames: string[]): void {
+    const sectionRva = 0x1000;
+    const sectionFileOffset = 0x200;
+    const descriptorSize = 20;
+    const descriptorTableSize = descriptorSize * (importedDllNames.length + 1);
+    let nextStringRva = sectionRva + descriptorTableSize;
+    const importStrings = importedDllNames.map((importedDllName) => {
+      const currentRva = nextStringRva;
+      nextStringRva += Buffer.byteLength(importedDllName, "ascii") + 1;
+      return { importedDllName, rva: currentRva };
+    });
+    const sectionSize = Math.ceil((nextStringRva - sectionRva) / 0x200) * 0x200;
+    const buffer = Buffer.alloc(sectionFileOffset + sectionSize, 0);
+
+    buffer.write("MZ", 0, "ascii");
+    buffer.writeUInt32LE(0x80, 0x3c);
+    buffer.write("PE\0\0", 0x80, "ascii");
+
+    const fileHeaderOffset = 0x84;
+    buffer.writeUInt16LE(0x8664, fileHeaderOffset);
+    buffer.writeUInt16LE(1, fileHeaderOffset + 2);
+    buffer.writeUInt16LE(0xf0, fileHeaderOffset + 16);
+    buffer.writeUInt16LE(0x2022, fileHeaderOffset + 18);
+
+    const optionalHeaderOffset = 0x98;
+    buffer.writeUInt16LE(0x20b, optionalHeaderOffset);
+    buffer.writeUInt32LE(16, optionalHeaderOffset + 108);
+    if (importedDllNames.length > 0) {
+      buffer.writeUInt32LE(sectionRva, optionalHeaderOffset + 120);
+      buffer.writeUInt32LE(descriptorTableSize, optionalHeaderOffset + 124);
+    }
+
+    const sectionHeaderOffset = optionalHeaderOffset + 0xf0;
+    buffer.write(".rdata", sectionHeaderOffset, "ascii");
+    buffer.writeUInt32LE(sectionSize, sectionHeaderOffset + 8);
+    buffer.writeUInt32LE(sectionRva, sectionHeaderOffset + 12);
+    buffer.writeUInt32LE(sectionSize, sectionHeaderOffset + 16);
+    buffer.writeUInt32LE(sectionFileOffset, sectionHeaderOffset + 20);
+    buffer.writeUInt32LE(0x40000040, sectionHeaderOffset + 36);
+
+    importStrings.forEach((importString, index) => {
+      const descriptorOffset = sectionFileOffset + index * descriptorSize;
+      buffer.writeUInt32LE(importString.rva, descriptorOffset + 12);
+      buffer.write(
+        importString.importedDllName,
+        sectionFileOffset + (importString.rva - sectionRva),
+        "ascii"
+      );
+    });
+
+    fs.writeFileSync(filePath, buffer);
+  }
+
+  test("resolves vcpkg libraries by matching a library file", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const binDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const runtimeDll = path.join(binDir, "yo_fake_lib.dll");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, "yo_fake_lib.lib"), "");
+      fs.writeFileSync(runtimeDll, "");
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_fake_lib",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([libDir]);
+      expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.defines).toEqual([]);
+      expect(result.runtimeFiles).toEqual([runtimeDll]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back when vcpkg root exists but the library is not installed", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const fallbackInclude = path.join("fallback", "include");
+    const fallbackLib = path.join("fallback", "lib");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_missing_lib",
+          fallbackInclude,
+          fallbackLib,
+          fallbackLink: "yo_missing_lib",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([fallbackInclude]);
+      expect(result.libraryPaths).toEqual([fallbackLib]);
+      expect(result.linkLibraries).toEqual(["yo_missing_lib"]);
+      expect(result.defines).toEqual([]);
+      expect(result.runtimeFiles).toEqual([]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers debug vcpkg runtime files for debug builds", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const releaseLibDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const debugLibDir = path.join(
+      vcpkgRoot,
+      "installed",
+      triplet,
+      "debug",
+      "lib"
+    );
+    const releaseBinDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const debugBinDir = path.join(
+      vcpkgRoot,
+      "installed",
+      triplet,
+      "debug",
+      "bin"
+    );
+    const releaseDll = path.join(releaseBinDir, "yo_debug_pref.dll");
+    const debugDll = path.join(debugBinDir, "yo_debug_pref.dll");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(releaseLibDir, { recursive: true });
+      fs.mkdirSync(debugLibDir, { recursive: true });
+      fs.mkdirSync(releaseBinDir, { recursive: true });
+      fs.mkdirSync(debugBinDir, { recursive: true });
+      fs.writeFileSync(path.join(releaseLibDir, "yo_debug_pref.lib"), "");
+      fs.writeFileSync(path.join(debugLibDir, "yo_debug_pref.lib"), "");
+      fs.writeFileSync(releaseDll, "");
+      fs.writeFileSync(debugDll, "");
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_debug_pref",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false,
+        { preferDebugRuntime: true }
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([debugLibDir]);
+      expect(result.linkLibraries).toEqual(["yo_debug_pref"]);
+      expect(result.defines).toEqual([]);
+      expect(result.runtimeFiles).toEqual([debugDll]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers transitive vcpkg runtime DLL dependencies", () => {
+    const previousVcpkgRoot = process.env.VCPKG_ROOT;
+    const previousTriplet = process.env.VCPKG_DEFAULT_TRIPLET;
+    const vcpkgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "yo-vcpkg-"));
+    const triplet = "x64-windows";
+    const includeDir = path.join(vcpkgRoot, "installed", triplet, "include");
+    const libDir = path.join(vcpkgRoot, "installed", triplet, "lib");
+    const binDir = path.join(vcpkgRoot, "installed", triplet, "bin");
+    const runtimeDll = path.join(binDir, "yo_fake_lib.dll");
+    const transitiveDll = path.join(binDir, "yo_dependency.dll");
+
+    try {
+      fs.mkdirSync(includeDir, { recursive: true });
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, "yo_fake_lib.lib"), "");
+      writeTestDll(runtimeDll, ["yo_dependency.dll"]);
+      writeTestDll(transitiveDll, []);
+
+      process.env.VCPKG_ROOT = vcpkgRoot;
+      process.env.VCPKG_DEFAULT_TRIPLET = triplet;
+
+      const result = resolveSystemLibrary(
+        {
+          name: "yo_fake_lib",
+          fallbackInclude: "",
+          fallbackLib: "",
+          fallbackLink: "",
+        },
+        false
+      );
+
+      expect(result.includePaths).toEqual([includeDir]);
+      expect(result.libraryPaths).toEqual([libDir]);
+      expect(result.linkLibraries).toEqual(["yo_fake_lib"]);
+      expect(result.defines).toEqual([]);
+      expect(result.runtimeFiles).toEqual([runtimeDll, transitiveDll]);
+    } finally {
+      if (previousVcpkgRoot === undefined) {
+        delete process.env.VCPKG_ROOT;
+      } else {
+        process.env.VCPKG_ROOT = previousVcpkgRoot;
+      }
+      if (previousTriplet === undefined) {
+        delete process.env.VCPKG_DEFAULT_TRIPLET;
+      } else {
+        process.env.VCPKG_DEFAULT_TRIPLET = previousTriplet;
+      }
+      fs.rmSync(vcpkgRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves explicit system-library defines metadata", () => {
+    const result = resolveSystemLibrary(
+      {
+        name: "yo_metadata_lib",
+        fallbackInclude: "",
+        fallbackLib: "",
+        fallbackLink: "yo_metadata_lib",
+        defines: ["YO_HEADER_FIXUP", "YO_EXTRA_DEFINE"],
+      },
+      false
+    );
+
+    expect(result.linkLibraries).toEqual(["yo_metadata_lib"]);
+    expect(result.defines).toEqual(["YO_HEADER_FIXUP", "YO_EXTRA_DEFINE"]);
+  });
+});
+
+describe("Windows static library archiver selection", () => {
+  const windowsTarget: TargetInfo = {
+    arch: "x86_64",
+    os: "windows",
+    abi: "msvc",
+    pointerSizeBits: 64,
+    triple: "x86_64-windows-msvc",
+  };
+
+  test("prefers llvm-ar for clang Windows builds when available", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "clang",
+        targetInfo: windowsTarget,
+        hasLlvmAr: true,
+      })
+    ).toEqual({
+      tool: "llvm-ar",
+      argsPrefix: [],
+    });
+  });
+
+  test("falls back to ar when llvm-ar is unavailable", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "clang",
+        targetInfo: windowsTarget,
+        hasLlvmAr: false,
+      })
+    ).toEqual({
+      tool: "ar",
+      argsPrefix: [],
+    });
+  });
+
+  test("uses zig ar for zig Windows builds", () => {
+    expect(
+      selectStaticLibraryArchiver({
+        compiler: "zig",
+        targetInfo: windowsTarget,
+      })
+    ).toEqual({
+      tool: "zig",
+      argsPrefix: ["ar"],
+    });
+  });
+});
+
 // ── BuildRegistry tests ──────────────────────────────────────────────
 
 function makeDefaultArtifactConfig() {
@@ -480,8 +1069,10 @@ function makeDefaultArtifactConfig() {
     defines: [] as string[],
     strip: false,
     staticLink: false,
+    runtimeFiles: [] as string[],
     linkedArtifacts: [] as string[],
     linkedSystemLibraries: [] as string[],
+    importedModules: [],
   };
 }
 
@@ -666,18 +1257,14 @@ describe("BuildRegistry steps", () => {
 
   test("register run step", () => {
     const reg = new BuildRegistry();
-    reg.registerRun("my-app", []);
+    reg.runSteps.push({
+      name: "run:my-app",
+      artifactName: "my-app",
+      args: [],
+    });
     expect(reg.runSteps).toHaveLength(1);
     expect(reg.runSteps[0]!.name).toBe("run:my-app");
     expect(reg.runSteps[0]!.artifactName).toBe("my-app");
-  });
-
-  test("register project metadata", () => {
-    const reg = new BuildRegistry();
-    reg.registerProject("my-app", "./src/lib.yo");
-    expect(reg.project).toBeDefined();
-    expect(reg.project!.name).toBe("my-app");
-    expect(reg.project!.root).toBe("./src/lib.yo");
   });
 
   test("addStepDependency adds dependency to existing step", () => {
@@ -758,20 +1345,28 @@ describe("swapBuildRegistry", () => {
     // Start clean
     clearBuildRegistry();
     const original = getBuildRegistry();
-    original.registerProject("root", "./src/lib.yo");
+    original.registerModule({
+      name: "root",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
 
     const fresh = new BuildRegistry();
-    fresh.registerProject("dep", "./src/lib.yo");
+    fresh.registerModule({
+      name: "dep",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
 
     const prev = swapBuildRegistry(fresh);
     expect(prev).toBe(original);
     expect(getBuildRegistry()).toBe(fresh);
-    expect(getBuildRegistry().project?.name).toBe("dep");
+    expect(getBuildRegistry().modules[0]?.name).toBe("dep");
 
     // Restore
     swapBuildRegistry(prev);
     expect(getBuildRegistry()).toBe(original);
-    expect(getBuildRegistry().project?.name).toBe("root");
+    expect(getBuildRegistry().modules[0]?.name).toBe("root");
 
     // Clean up
     clearBuildRegistry();
@@ -780,7 +1375,13 @@ describe("swapBuildRegistry", () => {
 
 // ── DAG builder tests ────────────────────────────────────────────────
 
-import { buildDAG, detectCycle, computeDependencyHash } from "../build-runner";
+import {
+  buildDAG,
+  detectCycle,
+  computeDependencyHash,
+  getArtifactOutputFileName,
+  stageRuntimeFiles,
+} from "../build-runner";
 
 describe("buildDAG", () => {
   test("empty step produces empty DAG", () => {
@@ -967,17 +1568,80 @@ function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
     sanitize: "none",
     strip: false,
     staticLink: false,
+    runtimeFiles: [],
     cSources: [],
     includePaths: [],
     libraryPaths: [],
     linkLibraries: [],
     linkedArtifacts: [],
     linkedSystemLibraries: [],
+    importedModules: [],
     defines: [],
     cFlags: [],
   };
 }
 
+describe("Artifact output naming", () => {
+  test("appends .exe for Windows executables", () => {
+    expect(
+      getArtifactOutputFileName(
+        {
+          kind: "executable",
+          name: "app",
+          target: "x86_64-linux-gnu",
+        },
+        "x86_64-windows-msvc"
+      )
+    ).toBe("app.exe");
+  });
+
+  test("keeps bare executable name on non-Windows targets", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "executable",
+        name: "app",
+        target: "x86_64-linux-gnu",
+      })
+    ).toBe("app");
+  });
+
+  test("keeps static library base name unchanged", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "static_library",
+        name: "mylib",
+        target: "x86_64-windows-msvc",
+      })
+    ).toBe("libmylib");
+  });
+});
+
+describe("Runtime dependency staging", () => {
+  test("copies unique runtime files into the output directory", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-runtime-stage-"));
+    const runtimeDir = path.join(tempDir, "runtime");
+    const outputDir = path.join(tempDir, "out");
+    const runtimeDll = path.join(runtimeDir, "raylib.dll");
+
+    try {
+      fs.mkdirSync(runtimeDir, { recursive: true });
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.writeFileSync(runtimeDll, "runtime");
+
+      const stagedFiles = stageRuntimeFiles(
+        [runtimeDll, runtimeDll],
+        outputDir,
+        false
+      );
+      const stagedDll = path.join(outputDir, "raylib.dll");
+
+      expect(stagedFiles).toEqual([stagedDll]);
+      expect(fs.readFileSync(stagedDll, "utf8")).toBe("runtime");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
 // ── Root build project dir (transitive import resolution) ────────────
 
 describe("rootBuildProjectDir", () => {
@@ -1129,5 +1793,174 @@ describe("Transitive dependency support", () => {
     expect(depARegistry.findArtifact("libA")?.linkedArtifacts).toContain(
       "libB"
     );
+  });
+});
+
+// ── Module system tests ──────────────────────────────────────────────
+
+describe("Module registration", () => {
+  test("register and find module", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-module",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    const found = reg.findModule("my-module");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("my-module");
+    expect(found!.root).toBe("./src/lib.yo");
+    expect(found!.linkedSystemLibraries).toEqual([]);
+  });
+
+  test("register module with linked system libraries", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "raylib_yo",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("raylib_yo", "raylib");
+    const found = reg.findModule("raylib_yo");
+    expect(found).toBeDefined();
+    expect(found!.linkedSystemLibraries).toEqual(["raylib"]);
+  });
+
+  test("duplicate module link is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("my-mod", "raylib");
+    reg.registerModuleLink("my-mod", "raylib");
+    const found = reg.findModule("my-mod");
+    expect(found!.linkedSystemLibraries).toEqual(["raylib"]);
+  });
+
+  test("multiple system libraries can be linked to a module", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModuleLink("my-mod", "raylib");
+    reg.registerModuleLink("my-mod", "openssl");
+    const found = reg.findModule("my-mod");
+    expect(found!.linkedSystemLibraries).toEqual(["raylib", "openssl"]);
+  });
+
+  test("duplicate module registration is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: [],
+    });
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/other.yo",
+      linkedSystemLibraries: [],
+    });
+    expect(reg.modules).toHaveLength(1);
+    expect(reg.findModule("my-mod")!.root).toBe("./src/lib.yo");
+  });
+
+  test("findModule returns undefined for non-existent module", () => {
+    const reg = new BuildRegistry();
+    expect(reg.findModule("non-existent")).toBeUndefined();
+  });
+});
+
+describe("Imported modules on artifacts", () => {
+  test("register imported module on artifact", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(1);
+    expect(artifact!.importedModules[0]!.importName).toBe("raylib_yo");
+    expect(artifact!.importedModules[0]!.dependencyName).toBe("raylib_yo");
+  });
+
+  test("duplicate import name is ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "other",
+      dependencyName: "raylib_yo",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(1);
+  });
+
+  test("multiple imported modules on same artifact", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerImportedModule("app", {
+      importName: "math_lib",
+      moduleName: "math",
+      dependencyName: "math_lib",
+    });
+    const artifact = reg.findArtifact("app");
+    expect(artifact!.importedModules).toHaveLength(2);
+  });
+
+  test("imported module on non-existent artifact is silently ignored", () => {
+    const reg = new BuildRegistry();
+    reg.registerImportedModule("non-existent", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    // No error thrown
+  });
+
+  test("swap preserves imported modules", () => {
+    clearBuildRegistry();
+    const reg = getBuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerImportedModule("app", {
+      importName: "raylib_yo",
+      moduleName: "",
+      dependencyName: "raylib_yo",
+    });
+    reg.registerModule({
+      name: "my-mod",
+      root: "./src/lib.yo",
+      linkedSystemLibraries: ["raylib"],
+    });
+
+    const saved = swapBuildRegistry(new BuildRegistry());
+    expect(saved).toBeDefined();
+    expect(saved!.findArtifact("app")!.importedModules).toHaveLength(1);
+    expect(saved!.modules).toHaveLength(1);
+    expect(saved!.findModule("my-mod")!.linkedSystemLibraries).toEqual([
+      "raylib",
+    ]);
+
+    // Current registry is fresh
+    const current = getBuildRegistry();
+    expect(current.modules).toHaveLength(0);
+
+    // Cleanup
+    clearBuildRegistry();
   });
 });

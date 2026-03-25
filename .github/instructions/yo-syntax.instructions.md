@@ -218,6 +218,7 @@ For files within the same directory, always use relative paths (`./file.yo`). Fo
 
 - `unit` is a type not value, `()` is the unit value.
 - There is no `loop` function. Use `while runtime(true), body` for runtime, or `while true, body` for comptime.
+- **`while true` is evaluated at compile time!** If the loop body has no runtime values and no `break`/`return`/`escape`, the evaluator will hang or exceed the iteration limit. Always use `while runtime(true), { ... }` for infinite runtime loops (e.g., server accept loops, event loops).
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 

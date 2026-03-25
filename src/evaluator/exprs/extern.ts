@@ -9,9 +9,19 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { ExternLanguage, ModuleField } from "../../types/definitions";
-import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
+import {
+  isFunctionType,
+  isStructType,
+  isEnumType,
+  isUnionType,
+  isTypeHierarchyType,
+} from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { createUnknownValue, isComptimeStringValue } from "../../value";
+import {
+  createUnknownValue,
+  isComptimeStringValue,
+  isTypeValue,
+} from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleField } from "../types/module";
@@ -128,6 +138,21 @@ export function evaluateExtern({
       };
     } else {
       field.type = { ...field.type, isExtern: language };
+    }
+
+    // When a field has an assigned type value (e.g., (Color : Type) = struct(r: u8, ...)),
+    // propagate extern metadata to the underlying type so codegen uses the extern name
+    // instead of generating a mangled __yo_<id> name and struct definition.
+    if (
+      field.assignedValue &&
+      isTypeValue(field.assignedValue) &&
+      (isStructType(field.assignedValue.value) ||
+        isEnumType(field.assignedValue.value) ||
+        isUnionType(field.assignedValue.value))
+    ) {
+      const underlyingType = field.assignedValue.value;
+      underlyingType.isExtern = language;
+      underlyingType.externName = field.label;
     }
 
     fields.push(field);

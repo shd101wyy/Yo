@@ -6,7 +6,7 @@
 //
 // Usage in build.yo:
 //   build :: import "std/build";
-//   build.project({ name: "my-app", root: "./src/lib.yo" });
+//   mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 //   exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 //   install :: build.step("install", "Build all artifacts");
 //   install.depend_on(exe);
@@ -61,12 +61,6 @@ export target_host;
 // Usage: build.executable({ name: "app", root: "./src/main.yo" })
 // Unspecified fields get their default values.
 
-Project :: struct(
-  name : comptime_string,
-  (root : comptime_string) ?= "./src/lib.yo"
-);
-export Project;
-
 Executable :: struct(
   name : comptime_string,
   root : comptime_string,
@@ -100,6 +94,26 @@ TestSuite :: struct(
 );
 export TestSuite;
 
+// ── Build module type ────────────────────────────────────────────────
+// Represents a named source module that declares system library requirements.
+// Modules are the unit of reuse across Yo dependencies.
+
+BuildModule :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  _dep : comptime_string  // dependency name, empty for local modules
+);
+export BuildModule;
+
+// ── Import entry type ────────────────────────────────────────────────
+// Pairs an import name with a module for use with add_import/add_import_list.
+
+ImportEntry :: struct(
+  name : comptime_string,
+  module : BuildModule
+);
+export ImportEntry;
+
 // ── Step type ────────────────────────────────────────────────────────
 // Returned by all build functions. Used to wire dependencies between steps.
 
@@ -118,6 +132,17 @@ impl(Step,
   }),
   link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
     __yo_build_link(self.name, library.name);
+  }),
+  add_import : (fn(comptime(self) : Self, comptime(entry) : ImportEntry) -> comptime(unit))({
+    __yo_build_add_import(self.name, entry.name, entry.module.name, entry.module._dep);
+  })
+);
+
+// ── Build module methods ─────────────────────────────────────────────
+
+impl(BuildModule,
+  link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
+    __yo_build_module_link(self.name, library.name);
   })
 );
 
@@ -150,10 +175,10 @@ export PathDependency;
 
 SystemLibrary :: struct(
   name : comptime_string,
-  pkg_config : comptime_string,
   (fallback_include : comptime_string) ?= "",
   (fallback_lib : comptime_string) ?= "",
-  (fallback_link : comptime_string) ?= ""
+  (fallback_link : comptime_string) ?= "",
+  (defines : comptime_string) ?= ""
 );
 export SystemLibrary;
 
@@ -172,18 +197,18 @@ impl(Dependency,
   artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
     __yo_build_dep_artifact(self.name, artifact_name);
     Step(name: artifact_name, kind: StepKind.StaticLibrary)
+  }),
+  // Get a module from the dependency's build.yo.
+  // Empty module_name defaults to the sole module if exactly one exists.
+  module : (fn(comptime(self) : Self, comptime(module_name) : comptime_string) -> comptime(BuildModule))({
+    _encoded :: __yo_build_dep_module(self.name, module_name);
+    BuildModule(name: module_name, root: "", _dep: self.name)
   })
 );
 
 // ── Build functions ──────────────────────────────────────────────────
 // All registration functions return a Step value, allowing steps to be
 // wired together as dependencies via step.depend_on(dep).
-
-// Register project metadata.
-project :: (fn(comptime(config) : Project) -> comptime(unit)) {
-  __yo_build_project(config.name, config.root);
-};
-export project;
 
 // Register an executable artifact. Returns a Step for dependency wiring.
 executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
@@ -273,10 +298,26 @@ export path_dependency;
 
 // Register a system C library discovered via pkg-config. Returns a Step for linking.
 system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {
-  __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
+  __yo_build_system_library(config.name, config.fallback_include, config.fallback_lib, config.fallback_link, config.defines);
   Step(name: config.name, kind: StepKind.SystemLibrary)
 };
 export system_library;
+
+// ── Module config type ───────────────────────────────────────────────
+
+ModuleConfig :: struct(
+  name : comptime_string,
+  root : comptime_string
+);
+export ModuleConfig;
+
+// Register a named module. Returns a BuildModule for linking system libraries
+// and importing into executables/libraries.
+_module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule)) {
+  __yo_build_module(config.name, config.root);
+  BuildModule(name: config.name, root: config.root, _dep: "")
+};
+export module : _module;
 
 // Declare a user-configurable build option.
 // Returns the option value (from CLI -Dname=value, or the default).
