@@ -60,6 +60,26 @@ io.async((using(io : IO)) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
+## `if` is a macro for `cond`
+
+`if` is defined in `prelude.yo` as a macro that expands to `cond`:
+
+```yo
+if(condition, then_body)        // → cond(condition => then_body, true => ())
+if(condition, then_body, else)  // → cond(condition => then_body, true => else)
+```
+
+Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
+
+```yo
+if((arch == Arch.Wasm32), {
+  printf("  skipped on wasm32\n");
+  return ();
+});
+```
+
+Use `cond` when there are more than two branches or when the branches are large.
+
 ## Function definitions
 
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
