@@ -6,6 +6,10 @@ $ErrorActionPreference = "Stop"
 
 # Resolve the directory this script lives in and run from there.
 $ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
+
+# Save the user's original working directory before cd
+$env:YO_ORIGINAL_CWD = (Get-Location).Path
+
 Set-Location $ScriptDir
 
 # Allow overriding `bun` executable via the BUN environment variable.
