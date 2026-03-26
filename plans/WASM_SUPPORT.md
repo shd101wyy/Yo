@@ -83,7 +83,6 @@ WASM has no native network stack. Socket/DNS operations return `-ENOSYS`.
 - `tests/sys/fs_event.test.yo` — inotify/kqueue (no FS event watching)
 - `tests/sys/process.test.yo` — process spawn/wait (no process model)
 - `tests/sys/lock.test.yo` — flock() (not implemented in Emscripten)
-- `tests/sys/timer.test.yo` — relies on async scheduling (usleep blocks synchronously)
 
 ### 3. Inline Assembly
 
@@ -105,7 +104,7 @@ Some test files have individual tests skipped on WASM while the rest pass:
 
 ## WASM Test Results Summary
 
-**File-level skips:** 15 test files
+**File-level skips:** 14 test files
 **Test-level skips:** 5 individual tests (in 5 different files)
 **Passing:** All remaining tests pass, including:
 
@@ -114,7 +113,7 @@ Some test files have individual tests skipped on WASM while the rest pass:
 - Comptime, threading (via Emscripten pthreads), workers, Arc (cross-thread)
 - Process (cwd, chdir), sync primitives (channel, once, rwlock, waitgroup)
 - **sys/**: file, pipe, seek, iov, path, temp, bufio, sysinfo, umask, fallocate, copy,
-  clock, time, dir, advise, fcntl, perm, constants
+  clock, time, dir, advise, fcntl, perm, constants, timer
 - **fs/**: file (13 tests), dir (12 tests), metadata (6), temp (7), walker (6),
   fs_convenience (9)
 - **os/**: env (7 tests)
@@ -186,12 +185,20 @@ immediately-completed IOFutures (same pattern as macOS). Key changes:
 Environment variable operations (`env.get`, `env.set`, `env.remove`, `home_dir`, `config_dir`,
 `temp_dir`) work on WASM through Emscripten's POSIX environment API.
 
+### ~~Async Timer/Sleep~~ — FIXED
+
+The WASM runtime previously used blocking `usleep()` for sleep, which prevented async task
+interleaving. Now uses a sorted linked list timer queue (same pattern as Windows): timers are
+registered as pending IOFutures with due times, and the event loop polls/waits for them via
+`__yo_io_poll`/`__yo_io_wait`. This enables proper cooperative scheduling during sleep — other
+tasks run while a timer is pending. The WASM event loop now has full I/O infrastructure
+(`__yo_io_init`, `__yo_io_poll`, `__yo_io_wait`, `__yo_has_pending_io`).
+
 ## Known Limitations
 
 - **Hard links**: NODERAWFS's `link()` returns EMLINK (errno 34). Tests gracefully skip.
 - **flock()**: Not implemented in Emscripten. `lock.test.yo` is fully skipped.
 - **Nanosecond timestamps**: NODERAWFS preserves only microsecond precision for file timestamps.
-- **Timer/sleep**: `usleep()` blocks synchronously in WASM — no async interleaving.
 - **WASM stack size**: Limited stack; large buffers (>8KB) may cause out-of-bounds errors.
   The sendfile fallback buffer was reduced from 64KB to 8KB.
 - **mmap**: Not supported for file mapping in Emscripten.

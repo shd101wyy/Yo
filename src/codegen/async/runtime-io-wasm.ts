@@ -316,10 +316,16 @@ export function generateAsyncRuntimeIOWasm(emitter: Emitter): void {
 // Emscripten's virtual filesystem (MEMFS) provides synchronous POSIX I/O.
 // Each async function performs the real syscall immediately and returns an
 // already-completed IOFuture (state = -1), following the macOS pattern.
+//
+// Timer operations use a sorted linked list of pending timer entries (same
+// pattern as Windows). The event loop polls timers during __yo_io_poll and
+// blocks with usleep in __yo_io_wait until the next timer fires.
 
 #ifndef ENOSYS
 #define ENOSYS 52
 #endif
+
+#include <time.h>
 
 // --- Helper to create a completed IOFuture with a result ---
 static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
@@ -331,6 +337,123 @@ static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
   future->result = result;
   atomic_init(&future->state, -1);  // completed
   return future;
+}
+
+// ============================================================================
+// WASM I/O Infrastructure — Timer Queue
+// ============================================================================
+
+static _Thread_local size_t __yo_pending_io_count = 0;
+
+// Timer entry for sorted linked list (earliest due time first)
+typedef struct __yo_wasm_timer_entry_t {
+  uint64_t due_ms;
+  __yo_io_future_t* future;
+  struct __yo_wasm_timer_entry_t* next;
+} __yo_wasm_timer_entry_t;
+
+static _Thread_local __yo_wasm_timer_entry_t* __yo_wasm_timer_head = NULL;
+
+// Get current monotonic time in milliseconds
+static uint64_t __yo_wasm_now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+}
+
+static void __yo_io_wake_continuation(__yo_io_future_t* future) {
+  atomic_store_explicit(&future->state, -1, memory_order_release);
+
+  void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
+  void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
+
+  if (cont_fn && cont_sm) {
+    __yo_async_spawn_task(cont_fn, cont_sm);
+  }
+
+  __yo_pending_io_count--;
+}
+
+// Add a timer to the sorted queue
+static void __yo_wasm_timer_add(__yo_io_future_t* future, uint64_t milliseconds) {
+  __yo_pending_io_count++;
+
+  __yo_wasm_timer_entry_t* node = (__yo_wasm_timer_entry_t*)__yo_malloc(sizeof(__yo_wasm_timer_entry_t));
+  if (!node) {
+    future->result = -ENOMEM;
+    __yo_io_wake_continuation(future);
+    return;
+  }
+
+  uint64_t now_ms = __yo_wasm_now_ms();
+  node->due_ms = now_ms + milliseconds;
+  node->future = future;
+  node->next = NULL;
+
+  // Insert sorted by due time (earliest first)
+  if (!__yo_wasm_timer_head || node->due_ms < __yo_wasm_timer_head->due_ms) {
+    node->next = __yo_wasm_timer_head;
+    __yo_wasm_timer_head = node;
+    return;
+  }
+
+  __yo_wasm_timer_entry_t* cur = __yo_wasm_timer_head;
+  while (cur->next && cur->next->due_ms <= node->due_ms) {
+    cur = cur->next;
+  }
+  node->next = cur->next;
+  cur->next = node;
+}
+
+// Process all timers that are due
+static int __yo_wasm_timer_process_due(uint64_t now_ms) {
+  int fired = 0;
+  while (__yo_wasm_timer_head && __yo_wasm_timer_head->due_ms <= now_ms) {
+    __yo_wasm_timer_entry_t* node = __yo_wasm_timer_head;
+    __yo_wasm_timer_head = node->next;
+    node->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd convention
+    __yo_io_wake_continuation(node->future);
+    __yo_free(node);
+    fired++;
+  }
+  return fired;
+}
+
+// I/O init — no-op for WASM (no kernel resources to initialize)
+static void __yo_io_init(void) {
+  __yo_io_initialized = true;
+}
+
+// Cleanup pending timers
+static void __yo_io_cleanup(void) {
+  while (__yo_wasm_timer_head) {
+    __yo_wasm_timer_entry_t* node = __yo_wasm_timer_head;
+    __yo_wasm_timer_head = node->next;
+    __yo_free(node);
+  }
+  __yo_io_initialized = false;
+}
+
+static inline bool __yo_has_pending_io(void) {
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
+}
+
+// Non-blocking poll: fire any due timers
+static int __yo_io_poll(void) {
+  return __yo_wasm_timer_process_due(__yo_wasm_now_ms());
+}
+
+// Blocking wait: sleep until next timer fires, then process
+static int __yo_io_wait(void) {
+  if (__yo_pending_io_count == 0) return 0;
+
+  uint64_t now_ms = __yo_wasm_now_ms();
+  if (__yo_wasm_timer_head && __yo_wasm_timer_head->due_ms > now_ms) {
+    uint64_t wait_ms = __yo_wasm_timer_head->due_ms - now_ms;
+    usleep((useconds_t)(wait_ms * 1000));
+  }
+
+  return __yo_wasm_timer_process_due(__yo_wasm_now_ms());
 }
 
 // --- File operations ---
@@ -520,11 +643,19 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
 
 // --- Timer ---
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
-  // Emscripten: use usleep for blocking sleep on virtual FS thread
-  if (milliseconds > 0) {
-    usleep((useconds_t)(milliseconds * 1000));
-  }
-  return __yo_wasm_io_completed(1);
+  __yo_io_init();
+
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  future->header.ref_count = 1;
+  atomic_init(&future->state, 0);  // pending
+  future->result = 0;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  __yo_wasm_timer_add(future, milliseconds);
+
+  return future;
 }
 
 // --- DNS (stub — no real networking) ---

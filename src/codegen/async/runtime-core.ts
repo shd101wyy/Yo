@@ -13,7 +13,7 @@ export function generateAsyncRuntimeCore(
   emitter: Emitter,
   targetInfo: TargetInfo
 ): void {
-  const hasIO = !isTargetWasm(targetInfo);
+  const hasIO = true; // All platforms now have I/O (WASM uses timer queue)
   const threadLocal = isTargetWindows(targetInfo)
     ? "__declspec(thread)"
     : "_Thread_local";
