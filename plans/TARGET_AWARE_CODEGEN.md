@@ -192,7 +192,7 @@ if (isTargetWindows(targetInfo)) {
 
 **No.** The wasm32 target should be treated as its own distinct platform, not fall back to the host. Rationale:
 
-1. **Yo already handles this correctly at the Yo level.** `std/process.yo` returns `Platform.Wasi` / `Arch.Wasm32` when the target is `wasm32-wasi`. The evaluator dead-code-eliminates non-WASI branches. This is correct.
+1. **Yo already handles this correctly at the Yo level.** `std/process.yo` returns `Platform.Emscripten` / `Platform.Wasi` / `Arch.Wasm32` when the target is `wasm32-emscripten` or `wasm32-wasi`. The evaluator dead-code-eliminates non-WASM branches. This is correct.
 
 2. **The C runtime is the concern.** WASM has no threads, no async I/O (io_uring/kqueue/IOCP), no signals, no fork, etc. The current code "works" because `#if defined(__linux__)` / `#if defined(_WIN32)` / `#if defined(__APPLE__)` all evaluate to false when compiling for wasm32, so the C compiler ignores all platform-specific runtime code.
 
@@ -290,18 +290,18 @@ Some C preprocessor usage is **not** platform detection and should remain:
 - After each phase, run the existing test suite: `./yo-cli test ./tests/<relevant>.test.yo`
 - Compile a non-trivial program (`--emit-c`) and verify the generated C has no `#if defined(_WIN32)` etc. (for non-Windows targets)
 - Cross-compile check: `./yo-cli compile --target x86_64-linux-gnu --emit-c --skip-c-compiler` and verify Linux-only code
-- WASM check: `./yo-cli compile --target wasm32-wasi --emit-c --skip-c-compiler` and verify no thread/async runtime
+- WASM check: `./yo-cli compile --target wasm-emscripten --emit-c --skip-c-compiler` and verify no thread/async runtime
 
 ## Expected Outcome
 
 After full migration:
 
-| Target           | Current C lines | Expected C lines | Reduction |
-| ---------------- | --------------- | ---------------- | --------- |
-| macOS (aarch64)  | ~16,000         | ~8,800           | ~45%      |
-| Linux (x86_64)   | ~16,000         | ~8,900           | ~44%      |
-| Windows (x86_64) | ~16,000         | ~12,400          | ~22%      |
-| wasm32-wasi      | ~16,000         | ~5,000           | ~69%      |
+| Target            | Current C lines | Expected C lines | Reduction |
+| ----------------- | --------------- | ---------------- | --------- |
+| macOS (aarch64)   | ~16,000         | ~8,800           | ~45%      |
+| Linux (x86_64)    | ~16,000         | ~8,900           | ~44%      |
+| Windows (x86_64)  | ~16,000         | ~12,400          | ~22%      |
+| wasm32-emscripten | ~16,000         | ~5,000           | ~69%      |
 
 Windows has the largest platform-specific runtime (IOCP is complex), so it benefits least from eliminating others. WASM benefits most because it needs no I/O runtime, no threads, and no parallelism.
 

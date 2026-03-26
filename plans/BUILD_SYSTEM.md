@@ -50,7 +50,8 @@ aarch64-macos-none
 x86_64-windows-msvc
 aarch64-windows-msvc
 x86_64-windows-gnu       (MinGW)
-wasm32-wasi              (WebAssembly)
+wasm32-emscripten        (WebAssembly, Emscripten)
+wasm32-wasi              (WebAssembly, standalone WASI)
 ```
 
 ### 1.2 Supported Architectures
@@ -203,7 +204,7 @@ macos :: build.executable({
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: "wasm32-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 
@@ -885,7 +886,7 @@ Existing options (unchanged):
 ### Phase 4: Cross-Compilation & WASM ✅
 
 15. ✅ Add `--target=<triple>` passthrough to clang in codegen
-16. ✅ WASM/WASI target support (`wasm32-wasi` triple, 32-bit pointer, skip platform libs/mimalloc/liburing)
+16. ✅ WASM/WASI target support (`wasm32-emscripten` + `wasm32-wasi` triples, 32-bit pointer, skip platform libs/mimalloc/liburing)
 17. ✅ `--cc` flag on `yo build` for compiler override (e.g., `yo build --cc zig`)
 18. ✅ Platform-specific library linking based on target (not host)
 19. Add `--sysroot` support (future)
@@ -974,12 +975,12 @@ Existing options (unchanged):
 
 ### WASM-Specific Changes
 
-| File                   | WASM-Related Changes                                               |
-| ---------------------- | ------------------------------------------------------------------ |
-| `src/target.ts`        | `wasi` OS, `wasm` ABI, `wasm32-wasi` clangTriple, `isTargetWasm()` |
-| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing for WASM   |
-| `std/process.yo`       | `Platform.Wasi` variant                                            |
-| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM |
+| File                   | WASM-Related Changes                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/target.ts`        | `wasi`/`emscripten` OS, `wasm` ABI, `isTargetWasm()`, `isTargetEmscripten()`, `isTargetStandaloneWasi()` |
+| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing, NODERAWFS/STANDALONE_WASM flags                 |
+| `std/process.yo`       | `Platform.Emscripten` and `Platform.Wasi` variants                                                       |
+| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM                                       |
 
 ---
 
