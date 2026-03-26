@@ -19,10 +19,16 @@
 
 import { Emitter } from "../../emitter";
 import type { TargetInfo } from "../../target";
-import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
+import {
+  isTargetWindows,
+  isTargetLinux,
+  isTargetMacos,
+  isTargetWasm,
+} from "../../target";
 import { generatePlatformSysRuntimeMacOS } from "./runtime-io-macos";
 import { generatePlatformSysRuntimeLinux } from "./runtime-io-linux";
 import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
+import { generatePlatformSysRuntimeWasm } from "./runtime-io-wasm";
 
 // ---------------------------------------------------------------------------
 // 1. Synchronous system runtime — no async/IOFuture dependency
@@ -30,8 +36,9 @@ import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
 
 /**
  * Emits synchronous POSIX system helpers.  These do NOT depend on the async
- * runtime (no IOFuture, no event-loop types).  Emitted for every non-wasm
- * target; unused `static` functions are dead-code-eliminated by the C compiler.
+ * runtime (no IOFuture, no event-loop types).  Emitted for every target;
+ * unused `static` functions are dead-code-eliminated by the C compiler.
+ * WASM targets get stub implementations that return -ENOSYS.
  */
 export function generateSysRuntime(
   emitter: Emitter,
@@ -40,6 +47,7 @@ export function generateSysRuntime(
   const isWindows = isTargetWindows(targetInfo);
   const isLinux = isTargetLinux(targetInfo);
   const isMacos = isTargetMacos(targetInfo);
+  const isWasm = isTargetWasm(targetInfo);
 
   if (isWindows) {
     generatePlatformSysRuntimeWindows(emitter);
@@ -508,6 +516,11 @@ static int32_t __yo_isatty(int32_t fd) {
   // Linux-specific sync helpers (pipe, dup, mmap, socket address helpers, statx, etc.)
   if (isLinux) {
     generatePlatformSysRuntimeLinux(emitter);
+  }
+
+  // WASM stubs for platform-specific sync helpers
+  if (isWasm) {
+    generatePlatformSysRuntimeWasm(emitter);
   }
 }
 

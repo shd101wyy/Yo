@@ -22,8 +22,10 @@ import {
   exprToString,
 } from "./expr";
 import { ModuleManager } from "./module-manager";
+import { parseTarget, setCurrentTarget } from "./target";
 import { TokenType } from "./token";
 import { clearAllCachedTypes } from "./types/creators";
+import { setTargetPointerSize } from "./types/utils";
 import { clearAllModuleCounters } from "./utils";
 import { isComptimeStringValue } from "./value";
 
@@ -99,8 +101,116 @@ export interface TestRunSummary {
   totalTests: number;
   passed: number;
   failed: number;
+  skipped: number;
   results: TestResult[];
   duration: number;
+}
+
+// ---------------------------------------------------------------------------
+// WASM test skip lists
+// ---------------------------------------------------------------------------
+// Tests that cannot run under Emscripten/WASM due to missing platform features.
+// See issues/wasm-test-limitations.md for details.
+
+/** Test files to skip entirely when running with emcc (relative to tests/) */
+const WASM_SKIP_FILES: Set<string> = new Set([
+  // sys/ — async I/O operations (file, socket, pipe, etc.) not available
+  "sys/advise.test.yo",
+  "sys/bufio.test.yo",
+  "sys/clock.test.yo",
+  "sys/constants.test.yo",
+  "sys/copy.test.yo",
+  "sys/dir.test.yo",
+  "sys/dns.test.yo",
+  "sys/fallocate.test.yo",
+  "sys/fcntl.test.yo",
+  "sys/file.test.yo",
+  "sys/fs_event.test.yo",
+  "sys/iov.test.yo",
+  "sys/lock.test.yo",
+  "sys/mmap.test.yo",
+  "sys/path.test.yo",
+  "sys/perm.test.yo",
+  "sys/pipe.test.yo",
+  "sys/poll.test.yo",
+  "sys/process.test.yo",
+  "sys/seek.test.yo",
+  "sys/socketpair.test.yo",
+  "sys/sockinfo.test.yo",
+  "sys/sysinfo.test.yo",
+  "sys/tcp.test.yo",
+  "sys/temp.test.yo",
+  "sys/time.test.yo",
+  "sys/timer.test.yo",
+  "sys/udp.test.yo",
+  "sys/umask.test.yo",
+  "sys/unix.test.yo",
+  // fs/ — file system operations
+  "fs/dir.test.yo",
+  "fs/file.test.yo",
+  "fs/fs_convenience.test.yo",
+  "fs/metadata.test.yo",
+  "fs/temp.test.yo",
+  "fs/walker.test.yo",
+  // net/ — network I/O
+  "net/dns.test.yo",
+  "net/tcp.test.yo",
+  "net/udp.test.yo",
+  // Inline assembly — not supported on WASM
+  "asm.test.yo",
+  // getrandom syscall unavailable
+  "crypto/random.test.yo",
+]);
+
+/** Individual test names to skip when running with emcc */
+const WASM_SKIP_TEST_NAMES: Set<string> = new Set([
+  // comptime — 32-bit isize overflow
+  "Test comptime isize",
+  // async escape — function pointer table mismatch in WASM
+  "Test escape in async closure",
+  "Test JoinHandle await returns None on escape",
+  "Test JoinHandle two tasks one escapes",
+  "Test JoinHandle escape via spawn-injected effect",
+  // sync/channel — pthread not available
+  "Channel single producer single consumer with Thread",
+  "Channel thread producer sends many values",
+  "Channel consumer thread blocks until producer sends",
+  "Channel close wakes blocked consumer Thread",
+  "Channel bounded capacity blocks producer",
+  "Channel capacity 1 works as rendezvous",
+  "Channel send from Worker recv from main",
+  "Channel Worker sends multiple values",
+  // sync/once — pthread not available
+  "Once call from multiple threads executes only once",
+  "Once is_done visible across threads after call",
+  "Once multiple threads race to call",
+  "Once with Workers executes only once",
+  // sync/rwlock — pthread not available
+  "RwLock concurrent readers across threads",
+  "RwLock writer thread modifies shared data",
+  "RwLock two writer threads increment counter",
+  "RwLock readers wait for writer across threads",
+  "RwLock with Workers concurrent reads",
+  "RwLock with Workers write then read",
+  // sync/waitgroup — pthread not available
+  "WaitGroup threads call done then main waits",
+  "WaitGroup add before spawn done in thread",
+  "WaitGroup reuse across thread groups",
+  "WaitGroup with Workers",
+  "WaitGroup with Workers and sleep",
+  // time — clock_gettime returns stub values in WASM
+  "Instant.now returns non-zero time",
+  "DateTime.now_utc returns valid date",
+]);
+
+/**
+ * Check if a test file should be skipped for WASM.
+ * @param filePath absolute path to the test file
+ * @param testsDir absolute path to the tests/ directory
+ */
+function isWasmSkippedFile(filePath: string, testsDir: string): boolean {
+  const rel = path.relative(testsDir, filePath).replace(/\\/g, "/");
+  return WASM_SKIP_FILES.has(rel);
 }
 
 /**
@@ -302,15 +412,20 @@ function runSingleTest(
   const originalDir = path.dirname(test.filePath);
   const baseName = `.yo_test_${sanitizedName}_${uniqueId}`;
   const testFilePath = path.join(originalDir, `${baseName}.yo`);
-  // On Windows, executables must have .exe extension
-  const exeExtension = process.platform === "win32" ? ".exe" : "";
+  const compilerInfo = getCompilerInfo(cCompiler);
+  const { isMSVC, isWindows, isEmcc } = compilerInfo;
+  // emcc outputs .js (+ .wasm), Windows needs .exe
+  const exeExtension = isEmcc ? ".js" : isWindows ? ".exe" : "";
   const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
   const testCPath = path.join(originalDir, `${baseName}.c`);
+  // emcc also generates a .wasm file alongside the .js
+  const testWasmPath = isEmcc
+    ? path.join(originalDir, `${baseName}.wasm`)
+    : undefined;
   // On Windows with MSVC/Clang-cl, .pdb debug files are generated alongside the executable
-  const testPdbPath =
-    process.platform === "win32"
-      ? path.join(originalDir, `${baseName}.pdb`)
-      : undefined;
+  const testPdbPath = isWindows
+    ? path.join(originalDir, `${baseName}.pdb`)
+    : undefined;
 
   // Helper to clean up all temp files
   const cleanup = () => {
@@ -323,6 +438,9 @@ function runSingleTest(
     const filesToClean = [testFilePath, testOutputPath, testCPath];
     if (testPdbPath) {
       filesToClean.push(testPdbPath);
+    }
+    if (testWasmPath) {
+      filesToClean.push(testWasmPath);
     }
     for (const file of filesToClean) {
       if (fs.existsSync(file)) {
@@ -341,6 +459,13 @@ function runSingleTest(
     clearEnvContainingPrelude();
     clearAllCachedTypes();
     clearAllModuleCounters();
+
+    // Set WASM target when using emcc so the evaluator sees wasm32 arch/platform
+    if (isEmcc) {
+      const wasmTarget = parseTarget("wasm32-wasi");
+      setCurrentTarget(wasmTarget);
+      setTargetPointerSize(wasmTarget.pointerSizeBits);
+    }
 
     // Generate test program
     const testProgram = generateTestProgram(test, nonTestContent);
@@ -388,14 +513,13 @@ function runSingleTest(
 
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
-    const compilerInfo = getCompilerInfo(cCompiler);
-    const { isMSVC, isWindows } = compilerInfo;
+    // (compilerInfo, isMSVC, isWindows, isEmcc already set above)
 
-    // Get ASAN flags using shared utility
-    // ASAN is enabled if we get non-empty flags back (handles cases like MinGW GCC where ASAN isn't available)
-    const asanFlags = !isMSVC
-      ? getSanitizerFlags({ sanitize: "address", compilerInfo })
-      : { flags: [] };
+    // Get ASAN flags (skip for emcc — WASM doesn't support ASAN)
+    const asanFlags =
+      !isMSVC && !isEmcc
+        ? getSanitizerFlags({ sanitize: "address", compilerInfo })
+        : { flags: [] };
     const useAsan = asanFlags.flags.length > 0;
 
     const compileArgs = isMSVC
@@ -403,9 +527,8 @@ function runSingleTest(
       : [
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-O0",
+          ...(isEmcc ? ["-w"] : ["-Wall", "-Wextra"]),
+          isEmcc ? "-O2" : "-O0",
           ...asanFlags.flags,
           testCPath,
           "-o",
@@ -422,13 +545,13 @@ function runSingleTest(
       }
     }
 
-    // Add -masm=intel when inline assembly uses Intel syntax
-    if (!isMSVC && needsIntelAsmSyntax) {
+    // Add -masm=intel when inline assembly uses Intel syntax (not for emcc)
+    if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
       compileArgs.splice(-2, 0, "-masm=intel");
     }
 
-    // Add liburing on Linux for async I/O (uses system-installed liburing)
-    if (!isMSVC && isLiburingAvailable()) {
+    // Add liburing on Linux for async I/O (not for emcc)
+    if (!isMSVC && !isEmcc && isLiburingAvailable()) {
       compileArgs.splice(-2, 0, "-luring");
     }
 
@@ -450,73 +573,85 @@ function runSingleTest(
       };
     }
 
-    // Run the test executable with AddressSanitizer leak detection enabled
-    // On macOS, we need to suppress system library leaks
-    // On Windows with Clang, we need to find and add the ASAN DLL path to PATH
-    const isMacOS = process.platform === "darwin";
-    const lsanSuppressions = getMacOSLsanSuppressions();
-
-    // Create a temporary suppression file for macOS
-    let suppressionFile: string | undefined;
-    if (isMacOS && lsanSuppressions) {
-      suppressionFile = `${testOutputPath}.lsan_suppressions.txt`;
-      fs.writeFileSync(suppressionFile, lsanSuppressions);
-    }
-
-    // On Windows with Clang, find the ASAN DLL directory
-    // (GCC uses static linking so doesn't need this)
-    const asanDllPath =
-      isWindows && useAsan && compilerInfo.isClangOnWindows
-        ? findClangAsanDllPath(cCompiler)
-        : undefined;
-
-    // Build environment with ASAN settings
-    const runEnv = buildAsanRunEnvironment({
-      compilerInfo,
-      asanDllPath,
-      lsanSuppressionFile: suppressionFile,
-      detectLeaks: true,
-    });
-
+    // Run the test executable
     const runStart = Date.now();
-    let runResult = spawnSync(testOutputPath, [], {
-      stdio: "pipe",
-      encoding: "utf-8",
-      timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
-      env: runEnv,
-    });
+    let runResult;
 
-    // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
-    const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
-    const leakDetectionNotSupported = combinedOutputInitial.includes(
-      "detect_leaks is not supported"
-    );
-
-    // If leak detection is not supported, rerun without it
-    if (leakDetectionNotSupported) {
-      const runEnvNoLeaks = buildAsanRunEnvironment({
-        compilerInfo,
-        asanDllPath,
-        lsanSuppressionFile: suppressionFile,
-        detectLeaks: false,
-      });
-      runResult = spawnSync(testOutputPath, [], {
+    if (isEmcc) {
+      // WASM: run via node (emcc produces .js + .wasm)
+      runResult = spawnSync("node", [testOutputPath], {
         stdio: "pipe",
         encoding: "utf-8",
         timeout: 60000,
-        env: runEnvNoLeaks,
       });
+    } else {
+      // Native: run with AddressSanitizer leak detection
+      // On macOS, we need to suppress system library leaks
+      // On Windows with Clang, we need to find and add the ASAN DLL path to PATH
+      const isMacOS = process.platform === "darwin";
+      const lsanSuppressions = getMacOSLsanSuppressions();
+
+      // Create a temporary suppression file for macOS
+      let suppressionFile: string | undefined;
+      if (isMacOS && lsanSuppressions) {
+        suppressionFile = `${testOutputPath}.lsan_suppressions.txt`;
+        fs.writeFileSync(suppressionFile, lsanSuppressions);
+      }
+
+      // On Windows with Clang, find the ASAN DLL directory
+      // (GCC uses static linking so doesn't need this)
+      const asanDllPath =
+        isWindows && useAsan && compilerInfo.isClangOnWindows
+          ? findClangAsanDllPath(cCompiler)
+          : undefined;
+
+      // Build environment with ASAN settings
+      const runEnv = buildAsanRunEnvironment({
+        compilerInfo,
+        asanDllPath,
+        lsanSuppressionFile: suppressionFile,
+        detectLeaks: true,
+      });
+
+      runResult = spawnSync(testOutputPath, [], {
+        stdio: "pipe",
+        encoding: "utf-8",
+        timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
+        env: runEnv,
+      });
+
+      // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
+      const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+      const leakDetectionNotSupported = combinedOutputInitial.includes(
+        "detect_leaks is not supported"
+      );
+
+      // If leak detection is not supported, rerun without it
+      if (leakDetectionNotSupported) {
+        const runEnvNoLeaks = buildAsanRunEnvironment({
+          compilerInfo,
+          asanDllPath,
+          lsanSuppressionFile: suppressionFile,
+          detectLeaks: false,
+        });
+        runResult = spawnSync(testOutputPath, [], {
+          stdio: "pipe",
+          encoding: "utf-8",
+          timeout: 60000,
+          env: runEnvNoLeaks,
+        });
+      }
+
+      // Clean up suppression file
+      if (suppressionFile && fs.existsSync(suppressionFile)) {
+        fs.unlinkSync(suppressionFile);
+      }
     }
 
-    // Clean up suppression file
-    if (suppressionFile && fs.existsSync(suppressionFile)) {
-      fs.unlinkSync(suppressionFile);
-    }
-
-    // Check for memory leaks in the output (only if leak detection was supported)
+    // Check for memory leaks in the output (skip for emcc — no ASAN)
     const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
     const hasMemoryLeak =
-      !leakDetectionNotSupported &&
+      !isEmcc &&
       (combinedOutput.includes("LeakSanitizer") ||
         combinedOutput.includes("detected memory leaks") ||
         combinedOutput.includes("Direct leak") ||
@@ -732,6 +867,7 @@ async function runTestsInIsolatedProcesses({
   const allResults: TestResult[] = [];
   let passedTests = 0;
   let failedTests = 0;
+  let skippedTestNames = 0;
   let nextFileIndex = 0;
   let bailed = false;
 
@@ -775,7 +911,9 @@ async function runTestsInIsolatedProcesses({
       } else if (result.summary.results.length === 0) {
         console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
         console.log();
+        skippedTestNames += result.summary.skipped ?? 0;
       } else {
+        skippedTestNames += result.summary.skipped ?? 0;
         for (const testResult of result.summary.results) {
           allResults.push(testResult);
           if (testResult.passed) {
@@ -837,6 +975,9 @@ async function runTestsInIsolatedProcesses({
   if (failedTests > 0) {
     console.log(`${colors.red}${failedTests} failed${colors.reset}`);
   }
+  if (skippedTestNames > 0) {
+    console.log(`${colors.yellow}${skippedTestNames} skipped${colors.reset}`);
+  }
   console.log(
     `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`
   );
@@ -846,6 +987,7 @@ async function runTestsInIsolatedProcesses({
     totalTests: passedTests + failedTests,
     passed: passedTests,
     failed: failedTests,
+    skipped: skippedTestNames,
     results: allResults,
     duration: totalDuration,
   };
@@ -940,6 +1082,38 @@ export async function runTests(
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
   const cCompiler = options.cCompiler ?? "cc";
+  const isEmcc = cCompiler === "emcc";
+
+  // Resolve the tests/ directory for WASM skip path matching.
+  // Walk up from first test file to find the "tests" directory ancestor.
+  const testsDir = (() => {
+    if (testFiles.length === 0) return path.resolve(process.cwd(), "tests");
+    let dir = path.dirname(testFiles[0]!);
+    while (dir !== path.dirname(dir)) {
+      if (path.basename(dir) === "tests") return dir;
+      dir = path.dirname(dir);
+    }
+    return path.resolve(process.cwd(), "tests");
+  })();
+
+  // Filter out WASM-skipped files before any processing
+  let skippedTests = 0;
+  let filteredTestFiles = testFiles;
+  if (isEmcc) {
+    filteredTestFiles = [];
+    for (const filePath of testFiles) {
+      if (isWasmSkippedFile(filePath, testsDir)) {
+        skippedTests++;
+      } else {
+        filteredTestFiles.push(filePath);
+      }
+    }
+    if (skippedTests > 0) {
+      console.log(
+        `${colors.yellow}Skipping ${skippedTests} test file(s) incompatible with WASM${colors.reset}\n`
+      );
+    }
+  }
 
   // Determine concurrency level
   const maxCpus = os.cpus().length;
@@ -967,6 +1141,7 @@ export async function runTests(
         totalTests: 0,
         passed: 0,
         failed: 0,
+        skipped: 0,
         results: [],
         duration: 0,
       };
@@ -985,8 +1160,8 @@ export async function runTests(
   // For parallel mode, run each test file in an isolated child process.
   // This avoids interference from global mutable state in the compiler/evaluator.
   if (concurrency > 1) {
-    return await runTestsInIsolatedProcesses({
-      testFiles,
+    const parallelResult = await runTestsInIsolatedProcesses({
+      testFiles: filteredTestFiles,
       cCompiler,
       concurrency,
       verbose: options.verbose,
@@ -996,6 +1171,8 @@ export async function runTests(
       profile: options.profile,
       startTime,
     });
+    parallelResult.skipped += skippedTests;
+    return parallelResult;
   }
 
   // Initialize result tracking variables early so they can be used in error handling
@@ -1005,7 +1182,7 @@ export async function runTests(
   let bailed = false;
 
   // Process files incrementally so users get immediate feedback
-  for (const filePath of testFiles) {
+  for (const filePath of filteredTestFiles) {
     if (bailed) break;
 
     const relativePath = path.relative(process.cwd(), filePath);
@@ -1038,6 +1215,16 @@ export async function runTests(
 
     if (testNameRegex) {
       tests = tests.filter((test) => testNameRegex.test(test.name));
+    }
+
+    // Skip individual tests incompatible with WASM
+    if (isEmcc) {
+      const beforeCount = tests.length;
+      tests = tests.filter((test) => !WASM_SKIP_TEST_NAMES.has(test.name));
+      const skippedCount = beforeCount - tests.length;
+      if (skippedCount > 0) {
+        skippedTests += skippedCount;
+      }
     }
 
     if (tests.length === 0) {
@@ -1110,6 +1297,9 @@ export async function runTests(
   if (failedTests > 0) {
     console.log(`${colors.red}${failedTests} failed${colors.reset}`);
   }
+  if (skippedTests > 0) {
+    console.log(`${colors.yellow}${skippedTests} skipped${colors.reset}`);
+  }
   console.log(
     `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`
   );
@@ -1119,6 +1309,7 @@ export async function runTests(
     totalTests: passedTests + failedTests,
     passed: passedTests,
     failed: failedTests,
+    skipped: skippedTests,
     results: allResults,
     duration: totalDuration,
   };

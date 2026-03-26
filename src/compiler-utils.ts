@@ -16,6 +16,8 @@ export interface CompilerInfo {
   isGccOnWindows: boolean;
   /** Whether this is Clang on Windows */
   isClangOnWindows: boolean;
+  /** Whether this is Emscripten (emcc) for WASM */
+  isEmcc: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ export function getCompilerInfo(compiler: string): CompilerInfo {
   const isWindows = process.platform === "win32";
   const isGccOnWindows = isWindows && (compiler === "gcc" || compiler === "cc");
   const isClangOnWindows = isWindows && compiler === "clang";
+  const isEmcc = compiler === "emcc";
 
   return {
     compiler,
@@ -33,6 +36,7 @@ export function getCompilerInfo(compiler: string): CompilerInfo {
     isWindows,
     isGccOnWindows,
     isClangOnWindows,
+    isEmcc,
   };
 }
 
