@@ -39,7 +39,7 @@ import { ModuleManager } from "./module-manager";
 import { clearAllModuleCounters } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import { resolveAllSystemLibraries } from "./pkg-config";
-import { isTargetWindows, parseTarget } from "./target";
+import { isTargetWasm, isTargetWindows, parseTarget } from "./target";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -79,6 +79,10 @@ export function getArtifactOutputFileName(
 
   if (artifact.kind === "executable" && isTargetWindows(effectiveTarget)) {
     return `${artifact.name}.exe`;
+  }
+
+  if (artifact.kind === "executable" && isTargetWasm(effectiveTarget)) {
+    return `${artifact.name}.js`;
   }
 
   return artifact.name;
@@ -821,7 +825,15 @@ async function compileArtifact(
   if (compiledArtifacts.has(artifact.name)) return;
   compiledArtifacts.add(artifact.name);
 
-  const { projectDir, cCompiler, registry } = ctx;
+  const { projectDir, registry } = ctx;
+  let { cCompiler } = ctx;
+
+  // Auto-select emcc for WASM targets
+  const effectiveTarget = ctx.targetTriple ?? artifact.target;
+  const parsedTarget = parseTarget(effectiveTarget);
+  if (isTargetWasm(parsedTarget) && cCompiler !== "emcc") {
+    cCompiler = "emcc";
+  }
 
   // Compile linked library artifacts first
   for (const linkedName of artifact.linkedArtifacts) {
@@ -1705,6 +1717,14 @@ async function compileDependencyArtifact(
     verbose?: boolean;
   }
 ): Promise<void> {
+  // Auto-select emcc for WASM targets
+  const effectiveTarget = opts.targetTriple ?? artifact.target;
+  const parsedTarget = parseTarget(effectiveTarget);
+  const cCompiler =
+    isTargetWasm(parsedTarget) && opts.cCompiler !== "emcc"
+      ? "emcc"
+      : opts.cCompiler;
+
   const sourcePath = artifact.root; // Already absolute
   if (!fs.existsSync(sourcePath)) {
     console.error(`Error: Dependency source file not found: ${sourcePath}`);
@@ -1736,7 +1756,7 @@ async function compileDependencyArtifact(
   const codeGenerator = new CodeGenerator();
   codeGenerator.compileModule(absolutePath, {
     output: outputPath,
-    cCompiler: opts.cCompiler,
+    cCompiler,
     target: "c",
     targetTriple: opts.targetTriple ?? artifact.target,
     sysroot: opts.sysroot,
@@ -1801,11 +1821,21 @@ async function runExecutable(
     process.exit(1);
   }
 
+  // WASM executables (.js) need to be run with node
+  const effectiveTarget = ctx.targetTriple ?? artifact.target;
+  const parsedTarget = parseTarget(effectiveTarget);
+  const isWasm = isTargetWasm(parsedTarget);
+
   const { spawnSync } = await import("child_process");
-  const result = spawnSync(exePath, args, {
-    stdio: "inherit",
-    cwd: projectDir,
-  });
+  const result = isWasm
+    ? spawnSync("node", [exePath, ...args], {
+        stdio: "inherit",
+        cwd: projectDir,
+      })
+    : spawnSync(exePath, args, {
+        stdio: "inherit",
+        cwd: projectDir,
+      });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
