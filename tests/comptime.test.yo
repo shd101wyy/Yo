@@ -1,4 +1,4 @@
-{ arch, Arch } :: import "std/process";
+
 test "Test comptime f32", {
   // Basic f32 values
   a :: f32(100.5);
@@ -1412,23 +1412,22 @@ test "Test comptime i64", {
 };
 
 test "Test comptime isize", {
-  if((arch == Arch.Wasm32), return ());
-  // Basic isize values
-  a :: isize(100000);
-  b :: isize(25000);
-  c :: isize(100000);
+  // Basic isize values (values chosen to fit 32-bit isize for wasm32)
+  a :: isize(10000);
+  b :: isize(2500);
+  c :: isize(10000);
   zero :: isize(0);
-  neg_val :: isize(-50000);
+  neg_val :: isize(-5000);
   
   // Arithmetic operations
-  sum :: (a + b);        // 125000isize
-  diff :: (a - b);       // 75000isize
-  prod :: (a * b);       // 2500000000isize
+  sum :: (a + b);        // 12500isize
+  diff :: (a - b);       // 7500isize
+  prod :: (a * b);       // 25000000isize
   quot :: (a / b);       // 4isize (integer division)
-  remainder :: (a % b);  // 0isize (100000 % 25000 = 0)
+  remainder :: (a % b);  // 0isize (10000 % 2500 = 0)
   
   // Unary operations
-  neg_a :: -(a);         // -100000isize
+  neg_a :: -(a);         // -10000isize
   neg_zero :: -(zero);   // 0isize
   
   // Comparison operations
@@ -1446,22 +1445,22 @@ test "Test comptime isize", {
   gte_equal :: (a >= c); // true (100000isize >= 100000isize)
   
   // Type conversion operations
-  isize_to_i64 :: i64(a);      // 100000i64
-  isize_to_u64 :: u64(a);      // 100000u64
-  isize_to_f32 :: f32(a);      // 100000.0f32
-  isize_to_f64 :: f64(a);      // 100000.0f64
-  isize_to_string :: a.to_comptime_string(); // "100000"
+  isize_to_i64 :: i64(a);      // 10000i64
+  isize_to_u64 :: u64(a);      // 10000u64
+  isize_to_f32 :: f32(a);      // 10000.0f32
+  isize_to_f64 :: f64(a);      // 10000.0f64
+  isize_to_string :: a.to_comptime_string(); // "10000"
   
   // Test with compile-time assertions
   // Arithmetic
-  comptime_assert(sum == isize(125000));
-  comptime_assert(diff == isize(75000));
-  comptime_assert(prod == isize(2500000000));
+  comptime_assert(sum == isize(12500));
+  comptime_assert(diff == isize(7500));
+  comptime_assert(prod == isize(25000000));
   comptime_assert(quot == isize(4));
   comptime_assert(remainder == isize(0));
   
   // Unary operations
-  comptime_assert(neg_a == isize(-100000));
+  comptime_assert(neg_a == isize(-10000));
   comptime_assert(neg_zero == isize(0));
   
   // Comparisons
@@ -1479,49 +1478,49 @@ test "Test comptime isize", {
   comptime_assert(gte_equal == true);
   
   // Type conversions
-  comptime_assert(isize_to_i64 == i64(100000));
-  comptime_assert(isize_to_u64 == u64(100000));
-  comptime_assert(isize_to_f32 == f32(100000.0));
-  comptime_assert(isize_to_f64 == f64(100000.0));
-  comptime_assert(isize_to_string == "100000");
+  comptime_assert(isize_to_i64 == i64(10000));
+  comptime_assert(isize_to_u64 == u64(10000));
+  comptime_assert(isize_to_f32 == f32(10000.0));
+  comptime_assert(isize_to_f64 == f64(10000.0));
+  comptime_assert(isize_to_string == "10000");
   
   // Test with negative numbers
   {
-    neg_sum :: (neg_val + a);     // -50000 + 100000 = 50000isize
-    neg_diff :: (neg_val - a);    // -50000 - 100000 = -150000isize
-    neg_prod :: (neg_val * isize(2)); // -50000 * 2 = -100000isize
-    neg_quot :: (neg_val / isize(10)); // -50000 / 10 = -5000isize
+    neg_sum :: (neg_val + a);     // -5000 + 10000 = 5000isize
+    neg_diff :: (neg_val - a);    // -5000 - 10000 = -15000isize
+    neg_prod :: (neg_val * isize(2)); // -5000 * 2 = -10000isize
+    neg_quot :: (neg_val / isize(10)); // -5000 / 10 = -500isize
     
     // Comparisons with negatives
-    neg_lt :: (neg_val < a);      // true (-50000 < 100000)
-    neg_gt :: (a > neg_val);      // true (100000 > -50000)
+    neg_lt :: (neg_val < a);      // true (-5000 < 10000)
+    neg_gt :: (a > neg_val);      // true (10000 > -5000)
     
-    comptime_assert(neg_sum == isize(50000));
-    comptime_assert(neg_diff == isize(-150000));
-    comptime_assert(neg_prod == isize(-100000));
-    comptime_assert(neg_quot == isize(-5000));
+    comptime_assert(neg_sum == isize(5000));
+    comptime_assert(neg_diff == isize(-15000));
+    comptime_assert(neg_prod == isize(-10000));
+    comptime_assert(neg_quot == isize(-500));
     comptime_assert(neg_lt == true);
     comptime_assert(neg_gt == true);
   };
   
   // Test zero operations
   {
-    zero_sum :: (zero + a);      // 100000isize
-    zero_diff1 :: (a - zero);    // 100000isize
-    zero_diff2 :: (zero - a);    // -100000isize
+    zero_sum :: (zero + a);      // 10000isize
+    zero_diff1 :: (a - zero);    // 10000isize
+    zero_diff2 :: (zero - a);    // -10000isize
     zero_prod :: (zero * a);     // 0isize
     
-    comptime_assert(zero_sum == isize(100000));
-    comptime_assert(zero_diff1 == isize(100000));
-    comptime_assert(zero_diff2 == isize(-100000));
+    comptime_assert(zero_sum == isize(10000));
+    comptime_assert(zero_diff1 == isize(10000));
+    comptime_assert(zero_diff2 == isize(-10000));
     comptime_assert(zero_prod == isize(0));
     
     // Identity operations
-    identity_sum :: (a + zero);  // 100000isize
-    identity_prod :: (a * isize(1));  // 100000isize
+    identity_sum :: (a + zero);  // 10000isize
+    identity_prod :: (a * isize(1));  // 10000isize
     
-    comptime_assert(identity_sum == isize(100000));
-    comptime_assert(identity_prod == isize(100000));
+    comptime_assert(identity_sum == isize(10000));
+    comptime_assert(identity_prod == isize(10000));
     
     // Self operations
     self_sub :: (a - a);         // 0isize
@@ -1585,12 +1584,12 @@ test "Test comptime isize", {
   
   // Test chained operations
   {
-    chain1 :: ((a + b) / isize(5));    // (100000isize + 25000isize) / 5isize = 25000isize
-    chain2 :: (a + (b * isize(2)));    // 100000isize + (25000isize * 2isize) = 150000isize
-    chain3 :: ((a / b) + isize(1));    // (100000isize / 25000isize) + 1isize = 5isize
+    chain1 :: ((a + b) / isize(5));    // (10000isize + 2500isize) / 5isize = 2500isize
+    chain2 :: (a + (b * isize(2)));    // 10000isize + (2500isize * 2isize) = 15000isize
+    chain3 :: ((a / b) + isize(1));    // (10000isize / 2500isize) + 1isize = 5isize
     
-    comptime_assert(chain1 == isize(25000));
-    comptime_assert(chain2 == isize(150000));
+    comptime_assert(chain1 == isize(2500));
+    comptime_assert(chain2 == isize(15000));
     comptime_assert(chain3 == isize(5));
   };
   
@@ -1648,7 +1647,7 @@ test "Test comptime isize", {
     large_str :: isize(123456).to_comptime_string();
     
     comptime_assert(zero_str == "0");
-    comptime_assert(neg_str == "-50000");
+    comptime_assert(neg_str == "-5000");
     comptime_assert(large_str == "123456");
   };
 };

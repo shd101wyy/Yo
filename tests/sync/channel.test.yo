@@ -1,4 +1,3 @@
-{ arch, Arch } :: import "std/process";
 open import "std/libc/stdio";
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";
@@ -170,7 +169,6 @@ test "Channel with usize type", {
 // ============================================================================
 
 test "Channel single producer single consumer with Thread", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(10)));
 
   producer := Thread.spawn(() => {
@@ -201,7 +199,6 @@ test "Channel single producer single consumer with Thread", {
 };
 
 test "Channel thread producer sends many values", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(20)));
 
   t := Thread.spawn(() => {
@@ -232,7 +229,6 @@ test "Channel thread producer sends many values", {
 };
 
 test "Channel consumer thread blocks until producer sends", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(1)));
 
   consumer := Thread.spawn(() => {
@@ -249,7 +245,6 @@ test "Channel consumer thread blocks until producer sends", {
 };
 
 test "Channel close wakes blocked consumer Thread", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(5)));
 
   consumer := Thread.spawn(() => {
@@ -269,7 +264,6 @@ test "Channel close wakes blocked consumer Thread", {
 // ============================================================================
 
 test "Channel bounded capacity blocks producer", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(2)));
 
   // Fill the channel
@@ -302,7 +296,6 @@ test "Channel bounded capacity blocks producer", {
 };
 
 test "Channel capacity 1 works as rendezvous", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(1)));
 
   t := Thread.spawn(() => {
@@ -327,7 +320,6 @@ test "Channel capacity 1 works as rendezvous", {
 // ============================================================================
 
 test "Channel send from Worker recv from main", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(10)));
   wg := arc(WaitGroup.new());
   Worker.set_num_threads(2);
@@ -345,7 +337,6 @@ test "Channel send from Worker recv from main", {
 };
 
 test "Channel Worker sends multiple values", {
-  if((arch == Arch.Wasm32), return ());
   ch := arc(Channel(i32).new(usize(20)));
   wg := arc(WaitGroup.new());
   Worker.set_num_threads(2);

@@ -414,6 +414,7 @@ function runSingleTest(
     // Get the generated C code and codegen flags
     const generatedCode = moduleManager.getGeneratedCode();
     const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
+    const usesParallelism = moduleManager.usesParallelism;
 
     // Explicitly release the moduleManager to help GC
     moduleManager = null;
@@ -467,6 +468,24 @@ function runSingleTest(
     // Add liburing on Linux for async I/O (not for emcc)
     if (!isMSVC && !isEmcc && isLiburingAvailable()) {
       compileArgs.splice(-2, 0, "-luring");
+    }
+
+    // Emscripten-specific flags
+    if (isEmcc) {
+      // Allow function pointer casts (WASM call_indirect requires exact
+      // signature matches, but the codegen casts void* to fn pointers)
+      compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+
+      // Enable pthreads when the program uses threading
+      if (usesParallelism) {
+        compileArgs.splice(
+          -2,
+          0,
+          "-pthread",
+          "-sPTHREAD_POOL_SIZE=4",
+          "-sEXIT_RUNTIME=1"
+        );
+      }
     }
 
     const cCompileStart = Date.now();

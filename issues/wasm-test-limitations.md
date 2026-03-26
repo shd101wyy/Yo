@@ -42,11 +42,21 @@ but I/O operations fail at runtime.
 
 **Affected test files (fully skipped):**
 
-- All `tests/sys/` except: `signal.test.yo`, `statfs.test.yo`, `tty.test.yo`
 - All `tests/fs/`: `dir`, `file`, `fs_convenience`, `metadata`, `temp`, `walker`
 - `tests/net/dns.test.yo`, `tests/net/tcp.test.yo`, `tests/net/udp.test.yo`
 
-### 2. Inline Assembly
+### 2. POSIX Syscalls
+
+WASM does not support POSIX-specific syscalls like signals, filesystem metadata, or terminal control.
+
+**Affected test files (fully skipped):**
+
+- `tests/sys/signal.test.yo` (POSIX signals)
+- `tests/sys/statfs.test.yo` (filesystem metadata syscall)
+- `tests/sys/tty.test.yo` (terminal ioctl syscalls)
+- `tests/os/env.test.yo` (uses `home_dir`, `config_dir`, `cache_dir`, `temp_dir`)
+
+### 3. Inline Assembly
 
 WASM does not support x86/ARM inline assembly.
 
@@ -54,34 +64,20 @@ WASM does not support x86/ARM inline assembly.
 
 - `tests/asm.test.yo`
 
-### 3. Compile-time Integer Overflow (32-bit)
+### 4. Sync Primitives (threading-based tests)
 
-WASM targets use 32-bit `isize`/`usize`. Some compile-time tests perform arithmetic that
-overflows 32-bit range (e.g., `100000 * 25000 = 2,500,000,000 > i32 MAX`).
-
-**Affected tests (individual skip by name):**
-
-- `tests/comptime.test.yo` — `Test comptime isize`
-
-### 4. Threading (pthread)
-
-WASM/Emscripten's default compilation does not support pthreads. Tests that spawn OS threads
-or Workers fail at runtime. Tests using async tasks (cooperative scheduling) work fine.
-
-**Affected tests (individual skip by name):**
-
-- `tests/sync/channel.test.yo`: All thread/Worker-based tests (8 tests)
-- `tests/sync/once.test.yo`: All thread/Worker-based tests (4 tests)
-- `tests/sync/rwlock.test.yo`: All thread-based tests (6 tests)
-- `tests/sync/waitgroup.test.yo`: All thread/Worker-based tests (5 tests)
+All sync primitive concurrent tests now pass with Emscripten pthreads enabled.
+No individual test-level skip guards remain for sync primitives.
 
 ## WASM Test Results Summary
 
-**File-level skips:** 40 test files (I/O, asm)
-**Test-name skips:** 24 individual tests (threading, overflow)
+**File-level skips:** 44 test files (I/O, asm, signals, tty, statfs, os/env)
+**Test-name skips:** 0 individual tests
 **Passing:** All remaining tests pass — core language features, collections, encoding, regex,
 strings, closures, algebraic effects, async/await (including escape), error handling, comptime,
-sync primitives (non-threaded), time, crypto/random, and more.
+threading (via Emscripten pthreads), workers, Arc (including cross-thread), process (cwd, chdir),
+sync primitives (channel, once, rwlock, waitgroup — including concurrent tests), time,
+crypto/random, and more.
 
 ## CI
 
@@ -109,7 +105,30 @@ The codegen now passes `-sEMULATE_FUNCTION_POINTER_CASTS=1` to emcc, which gener
 to handle function pointer type mismatches at indirect call sites. This fixes the
 `RuntimeError: null function or function signature mismatch` errors in async escape tests.
 
+### ~~Compile-time Integer Overflow (32-bit)~~ — FIXED
+
+The `Test comptime isize` test used values (`100000 * 25000 = 2.5B`) that overflowed 32-bit
+`isize` on wasm32. The test values were reduced to fit within i32 range while preserving
+the same arithmetic coverage (same operations, ratios, and edge cases).
+
+### ~~Threading (pthread)~~ — FIXED
+
+Emscripten supports POSIX threads via the `-pthread` flag. The compiler now automatically adds
+`-pthread -sPTHREAD_POOL_SIZE=4 -sEXIT_RUNTIME=1` when the program uses threading. The test
+runner also passes these flags when compiling with emcc. All thread and worker tests now pass on
+WASM, as do Arc cross-thread tests and process filesystem tests (cwd, chdir).
+
+### ~~Process Filesystem (cwd, chdir)~~ — FIXED
+
+Emscripten provides a virtual filesystem with working `getcwd()` and `chdir()`. These operations
+work out of the box — no special flags needed.
+
+### ~~Sync Primitive Concurrent Tests~~ — FIXED
+
+All sync primitive tests (channel, once, rwlock, waitgroup) including their thread/worker-based
+concurrent variants now pass with Emscripten pthread support. The Wasm32 skip guards were removed
+from 23 individual tests across 4 files.
+
 ## Future Work
 
 - Add WASI I/O backend for file operations (would enable fs/ tests)
-- Consider `-pthread` flag for Emscripten thread support

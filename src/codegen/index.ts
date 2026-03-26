@@ -542,6 +542,17 @@ export class CodeGenerator {
         // exact signature matches, but the codegen casts void* to fn pointers)
         if (isEmcc) {
           compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+
+          // Enable pthreads when the program uses threading
+          if (this.moduleManager.usesParallelism) {
+            compileArgs.splice(
+              -2,
+              0,
+              "-pthread",
+              "-sPTHREAD_POOL_SIZE=4",
+              "-sEXIT_RUNTIME=1"
+            );
+          }
         }
 
         // Cross-compilation: add --target= and --sysroot= for clang/gcc
