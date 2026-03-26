@@ -17,14 +17,10 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 - [Features](#features)
 - [Installation](#installation)
-  - [C Compiler Requirement](#c-compiler-requirement)
-    - [Installing Clang](#installing-clang)
-  - [Linux liburing Requirement](#linux-liburing-requirement)
-    - [Installing liburing (Linux)](#installing-liburing-linux)
-  - [pkg-config / vcpkg Requirement](#pkg-config--vcpkg-requirement)
-    - [Installing pkg-config (Linux)](#installing-pkg-config-linux)
-    - [Installing pkgconf (macOS)](#installing-pkgconf-macos)
-    - [Installing vcpkg (Windows)](#installing-vcpkg-windows)
+  - [Linux](#linux)
+  - [macOS](#macos)
+  - [Windows](#windows)
+  - [WebAssembly (WASM)](#webassembly-wasm)
 - [Quick Start](#quick-start)
 - [Prelude](#prelude)
 - [Standard Library](#standard-library)
@@ -77,37 +73,44 @@ There is also an alias `yo-cli` for `yo` command in case of naming conflicts.
 
 Run `yo --help` or `yo-cli --help` to see available commands.
 
-### C Compiler Requirement
+Yo transpiles to C, so a **C compiler** is required to produce machine code. Follow the instructions for your platform below.
 
-Yo currently transpiles to C and requires a C compiler to produce machine code. **Clang is recommended** for the best experience.
+### Linux
 
-#### Installing Clang
-
-**Linux:**
+Install **Clang** (recommended), **liburing** (for async I/O), and **pkg-config** (for system library discovery):
 
 ```bash
 # Ubuntu/Debian
 $ sudo apt-get update
-$ sudo apt-get install clang
+$ sudo apt-get install clang liburing-dev pkg-config
 
 # Fedora/RHEL
-$ sudo dnf install clang
+$ sudo dnf install clang liburing-devel pkgconf-pkg-config
 
 # Arch Linux
-$ sudo pacman -S clang
+$ sudo pacman -S clang liburing pkgconf
 ```
 
-**macOS:**
+You can also use `gcc` or `zig` instead of `clang` by passing `--cc gcc` or `--cc zig`.
+
+### macOS
+
+Clang is included with Xcode Command Line Tools:
 
 ```bash
-# Clang is included with Xcode Command Line Tools
 $ xcode-select --install
 
-# Or install via Homebrew
-$ brew install llvm
+# Also install pkgconf for system library discovery
+$ brew install pkgconf
 ```
 
-**Windows:**
+Or install LLVM via Homebrew:
+
+```bash
+$ brew install llvm pkgconf
+```
+
+### Windows
 
 Clang on Windows requires a linker and Windows SDK headers. Install **Visual Studio** (Community edition is free) or the **Build Tools for Visual Studio** with the "Desktop development with C++" workload:
 
@@ -128,65 +131,15 @@ $ scoop install llvm
 Alternatively, you can use `zig` as the C compiler (no Visual Studio needed):
 
 ```bash
-# Using Chocolatey
 $ choco install zig
-
-# Then compile with:
-$ yo compile main.yo --c-compiler zig --release -o main
+$ yo compile main.yo --cc zig --release -o main
 ```
 
-Alternatively, you can use other C compilers like `gcc` or `zig` by specifying the compiler with the `--c-compiler` flag.
-
-### Linux liburing Requirement
-
-On Linux, Yo uses `io_uring` for async I/O, which requires **liburing** to be installed.
-
-#### Installing liburing (Linux)
+For system library discovery, install **vcpkg**:
 
 ```bash
-# Ubuntu/Debian
-$ sudo apt-get update
-$ sudo apt-get install liburing-dev
-
-# Fedora/RHEL
-$ sudo dnf install liburing-devel
-
-# Arch Linux
-$ sudo pacman -S liburing
-```
-
-### pkg-config / vcpkg Requirement
-
-Yo's build system uses **pkg-config** (on Linux and macOS) or **vcpkg** (on Windows) to discover system C libraries when linking with external dependencies.
-
-#### Installing pkg-config (Linux)
-
-```bash
-# Ubuntu/Debian
-$ sudo apt-get update
-$ sudo apt-get install pkg-config
-
-# Fedora/RHEL
-$ sudo dnf install pkgconf-pkg-config
-
-# Arch Linux
-$ sudo pacman -S pkgconf
-```
-
-#### Installing pkgconf (macOS)
-
-```bash
-# Homebrew
-$ brew install pkgconf
-```
-
-#### Installing vcpkg (Windows)
-
-```bash
-# Using Git
 $ git clone https://github.com/microsoft/vcpkg.git
 $ .\vcpkg\bootstrap-vcpkg.bat
-
 # Then set the VCPKG_ROOT environment variable to the vcpkg directory
 
 # Or using Scoop
@@ -194,6 +147,27 @@ $ scoop install vcpkg
 ```
 
 For more information, see the [vcpkg documentation](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started).
+
+### WebAssembly (WASM)
+
+Yo can compile to WebAssembly using [Emscripten](https://emscripten.org/):
+
+```bash
+# Install Emscripten (https://emscripten.org/docs/getting_started/downloads.html)
+$ git clone https://github.com/emscripten-core/emsdk.git
+$ cd emsdk
+$ ./emsdk install latest
+$ ./emsdk activate latest
+$ source ./emsdk_env.sh
+
+# Compile a Yo program to WASM
+$ yo compile main.yo --cc emcc --release -o app.js
+
+# Run with Node.js
+$ node app.js
+```
+
+When using `--cc emcc`, Yo automatically targets `wasm32-wasi` and uses the `libc` allocator. Emscripten produces a `.js` file (runtime glue) and a `.wasm` file (compiled binary).
 
 ## Quick Start
 
@@ -288,7 +262,7 @@ export main;
 The `Yo` compiler is written in [TypeScript](https://www.typescriptlang.org/) and uses [Bun](https://bun.sh/) as the runtime.
 
 Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
-machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `cl`, etc).
+machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `cl`, `emcc`, etc).
 
 Please install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/) before proceeding.
 
