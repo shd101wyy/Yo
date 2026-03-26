@@ -68,8 +68,8 @@ random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit)(
         true => { exn.throw(dyn CryptoError.Unavailable); }
       );
     },
-    (platform == Platform.Wasi) => {
-      // WASM/Emscripten: getentropy() via WASI random_get (max 256 bytes per call)
+    ((platform == Platform.Emscripten) || (platform == Platform.Wasi)) => {
+      // WASM/Emscripten/WASI: getentropy() via WASI random_get (max 256 bytes per call)
       remaining := size;
       offset := usize(0);
       while (remaining > usize(0)), {

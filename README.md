@@ -161,13 +161,16 @@ $ ./emsdk activate latest
 $ source ./emsdk_env.sh
 
 # Compile a Yo program to WASM
-$ yo compile main.yo --cc emcc --release -o app.js
+$ yo compile main.yo --cc emcc --release -o app
 
-# Run with Node.js
+# This produces: app.html + app.js + app.wasm
+# Run with Node.js:
 $ node app.js
+
+# Or open app.html in a browser
 ```
 
-When using `--cc emcc`, Yo automatically targets `wasm32-wasi` and uses the `libc` allocator. Emscripten produces a `.js` file (runtime glue) and a `.wasm` file (compiled binary).
+When using `--cc emcc`, Yo automatically targets `wasm32-emscripten` and uses the `libc` allocator. You can also use `--target wasm-emscripten` (which auto-selects `emcc`). Emscripten produces an `.html` file (browser shell), a `.js` file (runtime glue), and a `.wasm` file (compiled binary).
 
 ## Quick Start
 

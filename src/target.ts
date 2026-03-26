@@ -14,7 +14,13 @@ export type Arch = "x86_64" | "aarch64" | "x86" | "arm" | "wasm32";
 
 // ── Supported operating systems ───────────────────────────────────────
 
-export type Os = "linux" | "macos" | "windows" | "freebsd" | "wasi";
+export type Os =
+  | "linux"
+  | "macos"
+  | "windows"
+  | "freebsd"
+  | "wasi"
+  | "emscripten";
 
 // ── Supported ABIs ────────────────────────────────────────────────────
 
@@ -109,6 +115,7 @@ function defaultAbi(os: Os): Abi | undefined {
     case "windows":
       return "msvc";
     case "wasi":
+    case "emscripten":
       return "wasm";
     case "macos":
     case "freebsd":
@@ -159,6 +166,7 @@ const VALID_OSES = new Set<string>([
   "windows",
   "freebsd",
   "wasi",
+  "emscripten",
 ]);
 
 const VALID_ABIS = new Set<string>(["gnu", "musl", "msvc", "none", "wasm"]);
@@ -169,9 +177,16 @@ const VALID_ABIS = new Set<string>(["gnu", "musl", "msvc", "none", "wasm"]);
  * Accepted formats:
  *   - `<arch>-<os>`          — ABI defaults per OS
  *   - `<arch>-<os>-<abi>`    — explicit ABI
+ *   - `wasm-emscripten`      — shorthand for `wasm32-emscripten`
+ *   - `wasm-wasi`            — shorthand for `wasm32-wasi`
  */
 export function parseTarget(triple: string): TargetInfo {
-  const parts = triple.split("-");
+  // Expand "wasm-*" shorthands to "wasm32-*"
+  const expandedTriple = triple.startsWith("wasm-")
+    ? `wasm32-${triple.slice(5)}`
+    : triple;
+
+  const parts = expandedTriple.split("-");
   if (parts.length < 2 || parts.length > 3) {
     throw new Error(
       `Invalid target triple "${triple}". ` +
@@ -250,6 +265,9 @@ export function clangTriple(target: TargetInfo): string {
     case "wasi":
       // WASI: wasm32-wasi (LLVM triple)
       return `${arch}-wasi`;
+    case "emscripten":
+      // Emscripten: emcc handles target internally, but LLVM uses wasm32-emscripten
+      return `${arch}-emscripten`;
   }
 }
 
@@ -314,7 +332,19 @@ export function isTargetMSVC(target: TargetInfo): boolean {
 }
 
 export function isTargetWasm(target: TargetInfo): boolean {
-  return target.arch === "wasm32" || target.os === "wasi";
+  return (
+    target.arch === "wasm32" ||
+    target.os === "wasi" ||
+    target.os === "emscripten"
+  );
+}
+
+export function isTargetEmscripten(target: TargetInfo): boolean {
+  return target.os === "emscripten";
+}
+
+export function isTargetStandaloneWasi(target: TargetInfo): boolean {
+  return target.os === "wasi";
 }
 
 export function isTargetPosix(target: TargetInfo): boolean {

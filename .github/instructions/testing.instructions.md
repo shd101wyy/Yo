@@ -54,9 +54,10 @@ Prefer `comptime_assert` over `assert` when the value being tested is compile-ti
 
 ## WASM testing
 
-- Run a test on WASM: `./yo-cli test ./tests/XXX.test.yo --cc emcc`
+- Run a test on WASM: `./yo-cli test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
 - Use `// @skip_wasm` as the first line to skip an entire test file on WASM.
 - For per-test skips, use `if((arch == Arch.Wasm32), return ())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
 - When adding new tests, verify they pass on both native (`./yo-cli test ...`) and WASM (`./yo-cli test ... --cc emcc`), or add appropriate skip guards.
+- `process.platform` returns `"emscripten"` on WASM (use `Platform.Emscripten` for platform checks).

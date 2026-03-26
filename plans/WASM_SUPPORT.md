@@ -5,6 +5,17 @@
 When running the Yo test suite with `--cc emcc` (targeting WASM via Emscripten), certain tests
 are skipped because they rely on platform features unavailable in WASM environments.
 
+### Target naming
+
+| Target              | Shorthand         | Compiler | Output                    | Use case                    |
+| ------------------- | ----------------- | -------- | ------------------------- | --------------------------- |
+| `wasm32-emscripten` | `wasm-emscripten` | emcc     | `.html` + `.js` + `.wasm` | Node.js + browser (default) |
+| `wasm32-wasi`       | `wasm-wasi`       | emcc     | `.wasm` (standalone)      | wasmtime/wasmer             |
+
+- `--cc emcc` auto-selects `wasm32-emscripten` target
+- `--target wasm-emscripten` or `--target wasm-wasi` auto-selects `emcc` compiler
+- `process.platform` returns `"emscripten"` for the emscripten target, `"wasi"` for standalone WASI
+
 ### Skip mechanisms
 
 **File-level: `// @skip_wasm` directive**

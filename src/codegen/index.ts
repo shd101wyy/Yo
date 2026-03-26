@@ -13,6 +13,7 @@ import {
   clangTriple,
   hostTarget,
   isTargetLinux,
+  isTargetStandaloneWasi,
   isTargetWasm,
   isTargetWindows,
   parseTarget,
@@ -212,7 +213,9 @@ export class CodeGenerator {
 
       // Write the C code to a file
       const outputFile = options.output as string;
-      const tempCFile = outputFile + ".c";
+      // Strip output extension to derive the C file name (e.g., app.html → app.c)
+      const outputBase = outputFile.replace(/\.(html|js|wasm|exe)$/, "");
+      const tempCFile = outputBase + ".c";
       fs.writeFileSync(tempCFile, compiledCode);
 
       console.log(`Generated C code written to ${tempCFile}`);
@@ -543,8 +546,13 @@ export class CodeGenerator {
         if (isEmcc) {
           compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
 
-          // Use Node.js's real filesystem instead of Emscripten's MEMFS
-          compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+          if (isTargetStandaloneWasi(targetInfo)) {
+            // Standalone WASI: produce a .wasm file without JS glue
+            compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+          } else {
+            // Emscripten target: use Node.js's real filesystem instead of MEMFS
+            compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+          }
 
           // Enable pthreads when the program uses threading
           if (this.moduleManager.usesParallelism) {

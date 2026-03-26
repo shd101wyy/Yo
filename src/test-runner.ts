@@ -376,7 +376,7 @@ function runSingleTest(
 
     // Set WASM target when using emcc so the evaluator sees wasm32 arch/platform
     if (isEmcc) {
-      const wasmTarget = parseTarget("wasm32-wasi");
+      const wasmTarget = parseTarget("wasm32-emscripten");
       setCurrentTarget(wasmTarget);
       setTargetPointerSize(wasmTarget.pointerSizeBits);
     }

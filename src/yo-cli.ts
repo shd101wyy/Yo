@@ -13,7 +13,12 @@ import {
 } from "./evaluator/builtins/build";
 import { initProject } from "./init";
 import { ModuleManager } from "./module-manager";
-import { hostTarget, isTargetWindows, parseTarget } from "./target";
+import {
+  hostTarget,
+  isTargetStandaloneWasi,
+  isTargetWindows,
+  parseTarget,
+} from "./target";
 import { findTestFiles, runTests } from "./test-runner";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
@@ -256,6 +261,13 @@ yo --version                     Show version number
       }
 
       let cCompiler = argv.cc as string | undefined;
+      const targetTripleArg = argv.t as string | undefined;
+
+      // Auto-select emcc for WASM targets
+      if (!cCompiler && targetTripleArg?.startsWith("wasm")) {
+        cCompiler = "emcc";
+      }
+
       if (!cCompiler) {
         const availableCompiler = findAvailableCompiler();
         if (!availableCompiler) {
@@ -267,24 +279,22 @@ yo --version                     Show version number
         cCompiler = availableCompiler;
       }
 
-      // When using emcc (Emscripten), auto-set target to wasm32-wasi if not specified
+      // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
       const isEmcc = cCompiler === "emcc";
       const targetTriple =
-        (argv.t as string | undefined) ?? (isEmcc ? "wasm32-wasi" : undefined);
+        targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
 
       const absolutePath = `file://` + fs.realpathSync(file);
       const targetInfo = targetTriple
         ? parseTarget(targetTriple)
         : hostTarget();
       const requestedOutput = argv.o as string;
-      // For emcc, default output should be .js (emscripten generates .js + .wasm)
+      // Auto-add extension when output has no extension
       let outputPath: string;
-      if (
-        isEmcc &&
-        path.extname(requestedOutput) === "" &&
-        requestedOutput === "a.out"
-      ) {
-        outputPath = "a.out.js";
+      if (isEmcc && path.extname(requestedOutput) === "") {
+        outputPath = isTargetStandaloneWasi(targetInfo)
+          ? `${requestedOutput}.wasm`
+          : `${requestedOutput}.html`;
       } else if (
         isTargetWindows(targetInfo) &&
         path.extname(requestedOutput) === ""
