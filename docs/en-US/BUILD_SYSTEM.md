@@ -157,6 +157,22 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | `Sanitize.Address` | AddressSanitizer for memory errors/leaks |
 | `Sanitize.Leak`    | LeakSanitizer for leak detection only    |
 
+### Compilation Targets
+
+`CompilationTarget` provides symbolic names for supported target triples. Use these instead of hardcoding target strings:
+
+| Value                                   | Target Triple         | Notes                      |
+| --------------------------------------- | --------------------- | -------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)       |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (static musl) |
+| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                |
+| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon        |
+| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                |
+| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64             |
+| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly (WASI)         |
+
+The host target is also available as `build.target_host`.
+
 ## Build Steps
 
 Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
@@ -507,6 +523,17 @@ Yo supports cross-compilation via target triples. Specify the target in `build.y
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
+  target: build.CompilationTarget.Wasm32_Wasi,
+  optimize: build.Optimize.ReleaseSmall
+});
+```
+
+You can also use raw target strings if preferred:
+
+```yo
+build.executable({
+  name: "my-app-wasm",
+  root: "./src/main.yo",
   target: "wasm32-wasi",
   optimize: build.Optimize.ReleaseSmall
 });
@@ -602,7 +629,7 @@ native :: build.executable({
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: build.CompilationTarget.Wasm32_Wasi,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
