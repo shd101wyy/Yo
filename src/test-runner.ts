@@ -110,7 +110,7 @@ export interface TestRunSummary {
 // WASM test skip lists
 // ---------------------------------------------------------------------------
 // Tests that cannot run under Emscripten/WASM due to missing platform features.
-// See issues/wasm-test-limitations.md for details.
+// See plans/WASM_SUPPORT.md for details.
 
 /**
  * Check if a test file has the `// @skip_wasm` directive.

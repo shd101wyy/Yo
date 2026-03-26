@@ -199,7 +199,7 @@ Environment variable operations (`env.get`, `env.set`, `env.remove`, `home_dir`,
 ## Future Work
 
 - **WasmFS**: Emscripten's next-gen C++ filesystem (`-sWASMFS`) is not yet compatible with our
-  use case. Tested in March 2025 — the WasmFS + NODERAWFS combo has a critical issue where
+  use case. Tested in March 2026 — the WasmFS + NODERAWFS combo has a critical issue where
   absolute paths (`/tmp/...`) route to in-memory MEMFS instead of real disk, and `getcwd()`
   returns `/` instead of the real working directory ([emscripten#24830](https://github.com/emscripten-core/emscripten/issues/24830)).
   This caused 10+ test failures. Revisit when the Emscripten team resolves the root directory
