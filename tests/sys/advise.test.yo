@@ -1,5 +1,7 @@
-// @skip_wasm
+
 open import "std/string";
+open import "std/libc/stdio";
+{ arch, Arch } :: import "std/process";
 { temp_dir, path_join } :: import "../helper";
 file :: import "std/sys/file";
 dir :: import "std/sys/dir";
@@ -31,6 +33,14 @@ test "fadvise sequential hint returns success", using(io : IO), {
 };
 
 test "madvise dontneed on anonymous mapping returns success", {
+  // mmap not supported on WASM
+  cond(
+    (arch == Arch.Wasm32) => {
+      printf("  skipping madvise test on WASM (no mmap)\n");
+      return;
+    },
+    true => ()
+  );
   mapped := mmap_io.mmap(
     .None,
     usize(4096),

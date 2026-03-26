@@ -543,6 +543,9 @@ export class CodeGenerator {
         if (isEmcc) {
           compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
 
+          // Use Node.js's real filesystem instead of Emscripten's MEMFS
+          compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+
           // Enable pthreads when the program uses threading
           if (this.moduleManager.usesParallelism) {
             compileArgs.splice(

@@ -1,15 +1,15 @@
 /**
  * runtime-io-wasm.ts
  *
- * Emits stub implementations of platform-specific I/O functions for WASM targets.
- * These stubs allow Yo programs that import sys modules (std/sys/file, std/net, etc.)
- * to compile for WASM even though real I/O operations are not available.
+ * Emits I/O implementations for WASM (Emscripten) targets.
  *
- * Async stubs return an immediately-completed IOFuture with result = -ENOSYS.
- * Sync stubs return -ENOSYS (or 0 for size queries, NULL for pointer returns).
+ * Emscripten provides a full POSIX-compatible virtual filesystem (MEMFS) with
+ * working open/read/write/close/stat/mkdir/pipe/lseek/fcntl etc. This module
+ * uses real POSIX calls for file/directory/pipe/metadata operations, following
+ * the same synchronous-IOFuture pattern that macOS uses for regular files.
  *
- * This is analogous to how Emscripten provides stub POSIX implementations:
- * programs compile and link, but I/O operations fail gracefully at runtime.
+ * Operations that are genuinely unavailable on WASM (sockets, process spawn,
+ * FS events, poll, mmap for files) remain as stubs returning -ENOSYS.
  */
 
 import { Emitter } from "../../emitter";
@@ -21,48 +21,97 @@ import { Emitter } from "../../emitter";
 export function generatePlatformSysRuntimeWasm(emitter: Emitter): void {
   emitter.emitLine(`
 // ============================================================================
-// WASM Platform Stubs — Synchronous System Helpers
+// WASM Platform — Synchronous System Helpers (Emscripten POSIX)
 // ============================================================================
-// Stub implementations for WASM targets. Real I/O is not available; these
-// return -ENOSYS (function not implemented) or appropriate zero/null values.
+// Real POSIX implementations using Emscripten's virtual filesystem (MEMFS).
+// Operations not supported on WASM (sockets, mmap, etc.) remain as stubs.
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/uio.h>
+#include <sys/utsname.h>
+#include <arpa/inet.h>
 
 #ifndef ENOSYS
-#define ENOSYS 38
+#define ENOSYS 52
 #endif
 
 // --- File helpers ---
 static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
-  (void)path; (void)flags; (void)mode;
-  return -ENOSYS;
+  int fd = open(path, flags, (mode_t)mode);
+  return (fd < 0) ? -errno : fd;
 }
-static void __yo_file_close(int32_t fd) { (void)fd; }
-static int64_t __yo_file_size(int32_t fd) { (void)fd; return -ENOSYS; }
+static void __yo_file_close(int32_t fd) { close(fd); }
+static int64_t __yo_file_size(int32_t fd) {
+  struct stat st;
+  if (fstat(fd, &st) < 0) return (int64_t)(-errno);
+  return (int64_t)st.st_size;
+}
 
 // --- Pipe / dup ---
-static int32_t __yo_sync_pipe(int32_t* pipefd) { (void)pipefd; return -ENOSYS; }
-static int32_t __yo_sync_dup(int32_t oldfd) { (void)oldfd; return -ENOSYS; }
-static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) { (void)oldfd; (void)newfd; return -ENOSYS; }
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = pipe((int*)pipefd);
+  return (result < 0) ? -errno : 0;
+}
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
 
 // --- Fcntl ---
-static int32_t __yo_sync_fcntl_getfl(int32_t fd) { (void)fd; return -ENOSYS; }
-static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) { (void)fd; (void)flags; return -ENOSYS; }
-static int32_t __yo_sync_fcntl_getfd(int32_t fd) { (void)fd; return -ENOSYS; }
-static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) { (void)fd; (void)flags; return -ENOSYS; }
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  int result = fcntl(fd, F_GETFL, 0);
+  return (result < 0) ? -errno : result;
+}
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFL, flags);
+  return (result < 0) ? -errno : 0;
+}
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  int result = fcntl(fd, F_GETFD, 0);
+  return (result < 0) ? -errno : result;
+}
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
 
 // --- File locking ---
-static int32_t __yo_sync_flock(int32_t fd, int32_t operation) { (void)fd; (void)operation; return -ENOSYS; }
+// Emscripten does not implement flock(); return -ENOSYS
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  (void)fd; (void)operation;
+  return -ENOSYS;
+}
 
 // --- Vectored I/O ---
-static size_t __yo_iovec_size(void) { return sizeof(void*) + sizeof(size_t); /* iovec-like */ }
+static size_t __yo_iovec_size(void) { return sizeof(struct iovec); }
 static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
-  (void)iov; (void)index; (void)base; (void)len;
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
 }
-static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) { (void)fd; (void)iov; (void)iovcnt; return -ENOSYS; }
-static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) { (void)fd; (void)iov; (void)iovcnt; return -ENOSYS; }
-static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) { (void)fd; (void)iov; (void)iovcnt; (void)offset; return -ENOSYS; }
-static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) { (void)fd; (void)iov; (void)iovcnt; (void)offset; return -ENOSYS; }
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (struct iovec*)iov, iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (struct iovec*)iov, iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  ssize_t result = preadv(fd, (struct iovec*)iov, iovcnt, (off_t)offset);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  ssize_t result = pwritev(fd, (struct iovec*)iov, iovcnt, (off_t)offset);
+  return (result < 0) ? -errno : (int32_t)result;
+}
 
-// --- Memory-mapped I/O ---
+// --- Memory-mapped I/O (not supported on WASM) ---
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
   (void)addr; (void)length; (void)prot; (void)flags; (void)fd; (void)offset;
   return (uint8_t*)(intptr_t)-1; /* MAP_FAILED */
@@ -73,54 +122,79 @@ static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) { (void)addr; (voi
 static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) { (void)addr; (void)length; (void)prot; return -ENOSYS; }
 static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) { (void)addr; (void)length; (void)flags; return -ENOSYS; }
 
-// --- File advice ---
+// --- File advice (no-op on virtual FS) ---
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
-  (void)fd; (void)mode; (void)offset; (void)length; return -ENOSYS;
+  // Emscripten MEMFS doesn't support fallocate; extend via ftruncate if needed
+  (void)mode;
+  if (mode == 0) {
+    // Default mode: ensure file is at least offset+length bytes
+    struct stat st;
+    if (fstat(fd, &st) < 0) return -errno;
+    int64_t target = offset + length;
+    if ((int64_t)st.st_size < target) {
+      if (ftruncate(fd, (off_t)target) < 0) return -errno;
+    }
+    return 0;
+  }
+  return 0;
 }
 
 // --- Metadata ---
 static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
-  (void)dirfd; (void)path; (void)buf; (void)bufsize; return -ENOSYS;
+  ssize_t result;
+  if (dirfd == -100) {
+    result = readlink(path, buf, bufsize);
+  } else {
+    result = readlinkat(dirfd, path, buf, bufsize);
+  }
+  return (result < 0) ? -errno : (int32_t)result;
 }
 
-// --- Socket addresses ---
+// --- Socket addresses (sizes only — no real sockets on WASM) ---
 static size_t __yo_sockaddr_storage_size(void) { return 128; }
 static size_t __yo_sockaddr_in_size(void) { return 16; }
 static size_t __yo_sockaddr_in6_size(void) { return 28; }
 static size_t __yo_sockaddr_un_size(void) { return 110; }
 
-// --- Socket helpers ---
+// --- Socket helpers (stub — no real sockets on WASM) ---
 static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
   (void)domain; (void)sock_type; (void)protocol; (void)sv; return -ENOSYS;
 }
 
 // --- System info ---
-// Emscripten provides clock_gettime via JS performance.now() / Date.now()
 #include <time.h>
 static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
   struct timespec ts;
   int result = clock_gettime((clockid_t)clock_id, &ts);
-  if (result < 0) {
-    return -errno;
-  }
+  if (result < 0) return -errno;
   *sec = (int64_t)ts.tv_sec;
   *nsec = (int64_t)ts.tv_nsec;
   return 0;
 }
-static int32_t __yo_sync_uname(void* buf) { (void)buf; return -ENOSYS; }
-static int32_t __yo_sync_gethostname(char* name, size_t len) { (void)name; (void)len; return -ENOSYS; }
-static int32_t __yo_sync_umask(int32_t mask) { (void)mask; return 0; }
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) return -errno;
+  if (len > 0) name[len - 1] = '\\0';
+  return 0;
+}
+static int32_t __yo_sync_umask(int32_t mask) {
+  return (int32_t)umask((mode_t)mask);
+}
 
-// --- Process helpers ---
+// --- Process helpers (stub — no process model on WASM) ---
 static int32_t __yo_process_exit_status(int32_t status) { (void)status; return -1; }
 static int32_t __yo_process_term_signal(int32_t status) { (void)status; return -1; }
 
 // --- Directory entry helpers ---
-static size_t __yo_dirent_size(void) { return 0; }
-static uint64_t __yo_dirent_ino(void* entry) { (void)entry; return 0; }
-static uint16_t __yo_dirent_reclen(void* entry) { (void)entry; return 0; }
+static size_t __yo_dirent_size(void) { return sizeof(struct dirent); }
+static uint64_t __yo_dirent_ino(void* entry) { return (uint64_t)((struct dirent*)entry)->d_ino; }
+static uint16_t __yo_dirent_reclen(void* entry) { return (uint16_t)((struct dirent*)entry)->d_reclen; }
 
-// --- DNS / addrinfo helpers ---
+// --- DNS / addrinfo helpers (stub — no real networking on WASM) ---
 static size_t __yo_addrinfo_size(void) { return 0; }
 static int32_t __yo_addrinfo_flags(uint8_t* ai) { (void)ai; return 0; }
 static int32_t __yo_addrinfo_family(uint8_t* ai) { (void)ai; return 0; }
@@ -132,22 +206,22 @@ static uint8_t* __yo_addrinfo_canonname(uint8_t* ai) { (void)ai; return NULL; }
 static uint8_t* __yo_addrinfo_next(uint8_t* ai) { (void)ai; return NULL; }
 static void __yo_freeaddrinfo(uint8_t* res) { (void)res; }
 
-// --- Statx field extractors ---
-static size_t __yo_statx_buf_size(void) { return 256; }
-static int64_t __yo_statx_size(void* buf) { (void)buf; return 0; }
-static uint32_t __yo_statx_mode(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_mtime_sec(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_mtime_nsec(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_atime_sec(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_atime_nsec(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_ctime_sec(void* buf) { (void)buf; return 0; }
-static int64_t __yo_statx_ctime_nsec(void* buf) { (void)buf; return 0; }
-static uint32_t __yo_statx_uid(void* buf) { (void)buf; return 0; }
-static uint32_t __yo_statx_gid(void* buf) { (void)buf; return 0; }
-static uint64_t __yo_statx_ino(void* buf) { (void)buf; return 0; }
-static uint64_t __yo_statx_nlink(void* buf) { (void)buf; return 0; }
+// --- Statx field extractors (use struct stat on Emscripten) ---
+static size_t __yo_statx_buf_size(void) { return sizeof(struct stat); }
+static int64_t __yo_statx_size(void* buf) { return (int64_t)((struct stat*)buf)->st_size; }
+static uint32_t __yo_statx_mode(void* buf) { return (uint32_t)((struct stat*)buf)->st_mode; }
+static int64_t __yo_statx_mtime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_mtim.tv_sec; }
+static int64_t __yo_statx_mtime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_mtim.tv_nsec; }
+static int64_t __yo_statx_atime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_atim.tv_sec; }
+static int64_t __yo_statx_atime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_atim.tv_nsec; }
+static int64_t __yo_statx_ctime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_ctim.tv_sec; }
+static int64_t __yo_statx_ctime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_ctim.tv_nsec; }
+static uint32_t __yo_statx_uid(void* buf) { return (uint32_t)((struct stat*)buf)->st_uid; }
+static uint32_t __yo_statx_gid(void* buf) { return (uint32_t)((struct stat*)buf)->st_gid; }
+static uint64_t __yo_statx_ino(void* buf) { return (uint64_t)((struct stat*)buf)->st_ino; }
+static uint64_t __yo_statx_nlink(void* buf) { return (uint64_t)((struct stat*)buf)->st_nlink; }
 
-// --- Socket address set/get helpers ---
+// --- Socket address set/get helpers (stub) ---
 static void __yo_sockaddr_set_family(void* addr, int32_t family) { (void)addr; (void)family; }
 static int32_t __yo_sockaddr_get_family(void* addr) { (void)addr; return 0; }
 static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) { (void)addr; (void)port; }
@@ -159,13 +233,15 @@ static void __yo_sockaddr_un_set_path(void* addr, const char* path) { (void)addr
 static const char* __yo_sockaddr_un_get_path(void* addr) { (void)addr; return ""; }
 
 // --- Network byte order ---
-static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) { (void)af; (void)src; (void)dst; return -ENOSYS; }
-static uint16_t __yo_htons(uint16_t hostshort) { (void)hostshort; return 0; }
-static uint16_t __yo_ntohs(uint16_t netshort) { (void)netshort; return 0; }
-static uint32_t __yo_htonl(uint32_t hostlong) { (void)hostlong; return 0; }
-static uint32_t __yo_ntohl(uint32_t netlong) { (void)netlong; return 0; }
+static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
+  return inet_pton(af, src, dst);
+}
+static uint16_t __yo_htons(uint16_t hostshort) { return htons(hostshort); }
+static uint16_t __yo_ntohs(uint16_t netshort) { return ntohs(netshort); }
+static uint32_t __yo_htonl(uint32_t hostlong) { return htonl(hostlong); }
+static uint32_t __yo_ntohl(uint32_t netlong) { return ntohl(netlong); }
 
-// --- Socket info ---
+// --- Socket info (stub) ---
 static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
   (void)sockfd; (void)addr; (void)addrlen; return -ENOSYS;
 }
@@ -181,23 +257,44 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
 
 // --- File metadata ---
 static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t length, int32_t advice) {
-  (void)fd; (void)offset; (void)length; (void)advice; return -ENOSYS;
+  (void)fd; (void)offset; (void)length; (void)advice; return 0; // no-op on virtual FS
 }
 static int32_t __yo_sync_madvise(void* addr, size_t length, int32_t advice) {
-  (void)addr; (void)length; (void)advice; return -ENOSYS;
+  (void)addr; (void)length; (void)advice; return 0; // no-op
 }
-static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) { (void)fd; (void)mode; return -ENOSYS; }
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
 static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
-  (void)dirfd; (void)path; (void)mode; (void)flags; return -ENOSYS;
+  int result;
+  if (dirfd == -100) {
+    result = chmod(path, (mode_t)mode);
+  } else {
+    result = fchmodat(dirfd, path, (mode_t)mode, flags);
+  }
+  return (result < 0) ? -errno : 0;
 }
 static int32_t __yo_sync_fchown(int32_t fd, uint32_t owner, uint32_t group) {
-  (void)fd; (void)owner; (void)group; return -ENOSYS;
+  int result = fchown(fd, (uid_t)owner, (gid_t)group);
+  return (result < 0) ? -errno : 0;
 }
 static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t owner, uint32_t group, int32_t flags) {
-  (void)dirfd; (void)path; (void)owner; (void)group; (void)flags; return -ENOSYS;
+  int result;
+  if (dirfd == -100) {
+    if (flags & 0x100) {  // AT_SYMLINK_NOFOLLOW
+      result = lchown(path, (uid_t)owner, (gid_t)group);
+    } else {
+      result = chown(path, (uid_t)owner, (gid_t)group);
+    }
+  } else {
+    result = fchownat(dirfd, path, (uid_t)owner, (gid_t)group, flags);
+  }
+  return (result < 0) ? -errno : 0;
 }
 static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
-  (void)fd; (void)offset; (void)whence; return -ENOSYS;
+  off_t result = lseek(fd, (off_t)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 `);
 }
@@ -214,141 +311,302 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
 export function generateAsyncRuntimeIOWasm(emitter: Emitter): void {
   emitter.emitLine(`
 // ============================================================================
-// WASM Platform Stubs — Async I/O Start Functions
+// WASM Platform — Async I/O (Sync-wrapped IOFutures via Emscripten POSIX)
 // ============================================================================
-// Stub async I/O functions for WASM. Each returns an immediately-completed
-// IOFuture with result = -ENOSYS. The await machinery processes this as a
-// normal completion, and Yo-level code sees the error via Result types.
+// Emscripten's virtual filesystem (MEMFS) provides synchronous POSIX I/O.
+// Each async function performs the real syscall immediately and returns an
+// already-completed IOFuture (state = -1), following the macOS pattern.
 
 #ifndef ENOSYS
-#define ENOSYS 38
+#define ENOSYS 52
 #endif
 
-static __yo_io_future_t* __yo_wasm_io_stub(void) {
+// --- Helper to create a completed IOFuture with a result ---
+static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
-  future->state = -1;    /* completed */
-  future->result = -ENOSYS;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  future->result = result;
+  atomic_init(&future->state, -1);  // completed
   return future;
 }
 
 // --- File operations ---
 static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
-  (void)dirfd; (void)path; (void)flags; (void)mode; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
-  (void)fd; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
-  (void)fd; (void)buffer; (void)size; (void)offset; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
-  (void)fd; (void)buffer; (void)size; (void)offset; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
-  (void)dirfd; (void)path; (void)flags; (void)mask; (void)statxbuf; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
-  (void)fd; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
-  (void)fd; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
-  (void)fd; (void)length; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
-  (void)dirfd; (void)path; (void)mode; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
-  (void)dirfd; (void)path; (void)flags; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
-  (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
-  (void)target; (void)newdirfd; (void)linkpath; return __yo_wasm_io_stub();
-}
-static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
-  (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath; (void)flags; return __yo_wasm_io_stub();
+  int fd;
+  if (dirfd == -100) {  // AT_FDCWD
+    fd = open(path, flags, mode);
+  } else {
+    fd = openat(dirfd, path, flags, mode);
+  }
+  return __yo_wasm_io_completed((fd < 0) ? -errno : fd);
 }
 
-// --- Socket operations ---
+static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
+  int result = close(fd);
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  // For regular files use pread with offset; for pipes/stdin use read
+  struct stat st;
+  bool is_regular = false;
+  if (fstat(fd, &st) == 0) {
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+
+  ssize_t result;
+  if (is_regular) {
+    result = pread(fd, buffer, size, (off_t)offset);
+  } else {
+    result = read(fd, buffer, size);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : (int32_t)result);
+}
+
+static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  struct stat st;
+  bool is_regular = false;
+  if (fstat(fd, &st) == 0) {
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+
+  ssize_t result;
+  if (is_regular) {
+    int fl = fcntl(fd, F_GETFL);
+    if (fl != -1 && (fl & O_APPEND)) {
+      result = write(fd, buffer, size);
+    } else {
+      result = pwrite(fd, buffer, size, (off_t)offset);
+    }
+  } else {
+    result = write(fd, buffer, size);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : (int32_t)result);
+}
+
+static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
+  (void)mask;
+  int at_flags = 0;
+  if (flags & 0x100) {  // AT_SYMLINK_NOFOLLOW (Linux/Emscripten value)
+    at_flags |= AT_SYMLINK_NOFOLLOW;
+  }
+
+  int result;
+  if (dirfd == -100) {
+    if (at_flags & AT_SYMLINK_NOFOLLOW) {
+      result = lstat(path, (struct stat*)statxbuf);
+    } else {
+      result = stat(path, (struct stat*)statxbuf);
+    }
+  } else {
+    result = fstatat(dirfd, path, (struct stat*)statxbuf, at_flags);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
+  int result = fsync(fd);
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
+  // Emscripten MEMFS: fdatasync is the same as fsync
+  return __yo_async_fsync_start(fd);
+}
+
+static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
+  int result = ftruncate(fd, (off_t)length);
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
+  int result;
+  if (dirfd == -100) {
+    result = mkdir(path, (mode_t)mode);
+  } else {
+    result = mkdirat(dirfd, path, (mode_t)mode);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
+  int result;
+  if (dirfd == -100) {
+    if (flags & 0x200) {  // AT_REMOVEDIR (Linux/Emscripten value)
+      result = rmdir(path);
+    } else {
+      result = unlink(path);
+    }
+  } else {
+    result = unlinkat(dirfd, path, flags);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
+  int result;
+  if (olddirfd == -100 && newdirfd == -100) {
+    result = rename(oldpath, newpath);
+  } else {
+    result = renameat(olddirfd, oldpath, newdirfd, newpath);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
+  int result;
+  if (newdirfd == -100) {
+    result = symlink(target, linkpath);
+  } else {
+    result = symlinkat(target, newdirfd, linkpath);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
+  int result;
+  if (olddirfd == -100 && newdirfd == -100) {
+    result = link(oldpath, newpath);
+  } else {
+    result = linkat(olddirfd, oldpath, newdirfd, newpath, flags);
+  }
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+// --- Socket operations (stub — no real sockets on WASM) ---
 static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
-  (void)domain; (void)type; (void)protocol; return __yo_wasm_io_stub();
+  (void)domain; (void)type; (void)protocol; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
-  (void)sockfd; (void)backlog; return __yo_wasm_io_stub();
+  (void)sockfd; (void)backlog; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)addr; (void)addrlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; return __yo_wasm_io_stub();
+  (void)sockfd; (void)buf; (void)len; (void)flags; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; return __yo_wasm_io_stub();
+  (void)sockfd; (void)buf; (void)len; (void)flags; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; (void)dest_addr; (void)addrlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)buf; (void)len; (void)flags; (void)dest_addr; (void)addrlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; (void)src_addr; (void)addrlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)buf; (void)len; (void)flags; (void)src_addr; (void)addrlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
-  (void)sockfd; (void)how; return __yo_wasm_io_stub();
+  (void)sockfd; (void)how; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
                                                     const void* optval, uint32_t optlen) {
-  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
                                                     void* optval, uint32_t* optlen) {
-  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen; return __yo_wasm_io_stub();
+  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen; return __yo_wasm_io_completed(-ENOSYS);
 }
 
 // --- Timer ---
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
-  (void)milliseconds; return __yo_wasm_io_stub();
+  // Emscripten: use usleep for blocking sleep on virtual FS thread
+  if (milliseconds > 0) {
+    usleep((useconds_t)(milliseconds * 1000));
+  }
+  return __yo_wasm_io_completed(1);
 }
 
-// --- DNS ---
+// --- DNS (stub — no real networking) ---
 static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
-  (void)node; (void)service; (void)hints; (void)result; return __yo_wasm_io_stub();
+  (void)node; (void)service; (void)hints; (void)result; return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
                                                      uint8_t* host, size_t hostlen,
                                                      uint8_t* service, size_t servlen, int32_t flags) {
   (void)addr; (void)addrlen; (void)host; (void)hostlen; (void)service; (void)servlen; (void)flags;
-  return __yo_wasm_io_stub();
+  return __yo_wasm_io_completed(-ENOSYS);
 }
 
 // --- Directory scanning ---
-static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
-  (void)fd; (void)buf; (void)buf_size; return __yo_wasm_io_stub();
+static __yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path) {
+  int fd;
+  if (dirfd == -100) {
+    fd = open(path, O_RDONLY | O_DIRECTORY);
+  } else {
+    fd = openat(dirfd, path, O_RDONLY | O_DIRECTORY);
+  }
+  return __yo_wasm_io_completed((fd < 0) ? -errno : fd);
 }
 
-// --- Process spawn/wait ---
+static __yo_io_future_t* __yo_async_opendir_start(const char* path) {
+  DIR* dir = opendir(path);
+  return __yo_wasm_io_completed(dir ? (int32_t)(intptr_t)dir : -errno);
+}
+
+static __yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t max_entries) {
+  (void)entries; (void)max_entries;
+  struct dirent* entry = readdir((DIR*)dir);
+  return __yo_wasm_io_completed(entry ? 1 : 0);
+}
+
+static __yo_io_future_t* __yo_async_closedir_start(void* dir) {
+  int result = closedir((DIR*)dir);
+  return __yo_wasm_io_completed((result < 0) ? -errno : 0);
+}
+
+static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
+  // Emulate getdents using readdir on a dup()'d fd (same as macOS)
+  int dup_fd = dup(fd);
+  if (dup_fd < 0) {
+    return __yo_wasm_io_completed(-errno);
+  }
+
+  DIR* dir = fdopendir(dup_fd);
+  if (!dir) {
+    int err = errno;
+    close(dup_fd);
+    return __yo_wasm_io_completed(-err);
+  }
+
+  size_t total = 0;
+  struct dirent* entry = NULL;
+
+  while ((entry = readdir(dir)) != NULL) {
+    size_t reclen = (size_t)entry->d_reclen;
+    if (total + reclen > (size_t)buf_size) {
+      break;
+    }
+    memcpy((char*)buf + total, entry, reclen);
+    total += reclen;
+  }
+
+  closedir(dir);  // also closes dup_fd
+  return __yo_wasm_io_completed((int32_t)total);
+}
+
+// --- Process spawn/wait (stub — no process model on WASM) ---
 static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
                                               int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
   (void)file; (void)argv; (void)envp; (void)stdin_fd; (void)stdout_fd; (void)stderr_fd;
-  return __yo_wasm_io_stub();
+  return __yo_wasm_io_completed(-ENOSYS);
 }
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
-  (void)pid; (void)options; return __yo_wasm_io_stub();
+  (void)pid; (void)options; return __yo_wasm_io_completed(-ENOSYS);
 }
 
-// --- Poll ---
+// --- Poll (stub — limited on WASM) ---
 static void* __yo_poll_init(int32_t fd) { (void)fd; return NULL; }
 static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* user_data) {
   (void)h; (void)events; (void)callback; (void)user_data; return -ENOSYS;
@@ -356,7 +614,7 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
 static int32_t __yo_poll_stop(void* h) { (void)h; return -ENOSYS; }
 static void __yo_poll_close(void* h) { (void)h; }
 
-// --- FS Event watching ---
+// --- FS Event watching (stub — no inotify/kqueue on WASM) ---
 static void* __yo_fs_event_init(void) { return NULL; }
 static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
   (void)h; (void)path; (void)flags; (void)callback; (void)user_data; return -ENOSYS;

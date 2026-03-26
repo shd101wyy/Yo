@@ -1,7 +1,9 @@
-// @skip_wasm
+
+// @skip_wasm — Emscripten does not implement flock()
 open import "std/libc/stdio";
 open import "std/string";
 { platform, Platform } :: import "std/process";
+{ EBADF, EWOULDBLOCK } :: import "std/libc/errno";
 file :: import "std/sys/file";
 temp_io :: import "std/sys/temp";
 dir :: import "std/sys/dir";
@@ -9,14 +11,9 @@ dir :: import "std/sys/dir";
 lock_io :: import "std/sys/lock";
 { temp_dir, path_join } :: import "../helper";
 
-EWOULDBLOCK_ERR :: cond(
-  (platform == Platform.Macos) => i32(-35),
-  true => i32(-11)
-);
-
 test "flock on invalid fd returns -EBADF", using(io : IO), {
   ret := lock_io.flock(i32(-1), lock_io.LOCK_EX);
-  assert((ret == i32(-9)), "flock on fd -1 should return -EBADF (-9)");
+  assert((ret == (i32(0) - i32(EBADF))), "flock on fd -1 should return -EBADF");
 };
 
 test "flock exclusive lock and unlock on temp file", using(io : IO), {
@@ -81,7 +78,7 @@ test "flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", usin
 
   // Non-blocking exclusive lock on fd2 should fail with EWOULDBLOCK
   ret_lock2 := lock_io.flock(fd2, (lock_io.LOCK_EX | lock_io.LOCK_NB));
-  assert((ret_lock2 == EWOULDBLOCK_ERR), "LOCK_EX|LOCK_NB on locked file should return -EWOULDBLOCK");
+  assert((ret_lock2 == (i32(0) - i32(EWOULDBLOCK))), "LOCK_EX|LOCK_NB on locked file should return -EWOULDBLOCK");
 
   // Unlock fd1 so fd2 can lock
   ret_unlock := lock_io.flock(fd1, lock_io.LOCK_UN);
@@ -128,7 +125,7 @@ test "flock multiple shared locks coexist but block exclusive", using(io : IO), 
   assert((fd3 >= i32(0)), "opening same file on fd3 should succeed");
 
   ret_ex := lock_io.flock(fd3, (lock_io.LOCK_EX | lock_io.LOCK_NB));
-  assert((ret_ex == EWOULDBLOCK_ERR), "LOCK_EX|LOCK_NB should fail while shared locks are held");
+  assert((ret_ex == (i32(0) - i32(EWOULDBLOCK))), "LOCK_EX|LOCK_NB should fail while shared locks are held");
 
   // Unlock both shared locks
   ret_un1 := lock_io.flock(fd1, lock_io.LOCK_UN);

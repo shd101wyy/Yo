@@ -476,6 +476,9 @@ function runSingleTest(
       // signature matches, but the codegen casts void* to fn pointers)
       compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
 
+      // Use Node.js's real filesystem instead of Emscripten's MEMFS
+      compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+
       // Enable pthreads when the program uses threading
       if (usesParallelism) {
         compileArgs.splice(

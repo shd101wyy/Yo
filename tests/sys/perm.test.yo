@@ -1,9 +1,10 @@
-// @skip_wasm
+
 open import "std/libc/stdio";
 { GlobalAllocator } :: import "std/allocator";
 { malloc, free } :: GlobalAllocator;
 open import "std/string";
 { platform, Platform, env } :: import "std/process";
+{ ENOENT, EACCES } :: import "std/libc/errno";
 perm :: import "std/sys/perm";
 file :: import "std/sys/file";
 dir :: import "std/sys/dir";
@@ -13,16 +14,11 @@ dir :: import "std/sys/dir";
 } :: import "std/sys/constants";
 { temp_dir, path_join } :: import "../helper";
 
-// Helper: create a temp test file with given content, return the path as *(u8)
-make_test_file :: (fn() -> *(u8)) {
+test "access F_OK R_OK W_OK on existing file", using(io : IO), {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
-  c.ptr().unwrap()
-};
-
-test "access F_OK R_OK W_OK on existing file", using(io : IO), {
-  test_path := make_test_file();
+  test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
   assert(fd >= i32(0));
@@ -45,11 +41,14 @@ test "access F_OK R_OK W_OK on existing file", using(io : IO), {
 
 test "access on nonexistent file returns -ENOENT", using(io : IO), {
   ret := perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
-  assert(ret == i32(-2));
+  assert(ret == (i32(0) - i32(ENOENT)));
 };
 
 test "chmodat changes and restores permissions", using(io : IO), {
-  test_path := make_test_file();
+  tmp := temp_dir();
+  p := path_join(tmp, `yo_perm_test.txt`);
+  c := p.to_cstr();
+  test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
   assert(fd >= i32(0));
@@ -69,7 +68,7 @@ test "chmodat changes and restores permissions", using(io : IO), {
 
   // Should NOT be writable (non-root: -EACCES = -13)
   ret_w := perm.access(AT_FDCWD, test_path, W_OK);
-  assert(ret_w == i32(-13));
+  assert(ret_w == (i32(0) - i32(EACCES)));
 
   // Restore to 0644
   ret_b := perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
@@ -80,7 +79,10 @@ test "chmodat changes and restores permissions", using(io : IO), {
 };
 
 test "fchmod by fd sets executable bit", using(io : IO), {
-  test_path := make_test_file();
+  tmp := temp_dir();
+  p := path_join(tmp, `yo_perm_test.txt`);
+  c := p.to_cstr();
+  test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
   assert(fd_w >= i32(0));
@@ -114,11 +116,14 @@ test "fchmod by fd sets executable bit", using(io : IO), {
 
 test "chmodat on nonexistent file returns -ENOENT", using(io : IO), {
   ret := perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
-  assert(ret == i32(-2));
+  assert(ret == (i32(0) - i32(ENOENT)));
 };
 
 test "fchown with -1 -1 succeeds (no change)", using(io : IO), {
-  test_path := make_test_file();
+  tmp := temp_dir();
+  p := path_join(tmp, `yo_perm_test.txt`);
+  c := p.to_cstr();
+  test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
   assert(fd_w >= i32(0));

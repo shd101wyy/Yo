@@ -18,7 +18,7 @@ open import "std/libc/stdio";
 // ... rest of test file
 ```
 
-**Test-level: `if` guard with `process.arch`**
+**Test-level: `cond` guard with `process.arch`**
 
 For files where only some tests need skipping, add an architecture guard at the start of the test body.
 Since `process.arch` is comptime, the guard is resolved at compile time — no runtime overhead on non-WASM targets.
@@ -26,35 +26,66 @@ Since `process.arch` is comptime, the guard is resolved at compile time — no r
 ```yo
 { arch, Arch } :: import "std/process";
 
-test "my thread test", {
-  if((arch == Arch.Wasm32), return ());
-  // ... test body runs only on non-WASM targets
+test "my test", using(io : IO), {
+  cond(
+    (arch == Arch.Wasm32) => {
+      printf("  skipped on wasm32\n");
+    },
+    true => {
+      // ... test body runs only on non-WASM targets
+    }
+  );
 };
 ```
 
+## WASM I/O Architecture
+
+The WASM runtime (`src/codegen/async/runtime-io-wasm.ts`) uses **synchronous POSIX calls wrapped in
+immediately-completed IOFutures**, the same pattern as the macOS runtime for regular files. With
+`-sNODERAWFS=1`, Emscripten uses Node.js's real filesystem instead of a virtual MEMFS, so all
+file/directory operations work on actual files.
+
+Key flags passed to emcc:
+
+- `-sEMULATE_FUNCTION_POINTER_CASTS=1` — function pointer type compatibility
+- `-sNODERAWFS=1` — real filesystem via Node.js
+- `-pthread -sPTHREAD_POOL_SIZE=4 -sEXIT_RUNTIME=1` — when threading is used
+
+### WASI errno numbering
+
+**Critical:** Emscripten uses WASI errno values, NOT POSIX/Linux values:
+
+- `ENOENT` = 44 (Linux: 2), `EACCES` = 2 (Linux: 13), `EBADF` = 8 (Linux: 9)
+- `EINVAL` = 28 (Linux: 22), `ESPIPE` = 70 (Linux: 29), `ENOSYS` = 52 (Linux: 38)
+- `EEXIST` = 20 (Linux: 17), `EWOULDBLOCK` differs
+
+Tests and std library code **must** use errno constants from `std/libc/errno` instead of hardcoded
+numbers. The constants are resolved at C compile time via `#include <errno.h>`.
+
 ## Categories of Unsupported Features
 
-### 1. Async I/O Operations (File, Socket, Network)
+### 1. Networking (Sockets, DNS)
 
-WASM has no native async I/O backend (no io_uring, kqueue, or IOCP). The codegen emits stub
-functions (in `src/codegen/async/runtime-io-wasm.ts`) that return `-ENOSYS` so programs compile,
-but I/O operations fail at runtime.
+WASM has no native network stack. Socket/DNS operations return `-ENOSYS`.
 
 **Affected test files (fully skipped):**
 
-- All `tests/fs/`: `dir`, `file`, `fs_convenience`, `metadata`, `temp`, `walker`
 - `tests/net/dns.test.yo`, `tests/net/tcp.test.yo`, `tests/net/udp.test.yo`
+- `tests/sys/socketpair.test.yo`, `tests/sys/sockinfo.test.yo`, `tests/sys/unix.test.yo`
 
-### 2. POSIX Syscalls
-
-WASM does not support POSIX-specific syscalls like signals, filesystem metadata, or terminal control.
+### 2. OS-Specific Syscalls
 
 **Affected test files (fully skipped):**
 
-- `tests/sys/signal.test.yo` (POSIX signals)
-- `tests/sys/statfs.test.yo` (filesystem metadata syscall)
-- `tests/sys/tty.test.yo` (terminal ioctl syscalls)
-- `tests/os/env.test.yo` (uses `home_dir`, `config_dir`, `cache_dir`, `temp_dir`)
+- `tests/sys/signal.test.yo` — POSIX signals (limited in WASM)
+- `tests/sys/statfs.test.yo` — filesystem metadata syscall (not available)
+- `tests/sys/tty.test.yo` — terminal ioctl syscalls (no terminal in WASM)
+- `tests/sys/mmap.test.yo` — memory-mapped files (no mmap for files)
+- `tests/sys/poll.test.yo` — poll/epoll (no async I/O backend)
+- `tests/sys/fs_event.test.yo` — inotify/kqueue (no FS event watching)
+- `tests/sys/process.test.yo` — process spawn/wait (no process model)
+- `tests/sys/lock.test.yo` — flock() (not implemented in Emscripten)
+- `tests/sys/timer.test.yo` — relies on async scheduling (usleep blocks synchronously)
 
 ### 3. Inline Assembly
 
@@ -64,20 +95,31 @@ WASM does not support x86/ARM inline assembly.
 
 - `tests/asm.test.yo`
 
-### 4. Sync Primitives (threading-based tests)
+### 4. Test-Level Skips (not file-level)
 
-All sync primitive concurrent tests now pass with Emscripten pthreads enabled.
-No individual test-level skip guards remain for sync primitives.
+Some test files have individual tests skipped on WASM while the rest pass:
+
+- `tests/sys/fcntl.test.yo` — `FD_CLOEXEC` test skipped (no exec() in WASM)
+- `tests/sys/time.test.yo` — nanosecond precision test skipped (NODERAWFS has µs precision)
+- `tests/sys/dir.test.yo` — hard link test skipped (NODERAWFS returns EMLINK for link())
+- `tests/sys/advise.test.yo` — madvise test skipped (no mmap support)
+- `tests/fs/dir.test.yo` — hard link test skipped (same NODERAWFS limitation)
 
 ## WASM Test Results Summary
 
-**File-level skips:** 44 test files (I/O, asm, signals, tty, statfs, os/env)
-**Test-name skips:** 0 individual tests
-**Passing:** All remaining tests pass — core language features, collections, encoding, regex,
-strings, closures, algebraic effects, async/await (including escape), error handling, comptime,
-threading (via Emscripten pthreads), workers, Arc (including cross-thread), process (cwd, chdir),
-sync primitives (channel, once, rwlock, waitgroup — including concurrent tests), time,
-crypto/random, and more.
+**File-level skips:** 15 test files
+**Test-level skips:** 5 individual tests (in 5 different files)
+**Passing:** All remaining tests pass, including:
+
+- Core language features, collections, encoding, regex, strings, closures
+- Algebraic effects (57 tests), async/await (including escape), error handling
+- Comptime, threading (via Emscripten pthreads), workers, Arc (cross-thread)
+- Process (cwd, chdir), sync primitives (channel, once, rwlock, waitgroup)
+- **sys/**: file, pipe, seek, iov, path, temp, bufio, sysinfo, umask, fallocate, copy,
+  clock, time, dir, advise, fcntl, perm, constants
+- **fs/**: file (13 tests), dir (12 tests), metadata (6), temp (7), walker (6),
+  fs_convenience (9)
+- **os/**: env (7 tests)
 
 ## CI
 
@@ -129,6 +171,34 @@ All sync primitive tests (channel, once, rwlock, waitgroup) including their thre
 concurrent variants now pass with Emscripten pthread support. The Wasm32 skip guards were removed
 from 23 individual tests across 4 files.
 
+### ~~File System I/O~~ — FIXED (Phase 3)
+
+All async file/directory/pipe/metadata I/O operations now work on WASM using NODERAWFS.
+The `runtime-io-wasm.ts` was completely rewritten from stubs to real POSIX calls wrapped in
+immediately-completed IOFutures (same pattern as macOS). Key changes:
+
+- `-sNODERAWFS=1` enables real filesystem access via Node.js
+- `runtime-io-common.ts` enabled for WASM (stat extractors, d_type, copyfile/sendfile)
+- Errno constants used instead of hardcoded numbers throughout std library
+- `std/fs/dir.yo` fixed hardcoded `EEXIST`/`ENOENT` values
+- Tests: dangling pointer bug fixed in perm.test.yo's `make_test_file()` helper
+
+### ~~os/env~~ — FIXED (Phase 3)
+
+Environment variable operations (`env.get`, `env.set`, `env.remove`, `home_dir`, `config_dir`,
+`temp_dir`) work on WASM through Emscripten's POSIX environment API.
+
+## Known Limitations
+
+- **Hard links**: NODERAWFS's `link()` returns EMLINK (errno 34). Tests gracefully skip.
+- **flock()**: Not implemented in Emscripten. `lock.test.yo` is fully skipped.
+- **Nanosecond timestamps**: NODERAWFS preserves only microsecond precision for file timestamps.
+- **Timer/sleep**: `usleep()` blocks synchronously in WASM — no async interleaving.
+- **WASM stack size**: Limited stack; large buffers (>8KB) may cause out-of-bounds errors.
+  The sendfile fallback buffer was reduced from 64KB to 8KB.
+- **mmap**: Not supported for file mapping in Emscripten.
+
 ## Future Work
 
-- Add WASI I/O backend for file operations (would enable fs/ tests)
+- Add socket support via Emscripten's WebSocket proxy or POSIX over fetch
+- Investigate WasmFS (Emscripten's next-gen FS) for better WASI compatibility

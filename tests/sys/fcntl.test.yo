@@ -1,6 +1,7 @@
-// @skip_wasm
+
 open import "std/libc/stdio";
-{ platform, Platform } :: import "std/process";
+{ platform, Platform, arch, Arch } :: import "std/process";
+{ EBADF, ENOSYS } :: import "std/libc/errno";
 file :: import "std/sys/file";
 pipe_io :: import "std/sys/pipe";
 fcntl_io :: import "std/sys/fcntl";
@@ -16,10 +17,10 @@ test "fcntl invalid fd returns -EBADF", using(io : IO), {
   printf("  getfd(-1) = %d\n", ret_getfd);
   printf("  setfd(-1) = %d\n", ret_setfd);
 
-  assert(ret_getfl == i32(-9));
-  assert(ret_setfl == i32(-9));
-  assert(ret_getfd == i32(-9));
-  assert(ret_setfd == i32(-9));
+  assert(ret_getfl == (i32(0) - i32(EBADF)));
+  assert(ret_setfl == (i32(0) - i32(EBADF)));
+  assert(ret_getfd == (i32(0) - i32(EBADF)));
+  assert(ret_setfd == (i32(0) - i32(EBADF)));
 };
 
 test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
@@ -44,7 +45,7 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
   cond(
     (platform == Platform.Windows) => {
       // Windows uses a different model; setfl is best-effort for non-socket fds.
-      assert(((set_nonblock == i32(0)) || (set_nonblock == i32(-38))));
+      assert(((set_nonblock == i32(0)) || (set_nonblock == (i32(0) - i32(ENOSYS)))));
     },
     true => {
       assert(set_nonblock == i32(0));
@@ -55,7 +56,7 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
   restore := fcntl_io.setfl(read_fd, flags_before);
   cond(
     (platform == Platform.Windows) => {
-      assert(((restore == i32(0)) || (restore == i32(-38))));
+      assert(((restore == i32(0)) || (restore == (i32(0) - i32(ENOSYS)))));
     },
     true => {
       assert(restore == i32(0));
@@ -69,6 +70,12 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
 };
 
 test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
+  // WASM has no exec() so FD_CLOEXEC is meaningless; fcntl F_GETFD/F_SETFD not supported
+  cond(
+    (arch == Arch.Wasm32) => {
+      printf("  skipped on wasm32\n");
+    },
+    true => {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -106,4 +113,6 @@ test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
+    }
+  );
 };

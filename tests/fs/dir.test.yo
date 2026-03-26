@@ -1,7 +1,8 @@
-// @skip_wasm
+
 open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
+{ arch, Arch } :: import "std/process";
 { IOError } :: import "std/sys/errors";
 { Error, AnyError, Exception } :: import "std/error";
 fs_dir :: import "std/fs/dir";
@@ -201,29 +202,37 @@ test "rename moves a file", using(io : IO), {
 // ============================================================================
 
 test "hard_link creates a link", using(io : IO), {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape ();
-  }));
+  // WASM NODERAWFS does not support hard links (link() returns EMLINK)
+  cond(
+    (arch == Arch.Wasm32) => {
+      printf("  skipped on wasm32\n");
+    },
+    true => {
+      given(exn) := Exception(throw : ((err) -> {
+        assert(false, "unexpected exception");
+        escape ();
+      }));
 
-  tmp := temp_dir();
-  src := Path.new(path_join(tmp, `yo_fs_link_src.txt`));
-  dst := Path.new(path_join(tmp, `yo_fs_link_dst.txt`));
+      tmp := temp_dir();
+      src := Path.new(path_join(tmp, `yo_fs_link_src.txt`));
+      dst := Path.new(path_join(tmp, `yo_fs_link_dst.txt`));
 
-  cond(io.await(fs_file.exists(dst, using(io))) => {
-    io.await(fs_dir.remove_file(dst));
-  }, true => ());
-  io.await(fs_file.write_file(src, String.from("link data")));
+      cond(io.await(fs_file.exists(dst, using(io))) => {
+        io.await(fs_dir.remove_file(dst));
+      }, true => ());
+      io.await(fs_file.write_file(src, String.from("link data")));
 
-  io.await(fs_dir.hard_link(src, dst));
-  printf("  hard_link ok\n");
+      io.await(fs_dir.hard_link(src, dst));
+      printf("  hard_link ok\n");
 
-  // Read via link
-  s := io.await(fs_file.read_string(dst));
-  assert((s == `link data`), "link content mismatch");
+      // Read via link
+      s := io.await(fs_file.read_string(dst));
+      assert((s == `link data`), "link content mismatch");
 
-  io.await(fs_dir.remove_file(src));
-  io.await(fs_dir.remove_file(dst));
+      io.await(fs_dir.remove_file(src));
+      io.await(fs_dir.remove_file(dst));
+    }
+  );
 };
 
 // ============================================================================
