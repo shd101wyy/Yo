@@ -18,23 +18,21 @@ open import "std/libc/stdio";
 // ... rest of test file
 ```
 
-**Test-level: `cond` guard with `process.arch`**
+**Test-level: `if` guard with `process.arch`**
 
-For files where only some tests need skipping, add an architecture guard at the start of the test body.
+For files where only some tests need skipping, use an `if` early-return at the start of the test body.
 Since `process.arch` is comptime, the guard is resolved at compile time — no runtime overhead on non-WASM targets.
 
 ```yo
 { arch, Arch } :: import "std/process";
 
 test "my test", using(io : IO), {
-  cond(
-    (arch == Arch.Wasm32) => {
-      printf("  skipped on wasm32\n");
-    },
-    true => {
-      // ... test body runs only on non-WASM targets
-    }
-  );
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32\n");
+    return ();
+  });
+
+  // ... test body runs only on non-WASM targets
 };
 ```
 

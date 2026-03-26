@@ -71,11 +71,11 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
 
 test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
   // WASM has no exec() so FD_CLOEXEC is meaningless; fcntl F_GETFD/F_SETFD not supported
-  cond(
-    (arch == Arch.Wasm32) => {
-      printf("  skipped on wasm32\n");
-    },
-    true => {
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32\n");
+    return ();
+  });
+
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -113,6 +113,4 @@ test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-    }
-  );
 };

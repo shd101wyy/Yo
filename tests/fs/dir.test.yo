@@ -203,36 +203,34 @@ test "rename moves a file", using(io : IO), {
 
 test "hard_link creates a link", using(io : IO), {
   // WASM NODERAWFS does not support hard links (link() returns EMLINK)
-  cond(
-    (arch == Arch.Wasm32) => {
-      printf("  skipped on wasm32\n");
-    },
-    true => {
-      given(exn) := Exception(throw : ((err) -> {
-        assert(false, "unexpected exception");
-        escape ();
-      }));
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32\n");
+    return ();
+  });
 
-      tmp := temp_dir();
-      src := Path.new(path_join(tmp, `yo_fs_link_src.txt`));
-      dst := Path.new(path_join(tmp, `yo_fs_link_dst.txt`));
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      cond(io.await(fs_file.exists(dst, using(io))) => {
-        io.await(fs_dir.remove_file(dst));
-      }, true => ());
-      io.await(fs_file.write_file(src, String.from("link data")));
+  tmp := temp_dir();
+  src := Path.new(path_join(tmp, `yo_fs_link_src.txt`));
+  dst := Path.new(path_join(tmp, `yo_fs_link_dst.txt`));
 
-      io.await(fs_dir.hard_link(src, dst));
-      printf("  hard_link ok\n");
+  cond(io.await(fs_file.exists(dst, using(io))) => {
+    io.await(fs_dir.remove_file(dst));
+  }, true => ());
+  io.await(fs_file.write_file(src, String.from("link data")));
 
-      // Read via link
-      s := io.await(fs_file.read_string(dst));
-      assert((s == `link data`), "link content mismatch");
+  io.await(fs_dir.hard_link(src, dst));
+  printf("  hard_link ok\n");
 
-      io.await(fs_dir.remove_file(src));
-      io.await(fs_dir.remove_file(dst));
-    }
-  );
+  // Read via link
+  s := io.await(fs_file.read_string(dst));
+  assert((s == `link data`), "link content mismatch");
+
+  io.await(fs_dir.remove_file(src));
+  io.await(fs_dir.remove_file(dst));
 };
 
 // ============================================================================

@@ -34,13 +34,11 @@ test "fadvise sequential hint returns success", using(io : IO), {
 
 test "madvise dontneed on anonymous mapping returns success", {
   // mmap not supported on WASM
-  cond(
-    (arch == Arch.Wasm32) => {
-      printf("  skipping madvise test on WASM (no mmap)\n");
-      return;
-    },
-    true => ()
-  );
+  if((arch == Arch.Wasm32), {
+    printf("  skipping madvise test on WASM (no mmap)\n");
+    return ();
+  });
+
   mapped := mmap_io.mmap(
     .None,
     usize(4096),

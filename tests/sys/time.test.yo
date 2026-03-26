@@ -122,34 +122,32 @@ test "lutime changes symlink timestamps without affecting target", using(io : IO
 
 test "utime with nanosecond precision", using(io : IO), {
   // WASM NODERAWFS doesn't preserve sub-microsecond precision
-  cond(
-    (arch == Arch.Wasm32) => {
-      printf("  skipped on wasm32 (no nsec precision)\n");
-    },
-    true => {
-      path_cstr := make_test_file(`yo_time_nsec.txt`);
-      test_path := path_cstr.ptr().unwrap();
-      create_file(test_path, *(u8)("nsec test"), u32(9));
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32 (no nsec precision)\n");
+    return ();
+  });
 
-      ret := time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
-      assert(ret == i32(0));
+  path_cstr := make_test_file(`yo_time_nsec.txt`);
+  test_path := path_cstr.ptr().unwrap();
+  create_file(test_path, *(u8)("nsec test"), u32(9));
 
-      statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
-      stat_buf := *(u8)(statx_uninit.as_ptr());
-      sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
-      assert(sr == i32(0));
-      st := Statx(stat_buf, usize(256));
-      assert(st.atime_sec() == i64(1700000000));
-      expected_atime_nsec := cond((platform == Platform.Windows) => u32(123456700), true => u32(123456789));
-      assert(st.atime_nsec() == expected_atime_nsec);
-      assert(st.mtime_sec() == i64(1700000001));
-      expected_mtime_nsec := cond((platform == Platform.Windows) => u32(987654300), true => u32(987654321));
-      assert(st.mtime_nsec() == expected_mtime_nsec);
+  ret := time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
+  assert(ret == i32(0));
 
-      cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
-      assert(cleanup == i32(0));
-    }
-  );
+  statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
+  stat_buf := *(u8)(statx_uninit.as_ptr());
+  sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
+  assert(sr == i32(0));
+  st := Statx(stat_buf, usize(256));
+  assert(st.atime_sec() == i64(1700000000));
+  expected_atime_nsec := cond((platform == Platform.Windows) => u32(123456700), true => u32(123456789));
+  assert(st.atime_nsec() == expected_atime_nsec);
+  assert(st.mtime_sec() == i64(1700000001));
+  expected_mtime_nsec := cond((platform == Platform.Windows) => u32(987654300), true => u32(987654321));
+  assert(st.mtime_nsec() == expected_mtime_nsec);
+
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  assert(cleanup == i32(0));
 };
 
 test "futime preserves file content", using(io : IO), {
