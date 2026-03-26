@@ -538,6 +538,12 @@ export class CodeGenerator {
           compileArgs.splice(-2, 0, "-masm=intel");
         }
 
+        // Emscripten: allow function pointer casts (WASM call_indirect requires
+        // exact signature matches, but the codegen casts void* to fn pointers)
+        if (isEmcc) {
+          compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+        }
+
         // Cross-compilation: add --target= and --sysroot= for clang/gcc
         // Skip for emcc — it handles its own target internally
         const host = hostTarget();

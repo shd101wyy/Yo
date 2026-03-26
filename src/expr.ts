@@ -1167,6 +1167,7 @@ export const BuiltinFunctions = {
   __yo_getrandom: ["__yo_getrandom"],
   __yo_arc4random_buf: ["__yo_arc4random_buf"],
   __yo_bcrypt_gen_random: ["__yo_bcrypt_gen_random"],
+  __yo_getentropy: ["__yo_getentropy"],
 
   // MaybeUninit
   __yo_maybe_uninit_new: ["__yo_maybe_uninit_new"],

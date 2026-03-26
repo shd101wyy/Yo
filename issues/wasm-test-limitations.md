@@ -54,16 +54,7 @@ WASM does not support x86/ARM inline assembly.
 
 - `tests/asm.test.yo`
 
-### 3. System Random (`getrandom` syscall)
-
-Emscripten does not provide the `getrandom` syscall. The linker reports
-`undefined symbol: getrandom`.
-
-**Affected test files:**
-
-- `tests/crypto/random.test.yo`
-
-### 4. Compile-time Integer Overflow (32-bit)
+### 3. Compile-time Integer Overflow (32-bit)
 
 WASM targets use 32-bit `isize`/`usize`. Some compile-time tests perform arithmetic that
 overflows 32-bit range (e.g., `100000 * 25000 = 2,500,000,000 > i32 MAX`).
@@ -72,17 +63,7 @@ overflows 32-bit range (e.g., `100000 * 25000 = 2,500,000,000 > i32 MAX`).
 
 - `tests/comptime.test.yo` — `Test comptime isize`
 
-### 5. Async Escape (Function Pointer Table Mismatch)
-
-Async escape operations (which discard continuations) trigger WASM `RuntimeError: null function
-or function signature mismatch` due to indirect function call table issues. The escape mechanism
-uses function pointers that WASM tables cannot resolve correctly in some contexts.
-
-**Affected tests (individual skip by name):**
-
-- `tests/async_await.test.yo`: `Test escape in async closure`, `Test JoinHandle await returns None on escape`, `Test JoinHandle two tasks one escapes`, `Test JoinHandle escape via spawn-injected effect`
-
-### 6. Threading (pthread)
+### 4. Threading (pthread)
 
 WASM/Emscripten's default compilation does not support pthreads. Tests that spawn OS threads
 or Workers fail at runtime. Tests using async tasks (cooperative scheduling) work fine.
@@ -94,32 +75,41 @@ or Workers fail at runtime. Tests using async tasks (cooperative scheduling) wor
 - `tests/sync/rwlock.test.yo`: All thread-based tests (6 tests)
 - `tests/sync/waitgroup.test.yo`: All thread/Worker-based tests (5 tests)
 
-### 7. Clock (clock_gettime stub)
-
-The WASM stub for `clock_gettime` returns zeros. Tests that assert non-zero time values fail.
-
-**Affected tests (individual skip by name):**
-
-- `tests/time/instant.test.yo`: `Instant.now returns non-zero time`
-- `tests/time/datetime.test.yo`: `DateTime.now_utc returns valid date`
-
 ## WASM Test Results Summary
 
-**File-level skips:** 41 test files (I/O, asm, crypto)
-**Test-name skips:** 30 individual tests (threading, escape, clock, overflow)
+**File-level skips:** 40 test files (I/O, asm)
+**Test-name skips:** 24 individual tests (threading, overflow)
 **Passing:** All remaining tests pass — core language features, collections, encoding, regex,
-strings, closures, algebraic effects, async/await (non-I/O), error handling, comptime, sync
-primitives (non-threaded), time (non-clock), and more.
+strings, closures, algebraic effects, async/await (including escape), error handling, comptime,
+sync primitives (non-threaded), time, crypto/random, and more.
 
 ## CI
 
 The `.github/workflows/test.yml` includes a `test-wasm` job that runs `./yo-cli test ./tests --cc emcc`
 on `ubuntu-latest` with Emscripten installed via `mymindstorm/setup-emsdk@v14`.
 
+## Resolved Issues
+
+The following categories were previously unsupported but have been fixed:
+
+### ~~Clock (clock_gettime stub)~~ — FIXED
+
+Emscripten provides `clock_gettime()` via JS `performance.now()` (monotonic) and `Date.now()`
+(realtime). The WASM codegen now uses the real POSIX wrapper instead of a stub.
+
+### ~~System Random (getrandom)~~ — FIXED
+
+WASM/Emscripten now uses `getentropy()` (via WASI `random_get`, available since Emscripten
+3.1.67+). The `std/crypto/random.yo` module has a `Platform.Wasi` branch that calls
+`getentropy()` in a loop for buffers larger than 256 bytes.
+
+### ~~Async Escape (Function Pointer Table Mismatch)~~ — FIXED
+
+The codegen now passes `-sEMULATE_FUNCTION_POINTER_CASTS=1` to emcc, which generates JS shims
+to handle function pointer type mismatches at indirect call sites. This fixes the
+`RuntimeError: null function or function signature mismatch` errors in async escape tests.
+
 ## Future Work
 
 - Add WASI I/O backend for file operations (would enable fs/ tests)
-- Add Emscripten `getentropy()` wrapper for crypto/random
-- Investigate WASM function table issues with async escape
 - Consider `-pthread` flag for Emscripten thread support
-- Provide real `clock_gettime` via Emscripten's POSIX emulation layer

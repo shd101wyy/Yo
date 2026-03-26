@@ -95,8 +95,17 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 }
 
 // --- System info ---
+// Emscripten provides clock_gettime via JS performance.now() / Date.now()
+#include <time.h>
 static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
-  (void)clock_id; (void)sec; (void)nsec; return -ENOSYS;
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
 }
 static int32_t __yo_sync_uname(void* buf) { (void)buf; return -ENOSYS; }
 static int32_t __yo_sync_gethostname(char* name, size_t len) { (void)name; (void)len; return -ENOSYS; }
