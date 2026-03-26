@@ -297,7 +297,9 @@ ${
     return (size_t)count;
   }
   return 1;`
-      : `  long count = sysconf(_SC_NPROCESSORS_ONLN);
+      : isTargetWasm(targetInfo)
+        ? `  return 1;  // WASM is single-threaded`
+        : `  long count = sysconf(_SC_NPROCESSORS_ONLN);
   return count > 0 ? (size_t)count : 1;`
 }
 }
@@ -317,13 +319,21 @@ ${
       ? `  uint64_t tid;
   pthread_threadid_np(NULL, &tid);
   return (size_t)tid;`
-      : `  return (size_t)syscall(SYS_gettid);`
+      : isTargetWasm(targetInfo)
+        ? `  return 0;  // WASM is single-threaded`
+        : `  return (size_t)syscall(SYS_gettid);`
 }
 }
 
 // Yield execution (allows other tasks to run)
 static void __yo_thread_yield(void) {
-${isTargetWindows(targetInfo) ? `  SwitchToThread();` : `  sched_yield();`}
+${
+  isTargetWindows(targetInfo)
+    ? `  SwitchToThread();`
+    : isTargetWasm(targetInfo)
+      ? `  // No-op: WASM is single-threaded, cooperative scheduling only`
+      : `  sched_yield();`
+}
 }
 
 // Async yield - creates an immediately-ready Future for cooperative yielding

@@ -33,6 +33,7 @@ Each OS thread (both Thread and Worker) gets its own async event loop:
 - **Linux**: per-thread `io_uring` instance
 - **macOS**: per-thread `kqueue` descriptor
 - **Windows**: per-thread IOCP handle
+- **WASM**: not applicable — WASM is single-threaded; parallelism (`Thread.spawn`, workers) is not supported. Use `io.async`/`io.await` for cooperative concurrency instead.
 
 This means spawned threads and worker tasks can perform async I/O via `io.async`/`io.await` without contention — each thread's event loop is fully independent.
 
