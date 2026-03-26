@@ -112,105 +112,19 @@ export interface TestRunSummary {
 // Tests that cannot run under Emscripten/WASM due to missing platform features.
 // See issues/wasm-test-limitations.md for details.
 
-/** Test files to skip entirely when running with emcc (relative to tests/) */
-const WASM_SKIP_FILES: Set<string> = new Set([
-  // sys/ — async I/O operations (file, socket, pipe, etc.) not available
-  "sys/advise.test.yo",
-  "sys/bufio.test.yo",
-  "sys/clock.test.yo",
-  "sys/constants.test.yo",
-  "sys/copy.test.yo",
-  "sys/dir.test.yo",
-  "sys/dns.test.yo",
-  "sys/fallocate.test.yo",
-  "sys/fcntl.test.yo",
-  "sys/file.test.yo",
-  "sys/fs_event.test.yo",
-  "sys/iov.test.yo",
-  "sys/lock.test.yo",
-  "sys/mmap.test.yo",
-  "sys/path.test.yo",
-  "sys/perm.test.yo",
-  "sys/pipe.test.yo",
-  "sys/poll.test.yo",
-  "sys/process.test.yo",
-  "sys/seek.test.yo",
-  "sys/socketpair.test.yo",
-  "sys/sockinfo.test.yo",
-  "sys/sysinfo.test.yo",
-  "sys/tcp.test.yo",
-  "sys/temp.test.yo",
-  "sys/time.test.yo",
-  "sys/timer.test.yo",
-  "sys/udp.test.yo",
-  "sys/umask.test.yo",
-  "sys/unix.test.yo",
-  // fs/ — file system operations
-  "fs/dir.test.yo",
-  "fs/file.test.yo",
-  "fs/fs_convenience.test.yo",
-  "fs/metadata.test.yo",
-  "fs/temp.test.yo",
-  "fs/walker.test.yo",
-  // net/ — network I/O
-  "net/dns.test.yo",
-  "net/tcp.test.yo",
-  "net/udp.test.yo",
-  // Inline assembly — not supported on WASM
-  "asm.test.yo",
-  // getrandom syscall unavailable
-  "crypto/random.test.yo",
-]);
-
-/** Individual test names to skip when running with emcc */
-const WASM_SKIP_TEST_NAMES: Set<string> = new Set([
-  // comptime — 32-bit isize overflow
-  "Test comptime isize",
-  // async escape — function pointer table mismatch in WASM
-  "Test escape in async closure",
-  "Test JoinHandle await returns None on escape",
-  "Test JoinHandle two tasks one escapes",
-  "Test JoinHandle escape via spawn-injected effect",
-  // sync/channel — pthread not available
-  "Channel single producer single consumer with Thread",
-  "Channel thread producer sends many values",
-  "Channel consumer thread blocks until producer sends",
-  "Channel close wakes blocked consumer Thread",
-  "Channel bounded capacity blocks producer",
-  "Channel capacity 1 works as rendezvous",
-  "Channel send from Worker recv from main",
-  "Channel Worker sends multiple values",
-  // sync/once — pthread not available
-  "Once call from multiple threads executes only once",
-  "Once is_done visible across threads after call",
-  "Once multiple threads race to call",
-  "Once with Workers executes only once",
-  // sync/rwlock — pthread not available
-  "RwLock concurrent readers across threads",
-  "RwLock writer thread modifies shared data",
-  "RwLock two writer threads increment counter",
-  "RwLock readers wait for writer across threads",
-  "RwLock with Workers concurrent reads",
-  "RwLock with Workers write then read",
-  // sync/waitgroup — pthread not available
-  "WaitGroup threads call done then main waits",
-  "WaitGroup add before spawn done in thread",
-  "WaitGroup reuse across thread groups",
-  "WaitGroup with Workers",
-  "WaitGroup with Workers and sleep",
-  // time — clock_gettime returns stub values in WASM
-  "Instant.now returns non-zero time",
-  "DateTime.now_utc returns valid date",
-]);
-
 /**
- * Check if a test file should be skipped for WASM.
- * @param filePath absolute path to the test file
- * @param testsDir absolute path to the tests/ directory
+ * Check if a test file has the `// @skip_wasm` directive.
+ * Scans the first 20 lines of the file for the comment annotation.
+ * This is intentionally a fast text scan (no tokenization needed).
  */
-function isWasmSkippedFile(filePath: string, testsDir: string): boolean {
-  const rel = path.relative(testsDir, filePath).replace(/\\/g, "/");
-  return WASM_SKIP_FILES.has(rel);
+function hasSkipWasmDirective(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    const lines = content.split("\n", 20);
+    return lines.some((line) => line.includes("@skip_wasm"));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1084,25 +998,13 @@ export async function runTests(
   const cCompiler = options.cCompiler ?? "cc";
   const isEmcc = cCompiler === "emcc";
 
-  // Resolve the tests/ directory for WASM skip path matching.
-  // Walk up from first test file to find the "tests" directory ancestor.
-  const testsDir = (() => {
-    if (testFiles.length === 0) return path.resolve(process.cwd(), "tests");
-    let dir = path.dirname(testFiles[0]!);
-    while (dir !== path.dirname(dir)) {
-      if (path.basename(dir) === "tests") return dir;
-      dir = path.dirname(dir);
-    }
-    return path.resolve(process.cwd(), "tests");
-  })();
-
-  // Filter out WASM-skipped files before any processing
+  // Filter out files with // @skip_wasm directive when using emcc
   let skippedTests = 0;
   let filteredTestFiles = testFiles;
   if (isEmcc) {
     filteredTestFiles = [];
     for (const filePath of testFiles) {
-      if (isWasmSkippedFile(filePath, testsDir)) {
+      if (hasSkipWasmDirective(filePath)) {
         skippedTests++;
       } else {
         filteredTestFiles.push(filePath);
@@ -1110,7 +1012,7 @@ export async function runTests(
     }
     if (skippedTests > 0) {
       console.log(
-        `${colors.yellow}Skipping ${skippedTests} test file(s) incompatible with WASM${colors.reset}\n`
+        `${colors.yellow}Skipping ${skippedTests} test file(s) with @skip_wasm${colors.reset}\n`
       );
     }
   }
@@ -1215,16 +1117,6 @@ export async function runTests(
 
     if (testNameRegex) {
       tests = tests.filter((test) => testNameRegex.test(test.name));
-    }
-
-    // Skip individual tests incompatible with WASM
-    if (isEmcc) {
-      const beforeCount = tests.length;
-      tests = tests.filter((test) => !WASM_SKIP_TEST_NAMES.has(test.name));
-      const skippedCount = beforeCount - tests.length;
-      if (skippedCount > 0) {
-        skippedTests += skippedCount;
-      }
     }
 
     if (tests.length === 0) {

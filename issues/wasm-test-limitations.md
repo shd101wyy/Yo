@@ -5,8 +5,32 @@
 When running the Yo test suite with `--cc emcc` (targeting WASM via Emscripten), certain tests
 are skipped because they rely on platform features unavailable in WASM environments.
 
-The test runner automatically skips these tests when `isEmcc` is true. Skip lists are defined
-in `src/test-runner.ts` as `WASM_SKIP_FILES` (file-level) and `WASM_SKIP_TEST_NAMES` (test-level).
+### Skip mechanisms
+
+**File-level: `// @skip_wasm` directive**
+
+Add `// @skip_wasm` as the first line of a test file to skip the entire file when compiling with emcc.
+The test runner scans the first 20 lines for this directive and skips the file before evaluation.
+
+```yo
+// @skip_wasm
+open import "std/libc/stdio";
+// ... rest of test file
+```
+
+**Test-level: `if` guard with `process.arch`**
+
+For files where only some tests need skipping, add an architecture guard at the start of the test body.
+Since `process.arch` is comptime, the guard is resolved at compile time — no runtime overhead on non-WASM targets.
+
+```yo
+{ arch, Arch } :: import "std/process";
+
+test "my thread test", {
+  if((arch == Arch.Wasm32), return ());
+  // ... test body runs only on non-WASM targets
+};
+```
 
 ## Categories of Unsupported Features
 

@@ -1,3 +1,4 @@
+{ arch, Arch } :: import "std/process";
 open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
@@ -2041,6 +2042,7 @@ test "Test io.state consistency", using(io : IO), {
 };
 
 test "Test escape in async closure", using(io : IO), {
+  if((arch == Arch.Wasm32), return ());
   // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
   // types in async closures produce "No C function name found" errors.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
@@ -2115,6 +2117,7 @@ test "Test JoinHandle await returns Some on success", using(io : IO), {
 // JoinHandle.await returns .None when the task escapes (aborts)
 // ---------------------------------------------------------------------------
 test "Test JoinHandle await returns None on escape", using(io : IO), {
+  if((arch == Arch.Wasm32), return ());
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task := io.async((using(io : IO, raise : Raise)) => {
@@ -2136,6 +2139,7 @@ test "Test JoinHandle await returns None on escape", using(io : IO), {
 // Two spawned tasks — one escapes, one succeeds. Verify both JoinHandles.
 // ---------------------------------------------------------------------------
 test "Test JoinHandle two tasks one escapes", using(io : IO), {
+  if((arch == Arch.Wasm32), return ());
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task1 := io.async((using(io : IO, raise : Raise)) => {
@@ -2546,6 +2550,7 @@ test "Test escape via injected effect aborts future", using(io : IO), {
 // with the effect injected via io.spawn (not io.await).
 // ---------------------------------------------------------------------------
 test "Test JoinHandle escape via spawn-injected effect", using(io : IO), {
+  if((arch == Arch.Wasm32), return ());
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task := io.async((using(io : IO, raise : Raise)) => {

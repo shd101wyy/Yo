@@ -1,3 +1,4 @@
+{ arch, Arch } :: import "std/process";
 open import "std/libc/stdio";
 { RwLock } :: import "std/sync/rwlock";
 { Thread } :: import "std/thread";
@@ -114,6 +115,7 @@ test "RwLock write lock is exclusive - cannot nest writes", {
 // ============================================================================
 
 test "RwLock concurrent readers across threads", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
 
   t1 := Thread.spawn(() => {
@@ -144,6 +146,7 @@ test "RwLock concurrent readers across threads", {
 };
 
 test "RwLock writer thread modifies shared data", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
   data := arc(box(i32(0)));
 
@@ -161,6 +164,7 @@ test "RwLock writer thread modifies shared data", {
 };
 
 test "RwLock two writer threads increment counter", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
   data := arc(box(i32(0)));
 
@@ -193,6 +197,7 @@ test "RwLock two writer threads increment counter", {
 };
 
 test "RwLock readers wait for writer across threads", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
   data := arc(box(i32(0)));
 
@@ -232,6 +237,7 @@ test "RwLock readers wait for writer across threads", {
 // ============================================================================
 
 test "RwLock with Workers concurrent reads", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
   wg := arc(WaitGroup.new());
   Worker.set_num_threads(2);
@@ -257,6 +263,7 @@ test "RwLock with Workers concurrent reads", {
 };
 
 test "RwLock with Workers write then read", {
+  if((arch == Arch.Wasm32), return ());
   lock := arc(RwLock.new());
   data := arc(box(i32(0)));
   wg := arc(WaitGroup.new());
