@@ -35,14 +35,18 @@ my-project/
 └── README.md
 ```
 
-Build output goes to `yo-out/`:
+Build output goes to `yo-out/<target>/`, organized by target triple (like Cargo):
 
 ```
 yo-out/
-├── bin/                  ← Compiled executables
-│   └── my-project
-└── lib/                  ← Compiled libraries
-    └── libmy-project-lib.a
+├── x86_64-linux-gnu/         ← Host target
+│   ├── bin/
+│   │   └── my-project
+│   └── lib/
+│       └── libmy-project-lib.a
+└── wasm32-wasi/              ← Cross-compilation target
+    └── bin/
+        └── my-project.js
 ```
 
 ## `build.yo`
@@ -450,10 +454,11 @@ Running `yo build` produces:
 
 ```
 yo-out/
-├── bin/
-│   └── demo          ← Executable (calls add from library)
-└── lib/
-    └── libadd.a      ← Static library (exports add function)
+└── x86_64-linux-gnu/
+    ├── bin/
+    │   └── demo          ← Executable (calls add from library)
+    └── lib/
+        └── libadd.a      ← Static library (exports add function)
 ```
 
 In library mode, the compiler:
