@@ -1176,6 +1176,7 @@ export const BuiltinFunctions = {
   // Process related functions
   __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
+  __yo_pointer_size_bits: ["__yo_pointer_size_bits"], // returns target pointer size in bits (32 or 64) as comptime_int
 
   // Build system functions (compile-time only)
   __yo_build_executable: ["__yo_build_executable"],

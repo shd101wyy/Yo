@@ -92,10 +92,10 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
           demandOption: false,
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
         .option("t", {
           alias: "target",
@@ -267,20 +267,39 @@ yo --version                     Show version number
         cCompiler = availableCompiler;
       }
 
+      // When using emcc (Emscripten), auto-set target to wasm32-wasi if not specified
+      const isEmcc = cCompiler === "emcc";
+      const targetTriple =
+        (argv.t as string | undefined) ?? (isEmcc ? "wasm32-wasi" : undefined);
+
       const absolutePath = `file://` + fs.realpathSync(file);
-      const targetInfo = argv.t ? parseTarget(argv.t as string) : hostTarget();
+      const targetInfo = targetTriple
+        ? parseTarget(targetTriple)
+        : hostTarget();
       const requestedOutput = argv.o as string;
-      const outputPath =
-        isTargetWindows(targetInfo) && path.extname(requestedOutput) === ""
-          ? `${requestedOutput}.exe`
-          : requestedOutput;
+      // For emcc, default output should be .js (emscripten generates .js + .wasm)
+      let outputPath: string;
+      if (
+        isEmcc &&
+        path.extname(requestedOutput) === "" &&
+        requestedOutput === "a.out"
+      ) {
+        outputPath = "a.out.js";
+      } else if (
+        isTargetWindows(targetInfo) &&
+        path.extname(requestedOutput) === ""
+      ) {
+        outputPath = `${requestedOutput}.exe`;
+      } else {
+        outputPath = requestedOutput;
+      }
 
       const codeGenerator = new CodeGenerator();
       codeGenerator.compileModule(absolutePath, {
         output: outputPath,
         cCompiler,
         target: "c",
-        targetTriple: argv.t as string | undefined,
+        targetTriple,
         sysroot: argv.sysroot as string | undefined,
         extern: (argv.extern ?? []) as string[],
         includePaths: (argv.I ?? []) as string[],
@@ -319,9 +338,9 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
         .option("verbose", {
           alias: "v",
@@ -510,9 +529,9 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
         .option("t", {
           alias: "target",

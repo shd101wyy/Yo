@@ -227,6 +227,7 @@ export class CodeGenerator {
         }
 
         const isMSVC = compiler === "cl";
+        const isEmcc = compiler === "emcc";
 
         // Static library: compile to .o then create .a archive
         if (options.staticLibrary) {
@@ -256,9 +257,9 @@ export class CodeGenerator {
             );
           }
 
-          // Add cross-compilation flags
+          // Add cross-compilation flags (skip for emcc)
           const host = hostTarget();
-          if (!isMSVC && targetInfo.triple !== host.triple) {
+          if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
             const triple = clangTriple(targetInfo);
             compileToObjArgs.splice(-2, 0, `--target=${triple}`);
             if (options.sysroot) {
@@ -393,8 +394,8 @@ export class CodeGenerator {
           }
         }
 
-        // Add sanitizer flags if requested
-        if (options.sanitize) {
+        // Add sanitizer flags if requested (not supported for emcc/WASM)
+        if (options.sanitize && !isEmcc) {
           const compilerInfo = getCompilerInfo(compiler);
           const sanitizerResult = getSanitizerFlags({
             sanitize: options.sanitize,
@@ -532,14 +533,15 @@ export class CodeGenerator {
           console.log(`Custom compiler flags added: ${options.cflags}`);
         }
 
-        // Add -masm=intel when inline assembly uses Intel syntax
-        if (!isMSVC && this.moduleManager.needsIntelAsmSyntax) {
+        // Add -masm=intel when inline assembly uses Intel syntax (not for emcc/WASM)
+        if (!isMSVC && !isEmcc && this.moduleManager.needsIntelAsmSyntax) {
           compileArgs.splice(-2, 0, "-masm=intel");
         }
 
         // Cross-compilation: add --target= and --sysroot= for clang/gcc
+        // Skip for emcc — it handles its own target internally
         const host = hostTarget();
-        if (!isMSVC && targetInfo.triple !== host.triple) {
+        if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
           const triple = clangTriple(targetInfo);
           compileArgs.splice(isMSVC ? -1 : -2, 0, `--target=${triple}`);
           console.log(`Cross-compiling for target: ${triple}`);
