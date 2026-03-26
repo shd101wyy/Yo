@@ -206,12 +206,12 @@ yo build run          # Build and run the executable
 yo build test         # Run tests
 yo build --list-steps # List available build steps
 yo build --cc zig     # Use zig as the C compiler
-yo build --target wasm32-wasi  # Cross-compile for WASM
+yo build --target wasm-emscripten  # Cross-compile for WASM (Emscripten)
 
 # Direct compilation (single file, no build.yo needed)
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
-yo compile hello.yo --target wasm32-wasi --cc zig -o hello.wasm
+yo compile hello.yo --target wasm-emscripten -o hello.html
 ```
 
 For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md).

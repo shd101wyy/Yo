@@ -578,11 +578,11 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 | Linux    | `io_uring` (via liburing)                       | `runtime-io-linux.ts`   |
 | macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `runtime-io-macos.ts`   |
 | Windows  | I/O Completion Ports (IOCP)                     | `runtime-io-windows.ts` |
-| WASM     | Computation-only (no async I/O backend)         | `runtime-core.ts`       |
+| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `runtime-io-wasm.ts`    |
 
 #### WASM Async Support
 
-WASM targets (`wasm32-wasi` via emcc) support the core async scheduler — `io.async()`, `io.await()`, `io.spawn()`, and `JoinHandle.await()` all work for CPU-bound cooperative multitasking. The scheduler runs the continuation queue without any I/O backend (`hasIO = false`).
+WASM targets (`wasm32-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `io.sleep()` all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
 
 What works on WASM:
 
@@ -591,13 +591,14 @@ What works on WASM:
 - `io.spawn()` / `JoinHandle.await()` — spawn and join tasks
 - `yield()` — cooperative yielding between tasks
 - Algebraic effects with async
+- `io.sleep()` — timer-based delays via sorted timer queue
+- File I/O (`io.open`, `io.read`, `io.write`) — via NODERAWFS (Node.js) or Emscripten FS
 
 What does NOT work on WASM:
 
-- File I/O (`io.open`, `io.read`, `io.write`) — no async I/O backend
-- Timers (`io.sleep`) — no event loop integration
-- DNS, process spawn, FS events — no OS-level APIs
-- Parallelism (`Thread.spawn`) — WASM is single-threaded
+- DNS, TCP, UDP — no network stack in Emscripten
+- Process spawn, signals, FS events — no OS-level APIs
+- Parallelism (`Thread.spawn`) — requires pthread support (experimental)
 
 Concurrency helpers return sensible defaults: `__yo_thread_get_hardware_threads()` returns 1, `__yo_get_thread_id()` returns 0, `__yo_thread_yield()` is a no-op.
 
