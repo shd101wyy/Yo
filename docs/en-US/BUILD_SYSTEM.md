@@ -44,7 +44,7 @@ yo-out/
 │   │   └── my-project
 │   └── lib/
 │       └── libmy-project-lib.a
-└── wasm32-wasi/              ← Cross-compilation target
+└── wasm32-emscripten/           ← Cross-compilation target (Emscripten)
     └── bin/
         └── my-project.js
 ```
@@ -100,14 +100,14 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### `Executable`
 
-| Field       | Type              | Default              | Description                          |
-| ----------- | ----------------- | -------------------- | ------------------------------------ |
-| `name`      | `comptime_string` | _(required)_         | Artifact name                        |
-| `root`      | `comptime_string` | _(required)_         | Path to main source file             |
-| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-wasi"`) |
-| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                   |
-| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                     |
-| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                            |
+| Field       | Type              | Default              | Description                                |
+| ----------- | ----------------- | -------------------- | ------------------------------------------ |
+| `name`      | `comptime_string` | _(required)_         | Artifact name                              |
+| `root`      | `comptime_string` | _(required)_         | Path to main source file                   |
+| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-emscripten"`) |
+| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                         |
+| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                           |
+| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                                  |
 
 ### `StaticLibrary`
 
@@ -165,15 +165,16 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 `CompilationTarget` provides symbolic names for supported target triples. Use these instead of hardcoding target strings:
 
-| Value                                   | Target Triple         | Notes                      |
-| --------------------------------------- | --------------------- | -------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)       |
-| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (static musl) |
-| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                |
-| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon        |
-| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                |
-| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64             |
-| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly (WASI)         |
+| Value                                   | Target Triple         | Notes                         |
+| --------------------------------------- | --------------------- | ----------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
+| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon           |
+| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                   |
+| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64                |
+| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`   | WebAssembly (Emscripten)      |
+| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly (standalone WASI) |
 
 The host target is also available as `build.target_host`.
 
@@ -528,7 +529,7 @@ Yo supports cross-compilation via target triples. Specify the target in `build.y
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Wasi,
+  target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -539,7 +540,7 @@ You can also use raw target strings if preferred:
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: "wasm32-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -548,7 +549,7 @@ build.executable({
 
 ```bash
 # Override target for all artifacts
-yo build --target wasm32-wasi
+yo build --target wasm-emscripten
 
 # Use zig as the C compiler for cross-compilation
 yo build --cc zig --target aarch64-linux-gnu
@@ -556,15 +557,18 @@ yo build --cc zig --target aarch64-linux-gnu
 
 ### Supported Targets
 
-| Target Triple         | Notes                      |
-| --------------------- | -------------------------- |
-| `x86_64-linux-gnu`    | Linux x86-64 (glibc)       |
-| `x86_64-linux-musl`   | Linux x86-64 (static musl) |
-| `aarch64-linux-gnu`   | Linux ARM64                |
-| `aarch64-macos`       | macOS Apple Silicon        |
-| `x86_64-macos`        | macOS Intel                |
-| `x86_64-windows-msvc` | Windows x86-64             |
-| `wasm32-wasi`         | WebAssembly (WASI)         |
+| Target Triple         | Notes                         |
+| --------------------- | ----------------------------- |
+| `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
+| `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
+| `aarch64-linux-gnu`   | Linux ARM64                   |
+| `aarch64-macos`       | macOS Apple Silicon           |
+| `x86_64-macos`        | macOS Intel                   |
+| `x86_64-windows-msvc` | Windows x86-64                |
+| `wasm32-emscripten`   | WebAssembly (Emscripten)      |
+| `wasm32-wasi`         | WebAssembly (standalone WASI) |
+
+Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
 
 ### Platform Detection in Code
 
@@ -576,7 +580,8 @@ Use `std/process` to write platform-aware code:
 cond(
   (platform == Platform.Linux) => { /* Linux-specific */ },
   (platform == Platform.Macos) => { /* macOS-specific */ },
-  (platform == Platform.Wasi) => { /* WASM-specific */ },
+  (platform == Platform.Emscripten) => { /* Emscripten WASM */ },
+  (platform == Platform.Wasi) => { /* Standalone WASI */ },
   true => { /* fallback */ }
 );
 ```
@@ -630,11 +635,11 @@ native :: build.executable({
   optimize: build.Optimize.ReleaseFast
 });
 
-// WASM build
+// WASM build (Emscripten)
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Wasi,
+  target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
