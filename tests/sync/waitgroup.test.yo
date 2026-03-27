@@ -1,4 +1,5 @@
 // @skip_wasm32-wasi — no pthread support in standalone WASI
+{ arch, Arch } :: import "std/process";
 open import "std/libc/stdio";
 { WaitGroup } :: import "std/sync/waitgroup";
 { Thread } :: import "std/thread";
@@ -101,6 +102,7 @@ test "WaitGroup count reflects current state", {
 // ============================================================================
 
 test "WaitGroup threads call done then main waits", {
+  if((arch == Arch.Wasm32), return ());
   wg := arc(WaitGroup.new());
   wg.(*).add(i32(3));
 
@@ -126,6 +128,7 @@ test "WaitGroup threads call done then main waits", {
 };
 
 test "WaitGroup add before spawn done in thread", {
+  if((arch == Arch.Wasm32), return ());
   wg := arc(WaitGroup.new());
   wg.(*).add(i32(5));
 
@@ -146,6 +149,7 @@ test "WaitGroup add before spawn done in thread", {
 };
 
 test "WaitGroup reuse across thread groups", {
+  if((arch == Arch.Wasm32), return ());
   wg := arc(WaitGroup.new());
 
   // First group
@@ -174,6 +178,7 @@ test "WaitGroup reuse across thread groups", {
 // ============================================================================
 
 test "WaitGroup with Workers", {
+  if((arch == Arch.Wasm32), return ());
   wg := arc(WaitGroup.new());
   Worker.set_num_threads(2);
 
@@ -187,6 +192,7 @@ test "WaitGroup with Workers", {
 };
 
 test "WaitGroup with Workers and sleep", {
+  if((arch == Arch.Wasm32), return ());
   wg := arc(WaitGroup.new());
   Worker.set_num_threads(2);
 

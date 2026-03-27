@@ -122,6 +122,7 @@ export interface TestRunSummary {
  * Check if a test file has a skip directive for the given WASM target.
  *
  * Directives:
+ *   `// @skip_wasm`              — skip on ALL WASM targets
  *   `// @skip_wasm32-emscripten` — skip when target is wasm32-emscripten
  *   `// @skip_wasm32-wasi`       — skip when target is wasm32-wasi
  *
@@ -138,7 +139,11 @@ function hasSkipDirectiveForTarget(
     const directive = isTargetStandaloneWasi(target)
       ? "@skip_wasm32-wasi"
       : "@skip_wasm32-emscripten";
-    return lines.some((line) => line.includes(directive));
+    return lines.some(
+      (line) =>
+        line.includes(directive) ||
+        (line.includes("@skip_wasm") && !line.includes("@skip_wasm32-"))
+    );
   } catch {
     return false;
   }

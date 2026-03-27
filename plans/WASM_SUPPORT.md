@@ -85,9 +85,10 @@ The codegen conditionally emits the WASI or Emscripten variant based on the targ
 
 - `// @skip_wasm32-emscripten` — skip when running with `--cc emcc` (Emscripten/Node.js)
 - `// @skip_wasm32-wasi` — skip when running with `--target wasm-wasi` (standalone WASI)
+- `// @skip_wasm` — skip on ALL WASM targets (generic catch-all)
 
-A file can have one or both directives. The test runner checks for the directive matching the
-current target and skips the file before compilation.
+A file can have one or both target-specific directives, or the generic one. The test runner checks
+for the directive matching the current target and skips the file before compilation.
 
 ```yo
 // @skip_wasm32-emscripten — no network stack in WASM
