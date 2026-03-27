@@ -20,6 +20,7 @@ mkShell rec {
     clang
     gdb
     emscripten
+    wasmtime
     vsce
     ripgrep
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [

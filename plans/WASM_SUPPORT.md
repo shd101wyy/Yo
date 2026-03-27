@@ -63,15 +63,35 @@ The async timer/sleep uses a **sorted linked list timer queue** (same pattern as
 Timers are registered as pending IOFutures with due times, and the event loop polls/waits for them
 via `__yo_io_poll`/`__yo_io_wait`. This enables cooperative scheduling during sleep.
 
+### WASI-specific runtime
+
+For standalone WASI targets, the `__yo_io_wait` function uses `__wasi_poll_oneoff` instead of
+`usleep()` for blocking timer waits. This is the WASI standard mechanism for clock-based blocking:
+
+```c
+// WASI poll_oneoff replaces usleep for timer-based blocking
+__wasi_subscription_t sub;
+sub.type = __WASI_EVENTTYPE_CLOCK;
+sub.u.clock.id = __WASI_CLOCKID_MONOTONIC;
+sub.u.clock.timeout = wait_ms * 1000000ULL; // ms -> ns
+__wasi_poll_oneoff(&sub, &event, 1, &nevents);
+```
+
+The codegen conditionally emits the WASI or Emscripten variant based on the target info.
+
 ## Test Skip Mechanisms
 
-**File-level: `// @skip_wasm` directive**
+**File-level skip directives** are target-specific comments in the first 20 lines of a test file:
 
-Add `// @skip_wasm` as the first line of a test file to skip the entire file when compiling with emcc.
-The test runner scans the first 20 lines for this directive and skips the file before evaluation.
+- `// @skip_wasm32-emscripten` — skip when running with `--cc emcc` (Emscripten/Node.js)
+- `// @skip_wasm32-wasi` — skip when running with `--target wasm-wasi` (standalone WASI)
+
+A file can have one or both directives. The test runner checks for the directive matching the
+current target and skips the file before compilation.
 
 ```yo
-// @skip_wasm
+// @skip_wasm32-emscripten — no network stack in WASM
+// @skip_wasm32-wasi — no network stack in WASM
 open import "std/libc/stdio";
 // ... rest of test file
 ```
@@ -96,7 +116,7 @@ test "my test", using(io : IO), {
 
 ## Unsupported Features (Skipped Tests)
 
-### File-level skips (14 files)
+### Skipped on both Emscripten and WASI (18 files)
 
 **Networking (6):** `tests/net/dns.test.yo`, `tests/net/tcp.test.yo`, `tests/net/udp.test.yo`,
 `tests/sys/socketpair.test.yo`, `tests/sys/sockinfo.test.yo`, `tests/sys/unix.test.yo`
@@ -106,9 +126,26 @@ test "my test", using(io : IO), {
 `tests/sys/statfs.test.yo` (filesystem metadata), `tests/sys/tty.test.yo` (terminal ioctl),
 `tests/sys/mmap.test.yo` (memory-mapped files), `tests/sys/poll.test.yo` (poll/epoll),
 `tests/sys/fs_event.test.yo` (inotify/kqueue), `tests/sys/process.test.yo` (process spawn/wait),
-`tests/sys/lock.test.yo` (flock() not implemented in Emscripten)
+`tests/sys/lock.test.yo` (flock() not implemented)
 
-**Inline assembly (1):** `tests/asm.test.yo` — WASM does not support x86/ARM inline assembly.
+**Other (5):** `tests/asm.test.yo` (inline assembly), `tests/sys/dns.test.yo`,
+`tests/sys/tcp.test.yo`, `tests/sys/udp.test.yo` (network), `tests/sys/dns.test.yo` (DNS)
+
+### Skipped on WASI only (28 additional files)
+
+**Threading (6):** `tests/thread.test.yo`, `tests/arc.test.yo`,
+`tests/sync/channel.test.yo`, `tests/sync/once.test.yo`, `tests/sync/rwlock.test.yo`,
+`tests/sync/waitgroup.test.yo` — standalone WASI has no pthread support.
+
+**Environment (1):** `tests/process.test.yo` — environment variables require explicit WASI grants.
+
+**Filesystem syscalls (21):** These tests use Emscripten-specific `__syscall_*` imports
+(`__syscall_unlinkat`, `__syscall_rmdir`, `__syscall_pipe`, `__syscall_getcwd`, etc.) that are not
+available in standalone WASI. The Emscripten target provides these via NODERAWFS + JS glue code.
+
+- **fs/**: `dir`, `file`, `metadata`, `fs_convenience`, `temp`, `walker`
+- **sys/**: `advise`, `bufio`, `copy`, `dir`, `fallocate`, `fcntl`, `file`, `iov`, `path`,
+  `perm`, `pipe`, `seek`, `temp`, `time`, `umask`
 
 ### Test-level skips (5 individual tests)
 
@@ -118,7 +155,7 @@ test "my test", using(io : IO), {
 - `tests/sys/advise.test.yo` — madvise test (no mmap support)
 - `tests/fs/dir.test.yo` — hard link test (same NODERAWFS limitation)
 
-### Passing tests
+### Passing tests on Emscripten
 
 All remaining tests pass, including:
 
@@ -131,10 +168,36 @@ All remaining tests pass, including:
 - **fs/**: file (13), dir (12), metadata (6), temp (7), walker (6), fs_convenience (9)
 - **os/**: env (7)
 
+### Passing tests on standalone WASI (750+ tests across 37 files)
+
+All non-skipped tests pass on standalone WASI via wasmtime:
+
+- **Core language (281):** basic (28), comptime (26), comptime_option_result (12), fn (16),
+  closure (8), array (12), ptr (2), str (7), impl (3), rc (4), error (7), dyn (8),
+  prelude (4), fmt (3), path (67), iso (3), cycle_collector (11), worker (8)
+- **Async/effects (171):** async_await (114), algebraic_effects (57)
+- **Collections (310):** array_list (76), array_list_convenience (16), btree_map (25),
+  hash_map (57), hash_set (63), linked_list (69), deque (38), priority_queue (21)
+- **Encoding (82):** base64 (24), hex (11), json (35), utf16 (12)
+- **sys/ (6):** constants (1), clock (2), sysinfo (2), timer (1)
+- **net/ (22):** addr (13), errors (9)
+
 ## CI
 
 The `.github/workflows/test.yml` includes a `test-wasm` job that runs `./yo-cli test ./tests --cc emcc`
 on `ubuntu-latest` with Emscripten installed via `mymindstorm/setup-emsdk@v14`.
+
+### Running WASI tests
+
+```bash
+# Run a specific test on WASI:
+./yo-cli test ./tests/comptime.test.yo --target wasm-wasi --bail -v
+
+# Run all tests on WASI (skipped tests are filtered by @skip_wasm32-wasi):
+./yo-cli test ./tests --target wasm-wasi
+```
+
+The WASI test runner uses `wasmtime` with `--dir` grants for filesystem access.
 
 ## Known Limitations
 
@@ -223,6 +286,16 @@ The WASM event loop now has full I/O infrastructure (`__yo_io_init`, `__yo_io_po
 Renamed from misleading `wasm32-wasi` to `wasm32-emscripten`. Added `wasm32-wasi` as a
 separate standalone WASI target with `-sSTANDALONE_WASM`. Added `Platform.Emscripten` to
 the Yo standard library.
+
+### Standalone WASI Support
+
+Added standalone WASI target (`--target wasm-wasi`) that compiles to a pure `.wasm` file
+runnable via `wasmtime`. Key changes:
+
+- Target-specific skip directives (`@skip_wasm32-emscripten`, `@skip_wasm32-wasi`)
+- `__wasi_poll_oneoff` replaces `usleep()` in the async timer runtime for WASI targets
+- Test runner executes WASI binaries via `wasmtime --dir <dirs>` with filesystem grants
+- 750+ tests pass on standalone WASI (all non-filesystem, non-threading tests)
 
 </details>
 

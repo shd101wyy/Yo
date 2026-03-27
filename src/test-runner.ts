@@ -22,7 +22,12 @@ import {
   exprToString,
 } from "./expr";
 import { ModuleManager } from "./module-manager";
-import { parseTarget, setCurrentTarget } from "./target";
+import {
+  type TargetInfo,
+  isTargetStandaloneWasi,
+  parseTarget,
+  setCurrentTarget,
+} from "./target";
 import { TokenType } from "./token";
 import { clearAllCachedTypes } from "./types/creators";
 import { setTargetPointerSize } from "./types/utils";
@@ -109,19 +114,31 @@ export interface TestRunSummary {
 // ---------------------------------------------------------------------------
 // WASM test skip lists
 // ---------------------------------------------------------------------------
-// Tests that cannot run under Emscripten/WASM due to missing platform features.
+// Tests that cannot run under Emscripten/WASM or standalone WASI due to
+// missing platform features.
 // See plans/WASM_SUPPORT.md for details.
 
 /**
- * Check if a test file has the `// @skip_wasm` directive.
+ * Check if a test file has a skip directive for the given WASM target.
+ *
+ * Directives:
+ *   `// @skip_wasm32-emscripten` — skip when target is wasm32-emscripten
+ *   `// @skip_wasm32-wasi`       — skip when target is wasm32-wasi
+ *
  * Scans the first 20 lines of the file for the comment annotation.
  * This is intentionally a fast text scan (no tokenization needed).
  */
-function hasSkipWasmDirective(filePath: string): boolean {
+function hasSkipDirectiveForTarget(
+  filePath: string,
+  target: TargetInfo
+): boolean {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const lines = content.split("\n", 20);
-    return lines.some((line) => line.includes("@skip_wasm"));
+    const directive = isTargetStandaloneWasi(target)
+      ? "@skip_wasm32-wasi"
+      : "@skip_wasm32-emscripten";
+    return lines.some((line) => line.includes(directive));
   } catch {
     return false;
   }
@@ -314,6 +331,7 @@ function runSingleTest(
   test: StringifiedTestData,
   nonTestContent: string,
   cCompiler: string,
+  wasmTarget?: TargetInfo,
   keepGeneratedFiles?: boolean,
   profile?: boolean
 ): TestResult {
@@ -328,14 +346,20 @@ function runSingleTest(
   const testFilePath = path.join(originalDir, `${baseName}.yo`);
   const compilerInfo = getCompilerInfo(cCompiler);
   const { isMSVC, isWindows, isEmcc } = compilerInfo;
-  // emcc outputs .js (+ .wasm), Windows needs .exe
-  const exeExtension = isEmcc ? ".js" : isWindows ? ".exe" : "";
+  const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
+  // emcc outputs .js (+ .wasm) for emscripten, .wasm for WASI; Windows needs .exe
+  const exeExtension = isWasi
+    ? ".wasm"
+    : isEmcc
+      ? ".js"
+      : isWindows
+        ? ".exe"
+        : "";
   const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
   const testCPath = path.join(originalDir, `${baseName}.c`);
-  // emcc also generates a .wasm file alongside the .js
-  const testWasmPath = isEmcc
-    ? path.join(originalDir, `${baseName}.wasm`)
-    : undefined;
+  // emcc also generates a .wasm file alongside the .js (not needed for WASI — output IS .wasm)
+  const testWasmPath =
+    isEmcc && !isWasi ? path.join(originalDir, `${baseName}.wasm`) : undefined;
   // On Windows with MSVC/Clang-cl, .pdb debug files are generated alongside the executable
   const testPdbPath = isWindows
     ? path.join(originalDir, `${baseName}.pdb`)
@@ -375,10 +399,13 @@ function runSingleTest(
     clearAllModuleCounters();
 
     // Set WASM target when using emcc so the evaluator sees wasm32 arch/platform
-    if (isEmcc) {
-      const wasmTarget = parseTarget("wasm32-emscripten");
+    if (wasmTarget) {
       setCurrentTarget(wasmTarget);
       setTargetPointerSize(wasmTarget.pointerSizeBits);
+    } else if (isEmcc) {
+      const emscriptenTarget = parseTarget("wasm32-emscripten");
+      setCurrentTarget(emscriptenTarget);
+      setTargetPointerSize(emscriptenTarget.pointerSizeBits);
     }
 
     // Generate test program
@@ -476,11 +503,16 @@ function runSingleTest(
       // signature matches, but the codegen casts void* to fn pointers)
       compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
 
-      // Use Node.js's real filesystem instead of Emscripten's MEMFS
-      compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+      if (isWasi) {
+        // Standalone WASI: produce a .wasm file without JS glue
+        compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+      } else {
+        // Emscripten target: use Node.js's real filesystem instead of MEMFS
+        compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+      }
 
-      // Enable pthreads when the program uses threading
-      if (usesParallelism) {
+      // Enable pthreads when the program uses threading (not for standalone WASI)
+      if (usesParallelism && !isWasi) {
         compileArgs.splice(
           -2,
           0,
@@ -513,7 +545,27 @@ function runSingleTest(
     const runStart = Date.now();
     let runResult;
 
-    if (isEmcc) {
+    if (isWasi) {
+      // WASI: run via wasmtime with directory access
+      const testDir = path.dirname(test.filePath);
+      runResult = spawnSync(
+        "wasmtime",
+        [
+          "--dir",
+          testDir,
+          "--dir",
+          "/tmp",
+          "--dir",
+          process.cwd(),
+          testOutputPath,
+        ],
+        {
+          stdio: "pipe",
+          encoding: "utf-8",
+          timeout: 60000,
+        }
+      );
+    } else if (isEmcc) {
       // WASM: run via node (emcc produces .js + .wasm)
       runResult = spawnSync("node", [testOutputPath], {
         stdio: "pipe",
@@ -689,6 +741,7 @@ function parseTestSummaryFromOutput(
 async function runSingleFileInIsolatedProcess({
   filePath,
   cCompiler,
+  target,
   verbose,
   bail,
   testNamePattern,
@@ -697,6 +750,7 @@ async function runSingleFileInIsolatedProcess({
 }: {
   filePath: string;
   cCompiler: string;
+  target?: string;
   verbose?: boolean;
   bail?: boolean;
   testNamePattern?: string;
@@ -718,6 +772,9 @@ async function runSingleFileInIsolatedProcess({
       cCompiler,
     ];
 
+    if (target) {
+      args.push("--target", target);
+    }
     if (verbose) {
       args.push("--verbose");
     }
@@ -782,6 +839,7 @@ async function runSingleFileInIsolatedProcess({
 async function runTestsInIsolatedProcesses({
   testFiles,
   cCompiler,
+  target,
   concurrency,
   verbose,
   bail,
@@ -792,6 +850,7 @@ async function runTestsInIsolatedProcesses({
 }: {
   testFiles: string[];
   cCompiler: string;
+  target?: string;
   concurrency: number;
   verbose?: boolean;
   bail?: boolean;
@@ -817,6 +876,7 @@ async function runTestsInIsolatedProcesses({
       const result = await runSingleFileInIsolatedProcess({
         filePath,
         cCompiler,
+        target,
         verbose,
         bail,
         testNamePattern,
@@ -942,6 +1002,7 @@ async function runTestsSequentially(
     bail?: boolean;
     keepGeneratedFiles?: boolean;
     profile?: boolean;
+    wasmTarget?: TargetInfo;
   }
 ): Promise<{
   results: TestResult[];
@@ -961,6 +1022,7 @@ async function runTestsSequentially(
       test,
       nonTestContent,
       cCompiler,
+      options.wasmTarget,
       options.keepGeneratedFiles,
       options.profile
     );
@@ -1008,6 +1070,7 @@ export async function runTests(
   testFiles: string[],
   options: {
     cCompiler?: string;
+    target?: string;
     verbose?: boolean;
     bail?: boolean;
     testNamePattern?: string;
@@ -1020,13 +1083,25 @@ export async function runTests(
   const cCompiler = options.cCompiler ?? "cc";
   const isEmcc = cCompiler === "emcc";
 
-  // Filter out files with // @skip_wasm directive when using emcc
+  // Resolve the WASM target (if any)
+  let wasmTarget: TargetInfo | undefined;
+  if (options.target) {
+    wasmTarget = parseTarget(options.target);
+  } else if (isEmcc) {
+    wasmTarget = parseTarget("wasm32-emscripten");
+  }
+  const isWasmBuild = wasmTarget !== undefined;
+
+  // Filter out files with target-specific skip directives
   let skippedTests = 0;
   let filteredTestFiles = testFiles;
-  if (isEmcc) {
+  if (isWasmBuild && wasmTarget) {
+    const directive = isTargetStandaloneWasi(wasmTarget)
+      ? "@skip_wasm32-wasi"
+      : "@skip_wasm32-emscripten";
     filteredTestFiles = [];
     for (const filePath of testFiles) {
-      if (hasSkipWasmDirective(filePath)) {
+      if (hasSkipDirectiveForTarget(filePath, wasmTarget)) {
         skippedTests++;
       } else {
         filteredTestFiles.push(filePath);
@@ -1034,7 +1109,7 @@ export async function runTests(
     }
     if (skippedTests > 0) {
       console.log(
-        `${colors.yellow}Skipping ${skippedTests} test file(s) with @skip_wasm${colors.reset}\n`
+        `${colors.yellow}Skipping ${skippedTests} test file(s) with ${directive}${colors.reset}\n`
       );
     }
   }
@@ -1087,6 +1162,7 @@ export async function runTests(
     const parallelResult = await runTestsInIsolatedProcesses({
       testFiles: filteredTestFiles,
       cCompiler,
+      target: options.target,
       concurrency,
       verbose: options.verbose,
       bail: options.bail,
@@ -1181,6 +1257,7 @@ export async function runTests(
       bail: options.bail,
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
+      wasmTarget,
     });
 
     allResults.push(...result.results);

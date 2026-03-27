@@ -13,12 +13,17 @@
  */
 
 import { Emitter } from "../../emitter";
+import type { TargetInfo } from "../../target";
+import { isTargetStandaloneWasi } from "../../target";
 
 /**
  * Emits WASM stub implementations for all platform-specific sync system helpers.
  * These correspond to functions emitted by generatePlatformSysRuntimeLinux/macOS/Windows.
  */
-export function generatePlatformSysRuntimeWasm(emitter: Emitter): void {
+export function generatePlatformSysRuntimeWasm(
+  emitter: Emitter,
+  _targetInfo?: TargetInfo
+): void {
   emitter.emitLine(`
 // ============================================================================
 // WASM Platform — Synchronous System Helpers (Emscripten POSIX)
@@ -308,7 +313,11 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
  * and returns it. This allows async/await code to compile and run — the awaited
  * result will be an error code that Yo-level error handling can process.
  */
-export function generateAsyncRuntimeIOWasm(emitter: Emitter): void {
+export function generateAsyncRuntimeIOWasm(
+  emitter: Emitter,
+  targetInfo?: TargetInfo
+): void {
+  const isWasi = targetInfo ? isTargetStandaloneWasi(targetInfo) : false;
   emitter.emitLine(`
 // ============================================================================
 // WASM Platform — Async I/O (Sync-wrapped IOFutures via Emscripten POSIX)
@@ -319,14 +328,21 @@ export function generateAsyncRuntimeIOWasm(emitter: Emitter): void {
 //
 // Timer operations use a sorted linked list of pending timer entries (same
 // pattern as Windows). The event loop polls timers during __yo_io_poll and
-// blocks with usleep in __yo_io_wait until the next timer fires.
+// blocks in __yo_io_wait until the next timer fires.
 
 #ifndef ENOSYS
 #define ENOSYS 52
 #endif
 
 #include <time.h>
+`);
 
+  // WASI needs poll_oneoff for blocking waits; Emscripten uses usleep
+  if (isWasi) {
+    emitter.emitLine(`#include <wasi/api.h>`);
+  }
+
+  emitter.emitLine(`
 // --- Helper to create a completed IOFuture with a result ---
 static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
@@ -450,7 +466,32 @@ static int __yo_io_wait(void) {
   uint64_t now_ms = __yo_wasm_now_ms();
   if (__yo_wasm_timer_head && __yo_wasm_timer_head->due_ms > now_ms) {
     uint64_t wait_ms = __yo_wasm_timer_head->due_ms - now_ms;
+`);
+
+  if (isWasi) {
+    // Standalone WASI: use __wasi_poll_oneoff for blocking timer wait
+    emitter.emitLine(`
+    // WASI poll_oneoff for clock-based blocking
+    __wasi_subscription_t sub;
+    memset(&sub, 0, sizeof(sub));
+    sub.userdata = 0;
+    sub.type = __WASI_EVENTTYPE_CLOCK;
+    sub.u.clock.id = __WASI_CLOCKID_MONOTONIC;
+    sub.u.clock.timeout = (uint64_t)wait_ms * 1000000ULL; // ms -> ns
+    sub.u.clock.precision = 1000000; // 1ms
+    sub.u.clock.flags = 0;
+    __wasi_event_t event;
+    __wasi_size_t nevents;
+    __wasi_poll_oneoff(&sub, &event, 1, &nevents);
+`);
+  } else {
+    // Emscripten: use usleep for blocking
+    emitter.emitLine(`
     usleep((useconds_t)(wait_ms * 1000));
+`);
+  }
+
+  emitter.emitLine(`
   }
 
   return __yo_wasm_timer_process_due(__yo_wasm_now_ms());

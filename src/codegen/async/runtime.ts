@@ -53,7 +53,7 @@ export function generateAsyncRuntime(
     generateAsyncRuntimeIOWindows(emitter);
   } else if (isTargetWasm(targetInfo)) {
     // WASM stubs: immediately-completed IOFutures with -ENOSYS
-    generateAsyncRuntimeIOWasm(emitter);
+    generateAsyncRuntimeIOWasm(emitter, targetInfo);
   }
 
   if (!isTargetWasm(targetInfo)) {

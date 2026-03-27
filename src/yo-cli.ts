@@ -352,6 +352,11 @@ yo --version                     Show version number
           type: "string",
           choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
+        .option("target", {
+          describe:
+            "Target triple for cross-compilation (e.g., 'wasm-emscripten', 'wasm-wasi'). Auto-selects emcc for WASM targets.",
+          type: "string",
+        })
         .option("verbose", {
           alias: "v",
           describe: "Show detailed error messages",
@@ -411,6 +416,19 @@ yo --version                     Show version number
       }
 
       let cCompiler = argv.cc as string | undefined;
+      const target = argv.target as string | undefined;
+
+      // Auto-select emcc for WASM targets
+      if (
+        target &&
+        (target.includes("wasm") ||
+          target.includes("emscripten") ||
+          target.includes("wasi")) &&
+        !cCompiler
+      ) {
+        cCompiler = "emcc";
+      }
+
       if (!cCompiler) {
         const availableCompiler = findAvailableCompiler();
         if (!availableCompiler) {
@@ -424,6 +442,7 @@ yo --version                     Show version number
 
       const summary = await runTests(testFiles, {
         cCompiler,
+        target,
         verbose: argv.verbose as boolean,
         bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,

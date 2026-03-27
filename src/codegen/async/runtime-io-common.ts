@@ -543,7 +543,7 @@ static int32_t __yo_isatty(int32_t fd) {
 
   // WASM stubs for platform-specific sync helpers
   if (isWasm) {
-    generatePlatformSysRuntimeWasm(emitter);
+    generatePlatformSysRuntimeWasm(emitter, targetInfo);
   }
 }
 
