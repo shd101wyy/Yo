@@ -184,8 +184,11 @@ All non-skipped tests pass on standalone WASI via wasmtime:
 
 ## CI
 
-The `.github/workflows/test.yml` includes a `test-wasm` job that runs `./yo-cli test ./tests --cc emcc`
-on `ubuntu-latest` with Emscripten installed via `mymindstorm/setup-emsdk@v14`.
+The `.github/workflows/test.yml` includes two WASM test jobs:
+
+- **`test-wasm32_emscripten`**: Runs `./yo-cli test ./tests --cc emcc` on Ubuntu with Emscripten.
+- **`test-wasm32_wasi`**: Runs `./yo-cli test ./tests --target wasm-wasi` on Ubuntu with
+  Emscripten (for compilation) and wasmtime (for execution).
 
 ### Running WASI tests
 
