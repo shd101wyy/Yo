@@ -228,11 +228,12 @@ Level 2: install                （依赖 app, tests）
 
 ### Step 方法
 
-| 方法                     | 描述                                     |
-| ------------------------ | ---------------------------------------- |
-| `step.depend_on(other)`  | 添加依赖——`other` 会在 `step` 之前构建   |
-| `step.link(library)`     | 将库链接到产物（静态库、共享库或系统库） |
-| `step.add_import(entry)` | 添加模块导入到此步骤（用于依赖模块）     |
+| 方法                            | 描述                                                |
+| ------------------------------- | --------------------------------------------------- |
+| `step.depend_on(other)`         | 添加依赖——`other` 会在 `step` 之前构建              |
+| `step.link(library)`            | 将库链接到产物（静态库、共享库或系统库）            |
+| `step.add_import(entry)`        | 添加单个模块导入到此步骤（用于依赖模块）            |
+| `step.add_import_list(entries)` | 从 `ComptimeList(ImportEntry)` 批量添加多个模块导入 |
 
 ### `StepKind`
 
@@ -343,7 +344,20 @@ install.depend_on(exe);
 
 - `dep.module("")` — 获取依赖中唯一的模块（空名称默认为唯一模块）
 - `dep.module("name")` — 如果依赖定义了多个模块，按名称获取特定模块
-- `exe.add_import({ name, module })` — 在产物上注册一个模块导入
+- `exe.add_import({ name, module })` — 在产物上注册单个模块导入
+- `exe.add_import_list(list)` — 从 `ComptimeList(ImportEntry)` 批量注册多个模块导入
+
+### 使用 `add_import_list` 批量导入
+
+当依赖导出多个模块时，使用 `add_import_list` 一次性注册所有模块：
+
+```rust
+import_list :: ComptimeList(build.ImportEntry)(
+  { name: "mod_a", module: dep.module("a") },
+  { name: "mod_b", module: dep.module("b") }
+);
+exe.add_import_list(import_list);
+```
 
 ### `ImportEntry`
 

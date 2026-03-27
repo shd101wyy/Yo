@@ -226,10 +226,14 @@ export async function runBuild(options: BuildOptions): Promise<void> {
   }
 
   // Resolve system libraries per-artifact via pkg-config
-  // Each artifact only gets flags for system libraries explicitly linked to it
+  // Each artifact only gets flags for system libraries explicitly linked to it.
+  // Skip WASM targets — host-platform pkg-config/vcpkg results are
+  // incompatible with cross-compiled WASM builds.
   if (registry.systemLibraries.length > 0) {
     for (const artifact of registry.artifacts) {
       if (artifact.linkedSystemLibraries.length === 0) continue;
+      const effectiveTarget = options.targetTriple ?? artifact.target;
+      if (isTargetWasm(parseTarget(effectiveTarget))) continue;
       const linkedLibs = registry.systemLibraries.filter((lib) =>
         artifact.linkedSystemLibraries.includes(lib.name)
       );
@@ -1638,38 +1642,41 @@ function resolveImportedModule(
     );
   }
 
-  // Propagate system libraries from the module
+  // Propagate system libraries from the module.
+  // Skip for WASM targets — host-platform pkg-config/vcpkg flags are incompatible.
   if (depModule.linkedSystemLibraries.length > 0) {
-    // Find the system library definitions from the dependency's registry
-    const sysLibs = depModule.linkedSystemLibraries
-      .map((name) => depRegistry.findSystemLibrary(name))
-      .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
 
-    if (sysLibs.length > 0) {
-      if (verbose) {
-        console.log(
-          `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
-        );
-      }
+    if (!isTargetWasm(parseTarget(artifact.target))) {
+      // Find the system library definitions from the dependency's registry
+      const sysLibs = depModule.linkedSystemLibraries
+        .map((name) => depRegistry.findSystemLibrary(name))
+        .filter((lib): lib is NonNullable<typeof lib> => lib != null);
 
-      const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
-        preferDebugRuntime: artifact.optimize === "debug",
-      });
+      if (sysLibs.length > 0) {
+        if (verbose) {
+          console.log(
+            `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
+          );
+        }
 
-      artifact.includePaths.push(...sysLibFlags.includePaths);
-      artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
-      artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
-      artifact.defines.push(...sysLibFlags.defines);
-      artifact.cFlags.push(...sysLibFlags.cFlags);
-      artifact.runtimeFiles ??= [];
-      for (const runtimeFile of sysLibFlags.runtimeFiles) {
-        if (!artifact.runtimeFiles.includes(runtimeFile)) {
-          artifact.runtimeFiles.push(runtimeFile);
+        const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+          preferDebugRuntime: artifact.optimize === "debug",
+        });
+
+        artifact.includePaths.push(...sysLibFlags.includePaths);
+        artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+        artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+        artifact.defines.push(...sysLibFlags.defines);
+        artifact.cFlags.push(...sysLibFlags.cFlags);
+        artifact.runtimeFiles ??= [];
+        for (const runtimeFile of sysLibFlags.runtimeFiles) {
+          if (!artifact.runtimeFiles.includes(runtimeFile)) {
+            artifact.runtimeFiles.push(runtimeFile);
+          }
         }
       }
     }
-
-    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
   }
 }
 
@@ -1682,6 +1689,9 @@ function propagateSystemLibraries(
   sysLibNames: string[],
   verbose: boolean
 ): void {
+  // Skip for WASM targets — host-platform pkg-config/vcpkg flags are incompatible.
+  if (isTargetWasm(parseTarget(artifact.target))) return;
+
   const sysLibs = sysLibNames
     .map((name) => registry.findSystemLibrary(name))
     .filter((lib): lib is NonNullable<typeof lib> => lib != null);

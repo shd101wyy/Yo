@@ -228,11 +228,12 @@ Level 2: install                (depends on app, tests)
 
 ### Step Methods
 
-| Method                   | Description                                                   |
-| ------------------------ | ------------------------------------------------------------- |
-| `step.depend_on(other)`  | Add a dependency — `other` is built before `step`             |
-| `step.link(library)`     | Link a library to an artifact (static, shared, or system lib) |
-| `step.add_import(entry)` | Add a module import to this step (for dependency modules)     |
+| Method                          | Description                                                            |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `step.depend_on(other)`         | Add a dependency — `other` is built before `step`                      |
+| `step.link(library)`            | Link a library to an artifact (static, shared, or system lib)          |
+| `step.add_import(entry)`        | Add a single module import to this step (for dependency modules)       |
+| `step.add_import_list(entries)` | Add multiple module imports at once from a `ComptimeList(ImportEntry)` |
 
 ### `StepKind`
 
@@ -343,7 +344,20 @@ install.depend_on(exe);
 
 - `dep.module("")` — get the sole module from a dependency (empty name defaults to the only module)
 - `dep.module("name")` — get a specific module by name if the dependency defines multiple modules
-- `exe.add_import({ name, module })` — register a module import on an artifact
+- `exe.add_import({ name, module })` — register a single module import on an artifact
+- `exe.add_import_list(list)` — register multiple module imports at once from a `ComptimeList(ImportEntry)`
+
+### Bulk Import with `add_import_list`
+
+When a dependency exposes multiple modules, use `add_import_list` to register them all at once:
+
+```rust
+import_list :: ComptimeList(build.ImportEntry)(
+  { name: "mod_a", module: dep.module("a") },
+  { name: "mod_b", module: dep.module("b") }
+);
+exe.add_import_list(import_list);
+```
 
 ### `ImportEntry`
 
