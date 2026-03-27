@@ -991,12 +991,19 @@ Existing options (unchanged):
 
 ### WASM-Specific Changes
 
-| File                   | WASM-Related Changes                                                                                     |
-| ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `src/target.ts`        | `wasi`/`emscripten` OS, `wasm` ABI, `isTargetWasm()`, `isTargetEmscripten()`, `isTargetStandaloneWasi()` |
-| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing, NODERAWFS/STANDALONE_WASM flags                 |
-| `std/process.yo`       | `Platform.Emscripten` and `Platform.Wasi` variants                                                       |
-| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM                                       |
+| File                   | WASM-Related Changes                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/target.ts`        | `wasi`/`emscripten` OS, `wasm` ABI, `isTargetWasm()`, `isTargetEmscripten()`, `isTargetStandaloneWasi()`           |
+| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing, NODERAWFS/STANDALONE_WASM flags, `emccEnvironment` option |
+| `src/build-runner.ts`  | WASM syslib: skip pkg-config/vcpkg, add `-l<name>` transitively; pass `emccEnvironment: "web"` for WASM targets    |
+| `std/process.yo`       | `Platform.Emscripten` and `Platform.Wasi` variants                                                                 |
+| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM                                                 |
+
+#### Emscripten environment defaults
+
+- **`yo build`** WASM targets default to **browser** environment (no `-sNODERAWFS`), output `.html` + `.js` + `.wasm`
+- **`yo test --cc emcc`** uses **Node.js** environment (`-sNODERAWFS=1`) for test execution
+- Users can opt into Node.js mode via `step.add_c_flags("-sNODERAWFS=1")`
 
 ---
 

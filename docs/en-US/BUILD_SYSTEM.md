@@ -46,7 +46,9 @@ yo-out/
 │       └── libmy-project-lib.a
 └── wasm32-emscripten/           ← Cross-compilation target (Emscripten)
     └── bin/
-        └── my-project.js
+        ├── my-project.html
+        ├── my-project.js
+        └── my-project.wasm
 ```
 
 ## `build.yo`
@@ -585,6 +587,31 @@ yo build --cc zig --target aarch64-linux-gnu
 | `wasm32-wasi`         | WebAssembly (standalone WASI) |
 
 Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
+
+### WASM Emscripten Environment
+
+When building for `wasm32-emscripten` via `yo build`, the output defaults to **browser** environment:
+
+- Output is `.html` + `.js` + `.wasm` (a complete browser shell)
+- `-sNODERAWFS` is **not** added (it uses `require('fs')` which doesn't exist in browsers)
+- `-sEMULATE_FUNCTION_POINTER_CASTS=1` is always added (required for codegen)
+- System libraries declared via `system_library()` are passed as `-l<name>` to emcc (pkg-config/vcpkg host-platform resolution is skipped)
+
+To serve the output, use a local HTTP server (WASM requires HTTP, not `file://`):
+
+```bash
+cd yo-out/wasm32-emscripten/bin
+python -m http.server 8080
+# Open http://localhost:8080/my-project.html
+```
+
+If you need Node.js execution instead (e.g., headless/server-side WASM), add the flag manually:
+
+```rust
+exe_wasm.add_c_flags("-sNODERAWFS=1");
+```
+
+> **Note:** `yo test --cc emcc` always uses Node.js mode (`-sNODERAWFS=1`) since tests run via Node.
 
 ### Platform Detection in Code
 

@@ -46,7 +46,9 @@ yo-out/
 │       └── libmy-project-lib.a
 └── wasm32-emscripten/           ← 交叉编译目标（Emscripten）
     └── bin/
-        └── my-project.js
+        ├── my-project.html
+        ├── my-project.js
+        └── my-project.wasm
 ```
 
 ## `build.yo`
@@ -585,6 +587,31 @@ yo build --cc zig --target aarch64-linux-gnu
 | `wasm32-wasi`         | WebAssembly（独立 WASI）  |
 
 缩写别名：`wasm-emscripten` → `wasm32-emscripten`，`wasm-wasi` → `wasm32-wasi`。
+
+### WASM Emscripten 环境
+
+通过 `yo build` 构建 `wasm32-emscripten` 目标时，默认输出为**浏览器**环境：
+
+- 输出为 `.html` + `.js` + `.wasm`（完整的浏览器页面）
+- **不**添加 `-sNODERAWFS`（该选项使用 `require('fs')`，浏览器中不存在）
+- 始终添加 `-sEMULATE_FUNCTION_POINTER_CASTS=1`（代码生成所需）
+- 通过 `system_library()` 声明的系统库以 `-l<name>` 形式传递给 emcc（跳过 pkg-config/vcpkg 宿主平台解析）
+
+要运行输出文件，需使用本地 HTTP 服务器（WASM 需要 HTTP，不支持 `file://`）：
+
+```bash
+cd yo-out/wasm32-emscripten/bin
+python -m http.server 8080
+# 打开 http://localhost:8080/my-project.html
+```
+
+如需 Node.js 执行环境（如无界面/服务端 WASM），可手动添加标志：
+
+```rust
+exe_wasm.add_c_flags("-sNODERAWFS=1");
+```
+
+> **注意：** `yo test --cc emcc` 始终使用 Node.js 模式（`-sNODERAWFS=1`），因为测试通过 Node 运行。
 
 ### 代码中的平台检测
 
