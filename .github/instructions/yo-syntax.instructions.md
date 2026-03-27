@@ -234,6 +234,8 @@ open import "std/string";
 
 For files within the same directory, always use relative paths (`./file.yo`). For std library modules, use the standard `"std/module"` path.
 
+**Do NOT import `std/prelude`** — the prelude is automatically loaded for every file. Explicitly importing it (`import "std/prelude"` or `import "std/prelude.yo"`) will produce a compile error. Third-party modules named `prelude.yo` are fine — only the std prelude is blocked.
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
