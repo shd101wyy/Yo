@@ -234,6 +234,7 @@ Level 2: install                （依赖 app, tests）
 | `step.link(library)`            | 将库链接到产物（静态库、共享库或系统库）            |
 | `step.add_import(entry)`        | 添加单个模块导入到此步骤（用于依赖模块）            |
 | `step.add_import_list(entries)` | 从 `ComptimeList(ImportEntry)` 批量添加多个模块导入 |
+| `step.add_c_flags(flags)`       | 添加自定义 C 编译器/链接器标志（空格分隔的字符串）  |
 
 ### `StepKind`
 
@@ -658,6 +659,9 @@ wasm :: build.executable({
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
+
+// 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置
+wasm.add_c_flags("-sASYNCIFY -DPLATFORM_WEB");
 
 run_native :: build.run(native);
 

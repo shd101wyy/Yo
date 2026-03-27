@@ -951,6 +951,7 @@ async function compileArtifact(
     static: artifact.staticLink,
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
+    cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
   });
 
   if (
@@ -1803,6 +1804,7 @@ async function compileDependencyArtifact(
     static: artifact.staticLink,
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
+    cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
   });
 
   if (

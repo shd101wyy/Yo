@@ -19,146 +19,59 @@
 - The WASM build correctly skips host vcpkg flags (fix applied), but then has no raylib at all.
 - Emscripten 5.0.4 is installed but does not include raylib in its sysroot.
 
-## Required Work
+## Completed Work
 
-### Phase 1: Build Raylib for Emscripten
+### Phase 1: Build Raylib for Emscripten ✅
 
-Build raylib as a static library targeting `wasm32-emscripten` and install it into the Emscripten sysroot.
+Built raylib 5.5 as a static library for `wasm32-emscripten` and installed to the Emscripten sysroot.
 
 ```bash
-# Clone raylib
-git clone https://github.com/raysan5/raylib.git
-cd raylib
-
-# Build for Emscripten
-mkdir build-web && cd build-web
-emcmake cmake .. -DPLATFORM=Web -DCMAKE_BUILD_TYPE=Release
-emmake make
-
-# Install to Emscripten sysroot
-emmake make install
-# This installs:
-#   <sysroot>/include/raylib.h (and friends)
-#   <sysroot>/lib/libraylib.a
+git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git raylib-wasm-build
+cd raylib-wasm-build && mkdir build-web && cd build-web
+emcmake cmake .. -G Ninja -DPLATFORM=Web -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="<emscripten_sysroot>"
+emmake ninja -j8 && emmake ninja install
 ```
 
-After installation, `emcc -lraylib` should find the library automatically.
+**Note:** `libraylib.a` installs to `sysroot/lib/` but emcc's linker searches `sysroot/lib/wasm32-emscripten/`. Copy the file:
 
-### Phase 2: Add per-artifact C flags API to the build system
+```bash
+cp sysroot/lib/libraylib.a sysroot/lib/wasm32-emscripten/libraylib.a
+```
 
-The build system needs a way for users to pass extra C compiler/linker flags per-artifact. This is needed for Emscripten-specific flags like `-sUSE_GLFW=3`.
+### Phase 2: Add per-artifact C flags API ✅
 
-#### 2a. Add `add_c_flags` and `add_link_flags` methods to `Step`
+Added `Step.add_c_flags(flags: comptime_string)` method to the build system:
 
-In `std/build.yo`:
+- `std/build.yo`: New `add_c_flags` method on `Step` impl block
+- `src/expr.ts`: Added `__yo_build_add_cflags` to `BuiltinFunctions`
+- `src/evaluator/builtins/build.ts`: Evaluator handler — splits space-separated flags and pushes to `artifact.cFlags`
+- `src/evaluator/exprs/_expr.ts`: Added to builtin dispatch list
+- `src/build-runner.ts`: Fixed `artifact.cFlags` passthrough to `compileModule()` (both `compileArtifact` and `compileDependencyArtifact`)
+
+### Phase 3: Update `tetris_yo/build.yo` ✅
+
+Added WASM-specific flags via `add_c_flags`:
 
 ```rust
-impl(Step,
-  // ... existing methods ...
-  add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_string) -> comptime(unit))({
-    __yo_build_add_c_flags(self.name, flags);
-  }),
-  add_link_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_string) -> comptime(unit))({
-    __yo_build_add_link_flags(self.name, flags);
-  })
-);
+exe_wasm.add_c_flags("-lraylib -sUSE_GLFW=3 -sASYNCIFY -DPLATFORM_WEB");
 ```
 
-#### 2b. Add evaluator builtins
+### Phase 4: Platform-conditional code — Not needed ✅
 
-In `src/evaluator/builtins/build.ts`:
+With `-sASYNCIFY`, the standard raylib game loop (`while !WindowShouldClose()`) works unchanged on WASM. No `emscripten_set_main_loop` refactoring was needed.
 
-- Register `__yo_build_add_c_flags(artifact_name, flags)` — splits the space-separated flags and appends to `artifact.cFlags`.
-- Register `__yo_build_add_link_flags(artifact_name, flags)` — splits and appends to a new `artifact.linkFlags` array.
+## Build Results
 
-In `src/expr.ts`:
+Both targets compile successfully:
 
-- Add `__yo_build_add_c_flags` and `__yo_build_add_link_flags` to `BuiltinFunctions`.
+- **Windows**: `tetris_yo.exe` (120 KB) + runtime DLLs (raylib.dll, glfw3.dll)
+- **WASM**: `tetris_yo_wasm.js` (182 KB) + `tetris_yo_wasm.wasm` (163 KB)
 
-#### 2c. Pass `artifact.cFlags` through to CodeGenerator
+## Remaining Considerations
 
-In `src/build-runner.ts`, the `compileArtifact` function currently does NOT pass `artifact.cFlags` to `codeGenerator.compileModule()`. Fix:
+1. **`raylib_yo/build.yo`** does not need changes — its `system_library` declaration works for native builds, and WASM builds skip system library resolution by design (flags are specified per-artifact via `add_c_flags`).
 
-```typescript
-codeGenerator.compileModule(absolutePath, {
-  // ...existing options...
-  cflags: artifact.cFlags.join(" "), // ADD THIS
-});
-```
+2. **Per-target system library definitions** — A potential future enhancement: `build.system_library({ name: "raylib", target: "wasm32-emscripten", ... })` for automatic per-target resolution. Not needed now since `add_c_flags` covers the use case.
 
-Same fix needed in `compileDependencyArtifact`.
-
-#### 2d. Add `linkFlags` support to CodeGenerator
-
-In `src/codegen/index.ts`, ensure link flags (like `-sUSE_GLFW=3`) are appended to the compiler command when using emcc (emcc combines compile+link in one step).
-
-### Phase 3: Update `tetris_yo/build.yo` and `raylib_yo/build.yo`
-
-Once the per-artifact flags API exists:
-
-```rust
-// tetris_yo/build.yo
-build :: import "std/build";
-
-raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
-
-exe :: build.executable({
-  name: "tetris_yo",
-  root: "./src/main.yo",
-  optimize: build.Optimize.ReleaseFast
-});
-
-exe_wasm :: build.executable({
-  name: "tetris_yo_wasm",
-  root: "./src/main.yo",
-  optimize: build.Optimize.ReleaseFast,
-  target: build.CompilationTarget.Wasm32_Emscripten
-});
-
-// Emscripten-specific flags for the WASM artifact
-exe_wasm.add_c_flags("-DPLATFORM_WEB");
-exe_wasm.add_link_flags("-sUSE_GLFW=3 -sASYNCIFY -lraylib");
-
-import_list :: ComptimeList(build.ImportEntry)({
-  name: "raylib_yo",
-  module: raylib_yo.module("")
-});
-
-exe.add_import_list(import_list);
-exe_wasm.add_import_list(import_list);
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
-install.depend_on(exe_wasm);
-
-run_step :: build.step("run", "Run the application");
-run_step.depend_on(build.run(exe));
-```
-
-### Phase 4: Platform-conditional Yo code in tetris_yo
-
-The game's main loop needs to differ between native and WASM:
-
-- **Native**: standard `while !WindowShouldClose()` loop
-- **WASM**: use `emscripten_set_main_loop` callback pattern (or `-sASYNCIFY` which allows the normal loop to work)
-
-With `-sASYNCIFY`, the normal raylib loop works unchanged on WASM. Without it, the code needs `emscripten_set_main_loop`.
-
-## Dependencies Between Phases
-
-```
-Phase 1 (build raylib for emcc) ──┐
-                                   ├── Phase 3 (update build.yo files)
-Phase 2 (add C flags API)  ───────┘        │
-                                            └── Phase 4 (conditional Yo code, if needed)
-```
-
-Phase 1 and Phase 2 can be done in parallel. Phase 3 depends on both.
-
-## Open Questions
-
-1. Should `raylib_yo/build.yo` detect the target and configure system library flags differently for WASM vs native? This would require comptime platform detection in `build.yo`.
-
-2. Should the build system support per-target system library definitions? e.g., `build.system_library({ name: "raylib", target: "wasm32-emscripten", ... })` for different configurations per target.
-
-3. Is `-sASYNCIFY` sufficient for the tetris game loop, or does it need the `emscripten_set_main_loop` pattern? With `ASYNCIFY`, standard blocking loops work but add ~10% code size overhead.
+3. **HTML shell** — To run the WASM build in a browser, an HTML file is needed that loads `tetris_yo_wasm.js`. Emscripten generates a default shell, or a custom `--shell-file` can be provided via `add_c_flags("--shell-file shell.html")`.

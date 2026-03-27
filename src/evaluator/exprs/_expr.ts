@@ -1019,6 +1019,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_module) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_module_link) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_import) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_cflags) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_module)
     ) {
       // Evaluate args before dispatching — builtins expect resolved values

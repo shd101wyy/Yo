@@ -234,6 +234,7 @@ Level 2: install                (depends on app, tests)
 | `step.link(library)`            | Link a library to an artifact (static, shared, or system lib)          |
 | `step.add_import(entry)`        | Add a single module import to this step (for dependency modules)       |
 | `step.add_import_list(entries)` | Add multiple module imports at once from a `ComptimeList(ImportEntry)` |
+| `step.add_c_flags(flags)`       | Add custom C compiler/linker flags (space-separated string)            |
 
 ### `StepKind`
 
@@ -658,6 +659,9 @@ wasm :: build.executable({
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
+
+// Per-artifact C flags — useful for Emscripten-specific linker settings
+wasm.add_c_flags("-sASYNCIFY -DPLATFORM_WEB");
 
 run_native :: build.run(native);
 

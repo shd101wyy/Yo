@@ -383,6 +383,8 @@ ImportEntry :: struct(
 
 `step.add_import()` registers a single dependency module import on an artifact step. `step.add_import_list()` accepts a `ComptimeList(ImportEntry)` and applies the same registration to every entry in the list, which is useful when a dependency exposes multiple modules that should all be imported into the generated build artifact.
 
+`step.add_c_flags(flags)` appends custom C compiler/linker flags (a space-separated `comptime_string`) to the artifact's flag list. These are passed directly to the C compiler command. Useful for Emscripten-specific settings like `-sASYNCIFY -sUSE_GLFW=3` or any target-specific flags.
+
 Internally, wrapper functions decompose the config struct and pass individual fields to the evaluator builtins (e.g., `__yo_build_executable(config.name, config.root, ...)`). This keeps the builtin implementation simple while providing a clean struct-based API to users.
 
 ### 2.6 User-Provided Build Options
