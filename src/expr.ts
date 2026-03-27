@@ -1167,6 +1167,7 @@ export const BuiltinFunctions = {
   __yo_getrandom: ["__yo_getrandom"],
   __yo_arc4random_buf: ["__yo_arc4random_buf"],
   __yo_bcrypt_gen_random: ["__yo_bcrypt_gen_random"],
+  __yo_getentropy: ["__yo_getentropy"],
 
   // MaybeUninit
   __yo_maybe_uninit_new: ["__yo_maybe_uninit_new"],
@@ -1176,6 +1177,7 @@ export const BuiltinFunctions = {
   // Process related functions
   __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
+  __yo_pointer_size_bits: ["__yo_pointer_size_bits"], // returns target pointer size in bits (32 or 64) as comptime_int
 
   // Build system functions (compile-time only)
   __yo_build_executable: ["__yo_build_executable"],

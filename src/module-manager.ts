@@ -389,4 +389,8 @@ export class ModuleManager {
   get needsIntelAsmSyntax(): boolean {
     return this.codeGenratorC.needsIntelAsmSyntax;
   }
+
+  get usesParallelism(): boolean {
+    return this.codeGenratorC.usesParallelism;
+  }
 }

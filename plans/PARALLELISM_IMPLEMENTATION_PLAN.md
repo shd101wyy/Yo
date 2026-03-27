@@ -50,7 +50,7 @@ void __yo_thread_join(__yo_thread_t thread);
 
 #### Yo Interface
 
-```yo
+```rust
 // Low-level extern declarations
 extern "Yo",
   __yo_thread_t : Type,
@@ -96,7 +96,7 @@ void __yo_worker_spawn(__yo_thread_fn fn);
 
 #### Yo Interface
 
-```yo
+```rust
 Worker :: module(
   spawn :: (fn(f : (fn() -> unit)) -> unit)(
     __yo_worker_spawn(f)

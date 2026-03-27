@@ -22,7 +22,7 @@ The issue manifested when calling `LinkedList.push_front` multiple times. The ge
 
 In the `push_front` function:
 
-```yo
+```rust
 push_front :: (fn(self: Self, value: T) -> unit)({
   new_node := Node(T)(...);
 
@@ -98,7 +98,7 @@ The fix ensures branch dup groups count as 1 runtime dup while still removing al
 
 The issue was reproducible with:
 
-```yo
+```rust
 list := LinkedList(i32).new();
 list.push_front(i32(10));
 list.push_front(i32(20));  // Second call triggered the bug

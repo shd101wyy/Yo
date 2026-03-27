@@ -395,7 +395,7 @@ result := apply_effect(i32(10));
 
 Effect handler functions are compiled as **standalone C functions** — they are not closures. A handler function cannot reference variables from the enclosing scope. This is by design: evidence passing transforms handlers into explicit function pointer parameters, which must be standalone callable functions in C.
 
-```yo
+```rust
 // WRONG — handler references outer variable `threshold`, compile error:
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
@@ -504,9 +504,9 @@ At runtime, all effects reduce to function pointers. Modules are a compile-time 
 
 For a function with module effect:
 
-```yo
+```rust
 safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
-  cond(y == 0 => exn.throw(Error.new(`div by zero`)), true => (x / y))
+  cond((y == 0) => exn.throw(Error.new(`div by zero`)), true => (x / y))
 );
 ```
 
@@ -562,7 +562,7 @@ This is the simplest path — no state machine, no yield/resume protocol. The ha
 
 A handler may `return` in one branch and `escape` in another:
 
-```yo
+```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
     (msg == `recoverable`) => return i32(0),  // resume with 0
@@ -588,11 +588,11 @@ When an effect operation has `forall` parameters (e.g., `throw :: (fn(forall(T :
 
 **Example — forall effect with resume:**
 
-```yo
+```rust
 Throw :: (fn(forall(T : Type), msg : str, resume_val : T) -> T);
 
 safe_divide :: (fn(x : i32, y : i32, using(throw : Throw)) -> i32)(
-  cond(y == 0 => throw(`div by zero`, 0), true => (x / y))
+  cond((y == 0) => throw(`div by zero`, 0), true => (x / y))
 );
 ```
 

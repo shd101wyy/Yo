@@ -6,7 +6,7 @@
 
 Enum variant shorthand (e.g., `.Ok(42)`) fails with "Enum variant not selected for enum type" when used inside `{ expr }` function bodies without semicolons:
 
-```yo
+```rust
 // FAILS: { .Ok(42) } parsed as anonymous struct, not begin block
 get :: (fn() -> Result(i32, String))({ .Ok(i32(42)) });
 ```

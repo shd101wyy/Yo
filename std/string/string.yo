@@ -587,7 +587,7 @@ impl(String,
    * Returns the character index of the last match, or None if not found
    * from_index specifies the character index to start searching backwards from
    */
-  last_index_of : (fn(self: Self, substr: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
+  last_index_of : (fn(self: Self, substr: Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
       true => {
@@ -786,7 +786,7 @@ impl(String,
    * Check if the string ends with the specified substring (like JavaScript endsWith)
    * end_position: The character length to consider (default is string length)
    */
-  ends_with : (fn(self: Self, suffix: Self, (end_position : usize) ?= 0xFFFFFFFFFFFFFFFF) -> bool)({
+  ends_with : (fn(self: Self, suffix: Self, (end_position : usize) ?= usize.MAX) -> bool)({
     suffix_bytes := suffix._bytes.len();
     self_bytes := self._bytes.len();
 
@@ -796,7 +796,7 @@ impl(String,
         // Determine the effective end position in characters
         string_char_len := self.len();
         effective_end := cond(
-          (end_position == usize(0xFFFFFFFFFFFFFFFF)) => string_char_len,
+          (end_position == usize.MAX) => string_char_len,
           (end_position > string_char_len) => string_char_len,
           true => end_position
         );

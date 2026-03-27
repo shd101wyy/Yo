@@ -1,3 +1,5 @@
+// @skip_wasm32-wasi — no pthread support in standalone WASI
+{ arch, Arch } :: import "std/process";
 open import "std/libc/stdio";
 { Once } :: import "std/sync/once";
 { ArrayList } :: import "std/collections/array_list";
@@ -93,6 +95,7 @@ test "Once call with side effects", {
 // ============================================================================
 
 test "Once call from multiple threads executes only once", {
+  if((arch == Arch.Wasm32), return ());
   o := arc(Once.new());
   counter := arc(box(i32(0)));
 
@@ -126,6 +129,7 @@ test "Once call from multiple threads executes only once", {
 };
 
 test "Once is_done visible across threads after call", {
+  if((arch == Arch.Wasm32), return ());
   o := arc(Once.new());
   counter := arc(box(i32(0)));
 
@@ -147,6 +151,7 @@ test "Once is_done visible across threads after call", {
 };
 
 test "Once multiple threads race to call", {
+  if((arch == Arch.Wasm32), return ());
   o := arc(Once.new());
   counter := arc(box(i32(0)));
 
@@ -192,6 +197,7 @@ test "Once multiple threads race to call", {
 // ============================================================================
 
 test "Once with Workers executes only once", {
+  if((arch == Arch.Wasm32), return ());
   o := arc(Once.new());
   counter := arc(box(i32(0)));
   wg := arc(WaitGroup.new());

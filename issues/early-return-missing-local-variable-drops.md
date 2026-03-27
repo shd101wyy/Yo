@@ -12,7 +12,7 @@ Regular (non-async) functions that return early from inside loops, conditionals,
 
 ## Example
 
-```yo
+```rust
 has :: (fn(self: Self, value: T) -> bool)({
   current_opt := self.head;  // RC++
   i := usize(0);

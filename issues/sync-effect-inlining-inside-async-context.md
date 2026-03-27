@@ -282,7 +282,7 @@ installation site (`given`).
 
 **Non-unit escape values are supported.** For example:
 
-```yo
+```rust
 result := {
   (given(raise_mod) : Raise) = Raise(
     raise : (msg) -> { escape i32(-1); }  // escape with non-unit value
@@ -295,7 +295,7 @@ result := {
 **Mixed escape+return handlers** are also supported — a handler may `return` in one branch
 and `escape` in another:
 
-```yo
+```rust
 (given(raise_mod) : Raise) = Raise(
   raise : (msg) -> cond(
     (msg == `recoverable`) => return i32(0),  // resume with 0
@@ -332,7 +332,7 @@ Both paths work correctly with evidence passing:
 
 ## Reproducer
 
-```yo
+```rust
 open import "std/libc/stdio";
 open import "std/string";
 { IOError } :: import "std/sys/errors";

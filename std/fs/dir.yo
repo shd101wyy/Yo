@@ -25,6 +25,7 @@ open import "../string";
 { Path } :: import "../path";
 { IOError } :: import "../sys/errors";
 { Error, AnyError, Exception } :: import "../error";
+{ EEXIST, ENOENT } :: import "../libc/errno";
 IO_dir :: import "../sys/dir";
 IO_file :: import "../sys/file";
 { platform, Platform } :: import "../process";
@@ -96,9 +97,9 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Excep
         errno := (i32(0) - result);
         cond(
           // Already exists is OK
-          (errno == i32(17)) => (),
+          (errno == i32(EEXIST)) => (),
           // ENOENT - try to create parents
-          (errno == i32(2)) => {
+          (errno == i32(ENOENT)) => {
             // Walk the path and create each component
             bytes := path_s.as_bytes();
             i := usize(1);
@@ -129,7 +130,7 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Excep
                   r := io.await(IO_dir.mkdir(AT_FDCWD, prefix_cstr, i32(DEFAULT_DIR_MODE)));
                   // Ignore EEXIST errors
                   cond(
-                    ((r < i32(0)) && ((i32(0) - r) != i32(17))) => {
+                    ((r < i32(0)) && ((i32(0) - r) != i32(EEXIST))) => {
                       exn.throw(dyn IOError.from_errno((i32(0) - r)));
                     },
                     true => ()
@@ -146,7 +147,7 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Excep
               true => {
                 final_errno := (i32(0) - final_result);
                 cond(
-                  (final_errno == i32(17)) => (),
+                  (final_errno == i32(EEXIST)) => (),
                   true => exn.throw(dyn IOError.from_errno(final_errno))
                 )
               }

@@ -8,7 +8,7 @@ This document describes a series of related issues with type parameter unificati
 
 When comparing two types that appeared identical (`Impl(Fn(u : i32) -> i32)`), the type checker was reporting them as incompatible:
 
-```yo
+```rust
 use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
   return cb(v);
 };
@@ -70,7 +70,7 @@ Two separate issues in `areTypesCompatible`:
 
 ### Test Case
 
-```yo
+```rust
 {
   Option :: (fn(comptime(T): Type) -> comptime(Type))
     enum(
@@ -103,7 +103,7 @@ Two separate issues in `areTypesCompatible`:
 
 When calling methods on generic types, type parameters couldn't unify:
 
-```yo
+```rust
 ArrayList :: (fn(comptime(T): Type) -> comptime(Type))
   object(
     _ptr : ?*(T),
@@ -175,7 +175,7 @@ The key insight: Even with `requireExactMatch=true`, type parameters can unify i
 
 Method lookup was failing when the receiver type differed from the constrained type, even though they should be unified:
 
-```yo
+```rust
 LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     head : Option(Node(T)),
@@ -267,7 +267,7 @@ if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
 
 When where clause constraints are defined on an outer function, inner methods couldn't access them:
 
-```yo
+```rust
 HashMap :: (fn(
   comptime(K): Type,
   comptime(V): Type,

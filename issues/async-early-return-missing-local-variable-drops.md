@@ -10,7 +10,7 @@ Async state machines that complete early (via early return in conditional blocks
 
 ## Example
 
-```yo
+```rust
 async {
   buffer := ArrayList.with_capacity(size);
 

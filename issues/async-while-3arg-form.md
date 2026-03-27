@@ -14,7 +14,7 @@ generates a broken state machine, typically causing a segfault at runtime.
 
 ## Reproducer
 
-```yo
+```rust
 // This crashes:
 task := io.async((using(io : IO)) => {
   counter := Box(i32)(0);
@@ -43,7 +43,7 @@ generated.
 
 Use the 2-argument form and put the step expression inside the loop body:
 
-```yo
+```rust
 task := io.async((using(io : IO)) => {
   counter := Box(i32)(0);
   while runtime(counter.* < i32(4)), {

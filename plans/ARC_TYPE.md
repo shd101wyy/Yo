@@ -18,7 +18,7 @@
 
 Sync primitives (`Channel`, `Mutex`, `Cond`, etc.) are `object` types with non-atomic RC. They are thread-safe internally (protected by mutexes/condvars) but their RC is not. `Arc(T)` provides the atomic RC wrapper needed to share them across threads.
 
-```yo
+```rust
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";
 
@@ -53,7 +53,7 @@ interface ArcType extends Type {
 
 ### Construction
 
-```yo
+```rust
 // Explicit construction via Arc(T) type constructor
 ch := Channel(i32).new(usize(10));
 arc_ch := Arc(Channel(i32))(ch);   // ch moved into Arc
@@ -64,7 +64,7 @@ arc_ch := arc(Channel(i32).new(usize(10)));  // arc_ch : Arc(Channel(i32))
 
 The `arc()` helper function:
 
-```yo
+```rust
 arc :: (fn(forall(T : Type), value : T) -> Arc(T))
   Arc(T)(value)
 ;
@@ -74,7 +74,7 @@ arc :: (fn(forall(T : Type), value : T) -> Arc(T))
 
 ### Dereference via `(*)`
 
-```yo
+```rust
 arc_ch := Channel(i32).new(usize(10));
 arc_ch.(*).send(i32(42));      // Deref → Channel(i32), call send
 arc_ch.(*).close();            // Deref → Channel(i32), call close
@@ -84,7 +84,7 @@ arc_ch.(*).close();            // Deref → Channel(i32), call close
 
 **Safety note**: `(*)` dereference is "unsafe" in the sense that storing the result in a variable could bypass Arc's lifetime management. A safer alternative (for later):
 
-```yo
+```rust
 // Future: exclusive access via closure
 arc_ch.with((ch) => {
   ch.send(i32(42));
@@ -93,7 +93,7 @@ arc_ch.with((ch) => {
 
 ### Send Trait
 
-```yo
+```rust
 impl(forall(T : Type), Arc(T), Send());
 ```
 
@@ -107,7 +107,7 @@ impl(forall(T : Type), Arc(T), Send());
 
 `Channel.new` returns `Self` as before. Users wrap in Arc explicitly:
 
-```yo
+```rust
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";
 

@@ -39,7 +39,7 @@ import { ModuleManager } from "./module-manager";
 import { clearAllModuleCounters } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import { resolveAllSystemLibraries } from "./pkg-config";
-import { isTargetWindows, parseTarget } from "./target";
+import { isTargetWasm, isTargetWindows, parseTarget } from "./target";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -81,7 +81,26 @@ export function getArtifactOutputFileName(
     return `${artifact.name}.exe`;
   }
 
+  if (artifact.kind === "executable" && isTargetWasm(effectiveTarget)) {
+    return `${artifact.name}.js`;
+  }
+
   return artifact.name;
+}
+
+/**
+ * Get the target-specific output directory for build artifacts.
+ * Layout: yo-out/<target>/bin/ or yo-out/<target>/lib/
+ *
+ * This mirrors Cargo's approach where each target triple gets its own
+ * subdirectory, preventing conflicts in multi-target builds.
+ */
+function getTargetOutputDir(
+  projectDir: string,
+  targetTriple: string,
+  kind: "bin" | "lib" | "deps"
+): string {
+  return path.join(projectDir, "yo-out", targetTriple, kind);
 }
 
 export function stageRuntimeFiles(
@@ -821,7 +840,15 @@ async function compileArtifact(
   if (compiledArtifacts.has(artifact.name)) return;
   compiledArtifacts.add(artifact.name);
 
-  const { projectDir, cCompiler, registry } = ctx;
+  const { projectDir, registry } = ctx;
+  let { cCompiler } = ctx;
+
+  // Auto-select emcc for WASM targets
+  const effectiveTarget = ctx.targetTriple ?? artifact.target;
+  const parsedTarget = parseTarget(effectiveTarget);
+  if (isTargetWasm(parsedTarget) && cCompiler !== "emcc") {
+    cCompiler = "emcc";
+  }
 
   // Compile linked library artifacts first
   for (const linkedName of artifact.linkedArtifacts) {
@@ -829,16 +856,17 @@ async function compileArtifact(
     if (linkedArtifact) {
       await compileArtifact(linkedArtifact, ctx);
 
+      const linkedTarget = ctx.targetTriple ?? linkedArtifact.target;
       if (linkedArtifact.kind === "static_library") {
         // For static libraries, pass the .a file directly as an extern source
-        const libDir = path.join(projectDir, "yo-out", "lib");
+        const libDir = getTargetOutputDir(projectDir, linkedTarget, "lib");
         const libFile = path.join(libDir, `lib${linkedName}.a`);
         if (fs.existsSync(libFile)) {
           artifact.cSources.push(libFile);
         }
       } else {
         // For shared libraries, use -L and -l flags
-        const libDir = path.join(projectDir, "yo-out", "lib");
+        const libDir = getTargetOutputDir(projectDir, linkedTarget, "lib");
         if (!artifact.libraryPaths.includes(libDir)) {
           artifact.libraryPaths.push(libDir);
         }
@@ -856,8 +884,11 @@ async function compileArtifact(
   // Determine output directory and path
   const isLibKind =
     artifact.kind === "static_library" || artifact.kind === "shared_library";
-  const outputSubdir = isLibKind ? "yo-out/lib" : "yo-out/bin";
-  const outputDir = path.join(projectDir, outputSubdir);
+  const outputDir = getTargetOutputDir(
+    projectDir,
+    effectiveTarget,
+    isLibKind ? "lib" : "bin"
+  );
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
@@ -981,7 +1012,7 @@ export function computeDependencyHash(
  *
  * @param depRegistry - The evaluated registry of the dependency
  * @param depDir - Absolute path to the dependency's source directory
- * @param rootProjectDir - Root project directory (for yo-out/ output)
+ * @param rootProjectDir - Root project directory (for yo-out/<target>/ output)
  * @param opts - Compilation options
  */
 async function resolveTransitiveDependencyArtifacts(
@@ -1103,11 +1134,10 @@ async function resolveTransitiveDependencyArtifacts(
         root: path.resolve(subDepDir, subArtifact.root),
       };
 
-      // Output to root project's yo-out/deps/<sub_dep>/lib/
+      // Output to root project's yo-out/<target>/deps/<sub_dep>/lib/
+      const subDepTarget = opts.targetTriple ?? adjustedArtifact.target;
       const subOutputDir = path.join(
-        rootProjectDir,
-        "yo-out",
-        "deps",
+        getTargetOutputDir(rootProjectDir, subDepTarget, "deps"),
         subDepName,
         "lib"
       );
@@ -1160,7 +1190,7 @@ async function resolveTransitiveDependencyArtifacts(
  * 1. Find the dependency's source directory (path dep or git cache)
  * 2. Evaluate the dependency's build.yo in isolation
  * 3. Find the requested artifact in the dependency's registry
- * 4. Compile it (into the root project's yo-out/deps/<dep>/ directory)
+ * 4. Compile it (into the root project's yo-out/<target>/deps/<dep>/ directory)
  * 5. Register it in the root registry so the consumer can link it
  */
 async function resolveDependencyArtifacts(
@@ -1279,11 +1309,10 @@ async function resolveDependencyArtifacts(
         root: path.resolve(depDir, depArtifact.root),
       };
 
-      // Output directory: yo-out/deps/<dep_name>/lib/ in the root project
+      // Output directory: yo-out/<target>/deps/<dep_name>/lib/ in the root project
+      const depTarget = opts.targetTriple ?? adjustedArtifact.target;
       const depOutputDir = path.join(
-        projectDir,
-        "yo-out",
-        "deps",
+        getTargetOutputDir(projectDir, depTarget, "deps"),
         depName,
         "lib"
       );
@@ -1705,6 +1734,14 @@ async function compileDependencyArtifact(
     verbose?: boolean;
   }
 ): Promise<void> {
+  // Auto-select emcc for WASM targets
+  const effectiveTarget = opts.targetTriple ?? artifact.target;
+  const parsedTarget = parseTarget(effectiveTarget);
+  const cCompiler =
+    isTargetWasm(parsedTarget) && opts.cCompiler !== "emcc"
+      ? "emcc"
+      : opts.cCompiler;
+
   const sourcePath = artifact.root; // Already absolute
   if (!fs.existsSync(sourcePath)) {
     console.error(`Error: Dependency source file not found: ${sourcePath}`);
@@ -1736,7 +1773,7 @@ async function compileDependencyArtifact(
   const codeGenerator = new CodeGenerator();
   codeGenerator.compileModule(absolutePath, {
     output: outputPath,
-    cCompiler: opts.cCompiler,
+    cCompiler,
     target: "c",
     targetTriple: opts.targetTriple ?? artifact.target,
     sysroot: opts.sysroot,
@@ -1790,7 +1827,8 @@ async function runExecutable(
 ): Promise<void> {
   const { projectDir } = ctx;
 
-  const outputDir = path.join(projectDir, "yo-out", "bin");
+  const effectiveTarget = ctx.targetTriple ?? artifact.target;
+  const outputDir = getTargetOutputDir(projectDir, effectiveTarget, "bin");
   const exePath = path.join(
     outputDir,
     getArtifactOutputFileName(artifact, ctx.targetTriple ?? artifact.target)
@@ -1801,11 +1839,20 @@ async function runExecutable(
     process.exit(1);
   }
 
+  // WASM executables (.js) need to be run with node
+  const parsedTarget = parseTarget(effectiveTarget);
+  const isWasm = isTargetWasm(parsedTarget);
+
   const { spawnSync } = await import("child_process");
-  const result = spawnSync(exePath, args, {
-    stdio: "inherit",
-    cwd: projectDir,
-  });
+  const result = isWasm
+    ? spawnSync("node", [exePath, ...args], {
+        stdio: "inherit",
+        cwd: projectDir,
+      })
+    : spawnSync(exePath, args, {
+        stdio: "inherit",
+        cwd: projectDir,
+      });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }

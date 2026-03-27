@@ -78,6 +78,91 @@ jobs:
     - name: Run unit tests
       run: bun test src/tests/build-system.test.ts --timeout 30000
 
+    - name: Build system smoke test
+      run: |
+        ./yo-cli init ./tmp/hello-world --name hello-world
+        cd tmp/hello-world && ../../yo-cli build run
+
     - name: Run tests
       # run: ./yo-cli test ./tests --verbose
       run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler clang --profile
+
+  test-wasm32_emscripten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 'latest'
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '24'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: |
+        bun install
+        bun run build
+
+    - name: Build system smoke test (WASM)
+      run: |
+        ./yo-cli init ./tmp/hello-world --name hello-world
+        cd tmp/hello-world
+        sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
+        ../../yo-cli build run
+
+    - name: Run WASM tests
+      run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler emcc --profile
+
+  test-wasm32_wasi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 'latest'
+
+    - name: Install wasmtime
+      run: |
+        curl https://wasmtime.dev/install.sh -sSf | bash
+        echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '24'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: |
+        bun install
+        bun run build
+
+    - name: Run WASI tests
+      run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --target wasm-wasi --profile

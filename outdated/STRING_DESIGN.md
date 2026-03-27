@@ -121,7 +121,7 @@ They are documented here for future reference when implementing advanced Unicode
 
 ### Core Type
 
-```yo
+```rust
 String :: object(
   // Internal UTF-8 byte buffer (immutable)
   _bytes : ArrayList(u8)
@@ -133,7 +133,7 @@ Lazy caching of character count, offset indices, and hash codes are **not yet im
 
 **Future Optimizations (Not Implemented):**
 
-```yo
+```rust
 // Potential future additions for performance
 _char_count : Option(usize),        // Cached character count
 _char_offsets : Option(ArrayList(usize)),  // Character-to-byte offset index
@@ -154,7 +154,7 @@ The name `rune` is chosen to:
 
 ### Current Implementation
 
-```yo
+```rust
 // In std/data/rune.yo
 rune :: struct(c: u32)
 
@@ -186,7 +186,7 @@ String.at :: fn(self: Self, index: usize) -> Option(rune)
 
 ### Construction
 
-```yo
+```rust
 // ✅ IMPLEMENTED
 String.new :: fn() -> String                           // Create empty string
 String.from_bytes :: fn(bytes: ArrayList(u8)) -> String // From byte array (assumes valid UTF-8)
@@ -201,7 +201,7 @@ String.repeat :: fn(r: rune, count: usize) -> String   // Repeat a character n t
 
 ### Basic Operations (All Return New Strings)
 
-```yo
+```rust
 // ✅ IMPLEMENTED
 concat :: fn(self: Self, other: Self) -> String        // Concatenate two strings
 at :: fn(self: Self, index: usize) -> Option(rune)    // Get rune at character index (currently O(n))
@@ -278,7 +278,7 @@ uint32_t yo_string_char_at(String* s, size_t char_index) {
 
 ### Queries
 
-```yo
+```rust
 // ✅ IMPLEMENTED
 length :: fn(self: Self) -> usize                      // O(n) - counts UTF-8 start bytes
 is_empty :: fn(self: Self) -> bool
@@ -292,7 +292,7 @@ find :: fn(self: Self, substring: String) -> Option(usize)  // Returns character
 
 ### Case Operations
 
-```yo
+```rust
 // 🔮 FUTURE (Will use QuickJS Unicode tables for full Unicode support)
 to_lowercase :: fn(self: Self) -> String              // Full Unicode case conversion
 to_uppercase :: fn(self: Self) -> String              // Full Unicode case conversion
@@ -304,7 +304,7 @@ to_ascii_uppercase :: fn(self: Self) -> String        // ASCII a-z only
 
 ### Comparison
 
-```yo
+```rust
 // Implement Eq trait for String
 StringEq :: Eq(String, String)(
   (==) :: fn(a: String, b: String) -> bool
@@ -318,7 +318,7 @@ StringOrd :: Ord(String, String)(
 
 ### Hashing (for HashMap)
 
-```yo
+```rust
 // Implement Hash trait for String
 StringHash :: Hash(String)(
   hash :: fn(self: String) -> usize
@@ -327,7 +327,7 @@ StringHash :: Hash(String)(
 
 ### Conversion
 
-```yo
+```rust
 // To byte array (returns copy or view?)
 as_bytes :: fn(self: Self) -> ArrayList(u8)
 
@@ -341,7 +341,7 @@ parse_f64 :: fn(self: Self) -> Result(f64, ParseError)
 
 ### Iteration
 
-```yo
+```rust
 // Iterator over bytes
 bytes :: fn(self: Self) -> ByteIterator
 
@@ -353,7 +353,7 @@ chars :: fn(self: Self) -> CharIterator  // yields Char
 
 **✅ IMPLEMENTED** in `std/data/rune.yo`
 
-```yo
+```rust
 /**
  * rune - A Unicode scalar value (code point)
  *
@@ -383,7 +383,7 @@ to_uppercase :: fn(self: rune) -> String
 
 ### Common rune Constants (Future)
 
-```yo
+```rust
 // 🚧 PLANNED - Useful character constants
 RuneConstants :: module(
   NUL        :: rune(c: 0x00),      // Null

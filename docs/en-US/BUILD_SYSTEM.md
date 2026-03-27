@@ -35,21 +35,25 @@ my-project/
 └── README.md
 ```
 
-Build output goes to `yo-out/`:
+Build output goes to `yo-out/<target>/`, organized by target triple (like Cargo):
 
 ```
 yo-out/
-├── bin/                  ← Compiled executables
-│   └── my-project
-└── lib/                  ← Compiled libraries
-    └── libmy-project-lib.a
+├── x86_64-linux-gnu/         ← Host target
+│   ├── bin/
+│   │   └── my-project
+│   └── lib/
+│       └── libmy-project-lib.a
+└── wasm32-emscripten/           ← Cross-compilation target (Emscripten)
+    └── bin/
+        └── my-project.js
 ```
 
 ## `build.yo`
 
 The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps.
 
-```yo
+```rust
 build :: import "std/build";
 
 // Module metadata
@@ -96,14 +100,14 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### `Executable`
 
-| Field       | Type              | Default              | Description                          |
-| ----------- | ----------------- | -------------------- | ------------------------------------ |
-| `name`      | `comptime_string` | _(required)_         | Artifact name                        |
-| `root`      | `comptime_string` | _(required)_         | Path to main source file             |
-| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-wasi"`) |
-| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                   |
-| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                     |
-| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                            |
+| Field       | Type              | Default              | Description                                |
+| ----------- | ----------------- | -------------------- | ------------------------------------------ |
+| `name`      | `comptime_string` | _(required)_         | Artifact name                              |
+| `root`      | `comptime_string` | _(required)_         | Path to main source file                   |
+| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-emscripten"`) |
+| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                         |
+| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                           |
+| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                                  |
 
 ### `StaticLibrary`
 
@@ -140,7 +144,7 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | `Optimize.Debug`        | `-O0 -g`       | No optimization, debug symbols |
 | `Optimize.ReleaseSafe`  | `-O2 -g`       | Optimized with debug symbols   |
 | `Optimize.ReleaseFast`  | `-O3`          | Maximum performance            |
-| `Optimize.ReleaseSmall` | `-Os`          | Optimize for binary size       |
+| `Optimize.ReleaseSmall` | `-O2`          | Optimize for binary size       |
 
 ### Allocators
 
@@ -157,11 +161,28 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | `Sanitize.Address` | AddressSanitizer for memory errors/leaks |
 | `Sanitize.Leak`    | LeakSanitizer for leak detection only    |
 
+### Compilation Targets
+
+`CompilationTarget` provides symbolic names for supported target triples. Use these instead of hardcoding target strings:
+
+| Value                                   | Target Triple         | Notes                         |
+| --------------------------------------- | --------------------- | ----------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
+| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon           |
+| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                   |
+| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64                |
+| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`   | WebAssembly (Emscripten)      |
+| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly (standalone WASI) |
+
+The host target is also available as `build.target_host`.
+
 ## Build Steps
 
 Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
 
-```yo
+```rust
 // Each build function returns a Step
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
@@ -207,10 +228,11 @@ Level 2: install                (depends on app, tests)
 
 ### Step Methods
 
-| Method                  | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `step.depend_on(other)` | Add a dependency — `other` is built before `step`             |
-| `step.link(library)`    | Link a library to an artifact (static, shared, or system lib) |
+| Method                   | Description                                                   |
+| ------------------------ | ------------------------------------------------------------- |
+| `step.depend_on(other)`  | Add a dependency — `other` is built before `step`             |
+| `step.link(library)`     | Link a library to an artifact (static, shared, or system lib) |
+| `step.add_import(entry)` | Add a module import to this step (for dependency modules)     |
 
 ### `StepKind`
 
@@ -261,7 +283,7 @@ Modules are the unit of reuse across Yo dependencies. A module declares its sour
 
 ### Defining a Module
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib :: build.system_library({
@@ -301,7 +323,7 @@ Returned by `build.module()`. Has one method:
 
 Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Git dependency
@@ -345,7 +367,7 @@ This means the consumer doesn't need to declare `build.system_library({ name: "r
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Yo libraries
@@ -384,7 +406,7 @@ Static libraries export Yo functions that other modules can call using `extern "
 
 **Library module** (`add.yo`):
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)(
   (a + b)
 );
@@ -394,7 +416,7 @@ export add;
 
 **Executable module** (`demo.yo`):
 
-```yo
+```rust
 stdio :: import "std/libc/stdio";
 
 extern "Yo",
@@ -410,7 +432,7 @@ export main;
 
 **Build file** (`build.yo`):
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({
@@ -434,10 +456,11 @@ Running `yo build` produces:
 
 ```
 yo-out/
-├── bin/
-│   └── demo          ← Executable (calls add from library)
-└── lib/
-    └── libadd.a      ← Static library (exports add function)
+└── x86_64-linux-gnu/
+    ├── bin/
+    │   └── demo          ← Executable (calls add from library)
+    └── lib/
+        └── libadd.a      ← Static library (exports add function)
 ```
 
 In library mode, the compiler:
@@ -457,7 +480,7 @@ yo compile demo.yo --extern libadd.a -o demo
 
 Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Declare a build option with a default value
@@ -503,11 +526,22 @@ Yo supports cross-compilation via target triples. Specify the target in `build.y
 
 ### In `build.yo`
 
-```yo
+```rust
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: build.CompilationTarget.Wasm32_Emscripten,
+  optimize: build.Optimize.ReleaseSmall
+});
+```
+
+You can also use raw target strings if preferred:
+
+```rust
+build.executable({
+  name: "my-app-wasm",
+  root: "./src/main.yo",
+  target: "wasm32-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -516,7 +550,7 @@ build.executable({
 
 ```bash
 # Override target for all artifacts
-yo build --target wasm32-wasi
+yo build --target wasm-emscripten
 
 # Use zig as the C compiler for cross-compilation
 yo build --cc zig --target aarch64-linux-gnu
@@ -524,27 +558,31 @@ yo build --cc zig --target aarch64-linux-gnu
 
 ### Supported Targets
 
-| Target Triple         | Notes                      |
-| --------------------- | -------------------------- |
-| `x86_64-linux-gnu`    | Linux x86-64 (glibc)       |
-| `x86_64-linux-musl`   | Linux x86-64 (static musl) |
-| `aarch64-linux-gnu`   | Linux ARM64                |
-| `aarch64-macos`       | macOS Apple Silicon        |
-| `x86_64-macos`        | macOS Intel                |
-| `x86_64-windows-msvc` | Windows x86-64             |
-| `wasm32-wasi`         | WebAssembly (WASI)         |
+| Target Triple         | Notes                         |
+| --------------------- | ----------------------------- |
+| `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
+| `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
+| `aarch64-linux-gnu`   | Linux ARM64                   |
+| `aarch64-macos`       | macOS Apple Silicon           |
+| `x86_64-macos`        | macOS Intel                   |
+| `x86_64-windows-msvc` | Windows x86-64                |
+| `wasm32-emscripten`   | WebAssembly (Emscripten)      |
+| `wasm32-wasi`         | WebAssembly (standalone WASI) |
+
+Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
 
 ### Platform Detection in Code
 
 Use `std/process` to write platform-aware code:
 
-```yo
+```rust
 { platform, arch, Platform, Arch } :: import "std/process";
 
 cond(
   (platform == Platform.Linux) => { /* Linux-specific */ },
   (platform == Platform.Macos) => { /* macOS-specific */ },
-  (platform == Platform.Wasi) => { /* WASM-specific */ },
+  (platform == Platform.Emscripten) => { /* Emscripten WASM */ },
+  (platform == Platform.Wasi) => { /* Standalone WASI */ },
   true => { /* fallback */ }
 );
 ```
@@ -585,7 +623,7 @@ Options:
 
 Define multiple artifacts with different targets in a single `build.yo`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Module definition
@@ -598,11 +636,11 @@ native :: build.executable({
   optimize: build.Optimize.ReleaseFast
 });
 
-// WASM build
+// WASM build (Emscripten)
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
@@ -623,7 +661,7 @@ run_step.depend_on(run_native);
 
 Declare git-hosted dependencies in `build.yo`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Add a git dependency — returns a Dependency handle
@@ -674,7 +712,7 @@ Dependencies are stored in a global cache and tracked by `yo.lock` (commit this 
 
 If a dependency has its own `build.yo` that defines artifacts (e.g., a static library), you can link them using `dep.artifact()`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Register a dependency (git or path)
@@ -693,7 +731,7 @@ install.depend_on(exe);
 
 The dependency's `build.yo` defines the static library:
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
@@ -710,7 +748,7 @@ When you run `yo build`, the build system:
 
 The consumer's source code declares the dependency functions using `extern "Yo"`:
 
-```yo
+```rust
 extern "Yo",
   add : (fn(a: i32, b: i32) -> i32);
 ```
@@ -719,7 +757,7 @@ extern "Yo",
 
 Use `path_dependency` to depend on a local package by filesystem path. Like `dependency`, it returns a `Dependency` handle:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Depend on a sibling project — returns a Dependency handle
@@ -736,7 +774,7 @@ install.depend_on(exe);
 
 In your source code, import the dependency by name:
 
-```yo
+```rust
 mylib :: import "mylib";
 
 main :: (fn() -> unit) {
@@ -841,7 +879,7 @@ No special configuration is needed — transitive dependencies are discovered an
 
 Link against system C libraries discovered via `pkg-config`:
 
-```yo
+```rust
 build.system_library({
   name: "openssl",
   fallback_include: "/usr/include/openssl",
@@ -857,7 +895,7 @@ When `pkg-config` is available (Linux, macOS), it automatically resolves include
 
 For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
 
-```yo
+```rust
 raylib :: build.system_library({
   name: "raylib",
   defines: "NOMINMAX NOGDI NOUSER"

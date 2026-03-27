@@ -13,6 +13,7 @@ import {
   clangTriple,
   hostTarget,
   isTargetLinux,
+  isTargetStandaloneWasi,
   isTargetWasm,
   isTargetWindows,
   parseTarget,
@@ -212,7 +213,9 @@ export class CodeGenerator {
 
       // Write the C code to a file
       const outputFile = options.output as string;
-      const tempCFile = outputFile + ".c";
+      // Strip output extension to derive the C file name (e.g., app.html → app.c)
+      const outputBase = outputFile.replace(/\.(html|js|wasm|exe)$/, "");
+      const tempCFile = outputBase + ".c";
       fs.writeFileSync(tempCFile, compiledCode);
 
       console.log(`Generated C code written to ${tempCFile}`);
@@ -227,6 +230,7 @@ export class CodeGenerator {
         }
 
         const isMSVC = compiler === "cl";
+        const isEmcc = compiler === "emcc";
 
         // Static library: compile to .o then create .a archive
         if (options.staticLibrary) {
@@ -256,9 +260,9 @@ export class CodeGenerator {
             );
           }
 
-          // Add cross-compilation flags
+          // Add cross-compilation flags (skip for emcc)
           const host = hostTarget();
-          if (!isMSVC && targetInfo.triple !== host.triple) {
+          if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
             const triple = clangTriple(targetInfo);
             compileToObjArgs.splice(-2, 0, `--target=${triple}`);
             if (options.sysroot) {
@@ -393,8 +397,8 @@ export class CodeGenerator {
           }
         }
 
-        // Add sanitizer flags if requested
-        if (options.sanitize) {
+        // Add sanitizer flags if requested (not supported for emcc/WASM)
+        if (options.sanitize && !isEmcc) {
           const compilerInfo = getCompilerInfo(compiler);
           const sanitizerResult = getSanitizerFlags({
             sanitize: options.sanitize,
@@ -532,14 +536,40 @@ export class CodeGenerator {
           console.log(`Custom compiler flags added: ${options.cflags}`);
         }
 
-        // Add -masm=intel when inline assembly uses Intel syntax
-        if (!isMSVC && this.moduleManager.needsIntelAsmSyntax) {
+        // Add -masm=intel when inline assembly uses Intel syntax (not for emcc/WASM)
+        if (!isMSVC && !isEmcc && this.moduleManager.needsIntelAsmSyntax) {
           compileArgs.splice(-2, 0, "-masm=intel");
         }
 
+        // Emscripten: allow function pointer casts (WASM call_indirect requires
+        // exact signature matches, but the codegen casts void* to fn pointers)
+        if (isEmcc) {
+          compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+
+          if (isTargetStandaloneWasi(targetInfo)) {
+            // Standalone WASI: produce a .wasm file without JS glue
+            compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+          } else {
+            // Emscripten target: use Node.js's real filesystem instead of MEMFS
+            compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+          }
+
+          // Enable pthreads when the program uses threading
+          if (this.moduleManager.usesParallelism) {
+            compileArgs.splice(
+              -2,
+              0,
+              "-pthread",
+              "-sPTHREAD_POOL_SIZE=4",
+              "-sEXIT_RUNTIME=1"
+            );
+          }
+        }
+
         // Cross-compilation: add --target= and --sysroot= for clang/gcc
+        // Skip for emcc — it handles its own target internally
         const host = hostTarget();
-        if (!isMSVC && targetInfo.triple !== host.triple) {
+        if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
           const triple = clangTriple(targetInfo);
           compileArgs.splice(isMSVC ? -1 : -2, 0, `--target=${triple}`);
           console.log(`Cross-compiling for target: ${triple}`);

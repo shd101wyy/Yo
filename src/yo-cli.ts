@@ -13,7 +13,12 @@ import {
 } from "./evaluator/builtins/build";
 import { initProject } from "./init";
 import { ModuleManager } from "./module-manager";
-import { hostTarget, isTargetWindows, parseTarget } from "./target";
+import {
+  hostTarget,
+  isTargetStandaloneWasi,
+  isTargetWindows,
+  parseTarget,
+} from "./target";
 import { findTestFiles, runTests } from "./test-runner";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
@@ -92,10 +97,10 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
           demandOption: false,
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
         .option("t", {
           alias: "target",
@@ -256,6 +261,13 @@ yo --version                     Show version number
       }
 
       let cCompiler = argv.cc as string | undefined;
+      const targetTripleArg = argv.t as string | undefined;
+
+      // Auto-select emcc for WASM targets
+      if (!cCompiler && targetTripleArg?.startsWith("wasm")) {
+        cCompiler = "emcc";
+      }
+
       if (!cCompiler) {
         const availableCompiler = findAvailableCompiler();
         if (!availableCompiler) {
@@ -267,20 +279,37 @@ yo --version                     Show version number
         cCompiler = availableCompiler;
       }
 
+      // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
+      const isEmcc = cCompiler === "emcc";
+      const targetTriple =
+        targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
+
       const absolutePath = `file://` + fs.realpathSync(file);
-      const targetInfo = argv.t ? parseTarget(argv.t as string) : hostTarget();
+      const targetInfo = targetTriple
+        ? parseTarget(targetTriple)
+        : hostTarget();
       const requestedOutput = argv.o as string;
-      const outputPath =
-        isTargetWindows(targetInfo) && path.extname(requestedOutput) === ""
-          ? `${requestedOutput}.exe`
-          : requestedOutput;
+      // Auto-add extension when output has no extension
+      let outputPath: string;
+      if (isEmcc && path.extname(requestedOutput) === "") {
+        outputPath = isTargetStandaloneWasi(targetInfo)
+          ? `${requestedOutput}.wasm`
+          : `${requestedOutput}.html`;
+      } else if (
+        isTargetWindows(targetInfo) &&
+        path.extname(requestedOutput) === ""
+      ) {
+        outputPath = `${requestedOutput}.exe`;
+      } else {
+        outputPath = requestedOutput;
+      }
 
       const codeGenerator = new CodeGenerator();
       codeGenerator.compileModule(absolutePath, {
         output: outputPath,
         cCompiler,
         target: "c",
-        targetTriple: argv.t as string | undefined,
+        targetTriple,
         sysroot: argv.sysroot as string | undefined,
         extern: (argv.extern ?? []) as string[],
         includePaths: (argv.I ?? []) as string[],
@@ -319,9 +348,14 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+        })
+        .option("target", {
+          describe:
+            "Target triple for cross-compilation (e.g., 'wasm-emscripten', 'wasm-wasi'). Auto-selects emcc for WASM targets.",
+          type: "string",
         })
         .option("verbose", {
           alias: "v",
@@ -382,6 +416,19 @@ yo --version                     Show version number
       }
 
       let cCompiler = argv.cc as string | undefined;
+      const target = argv.target as string | undefined;
+
+      // Auto-select emcc for WASM targets
+      if (
+        target &&
+        (target.includes("wasm") ||
+          target.includes("emscripten") ||
+          target.includes("wasi")) &&
+        !cCompiler
+      ) {
+        cCompiler = "emcc";
+      }
+
       if (!cCompiler) {
         const availableCompiler = findAvailableCompiler();
         if (!availableCompiler) {
@@ -395,6 +442,7 @@ yo --version                     Show version number
 
       const summary = await runTests(testFiles, {
         cCompiler,
+        target,
         verbose: argv.verbose as boolean,
         bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,
@@ -510,9 +558,9 @@ yo --version                     Show version number
         .option("cc", {
           alias: "c-compiler",
           describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
           type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl"],
+          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
         })
         .option("t", {
           alias: "target",

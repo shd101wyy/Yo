@@ -12,7 +12,7 @@ Internal error: return expression missing metadata
 
 Example:
 
-```yo
+```rust
 get :: (fn(x: bool) -> Result(i32, String))({
   cond(
     x => { return .Ok(i32(42)); },

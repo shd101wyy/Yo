@@ -10,7 +10,7 @@ The original `step` function accepted up to 8 fixed positional dependency argume
 
 All build functions (`executable`, `static_library`, `test`, `run`, `step`) return a `Step` value. Steps are wired together using `step.depend_on(dep)` method calls, making dependencies type-safe and explicit:
 
-```yo
+```rust
 StepKind :: enum(Executable, StaticLibrary, SharedLibrary, SystemLibrary, TestSuite, Run, Custom);
 
 Step :: struct(
@@ -42,7 +42,7 @@ step :: (fn(
 
 **Usage:**
 
-```yo
+```rust
 build :: import "std/build";
 
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });

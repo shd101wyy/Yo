@@ -1,6 +1,9 @@
+// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+
 open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
+{ arch, Arch } :: import "std/process";
 { IOError } :: import "std/sys/errors";
 { Error, AnyError, Exception } :: import "std/error";
 fs_dir :: import "std/fs/dir";
@@ -200,6 +203,12 @@ test "rename moves a file", using(io : IO), {
 // ============================================================================
 
 test "hard_link creates a link", using(io : IO), {
+  // WASM NODERAWFS does not support hard links (link() returns EMLINK)
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32\n");
+    return ();
+  });
+
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();

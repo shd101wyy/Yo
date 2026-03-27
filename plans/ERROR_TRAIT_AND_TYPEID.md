@@ -20,7 +20,7 @@ The current `Error` trait in `std/error.yo` has placeholder TODOs for `is` and `
 
 **Solution**: Introduce `SelfTrait` as a builtin keyword (analogous to `Self` for the implementing type). `SelfTrait` refers to the trait being defined.
 
-```yo
+```rust
 Error :: trait(
   (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
   where(Self <: ToString)
@@ -48,7 +48,7 @@ Here `SelfTrait` resolves to `Error`, so `Dyn(SelfTrait)` = `Dyn(Error)` = `AnyE
 
 A compile-time builtin that maps a type to a unique runtime `usize` identifier.
 
-```yo
+```rust
 typeid(MyError)   // returns usize — unique per concrete type
 typeid(i32)       // different usize for each type
 ```
@@ -84,13 +84,13 @@ The compiler automatically populates `__yo_type_id` with `(uintptr_t)&__yo_typei
 
 **Signature**:
 
-```yo
+```rust
 downcast(dyn_value, T) // → Option(T)
 ```
 
 **Usage**:
 
-```yo
+```rust
 (animal : Animal) = dyn(Cat(`kitty`));
 
 // Safe downcast with type check
@@ -136,7 +136,7 @@ if downcast(animal, Cat).is_some(), {
 
 With `SelfTrait`:
 
-```yo
+```rust
 Error :: trait(
   (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
   where(Self <: ToString)
@@ -147,7 +147,7 @@ AnyError :: Dyn(Error);
 
 Usage example:
 
-```yo
+```rust
 IOError :: object(message : String);
 impl(IOError, ToString(to_string : ((self) -> self.*.message)));
 impl(IOError, Error());  // uses default source

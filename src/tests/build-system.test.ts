@@ -417,6 +417,28 @@ describe("Target triple parsing", () => {
     expect(t.pointerSizeBits).toBe(32);
   });
 
+  test("parse wasm32-emscripten", () => {
+    const t = parseTarget("wasm32-emscripten");
+    expect(t.arch).toBe("wasm32");
+    expect(t.os).toBe("emscripten");
+    expect(t.pointerSizeBits).toBe(32);
+  });
+
+  test("parse wasm-emscripten shorthand", () => {
+    const t = parseTarget("wasm-emscripten");
+    expect(t.arch).toBe("wasm32");
+    expect(t.os).toBe("emscripten");
+    expect(t.triple).toBe("wasm32-emscripten-wasm");
+    expect(t.pointerSizeBits).toBe(32);
+  });
+
+  test("parse wasm-wasi shorthand", () => {
+    const t = parseTarget("wasm-wasi");
+    expect(t.arch).toBe("wasm32");
+    expect(t.os).toBe("wasi");
+    expect(t.pointerSizeBits).toBe(32);
+  });
+
   test("parse x86-linux-gnu (32-bit)", () => {
     const t = parseTarget("x86-linux-gnu");
     expect(t.arch).toBe("x86");
@@ -511,6 +533,17 @@ describe("Clang triple generation", () => {
       triple: "wasm32-wasi",
     };
     expect(clangTriple(t)).toBe("wasm32-wasi");
+  });
+
+  test("wasm32-emscripten", () => {
+    const t: TargetInfo = {
+      arch: "wasm32",
+      os: "emscripten",
+      abi: undefined,
+      pointerSizeBits: 32,
+      triple: "wasm32-emscripten",
+    };
+    expect(clangTriple(t)).toBe("wasm32-emscripten");
   });
 
   test("x86_64 freebsd", () => {

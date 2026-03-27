@@ -161,4 +161,5 @@ I feel like I've regained the passion I had when building `Walley` and `Markdown
 ```
 
 By Yiyi,
+For Yo: https://github.com/shd101wyy/Yo
 March 2026

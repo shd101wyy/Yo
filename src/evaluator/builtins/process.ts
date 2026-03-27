@@ -10,8 +10,12 @@ import {
   targetArchToYoString,
   targetOsToYoString,
 } from "../../target";
-import { createComptimeStringType } from "../../types/creators";
-import { createComptimeStringValue } from "../../value";
+import {
+  createComptimeIntType,
+  createComptimeStringType,
+} from "../../types/creators";
+import { getTargetPointerSizeBits } from "../../types/utils";
+import { createComptimeIntValue, createComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 
 /**
@@ -64,6 +68,28 @@ export function evaluateYoProcessFunctions({
     expr.$ = {
       env,
       type: createComptimeStringType(),
+      value,
+      pathCollection: [],
+    };
+
+    return expr;
+  }
+
+  // __yo_pointer_size_bits - returns the target pointer size in bits (32 or 64)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_pointer_size_bits)) {
+    if (expr.args.length !== 0) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_pointer_size_bits expects 0 arguments, got ${expr.args.length}`,
+      });
+    }
+
+    const bits = getTargetPointerSizeBits();
+    const value = createComptimeIntValue(BigInt(bits));
+
+    expr.$ = {
+      env,
+      type: createComptimeIntType(),
       value,
       pathCollection: [],
     };

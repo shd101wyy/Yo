@@ -52,7 +52,7 @@ This is essentially Kahn's algorithm for topological sort, but executing each "w
 
 Given this `build.yo`:
 
-```yo
+```rust
 exe :: build.executable({ name: "app", root: "./src/main.yo" });
 lib_a :: build.static_library({ name: "lib-a", root: "./src/a.yo" });
 lib_b :: build.static_library({ name: "lib-b", root: "./src/b.yo" });

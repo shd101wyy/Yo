@@ -986,7 +986,8 @@ ${exprToString(expr)}`,
     // Process related functions
     else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_platform) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_arch)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_arch) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_pointer_size_bits)
     ) {
       return evaluateYoProcessFunctions({
         expr,

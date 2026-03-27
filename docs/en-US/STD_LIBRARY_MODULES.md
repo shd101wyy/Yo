@@ -2,7 +2,7 @@
 
 The Yo standard library provides a comprehensive set of modules for common programming tasks. All modules are imported using the `import` or `open import` statements.
 
-```yo
+```rust
 // Named import
 { ArrayList } :: import "std/collections/array_list";
 
@@ -12,7 +12,7 @@ open import "std/string";
 
 Modules whose directory name matches the file name (e.g., `url/url.yo`) use `index.yo` for clean imports:
 
-```yo
+```rust
 // Clean import — loads std/url/index.yo
 { Url } :: import "std/url";
 { Regex } :: import "std/regex";
@@ -21,7 +21,7 @@ Modules whose directory name matches the file name (e.g., `url/url.yo`) use `ind
 
 Modules with multiple distinct submodules require explicit imports:
 
-```yo
+```rust
 // Explicit submodule imports
 { TcpStream } :: import "std/net/tcp";
 open import "std/fs/file";
@@ -85,7 +85,7 @@ Automatically imported. Provides fundamental types and traits:
 
 ### String (`std/string`)
 
-```yo
+```rust
 open import "std/string";
 ```
 
@@ -137,32 +137,32 @@ Implements: `Eq`, `Ord`, `Hash`, `ToString`.
 
 ### ArrayList (`std/collections/array_list`)
 
-```yo
+```rust
 { ArrayList } :: import "std/collections/array_list";
 ```
 
 Dynamic array backed by a growable buffer.
 
-| Method                              | Description                       |
-| ----------------------------------- | --------------------------------- |
-| `new()`                             | Create empty list                 |
-| `with_capacity(cap)`                | Create with initial capacity      |
-| `push(item)`                        | Append item                       |
-| `pop() -> Option(T)`                | Remove and return last            |
-| `get(index) -> Option(T)`           | Get by index                      |
-| `set(index, value)`                 | Set by index                      |
-| `len() -> usize`                    | Element count                     |
-| `is_empty() -> bool`                | Check if empty                    |
-| `contains(item) -> bool`            | Check containment (requires `Eq`) |
-| `index_of(item) -> Option(usize)`   | Find index (requires `Eq`)        |
-| `reverse()`                         | Reverse in-place                  |
-| `sort()`                            | Sort in-place (requires `Ord`)    |
-| `clear()`                           | Remove all items                  |
-| `slice(start, end) -> ArrayList(T)` | Extract sub-list                  |
+| Method                                              | Description                       |
+| --------------------------------------------------- | --------------------------------- |
+| `new()`                                             | Create empty list                 |
+| `with_capacity(cap)`                                | Create with initial capacity      |
+| `push(item)`                                        | Append item                       |
+| `pop() -> Option(T)`                                | Remove and return last            |
+| `get(index) -> Option(T)`                           | Get by index                      |
+| `set(index, value)`                                 | Set by index                      |
+| `len() -> usize`                                    | Element count                     |
+| `is_empty() -> bool`                                | Check if empty                    |
+| `contains(item) -> bool`                            | Check containment (requires `Eq`) |
+| `index_of(item) -> Option(usize)`                   | Find index (requires `Eq`)        |
+| `reverse()`                                         | Reverse in-place                  |
+| `sort()`                                            | Sort in-place (requires `Ord`)    |
+| `clear()`                                           | Remove all items                  |
+| `slice(start, end) -> Result(Self, ArrayListError)` | Extract sub-list                  |
 
 ### HashMap (`std/collections/hash_map`)
 
-```yo
+```rust
 { HashMap } :: import "std/collections/hash_map";
 ```
 
@@ -181,7 +181,7 @@ Hash map with linear probing. Keys must implement `Eq` and `Hash`.
 
 ### HashSet (`std/collections/hash_set`)
 
-```yo
+```rust
 { HashSet } :: import "std/collections/hash_set";
 ```
 
@@ -215,7 +215,7 @@ Min-heap priority queue with `push`, `pop`, `peek`.
 
 ### File (`std/fs/file`)
 
-```yo
+```rust
 open import "std/fs/file";
 ```
 
@@ -231,8 +231,8 @@ Async file I/O operations using effects.
 
 ### SeekFrom (`std/fs/types`)
 
-```yo
-SeekFrom :: enum(Start(offset: i64), Current(offset: i64), End(offset: i64));
+```rust
+SeekFrom :: enum(Start, Current, End);
 ```
 
 ### Directory (`std/fs/dir`)
@@ -257,7 +257,7 @@ Recursive directory walking/traversal.
 
 ### TCP (`std/net/tcp`)
 
-```yo
+```rust
 open import "std/net/tcp";
 ```
 
@@ -281,7 +281,7 @@ Network address types: `IpAddr`, `SocketAddr`.
 
 ### HTTP (`std/http`)
 
-```yo
+```rust
 // Import via index (recommended)
 { HttpMethod, HttpRequest, HttpResponse, fetch, FetchOptions } :: import "std/http";
 
@@ -294,7 +294,7 @@ Network address types: `IpAddr`, `SocketAddr`.
 
 **HttpRequest** — Builder pattern for constructing HTTP requests:
 
-```yo
+```rust
 req := HttpRequest.new(.GET, `/api/users`);
 req = req.header(`Host`, `example.com`);
 req = req.header(`Accept`, `application/json`);
@@ -303,7 +303,7 @@ s := req.to_string();  // Serializes to HTTP/1.1 format
 
 **HttpResponse** — Response with status helpers:
 
-```yo
+```rust
 resp.status_code  // i32
 resp.is_ok()      // 2xx
 resp.is_redirect() // 3xx
@@ -317,7 +317,7 @@ resp.get_header(`Content-Type`)  // Option(String)
 
 **fetch** — High-level async HTTP GET, similar to JavaScript's `fetch`:
 
-```yo
+```rust
 { fetch } :: import "std/http";
 { Exception } :: import "std/error";
 
@@ -333,7 +333,7 @@ main :: (fn(using(io : IO)) -> unit)({
 
 **fetch_with** — Async HTTP request with custom options:
 
-```yo
+```rust
 opts := FetchOptions.new()
   .with_method(.POST)
   .with_header(`Content-Type`, `application/json`)
@@ -356,7 +356,7 @@ resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
 
 ## Encoding
 
-```yo
+```rust
 // Import specific encoding modules
 open import "std/encoding/json";
 { toml_parse, TomlValue } :: import "std/encoding/toml";
@@ -365,7 +365,7 @@ open import "std/encoding/json";
 
 ### JSON (`std/encoding/json`)
 
-```yo
+```rust
 open import "std/encoding/json";
 ```
 
@@ -373,7 +373,7 @@ Full JSON parser and stringifier.
 
 **JsonValue** — enum: `Null`, `Bool`, `Number`, `Str`, `Array`, `Object`.
 
-```yo
+```rust
 // Parse
 result := json_parse(`{"name": "Yo", "version": 1}`);
 obj := result.unwrap();
@@ -387,7 +387,7 @@ s := json_stringify(val);
 
 ### Base64 (`std/encoding/base64`)
 
-```yo
+```rust
 open import "std/encoding/base64";
 ```
 
@@ -409,14 +409,14 @@ UTF-16 encoding/decoding utilities.
 
 ### SHA-256 (`std/crypto/sha256`)
 
-```yo
+```rust
 open import "std/crypto/sha256";
 hash := sha256(`Hello`);  // Returns hex string
 ```
 
 ### MD5 (`std/crypto/md5`)
 
-```yo
+```rust
 open import "std/crypto/md5";
 hash := md5(`Hello`);  // Returns hex string
 ```
@@ -431,13 +431,13 @@ Cryptographic random number generation.
 
 ### Regex (`std/regex`)
 
-```yo
+```rust
 open import "std/regex";
 ```
 
 Full regex engine with compilation and matching.
 
-```yo
+```rust
 re := Regex.compile(`\d+`);
 m := re.find(`abc 123 def`);
 // Match support: find, find_all, test, replace
@@ -449,13 +449,13 @@ m := re.find(`abc 123 def`);
 
 ### ArgParser (`std/cli/arg_parser`)
 
-```yo
+```rust
 { ArgParser, ParsedArgs } :: import "std/cli/arg_parser";
 ```
 
 Builder-pattern CLI argument parser:
 
-```yo
+```rust
 parser := ArgParser.new(`my-tool`, `A helpful tool`);
 parser = parser.add_flag(`verbose`, `v`, `Enable verbose output`);
 parser = parser.add_option(`output`, `o`, `Output file`, `out.txt`);
@@ -476,13 +476,13 @@ args.get_positional(`input`)    // Option(String)
 
 TOML has been moved to the `std/encoding/` module for consistency with other data formats.
 
-```yo
+```rust
 { toml_parse, TomlValue } :: import "std/encoding/toml";
 ```
 
 Basic TOML parser supporting strings, integers, booleans, and table sections.
 
-```yo
+```rust
 result := toml_parse(`
 [server]
 host = "localhost"
@@ -515,13 +515,13 @@ port := srv.get(`port`).unwrap().as_int().unwrap();      // i64(8080)
 
 ### Glob (`std/glob`)
 
-```yo
+```rust
 { glob_match, GlobPattern } :: import "std/glob";
 ```
 
 Unix-style glob pattern matching.
 
-```yo
+```rust
 glob_match(`*.txt`, `readme.txt`)     // true
 glob_match(`src/**/*.yo`, `src/a/b.yo`) // true
 glob_match(`[abc].txt`, `a.txt`)       // true
@@ -535,13 +535,13 @@ Supports: `*`, `?`, `**`, `[abc]`, `[!abc]`.
 
 ### Reader (`std/io/reader`)
 
-```yo
+```rust
 { Reader } :: import "std/io/reader";
 ```
 
 Trait for reading bytes:
 
-```yo
+```rust
 Reader :: trait(
   read : (fn(self: *(Self), buf: *(u8), size: usize, using(exn: Exception)) -> usize)
 );
@@ -549,13 +549,13 @@ Reader :: trait(
 
 ### Writer (`std/io/writer`)
 
-```yo
+```rust
 { Writer } :: import "std/io/writer";
 ```
 
 Trait for writing bytes:
 
-```yo
+```rust
 Writer :: trait(
   write : (fn(self: *(Self), buf: *(u8), size: usize, using(exn: Exception)) -> usize),
   flush : (fn(self: *(Self), using(exn: Exception)) -> unit)
@@ -568,7 +568,7 @@ Writer :: trait(
 
 ### URL (`std/url`)
 
-```yo
+```rust
 { Url, url_parse } :: import "std/url";
 ```
 
@@ -592,7 +592,7 @@ Date and time representation.
 
 ### Sleep (`std/time/sleep`)
 
-Async sleep using `io.sleep(duration, using(io))`.
+Synchronous sleep using `sleep(ms)`. For async sleep, use `sleep()` from `std/sys/timer` which returns an `IOFuture`.
 
 ---
 
@@ -644,7 +644,7 @@ Worker thread pool for parallel execution.
 
 ### Fmt (`std/fmt`)
 
-```yo
+```rust
 open import "std/fmt";
 ```
 
@@ -667,11 +667,11 @@ Display trait for formatted output.
 
 ### Log (`std/log`)
 
-```yo
+```rust
 open import "std/log";
 ```
 
-Leveled logging: `log_debug`, `log_info`, `log_warn`, `log_error`.
+Leveled logging: `trace`, `debug`, `info`, `warn`, `error`.
 
 ---
 
@@ -705,19 +705,26 @@ Signal handling for Unix signals.
 
 ### Path (`std/path`)
 
-```yo
+```rust
 open import "std/path";
 ```
 
-Cross-platform path manipulation:
+Cross-platform path manipulation via the `Path` type:
+
+| Method               | Description                    |
+| -------------------- | ------------------------------ |
+| `Path.new(s)`        | Create from string             |
+| `path.join(other)`   | Join paths                     |
+| `path.parent()`      | Get parent directory           |
+| `path.file_name()`   | Get filename                   |
+| `path.file_stem()`   | Get filename without extension |
+| `path.extension()`   | Get extension                  |
+| `path.is_absolute()` | Check if absolute              |
+
+File existence checks (from `std/fs`):
 
 | Function                | Description        |
 | ----------------------- | ------------------ |
-| `path_join(a, b)`       | Join paths         |
-| `path_dirname(p)`       | Get directory      |
-| `path_basename(p)`      | Get filename       |
-| `path_extname(p)`       | Get extension      |
-| `path_is_absolute(p)`   | Check if absolute  |
 | `exists(p, using(io))`  | Check existence    |
 | `is_file(p, using(io))` | Check if file      |
 | `is_dir(p, using(io))`  | Check if directory |
@@ -728,7 +735,7 @@ Cross-platform path manipulation:
 
 ### Build (`std/build`)
 
-```yo
+```rust
 open import "std/build";
 ```
 
@@ -740,7 +747,7 @@ See `plans/BUILD_SYSTEM.md` for detailed documentation.
 
 ## Importing Conventions
 
-```yo
+```rust
 // Import specific exports
 { HashMap } :: import "std/collections/hash_map";
 

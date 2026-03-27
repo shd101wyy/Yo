@@ -1,8 +1,11 @@
+// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+
 open import "std/libc/stdio";
 open import "std/string";
 { platform, Platform } :: import "std/process";
 { temp_dir, path_join } :: import "../helper";
 { AT_FDCWD } :: import "std/sys/constants";
+{ EBADF, EINVAL, ENOSYS, EOPNOTSUPP } :: import "std/libc/errno";
 file :: import "std/sys/file";
 dir :: import "std/sys/dir";
 temp_io :: import "std/sys/temp";
@@ -10,7 +13,7 @@ fallocate_io :: import "std/sys/fallocate";
 
 test "fallocate invalid fd returns -EBADF", using(io : IO), {
   ret := fallocate_io.fallocate(i32(-1), i32(0), i64(0), i64(4096));
-  assert((ret == i32(-9)), "fallocate on invalid fd should return -EBADF (-9)");
+  assert((ret == (i32(0) - i32(EBADF))), "fallocate on invalid fd should return -EBADF");
 };
 
 test "fallocate mode 0 extends file size", using(io : IO), {
@@ -102,7 +105,7 @@ test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", using(io : IO), {
           assert((byte_buf.* == u8(0)), "ZERO_RANGE should zero data at the start of the range");
         },
         true => {
-          supported_err := ((zero_ret == i32(-95)) || ((zero_ret == i32(-22)) || (zero_ret == i32(-38))));
+          supported_err := ((zero_ret == (i32(0) - i32(EOPNOTSUPP))) || ((zero_ret == (i32(0) - i32(EINVAL))) || (zero_ret == (i32(0) - i32(ENOSYS)))));
           assert(supported_err, "ZERO_RANGE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
         }
       );
@@ -121,7 +124,7 @@ test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", using(io : IO), {
           assert((size_after == i64(4096)), "PUNCH_HOLE with KEEP_SIZE should preserve file size");
         },
         true => {
-          supported_err2 := ((punch_ret == i32(-95)) || ((punch_ret == i32(-22)) || (punch_ret == i32(-38))));
+          supported_err2 := ((punch_ret == (i32(0) - i32(EOPNOTSUPP))) || ((punch_ret == (i32(0) - i32(EINVAL))) || (punch_ret == (i32(0) - i32(ENOSYS)))));
           assert(supported_err2, "PUNCH_HOLE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
         }
       );

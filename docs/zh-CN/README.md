@@ -1,0 +1,318 @@
+# Yo
+
+<img src="../../Yo_logo.png" width=96 height=96 />
+
+[English](../../README.md) | **简体中文**
+
+**开发中 :) 尚未就绪！**
+
+一种多范式、通用型、编译型编程语言。
+Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
+
+> `Yo` 这个名字来源于中文单词 `柚`（yòu），意为柚子，一种类似葡萄柚的大型柑橘类水果。这是我女儿的小名。
+
+📖 [我与编程语言的故事](./MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) —— 从 16 岁学 Java 到构建 Yo 的旅程。
+
+<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
+
+<!-- code_chunk_output -->
+
+- [特性](#特性)
+- [安装](#安装)
+  - [Linux](#linux)
+  - [macOS](#macos)
+  - [Windows](#windows)
+  - [WebAssembly (WASM)](#webassembly-wasm)
+- [快速开始](#快速开始)
+- [预导入模块（Prelude）](#预导入模块prelude)
+- [标准库](#标准库)
+- [代码示例](#代码示例)
+  - [Hello World](#hello-world)
+  - [示例项目](#示例项目)
+- [贡献](#贡献)
+  - [环境设置](#环境设置)
+- [编辑器支持](#编辑器支持)
+- [Star 历史](#star-历史)
+- [许可证](#许可证)
+
+<!-- /code_chunk_output -->
+
+## 特性
+
+关于语言设计，请参阅 [DESIGN.md](./DESIGN.md)。
+
+以下是 Yo 支持的部分特性（非详尽列表）：
+
+- 一等类型（First-class types）。
+- 编译时求值（Compile-time evaluation）。
+- 同像性（Homoiconicity）和元编程（**Yo** 语法受 **Lisp** S 表达式启发。简单的语法规则，对人类和 AI 友好）。
+- 闭包（Closure）。
+- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`escape` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
+- [Async/Await](./ASYNC_AWAIT.md)（内置 `IO` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
+- 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
+- [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+- 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
+- 受 Zig 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
+- **C** 语言互操作。
+- 等等。
+
+<img width="855" height="368" alt="Image" src="https://github.com/user-attachments/assets/04a9050e-598b-4e02-a6c3-44863d47a4ac" />
+
+## 安装
+
+`Yo` 语言目前作为 `npm` 包分发：
+
+```bash
+$ npm install -g @shd101wyy/yo         # 全局安装 yo 编译器
+$ yarn global add @shd101wyy/yo        # 或使用 yarn
+$ pnpm add -g @shd101wyy/yo            # 或使用 pnpm
+$ bun install --global @shd101wyy/yo   # 或使用 bun
+```
+
+它会在终端中暴露 `yo` 命令。
+
+还有一个别名 `yo-cli`，用于避免命名冲突。
+
+运行 `yo --help` 或 `yo-cli --help` 查看可用命令。
+
+Yo 将代码转换为 C，因此需要一个 **C 编译器**来生成机器码。请按照以下平台说明操作。
+
+### Linux
+
+安装 **Clang**（推荐）、**liburing**（用于异步 I/O）和 **pkg-config**（用于系统库发现）：
+
+```bash
+# Ubuntu/Debian
+$ sudo apt-get update
+$ sudo apt-get install clang liburing-dev pkg-config
+
+# Fedora/RHEL
+$ sudo dnf install clang liburing-devel pkgconf-pkg-config
+
+# Arch Linux
+$ sudo pacman -S clang liburing pkgconf
+```
+
+你也可以通过传递 `--cc gcc` 或 `--cc zig` 使用 `gcc` 或 `zig` 代替 `clang`。
+
+### macOS
+
+Clang 包含在 Xcode 命令行工具中：
+
+```bash
+$ xcode-select --install
+
+# 同时安装 pkgconf 用于系统库发现
+$ brew install pkgconf
+```
+
+或者通过 Homebrew 安装 LLVM：
+
+```bash
+$ brew install llvm pkgconf
+```
+
+### Windows
+
+Windows 上的 Clang 需要链接器和 Windows SDK 头文件。安装 **Visual Studio**（社区版免费）或带有"Desktop development with C++"工作负载的 **Build Tools for Visual Studio**：
+
+1. 从 [https://visualstudio.microsoft.com/downloads/](https://visualstudio.microsoft.com/downloads/) 下载
+2. 在安装程序中选择 **"Desktop development with C++"**（包含 MSVC、Windows SDK 和链接器）
+3. 然后安装 LLVM/Clang：
+
+```bash
+# 使用 Chocolatey
+$ choco install llvm
+
+# 使用 Scoop
+$ scoop install llvm
+
+# 或从 https://releases.llvm.org/ 下载
+```
+
+或者，你可以使用 `zig` 作为 C 编译器（无需 Visual Studio）：
+
+```bash
+$ choco install zig
+$ yo compile main.yo --cc zig --release -o main
+```
+
+对于系统库发现，安装 **vcpkg**：
+
+```bash
+$ git clone https://github.com/microsoft/vcpkg.git
+$ .\vcpkg\bootstrap-vcpkg.bat
+# 然后将 VCPKG_ROOT 环境变量设置为 vcpkg 目录
+
+# 或使用 Scoop
+$ scoop install vcpkg
+```
+
+更多信息，请参阅 [vcpkg 文档](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started)。
+
+### WebAssembly (WASM)
+
+Yo 可以使用 [Emscripten](https://emscripten.org/) 编译到 WebAssembly：
+
+```bash
+# 安装 Emscripten（https://emscripten.org/docs/getting_started/downloads.html）
+$ git clone https://github.com/emscripten-core/emsdk.git
+$ cd emsdk
+$ ./emsdk install latest
+$ ./emsdk activate latest
+$ source ./emsdk_env.sh
+
+# 将 Yo 程序编译为 WASM
+$ yo compile main.yo --cc emcc --release -o app
+
+# 生成：app.html + app.js + app.wasm
+# 使用 Node.js 运行：
+$ node app.js
+
+# 或在浏览器中打开 app.html
+```
+
+使用 `--cc emcc` 时，Yo 自动针对 `wasm32-emscripten` 目标并使用 `libc` 分配器。你也可以使用 `--target wasm-emscripten`（会自动选择 `emcc`）。Emscripten 生成一个 `.html` 文件（浏览器外壳）、一个 `.js` 文件（运行时胶水代码）和一个 `.wasm` 文件（编译后的二进制文件）。
+
+## 快速开始
+
+```bash
+$ yo init my-project        # 创建新项目
+$ cd my-project
+$ yo build run              # 构建并运行
+Hello, world!
+```
+
+`yo init` 生成一个包含构建文件、源代码和测试的项目：
+
+```
+my-project/
+├── build.yo              # 构建配置
+├── src/
+│   ├── main.yo           # 入口点
+│   └── lib.yo            # 库模块
+└── tests/
+    └── main.test.yo      # 单元测试
+```
+
+`src/main.yo`：
+
+```typescript
+{ println } :: import "std/fmt";
+
+main :: (fn() -> unit)({
+  println("Hello, world!");
+});
+
+export main;
+```
+
+常用构建命令：
+
+```bash
+$ yo build                  # 构建所有产物
+$ yo build run              # 构建并运行可执行文件
+$ yo build test             # 运行测试
+$ yo build --list-steps     # 列出可用构建步骤
+```
+
+## 预导入模块（Prelude）
+
+每个 Yo 文件自动导入 **[std/prelude.yo](../../std/prelude.yo)**，它提供了无需任何显式导入即可使用的核心类型、trait 和内置函数：
+
+- **基本类型**：`bool`、`i8`–`i64`、`u8`–`u64`、`f32`、`f64`、`isize`、`usize`、`str`
+- **C 兼容类型**：`int`、`uint`、`short`、`long`、`longlong`、`char` 等
+- **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Dispose`、`Send`、`Rc`、`Acyclic` 等
+- **元编程**：`Type`、`Expr`、`ExprList`、`Var`
+- **异步**：`IO`、`FutureState`、`JoinHandle`
+- **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`arc`、`Box`、`box`
+- 等等
+
+## 标准库
+
+_设计中_
+
+Yo 附带一个全面的标准库，涵盖字符串、集合、文件 I/O、网络、编码、正则表达式、加密等。完整模块参考，请参阅 **[标准库模块](./STD_LIBRARY_MODULES.md)**。
+
+## 代码示例
+
+查看 [./tests](../../tests/) 和 [./std](../../std/) 文件夹获取更多代码示例。
+
+### Hello World
+
+```typescript
+// main.yo
+{ println } :: import "std/fmt";
+
+main :: (fn() -> unit) {
+  println("Hello, world!");
+};
+
+export main;
+
+// $ yo compile main.yo --release -o main
+// $ ./main
+```
+
+### 示例项目
+
+| 项目                                                                    | 描述                                                                                         |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                     | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量 |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo)                     | 使用 raylib_yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                       |
+| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo) | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                       |
+
+## 贡献
+
+`Yo` 编译器用 [TypeScript](https://www.typescriptlang.org/) 编写，使用 [Bun](https://bun.sh/) 作为运行时。
+
+Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换为 C；要生成机器码，你必须有一个 C 编译器（例如 `gcc`、`clang`、`zig`、`cl`、`emcc` 等）。
+
+请继续之前安装 [nix](https://nixos.org/download.html) 和 [direnv](https://direnv.net/)。
+
+开发环境定义在 [shell.nix](../../shell.nix) 中。你也可以手动安装文件中列出的依赖项。
+
+### 环境设置
+
+```bash
+$ cd Yo
+$ direnv allow . # 运行此命令激活 nix shell。
+                  # 只需运行一次。
+$ bun install    # 安装必要的依赖项。
+```
+
+运行以下命令监视更改并构建项目：
+
+```bash
+$ bun run dev
+```
+
+运行以下命令构建项目：
+
+```bash
+$ bun run build
+```
+
+测试本地 yo-cli：
+
+```bash
+$ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
+
+# 项目中还有一个 `yo-cli` 脚本用于测试：
+$ ./yo-cli compile src/tests/examples/fixme.yo
+```
+
+## 编辑器支持
+
+- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，支持基本语法高亮。尚无 LSP。
+
+- Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
+  详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=shd101wyy/Yo&type=date&legend=top-left)](https://www.star-history.com/#shd101wyy/Yo&type=date&legend=top-left)
+
+## 许可证
+
+[UIUC/NCSA Open Source License](../../LICENSE.md)

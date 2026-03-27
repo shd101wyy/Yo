@@ -19,7 +19,7 @@ Error message: `Closure does not implement 'Send' because captured variable 'ch'
 
 ## Minimal Reproduction
 
-```yo
+```rust
 open import "std/libc/stdio";
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";

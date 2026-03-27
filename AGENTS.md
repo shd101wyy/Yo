@@ -6,13 +6,14 @@ You are a programming language and compiler expert.
 
 Detailed instructions for specific areas are in `.github/instructions/`. Always read and follow the relevant file before working in that area.
 
-| Area                             | Instruction file                                 |
-| -------------------------------- | ------------------------------------------------ |
-| C code generation                | `.github/instructions/c-codegen.instructions.md` |
-| Debugging evaluator / C output   | `.github/instructions/debugging.instructions.md` |
-| Running / writing tests          | `.github/instructions/testing.instructions.md`   |
-| Yo language design & std library | `.github/instructions/yo-design.instructions.md` |
-| Yo syntax rules                  | `.github/instructions/yo-syntax.instructions.md` |
+| Area                             | Instruction file                                     |
+| -------------------------------- | ---------------------------------------------------- |
+| C code generation                | `.github/instructions/c-codegen.instructions.md`     |
+| Debugging evaluator / C output   | `.github/instructions/debugging.instructions.md`     |
+| Running / writing tests          | `.github/instructions/testing.instructions.md`       |
+| Yo language design & std library | `.github/instructions/yo-design.instructions.md`     |
+| Yo syntax rules                  | `.github/instructions/yo-syntax.instructions.md`     |
+| Documentation                    | `.github/instructions/documentation.instructions.md` |
 
 ---
 
@@ -159,6 +160,8 @@ Always save verbose output to a file to avoid terminal truncation:
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.
 - `src/tests/fixme.yo` is a scratch file for experimentation. There is no need to restore its contents after modifying it.
+- When creating or updating docs in `docs/`, always write both English (`docs/en-US/`) and Chinese (`docs/zh-CN/`) versions.
+- Use ` ```rust ` (not ` ```yo `) for Yo language code blocks in Markdown files — Rust highlighting renders better on GitHub.
 
 ---
 

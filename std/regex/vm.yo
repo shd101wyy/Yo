@@ -24,8 +24,8 @@ impl(NfaThread,
     s := ArrayList(usize).with_capacity(n_slots);
     i := usize(0);
     while (i < n_slots), (i = (i + usize(1))), {
-      // 0xFFFFFFFFFFFFFFFF signals "unset"
-      s.push(usize(0xFFFFFFFFFFFFFFFF));
+      // usize.MAX signals "unset"
+      s.push(usize.MAX);
     };
     Self(pc: pc, slots: s)
   }),
@@ -321,7 +321,7 @@ impl(NfaVm,
   // Run a sub-VM starting at sub_start_pc from start_byte.
   // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
   _run_sub_vm : (fn(self : Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
-    unset := usize(0xFFFFFFFFFFFFFFFF);
+    unset := usize.MAX;
     sub_current := ArrayList(NfaThread).new();
     sub_next := ArrayList(NfaThread).new();
 
@@ -458,7 +458,7 @@ impl(NfaVm,
     best_match := VmMatch(matched: false, slots: ArrayList(usize).new());
     byte_pos := start_byte;
     input_len := self._bytes.len();
-    unset := usize(0xFFFFFFFFFFFFFFFF);
+    unset := usize.MAX;
 
     while (byte_pos <= input_len), {
       (cur_cp : u32) = u32(0);

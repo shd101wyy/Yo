@@ -206,12 +206,12 @@ yo build run          # Build and run the executable
 yo build test         # Run tests
 yo build --list-steps # List available build steps
 yo build --cc zig     # Use zig as the C compiler
-yo build --target wasm32-wasi  # Cross-compile for WASM
+yo build --target wasm-emscripten  # Cross-compile for WASM (Emscripten)
 
 # Direct compilation (single file, no build.yo needed)
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
-yo compile hello.yo --target wasm32-wasi --cc zig -o hello.wasm
+yo compile hello.yo --target wasm-emscripten -o hello.html
 ```
 
 For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md).
@@ -410,7 +410,7 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 s1 := String.from("Hello");
@@ -735,7 +735,7 @@ Object types are heap-allocated types with automatic reference counting:
 
 ```rust
 // Define an object type
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 impl(String,
@@ -1552,7 +1552,7 @@ match(first,
 );
 
 // Set an element
-list.set(usize(1), usize(150));
+list.set(usize(1), i32(150));
 
 // Pop an element
 popped := list.pop();
@@ -2787,7 +2787,7 @@ Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, i
 - **Clobbers and options**: `clobber("memory")`, `asm_options(volatile, noreturn)`
 - **Multi-architecture**: x86_64 and aarch64 support
 
-```yo
+```rust
 // Simple example: move immediate to register
 result := asm(
   "mov {0}, #42",

@@ -51,3 +51,17 @@ Prefer `comptime_assert` over `assert` when the value being tested is compile-ti
 - Lint: `bun run lint`
 - Format check: `bun run format`
 - Fix lint/format issues before committing.
+
+## WASM testing
+
+- Run a test on Emscripten: `./yo-cli test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
+- Run a test on standalone WASI: `./yo-cli test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
+- Use `// @skip_wasm32-emscripten` to skip a test file on the Emscripten target.
+- Use `// @skip_wasm32-wasi` to skip a test file on the standalone WASI target.
+- Use `// @skip_wasm` to skip a test file on ALL WASM targets (generic catch-all).
+- A file can have both target-specific directives, or the generic one.
+- For per-test skips, add `{ arch, Arch } :: import "std/process";` and use `if((arch == Arch.Wasm32), return ())` at the top of the test body.
+- See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
+- **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
+- When adding new tests, verify they pass on native (`./yo-cli test ...`), Emscripten (`./yo-cli test ... --cc emcc`), and WASI (`./yo-cli test ... --target wasm-wasi`), or add appropriate skip directives.
+- `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

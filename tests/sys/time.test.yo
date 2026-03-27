@@ -1,7 +1,10 @@
+// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+
 open import "std/libc/stdio";
 open import "std/string";
 open import "std/collections/array_list";
-{ platform, Platform, env } :: import "std/process";
+{ platform, Platform, arch, Arch, env } :: import "std/process";
+{ ENOENT } :: import "std/libc/errno";
 file :: import "std/sys/file";
 dir :: import "std/sys/dir";
 time :: import "std/sys/time";
@@ -77,10 +80,16 @@ test "futime sets timestamps by fd with nanosecond precision", using(io : IO), {
 
 test "utime on nonexistent file returns -ENOENT", using(io : IO), {
   ret := time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
-  assert(ret == i32(-2));
+  assert(ret == (i32(0) - i32(ENOENT)));
 };
 
 test "lutime changes symlink timestamps without affecting target", using(io : IO), {
+  // NODERAWFS does not support utimensat with AT_SYMLINK_NOFOLLOW on symlinks
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32 (lutime on symlinks unsupported)\n");
+    return ();
+  });
+
   path_cstr := make_test_file(`yo_time_lutime_target.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("lutime test"), u32(11));
@@ -119,6 +128,12 @@ test "lutime changes symlink timestamps without affecting target", using(io : IO
 };
 
 test "utime with nanosecond precision", using(io : IO), {
+  // WASM NODERAWFS doesn't preserve sub-microsecond precision
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32 (no nsec precision)\n");
+    return ();
+  });
+
   path_cstr := make_test_file(`yo_time_nsec.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("nsec test"), u32(9));

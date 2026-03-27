@@ -50,7 +50,8 @@ aarch64-macos-none
 x86_64-windows-msvc
 aarch64-windows-msvc
 x86_64-windows-gnu       (MinGW)
-wasm32-wasi              (WebAssembly)
+wasm32-emscripten        (WebAssembly, Emscripten)
+wasm32-wasi              (WebAssembly, standalone WASI)
 ```
 
 ### 1.2 Supported Architectures
@@ -87,7 +88,7 @@ wasm32-wasi              (WebAssembly)
 
 Define a `Target` type used in `build.yo`:
 
-```yo
+```rust
 Target :: struct(
   arch : Arch,
   os : Os,
@@ -113,7 +114,7 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 
 ### 2.2 Example `build.yo`
 
-```yo
+```rust
 build :: import "std/build";
 
 build.module({ name: "my-app", root: "./src/lib.yo" });
@@ -181,7 +182,7 @@ The build runner (`src/build-runner.ts`) flow:
 
 ### 2.3 Multi-Target Example
 
-```yo
+```rust
 build :: import "std/build";
 
 build.module({ name: "my-app", root: "./src/lib.yo" });
@@ -203,7 +204,7 @@ macos :: build.executable({
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-wasi",
+  target: "wasm32-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 
@@ -215,7 +216,7 @@ install.depend_on(wasm);
 
 ### 2.4 Library Example
 
-```yo
+```rust
 build :: import "std/build";
 
 build.module({ name: "my-lib", root: "./src/lib.yo" });
@@ -237,14 +238,14 @@ Yo supports cross-module linking via `extern "Yo"` declarations and static libra
 
 **Library module** (`add.yo`) exports a function:
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)((a + b));
 export add;
 ```
 
 **Executable module** (`demo.yo`) declares it with `extern "Yo"` and calls it:
 
-```yo
+```rust
 extern "Yo",
   add : (fn(a: i32, b: i32) -> i32);
 
@@ -256,7 +257,7 @@ export main;
 
 **Build file** (`build.yo`) links them together:
 
-```yo
+```rust
 build :: import "std/build";
 build.module({ name: "demo", root: "./src/lib.yo" });
 
@@ -282,7 +283,7 @@ The build module is imported as a namespace and provides compile-time functions 
 
 **Constants:**
 
-```yo
+```rust
 Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
 Allocator :: enum(Mimalloc, Libc)
 Sanitize :: enum(None, Address, Leak)
@@ -292,7 +293,7 @@ target_host :: comptime_string  // Host target triple
 
 **Config Struct Types (with `?=` defaults):**
 
-```yo
+```rust
 // Executable artifact config
 Executable :: struct(
   name : comptime_string,
@@ -329,7 +330,7 @@ TestSuite :: struct(
 
 **Functions (all return `Step`):**
 
-```yo
+```rust
 // Project metadata (returns unit — the only exception)
 project(config: Project)
 
@@ -361,7 +362,7 @@ step(name: comptime_string, description: comptime_string) -> Step  // kind: Step
 
 **Step struct:**
 
-```yo
+```rust
 Step :: struct(
   name : comptime_string,
   kind : StepKind
@@ -374,7 +375,7 @@ Internally, wrapper functions decompose the config struct and pass individual fi
 
 Like Zig's `b.option()`, `build.yo` can declare user-configurable options via `yo build -D<name>=<value>`:
 
-```yo
+```rust
 // In build.yo:
 strip :: build.option({
   name: "strip",
@@ -387,7 +388,7 @@ The `option()` function returns a `comptime_string` value. At evaluation time, i
 
 **Config type:**
 
-```yo
+```rust
 BuildOption :: struct(
   name : comptime_string,
   description : comptime_string,
@@ -406,7 +407,7 @@ yo build -Dstrip          # shorthand for -Dstrip=true
 
 Register system libraries via `build.system_library()` and link them using the `step.link()` method:
 
-```yo
+```rust
 // Register system libraries (returns Step)
 openssl :: build.system_library({
   name: "openssl"
@@ -543,7 +544,7 @@ my-project/
 
 **`build.yo`:**
 
-```yo
+```rust
 build :: import "std/build";
 
 build.module({ name: "my-project", root: "./src/lib.yo" });
@@ -569,7 +570,7 @@ test_step.depend_on(tests);
 
 **`src/main.yo`:**
 
-```yo
+```rust
 { println } :: import "std/fmt";
 
 main :: fn() {
@@ -581,7 +582,7 @@ export main;
 
 **`src/lib.yo`:**
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)(
   (a + b)
 );
@@ -590,7 +591,7 @@ export add;
 
 **`tests/main.test.yo`:**
 
-```yo
+```rust
 { test } :: import "std/testing";
 
 test("it works", fn() {
@@ -679,7 +680,7 @@ The Yo-side naming also changes to avoid Node.js conventions:
 
 ### 5.4 Updating `std/process.yo`
 
-```yo
+```rust
 // Current (Node.js naming)
 Platform :: {
   Darwin : "darwin",
@@ -885,7 +886,7 @@ Existing options (unchanged):
 ### Phase 4: Cross-Compilation & WASM ✅
 
 15. ✅ Add `--target=<triple>` passthrough to clang in codegen
-16. ✅ WASM/WASI target support (`wasm32-wasi` triple, 32-bit pointer, skip platform libs/mimalloc/liburing)
+16. ✅ WASM/WASI target support (`wasm32-emscripten` + `wasm32-wasi` triples, 32-bit pointer, skip platform libs/mimalloc/liburing)
 17. ✅ `--cc` flag on `yo build` for compiler override (e.g., `yo build --cc zig`)
 18. ✅ Platform-specific library linking based on target (not host)
 19. Add `--sysroot` support (future)
@@ -974,12 +975,12 @@ Existing options (unchanged):
 
 ### WASM-Specific Changes
 
-| File                   | WASM-Related Changes                                               |
-| ---------------------- | ------------------------------------------------------------------ |
-| `src/target.ts`        | `wasi` OS, `wasm` ABI, `wasm32-wasi` clangTriple, `isTargetWasm()` |
-| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing for WASM   |
-| `std/process.yo`       | `Platform.Wasi` variant                                            |
-| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM |
+| File                   | WASM-Related Changes                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/target.ts`        | `wasi`/`emscripten` OS, `wasm` ABI, `isTargetWasm()`, `isTargetEmscripten()`, `isTargetStandaloneWasi()` |
+| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing, NODERAWFS/STANDALONE_WASM flags                 |
+| `std/process.yo`       | `Platform.Emscripten` and `Platform.Wasi` variants                                                       |
+| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM                                       |
 
 ---
 
@@ -1038,7 +1039,7 @@ This section documents features the build system does not yet support, organized
 
 **Proposed API**:
 
-```yo
+```rust
 // Run an arbitrary shell command as a build step
 cmd := build.system_command({
   name: "generate-proto",
@@ -1085,7 +1086,7 @@ yo build --watch --run        # Rebuild and re-run on change
 
 **Proposed API**:
 
-```yo
+```rust
 exe := build.executable({ name: "my-app", root: "./src/main.yo" });
 build.install(exe);  // Marks artifact for installation
 
@@ -1110,7 +1111,7 @@ build.install(exe);  // Marks artifact for installation
 
 **Proposed API**:
 
-```yo
+```rust
 // In library's build.yo:
 build.feature({ name: "tls", description: "Enable TLS support", default: false });
 build.feature({ name: "json", description: "Enable JSON parsing", default: true });
@@ -1129,7 +1130,7 @@ dep.disable_feature("json");
 
 **Proposed API**:
 
-```yo
+```rust
 // Define a named profile
 Profile :: struct(
   optimize : Optimize,
@@ -1152,7 +1153,7 @@ Or simpler: `--profile dev` / `--profile release` CLI flag.
 
 **Proposed API**:
 
-```yo
+```rust
 // workspace.yo (root of monorepo)
 build :: import "std/build";
 
@@ -1234,7 +1235,7 @@ yo build --check                  # Type-check and evaluate, skip C codegen + cl
 
 #### 11.3.1 Link-Time Optimization (LTO)
 
-```yo
+```rust
 exe := build.executable({
   name: "app",
   root: "./src/main.yo",
@@ -1247,7 +1248,7 @@ exe := build.executable({
 
 #### 11.3.2 Benchmarking
 
-```yo
+```rust
 bench := build.benchmark({
   name: "perf-tests",
   root: "./benchmarks/main.yo"
@@ -1296,7 +1297,7 @@ Uses `lipo` to merge two single-arch binaries.
 
 For dependencies, allow version ranges instead of exact refs:
 
-```yo
+```rust
 dep := build.dependency({
   name: "json-parser",
   url: "https://github.com/user/json-parser.git",
@@ -1308,14 +1309,14 @@ Requires a version resolver that maps `^1.2.0` to the best matching git tag.
 
 #### 11.3.8 Build-Only / Dev Dependencies
 
-```yo
+```rust
 // Only needed during build, not linked into final artifact
 build.dev_dependency({ name: "test-utils", path: "../test-utils" });
 ```
 
 #### 11.3.9 Debug Info Levels
 
-```yo
+```rust
 exe := build.executable({
   name: "app",
   root: "./src/main.yo",
@@ -1329,7 +1330,7 @@ Maps to clang's `-g`, `-gline-tables-only`, or no debug flag.
 
 For shared library consumers, control where the runtime linker searches:
 
-```yo
+```rust
 exe := build.executable({
   name: "app",
   root: "./src/main.yo",

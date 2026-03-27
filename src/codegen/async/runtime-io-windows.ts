@@ -453,7 +453,7 @@ static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
   if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
   BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
   if (!ok && (operation & LOCK_NB) != 0 && GetLastError() == ERROR_LOCK_VIOLATION) {
-    return -EAGAIN;
+    return -EWOULDBLOCK;
   }
   return ok ? 0 : -__yo_win_last_error_to_errno();
 }

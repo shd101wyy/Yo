@@ -578,7 +578,29 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 | Linux    | `io_uring` (via liburing)                       | `runtime-io-linux.ts`   |
 | macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `runtime-io-macos.ts`   |
 | Windows  | I/O Completion Ports (IOCP)                     | `runtime-io-windows.ts` |
-| WASM     | No I/O runtime (computation only)               | —                       |
+| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `runtime-io-wasm.ts`    |
+
+#### WASM Async Support
+
+WASM targets (`wasm32-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `sleep()` (from `std/sys/timer`) all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
+
+What works on WASM:
+
+- `io.async()` — create lazy futures
+- `io.await()` — await futures
+- `io.spawn()` / `JoinHandle.await()` — spawn and join tasks
+- `yield()` — cooperative yielding between tasks
+- Algebraic effects with async
+- `sleep()` (from `std/sys/timer`) — timer-based delays via sorted timer queue
+- File I/O (`File.open`, `read`, `write` from `std/fs/file` and `std/sys/file`) — via NODERAWFS (Node.js) or Emscripten FS
+
+What does NOT work on WASM:
+
+- DNS, TCP, UDP — no network stack in Emscripten
+- Process spawn, signals, FS events — no OS-level APIs
+- Parallelism (`Thread.spawn`) — requires pthread support (experimental)
+
+Concurrency helpers return sensible defaults: `__yo_thread_get_hardware_threads()` returns 1, `__yo_get_thread_id()` returns 0, `__yo_thread_yield()` is a no-op.
 
 ## Memory Management
 

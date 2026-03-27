@@ -165,7 +165,7 @@ This document describes a garbage collection system for Yo that replaces the bia
 
 **Value types are copied, not referenced. They live on the stack or are embedded in other types.**
 
-```yo
+```rust
 // Primitive value types
 i8, i16, i32, i64, isize
 u8, u16, u32, u64, usize
@@ -191,7 +191,7 @@ union(...)      // C-compatible unions
 
 **Example:**
 
-```yo
+```rust
 Point :: struct(x: i32, y: i32);
 Rectangle :: struct(top_left: Point, bottom_right: Point);
 
@@ -204,7 +204,7 @@ rect := Rectangle(top_left: p1, bottom_right: p2);  // Points embedded
 
 **GC types are heap-allocated and managed by the garbage collector.**
 
-```yo
+```rust
 object(...)     // Heap-allocated objects (GC-managed)
 fn(...) => T    // Closures with captures (GC-managed)
 dyn(...)        // Dynamic dispatch trait objects (GC-managed)
@@ -220,7 +220,7 @@ dyn(...)        // Dynamic dispatch trait objects (GC-managed)
 
 **Example:**
 
-```yo
+```rust
 Node :: object(
   value: i32,
   next: Option(Node)  // Can form cycles
@@ -234,7 +234,7 @@ list := Node(value: 1, next: .Some(Node(value: 2, next: .None)));
 
 **Value types can contain GC pointers, but they're still copied:**
 
-```yo
+```rust
 // Value type containing a GC reference
 Container :: struct(
   id: i32,           // Value field
@@ -253,7 +253,7 @@ c2 := c1;  // Shallow copy: id copied, data pointer copied (both point to same N
 
 **Value Types:**
 
-```yo
+```rust
 p1 := Point(x: 1, y: 2);  // Stack allocation
 p2 := p1;                     // Deep copy (entire struct copied)
 f(p1);                        // Pass by copy (struct copied to function)
@@ -261,7 +261,7 @@ f(p1);                        // Pass by copy (struct copied to function)
 
 **GC Types:**
 
-```yo
+```rust
 node := Node(value: 42, next: .None);  // Heap allocation (GC-managed)
 node2 := node;                             // Shallow copy (both point to same object)
 f(node);                                   // Pass by reference (pointer copied)
@@ -277,7 +277,7 @@ f(node);                                   // Pass by reference (pointer copied)
 
 **Example:**
 
-```yo
+```rust
 {
   node := Node(value: 1, next: .None);  // node is reachable (on stack)
   {
@@ -292,7 +292,7 @@ f(node);                                   // Pass by reference (pointer copied)
 
 **Value types can have deterministic destructors:**
 
-```yo
+```rust
 File :: struct(
   fd: i32,
   ___drop :: (fn(self: &mut Self) -> unit) {
@@ -314,7 +314,7 @@ File :: struct(
 
 **GC types cannot have deterministic destructors:**
 
-```yo
+```rust
 // WRONG: Don't rely on finalization for resources
 Resource :: object(
   handle: i32,
@@ -403,7 +403,7 @@ void write_barrier(void** slot, void* new_value) {
 
 **Code generation:**
 
-```yo
+```rust
 // Source:
 obj.field = new_obj;
 
@@ -449,7 +449,7 @@ typedef struct {
 
 **Example:**
 
-```yo
+```rust
 Node :: object(
   value: i32,        // Offset 0, not a pointer
   next: Option(Node) // Offset 8 (after i32 + padding), is a pointer
@@ -828,7 +828,7 @@ For every Yo function, the compiler generates C code that:
 
 **Yo source:**
 
-```yo
+```rust
 process :: (fn(x: i32) -> Node)
   {
     node := Node(value: x, next: .None);
@@ -889,7 +889,7 @@ YoNode* process(int32_t x) {
 
 **Yo source:**
 
-```yo
+```rust
 swap_nodes :: (fn(a: Node, b: Node) -> Node)
   {
     temp := a;
@@ -935,7 +935,7 @@ YoNode* swap_nodes(YoNode* a, YoNode* b) {
 
 **Yo source:**
 
-```yo
+```rust
 create_list :: (fn(n: i32) -> Node)
   {
     head := Node(value: n, next: .None);
@@ -1008,7 +1008,7 @@ For functions that don't allocate and don't call other functions (leaf functions
 
 **Yo source:**
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)
   ((a + b) : i32)
 ```
@@ -1068,7 +1068,7 @@ Shadow frames are stack-allocated, so they're automatically cleaned up:
 
 **Yo source with early return:**
 
-```yo
+```rust
 find_node :: (fn(list: Node, value: i32) -> Option(Node))
   {
     current := list;
@@ -1380,7 +1380,7 @@ void yo_write_barrier(void** slot, void* new_value) {
 
 **Code generation:**
 
-```yo
+```rust
 // Yo source:
 obj.field = new_obj;
 
@@ -1748,7 +1748,7 @@ YO_GC_DEBUG=1                 # Enable debug logging
 
 **With GC, tasks can migrate between threads freely:**
 
-```yo
+```rust
 // Work-stealing scheduler
 Scheduler :: object(
   workers: [Worker],
@@ -1835,7 +1835,7 @@ void yo_safepoint() {
 
 **Code generation:**
 
-```yo
+```rust
 // Source:
 while cond(), {
   body();
@@ -1854,7 +1854,7 @@ while (cond()) {
 
 **Value types have C-compatible layout and can be passed to C directly:**
 
-```yo
+```rust
 Point :: struct(x: i32, y: i32);
 
 foreign fn c_draw_point(p: Point) -> unit = "draw_point";
@@ -1883,7 +1883,7 @@ draw_point(p);  // Direct call, zero overhead
 
 **Solution 1: Pin objects during C calls**
 
-```yo
+```rust
 Node :: object(value: i32, next: Option(Node));
 
 foreign fn c_process_node(node: &Node) -> unit = "process_node";
@@ -1903,7 +1903,7 @@ yo_gc_unpin(node);            // Allow collection again
 
 **Solution 2: Copy to C-compatible format**
 
-```yo
+```rust
 // For complex GC objects, copy to value type
 NodeData :: struct(value: i32, has_next: bool);
 
@@ -1925,7 +1925,7 @@ c_process(node_to_data(my_node));  // Safe: value type copy
 
 **GC naturally collects cycles - no special handling needed:**
 
-```yo
+```rust
 // Create a cycle
 a := Node(value: 1, next: .None);
 b := Node(value: 2, next: .Some(a));
@@ -1940,7 +1940,7 @@ b = Node(value: 0, next: .None);
 
 **No need for weak pointers in most cases**, but can still provide them for performance:
 
-```yo
+```rust
 Weak(T) :: struct(
   ptr: *const T,  // Raw pointer, not traced by GC
   generation: usize  // To detect if object was collected
@@ -2043,7 +2043,7 @@ Weak(T) :: struct(
 
 **1. Remove all RC operations:**
 
-```yo
+```rust
 // Before (with RC):
 x := point;  // ___dup(point)
 // ___drop(x) at scope exit
@@ -2055,7 +2055,7 @@ x := point;  // Just copy pointer, no dup
 
 **2. Update type definitions:**
 
-```yo
+```rust
 // No change needed! Syntax stays the same:
 Node :: object(value: i32, next: Option(Node));
 
@@ -2066,7 +2066,7 @@ Node :: object(value: i32, next: Option(Node));
 
 **3. Remove `own()` keyword:**
 
-```yo
+```rust
 // Before:
 consume :: (fn(own(x): Node) -> unit) { ... };  // Takes ownership
 
@@ -2076,7 +2076,7 @@ consume :: (fn(x: Node) -> unit) { ... };  // Just passes reference
 
 **4. Replace deterministic destructors for GC types:**
 
-```yo
+```rust
 // Before (WRONG with GC):
 File :: object(
   fd: i32,

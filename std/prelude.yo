@@ -2241,8 +2241,14 @@ export f64 : _f64;
 
 /// isize
 impl(isize,
-  MIN : isize(-9223372036854775808),
-  MAX : isize(9223372036854775807)
+  MIN : cond(
+    (__yo_pointer_size_bits() == 32) => isize(-2147483648),
+    true => isize(-9223372036854775808)
+  ),
+  MAX : cond(
+    (__yo_pointer_size_bits() == 32) => isize(2147483647),
+    true => isize(9223372036854775807)
+  )
 );
 impl(isize, Send());
 impl(isize, Acyclic());
@@ -2394,7 +2400,10 @@ export isize : _isize;
 /// usize
 impl(usize,
   MIN : usize(0),
-  MAX : usize(18446744073709551615)
+  MAX : cond(
+    (__yo_pointer_size_bits() == 32) => usize(4294967295),
+    true => usize(18446744073709551615)
+  )
 );
 impl(usize, Send());
 impl(usize, Acyclic());

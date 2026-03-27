@@ -194,6 +194,10 @@ export function generateYoInlineFunctionCall(
   else if (BuiltinFunctions.__yo_bcrypt_gen_random.includes(functionName)) {
     return `(int32_t)BCryptGenRandom(NULL, ${args[0]!}, ${args[1]!}, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`;
   }
+  // __yo_getentropy - WASM/Emscripten getentropy() wrapper (max 256 bytes per call)
+  else if (BuiltinFunctions.__yo_getentropy.includes(functionName)) {
+    return `getentropy(${args[0]!}, ${args[1]!})`;
+  }
   // __yo_maybe_uninit_new - declare uninitialized storage (no runtime args, return type is Self)
   else if (
     BuiltinFunctions.__yo_maybe_uninit_new.includes(functionName) &&

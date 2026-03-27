@@ -29,6 +29,7 @@ import { generateAsyncRuntimeIOCommon } from "./runtime-io-common";
 import { generateAsyncRuntimeIOLinux } from "./runtime-io-linux";
 import { generateAsyncRuntimeIOMacOS } from "./runtime-io-macos";
 import { generateAsyncRuntimeIOWindows } from "./runtime-io-windows";
+import { generateAsyncRuntimeIOWasm } from "./runtime-io-wasm";
 
 /**
  * Generates the async runtime code with a single-threaded event loop.
@@ -50,8 +51,10 @@ export function generateAsyncRuntime(
     generateAsyncRuntimeIOMacOS(emitter);
   } else if (isTargetWindows(targetInfo)) {
     generateAsyncRuntimeIOWindows(emitter);
+  } else if (isTargetWasm(targetInfo)) {
+    // WASM stubs: immediately-completed IOFutures with -ENOSYS
+    generateAsyncRuntimeIOWasm(emitter, targetInfo);
   }
-  // wasm32: no async I/O runtime (no io_uring/kqueue/IOCP)
 
   if (!isTargetWasm(targetInfo)) {
     generateAsyncRuntimeIOCommon(emitter, targetInfo);

@@ -6,7 +6,7 @@ Functions returning `Impl(Module)` (like `fn() -> Impl(RetI32)`) should support 
 
 ## Example
 
-```yo
+```rust
 RetI32 :: module(
   return_i32 : (fn(self : *(Self)) -> i32)
 );

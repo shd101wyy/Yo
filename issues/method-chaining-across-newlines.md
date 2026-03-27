@@ -6,7 +6,7 @@
 
 Method chaining across newlines fails to parse:
 
-```yo
+```rust
 // FAILS — .add() on new line not parsed as member access
 b := Builder.new()
   .add(`a`)
@@ -15,7 +15,7 @@ b := Builder.new()
 
 Same-line chaining works fine:
 
-```yo
+```rust
 // WORKS
 b := Builder.new().add(`a`).add(`b`);
 ```

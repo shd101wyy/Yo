@@ -4,6 +4,7 @@
 //   Linux/others: getrandom()
 //   macOS:        arc4random_buf()
 //   Windows:      BCryptGenRandom()
+//   WASI/WASM:    getentropy()
 //
 // Example:
 //   { random_u64, uuid_v4 } :: import "std/crypto/random";
@@ -47,7 +48,8 @@ export CryptoError;
 extern "Yo",
   __yo_getrandom     : (fn(buf: *(u8), buflen: usize, flags: u32) -> isize),
   __yo_arc4random_buf: (fn(buf: *(u8), nbytes: usize) -> unit),
-  __yo_bcrypt_gen_random: (fn(buf: *(u8), size: u32) -> i32)
+  __yo_bcrypt_gen_random: (fn(buf: *(u8), size: u32) -> i32),
+  __yo_getentropy: (fn(buf: *(u8), buflen: usize) -> i32)
 ;
 
 // ============================================================================
@@ -65,6 +67,24 @@ random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit)(
         (r == i32(0)) => (),
         true => { exn.throw(dyn CryptoError.Unavailable); }
       );
+    },
+    ((platform == Platform.Emscripten) || (platform == Platform.Wasi)) => {
+      // WASM/Emscripten/WASI: getentropy() via WASI random_get (max 256 bytes per call)
+      remaining := size;
+      offset := usize(0);
+      while (remaining > usize(0)), {
+        chunk := cond(
+          (remaining > usize(256)) => usize(256),
+          true => remaining
+        );
+        ret := __yo_getentropy((buf &+ offset), chunk);
+        cond(
+          (ret < i32(0)) => { exn.throw(dyn CryptoError.Unavailable); },
+          true => ()
+        );
+        offset = (offset + chunk);
+        remaining = (remaining - chunk);
+      };
     },
     true => {
       // Linux: getrandom syscall

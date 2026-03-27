@@ -1,3 +1,4 @@
+// @skip_wasm32-wasi
 constants :: import "std/sys/constants";
 socket :: import "std/sys/socket";
 signals :: import "std/sys/signals";
@@ -84,9 +85,10 @@ test "Test IO constants", {
   assert(events.POLL_WRITABLE == i32(2));
 
   // IOError
-  err := IOError.from_errno(i32(2));
+  { ENOENT } :: import "std/libc/errno";
+  err := IOError.from_errno(i32(ENOENT));
   match(err,
-    .NotFound => assert(true),
-    _ => assert(false)
+    .NotFound => assert(true, "IOError.from_errno(ENOENT) should be NotFound"),
+    _ => assert(false, "IOError.from_errno(ENOENT) should be NotFound")
   );
 };

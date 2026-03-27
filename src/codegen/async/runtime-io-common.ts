@@ -19,10 +19,16 @@
 
 import { Emitter } from "../../emitter";
 import type { TargetInfo } from "../../target";
-import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
+import {
+  isTargetWindows,
+  isTargetLinux,
+  isTargetMacos,
+  isTargetWasm,
+} from "../../target";
 import { generatePlatformSysRuntimeMacOS } from "./runtime-io-macos";
 import { generatePlatformSysRuntimeLinux } from "./runtime-io-linux";
 import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
+import { generatePlatformSysRuntimeWasm } from "./runtime-io-wasm";
 
 // ---------------------------------------------------------------------------
 // 1. Synchronous system runtime — no async/IOFuture dependency
@@ -30,8 +36,9 @@ import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
 
 /**
  * Emits synchronous POSIX system helpers.  These do NOT depend on the async
- * runtime (no IOFuture, no event-loop types).  Emitted for every non-wasm
- * target; unused `static` functions are dead-code-eliminated by the C compiler.
+ * runtime (no IOFuture, no event-loop types).  Emitted for every target;
+ * unused `static` functions are dead-code-eliminated by the C compiler.
+ * WASM targets get stub implementations that return -ENOSYS.
  */
 export function generateSysRuntime(
   emitter: Emitter,
@@ -40,6 +47,7 @@ export function generateSysRuntime(
   const isWindows = isTargetWindows(targetInfo);
   const isLinux = isTargetLinux(targetInfo);
   const isMacos = isTargetMacos(targetInfo);
+  const isWasm = isTargetWasm(targetInfo);
 
   if (isWindows) {
     generatePlatformSysRuntimeWindows(emitter);
@@ -60,7 +68,9 @@ ${
   isMacos
     ? `#include <sys/dirent.h>
 #include <unistd.h>`
-    : ``
+    : isWasm
+      ? `#include <unistd.h>`
+      : ``
 }
 
 // Get size of stat buffer (for allocation)
@@ -116,7 +126,7 @@ static const char* __yo_dirent_name(void* entry) {
 
 static uint8_t __yo_dirent_type(void* entry) {
 ${
-  isMacos || isLinux
+  isMacos || isLinux || isWasm
     ? `  return ((struct dirent*)entry)->d_type;`
     : `  // d_type not available on some systems, return DT_UNKNOWN
   return 0;`
@@ -132,12 +142,12 @@ ${
     emitter.emitLine(`#include <sys/socket.h>  // macOS sendfile()`);
   }
 
-  // Sendfile fallback (Linux and macOS)
-  if (isLinux || isMacos) {
+  // Sendfile fallback (Linux, macOS, and WASM)
+  if (isLinux || isMacos || isWasm) {
     emitter.emitLine(`
 // Fallback for platforms where sendfile cannot handle all fd combinations
 static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  unsigned char buffer[65536];
+  unsigned char buffer[8192];
   size_t total = 0;
 
   while (total < count) {
@@ -253,11 +263,33 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   return (result < 0) ? -errno : 0;
 }
 `);
-  } else {
+  } else if (isWasm) {
     emitter.emitLine(`
 static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
-  (void)src; (void)dst; (void)flags;
-  return -ENOSYS;
+  int src_fd = open(src, O_RDONLY);
+  if (src_fd < 0) return -errno;
+
+  struct stat st;
+  if (fstat(src_fd, &st) < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+  if (flags & 1) open_flags |= O_EXCL;
+
+  int dst_fd = open(dst, open_flags, st.st_mode);
+  if (dst_fd < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int32_t result = __yo_sendfile_fallback_copy(dst_fd, src_fd, 0, (size_t)st.st_size);
+  close(src_fd);
+  close(dst_fd);
+  return (result < 0) ? result : 0;
 }
 `);
   }
@@ -285,11 +317,10 @@ static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset,
   return (int32_t)len;
 }
 `);
-  } else {
+  } else if (isWasm) {
     emitter.emitLine(`
 static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  (void)out_fd; (void)in_fd; (void)offset; (void)count;
-  return -ENOSYS;
+  return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
 }
 `);
   }
@@ -508,6 +539,11 @@ static int32_t __yo_isatty(int32_t fd) {
   // Linux-specific sync helpers (pipe, dup, mmap, socket address helpers, statx, etc.)
   if (isLinux) {
     generatePlatformSysRuntimeLinux(emitter);
+  }
+
+  // WASM stubs for platform-specific sync helpers
+  if (isWasm) {
+    generatePlatformSysRuntimeWasm(emitter, targetInfo);
   }
 }
 

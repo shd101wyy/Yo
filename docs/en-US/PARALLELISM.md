@@ -33,6 +33,7 @@ Each OS thread (both Thread and Worker) gets its own async event loop:
 - **Linux**: per-thread `io_uring` instance
 - **macOS**: per-thread `kqueue` descriptor
 - **Windows**: per-thread IOCP handle
+- **WASM**: not applicable — WASM is single-threaded; parallelism (`Thread.spawn`, workers) is not supported. Use `io.async`/`io.await` for cooperative concurrency instead.
 
 This means spawned threads and worker tasks can perform async I/O via `io.async`/`io.await` without contention — each thread's event loop is fully independent.
 
@@ -44,7 +45,7 @@ The runtime automatically initializes the event loop when the thread starts (`__
 
 ### API
 
-```yo
+```rust
 Thread :: struct(
   handle : __yo_thread_t
 );
@@ -60,7 +61,7 @@ impl(Thread,
 
 ### Usage
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 { yield } :: import "std/async";
 
@@ -95,14 +96,14 @@ thread.join();
 
 ### API
 
-```yo
+```rust
 Worker :: import "std/worker";
 
 // Spawn a task on the thread pool
 Worker.spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit);
 
 // Configure thread pool size (call before first spawn)
-Worker.set_num_threads : (fn(n : usize) -> unit);
+Worker.set_num_threads : (fn(num : usize) -> unit);
 
 // Get number of threads in pool (default: hardware threads)
 Worker.get_num_threads : (fn() -> usize);
@@ -110,7 +111,7 @@ Worker.get_num_threads : (fn() -> usize);
 
 ### Usage
 
-```yo
+```rust
 Worker :: import "std/worker";
 { yield } :: import "std/async";
 
@@ -162,7 +163,7 @@ Worker.spawn((using(io : IO)) => {
 
 Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer communication between threads.
 
-```yo
+```rust
 { Channel } :: import "std/sync/channel";
 
 // Create a bounded channel (capacity 10), wrapped in Arc for cross-thread sharing
@@ -194,7 +195,7 @@ Only types that implement `Send` can cross thread boundaries:
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
 - **Not Sendable**: `object(...)`, `Dyn`, closures capturing non-Send values
 
-```yo
+```rust
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
 Thread.spawn(() => {
@@ -249,7 +250,7 @@ This means:
 
 ### Quick Reference
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 Worker :: import "std/worker";
 { Channel } :: import "std/sync/channel";

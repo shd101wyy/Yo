@@ -40,6 +40,7 @@ export class CodeGeneratorC {
   private emitter: Emitter;
   private exportedFunctionNames: Set<string> = new Set();
   private _needsIntelAsmSyntax = false;
+  private _usesParallelism = false;
 
   constructor() {
     this.emitter = new Emitter();
@@ -213,6 +214,9 @@ static Slice_uint8_t_u42_ __yo_args;
     if (context.needsIntelAsmSyntax) {
       this._needsIntelAsmSyntax = true;
     }
+    if (context.usesParallelism) {
+      this._usesParallelism = true;
+    }
   }
 
   public print(): string {
@@ -225,5 +229,9 @@ static Slice_uint8_t_u42_ __yo_args;
 
   public get needsIntelAsmSyntax(): boolean {
     return this._needsIntelAsmSyntax;
+  }
+
+  public get usesParallelism(): boolean {
+    return this._usesParallelism;
   }
 }

@@ -10,7 +10,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
 
-```yo
+```rust
 // WRONG - creates a struct:
 result := { .Ok(()) }
 
@@ -60,6 +60,26 @@ io.async((using(io : IO)) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
+## `if` is a macro for `cond`
+
+`if` is defined in `prelude.yo` as a macro that expands to `cond`:
+
+```rust
+if(condition, then_body)        // → cond(condition => then_body, true => ())
+if(condition, then_body, else)  // → cond(condition => then_body, true => else)
+```
+
+Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
+
+```rust
+if((arch == Arch.Wasm32), {
+  printf("  skipped on wasm32\n");
+  return ();
+});
+```
+
+Use `cond` when there are more than two branches or when the branches are large.
+
 ## Function definitions
 
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
@@ -76,7 +96,7 @@ io.async((using(io : IO)) =>
 
 Because we didn't write `await(...`, code like:
 
-```yo
+```rust
 cond(
   (fd >= i32(0)) => await file.close(fd),
   true => ()
@@ -85,7 +105,7 @@ cond(
 
 gets parsed as:
 
-```yo
+```rust
 cond(
   (fd >= i32(0)) =>
   await(
@@ -103,7 +123,7 @@ Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
 
 Every binary operation must be explicitly parenthesized. When chaining the same operator 3+ times, nest parentheses left-to-right:
 
-```yo
+```rust
 // WRONG — 3+ operands without nesting:
 (A | B | C)
 (A | B | C | D)
@@ -115,7 +135,7 @@ Every binary operation must be explicitly parenthesized. When chaining the same 
 
 This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
 
-```yo
+```rust
 // WRONG — bare fn type on same line as `:`:
 next : fn(self : *(Self)) -> Option(Self.Item)
 
@@ -145,7 +165,7 @@ err1 :
 
 Unary operators like `!` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
 
-```yo
+```rust
 // WRONG — `!` captures `d.is_empty(), "msg"` as one expression:
 assert(!d.is_empty(), "should not be empty");
 
@@ -157,7 +177,7 @@ assert(!(d.is_empty()), "should not be empty");
 
 Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
 
-```yo
+```rust
 // WRONG — "Variable 'factorial' not found":
 factorial :: (fn(n : i32) -> i32)(
   cond(
@@ -177,7 +197,7 @@ factorial :: (fn(n : i32) -> i32)(
 
 For methods, pass `self` explicitly as the first argument:
 
-```yo
+```rust
 impl(Tree,
   depth : (fn(self : Self) -> i32)(
     cond(
@@ -194,7 +214,7 @@ impl(Tree,
 
 Use destructured imports for files in the same directory:
 
-```yo
+```rust
 // CORRECT — destructured import with relative path:
 { RegexNode, NodeKind, CharRange } :: import "./node.yo";
 
@@ -237,7 +257,7 @@ Always use `func(a, b)` with no space. Never `func (a, b)`.
 
 `return` without parentheses follows the same rule as any other call: `return expr1, expr2` is parsed as `return(expr1, expr2)`. Inside match/cond branches, commas separate branches, so:
 
-```yo
+```rust
 // WRONG — parsed as return(str.from_raw_parts(p, len), .None => return("")):
 match(opt,
   .Some(p) => return str.from_raw_parts(p, len),
@@ -257,7 +277,7 @@ match(opt,
 
 Better yet, if the entire function body is just a match/cond expression, use the expression form (no body block) to avoid needing `return` at all:
 
-```yo
+```rust
 // BEST — expression form, no return needed:
 as_str : (fn(self: Self) -> str)(
   match(self._bytes._ptr,
@@ -271,7 +291,7 @@ as_str : (fn(self: Self) -> str)(
 
 Yo does not support nested pattern matching like `.Ok(.Some(value))`. Use multi-level matching instead:
 
-```yo
+```rust
 // WRONG — nested destructuring:
 match(result,
   .Ok(.Some(s)) => printf("got: %s\n", s),

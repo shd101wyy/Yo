@@ -4,7 +4,7 @@
 
 When a compile-time function that returns `comptime(Type)` uses `recur` to create recursive type definitions, it creates a chicken-and-egg problem during evaluation:
 
-```yo
+```rust
 Worker :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)) {
   Child :: recur(B, A);  // Child = Worker(B, A)
 
@@ -180,7 +180,7 @@ type Worker<A, B> = {
 
 ## Test Case
 
-```yo
+```rust
 Worker :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)) {
   Child :: recur(B, A);
 

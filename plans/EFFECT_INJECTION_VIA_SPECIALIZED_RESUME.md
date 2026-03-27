@@ -13,7 +13,7 @@ This means the async closure body calls effect functions as **bare C names** (e.
 
 ### Example of the Bug
 
-```yo
+```rust
 Log :: (fn(msg : String) -> unit);
 
 task := io.async((using(io : IO, log : Log))=> {
@@ -39,7 +39,7 @@ The `__yo_resume_fn` field on the Future struct already holds a function pointer
 
 ### Set-Once Semantics
 
-```yo
+```rust
 io.spawn(future, using(io, log1));   // state was 0 → sets specialized resume with log1, starts
 io.await(future, using(io, log2));   // state is now > 0 → ignores log2, just waits + extracts
 ```
@@ -50,7 +50,7 @@ The first caller to transition the future from pending to running "wins" and bin
 
 ### API (unchanged)
 
-```yo
+```rust
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
@@ -215,7 +215,7 @@ The async block's capture struct has fields for each captured variable. The usin
 
 Update the fixme.yo test to verify that effect injection works:
 
-```yo
+```rust
 Log :: (fn(msg : String) -> unit);
 task := io.async((using(io : IO, log : Log))=> {
   log(`Task started`);

@@ -18,7 +18,7 @@ escaped function returns causes a use-after-free.
 
 ## Reproducer
 
-```yo
+```rust
 test "escape UAF", using(io : IO), {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
@@ -75,7 +75,7 @@ because the function's escape cleanup will handle that.
 
 Create the future inside the escaping function so the caller never holds a reference:
 
-```yo
+```rust
 test_escape :: (fn(using(io : IO)) -> i32) {
   task := io.async((using(io : IO, raise : Raise)) => { ... });
   (given(raise) : Raise) = (msg) -> { escape i32(77); };

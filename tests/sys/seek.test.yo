@@ -1,8 +1,11 @@
+// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+
 open import "std/libc/stdio";
 open import "std/string";
 { platform, Platform } :: import "std/process";
 { temp_dir, path_join } :: import "../helper";
 { AT_FDCWD } :: import "std/sys/constants";
+{ EBADF, EINVAL, ESPIPE } :: import "std/libc/errno";
 file :: import "std/sys/file";
 dir :: import "std/sys/dir";
 pipe_io :: import "std/sys/pipe";
@@ -53,7 +56,7 @@ test "lseek SEEK_SET SEEK_CUR SEEK_END on regular file", using(io : IO), {
 
 test "lseek invalid fd invalid whence and negative offset errors", using(io : IO), {
   bad_fd_ret := seek_io.lseek(i32(-1), i64(0), seek_io.SEEK_SET);
-  assert((bad_fd_ret == i64(-9)), "lseek on invalid fd should return -EBADF (-9)");
+  assert((bad_fd_ret == (i64(0) - i64(EBADF))), "lseek on invalid fd should return -EBADF");
 
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_seek_error_XXXXXX`);
@@ -64,10 +67,10 @@ test "lseek invalid fd invalid whence and negative offset errors", using(io : IO
   assert((fd >= i32(0)), "mkstemp for seek error test should succeed");
 
   invalid_whence_ret := seek_io.lseek(fd, i64(0), i32(99));
-  assert((invalid_whence_ret == i64(-22)), "lseek with invalid whence should return -EINVAL (-22)");
+  assert((invalid_whence_ret == (i64(0) - i64(EINVAL))), "lseek with invalid whence should return -EINVAL");
 
   negative_set_ret := seek_io.lseek(fd, i64(-1), seek_io.SEEK_SET);
-  assert((negative_set_ret == i64(-22)), "lseek SEEK_SET to negative offset should return -EINVAL (-22)");
+  assert((negative_set_ret == (i64(0) - i64(EINVAL))), "lseek SEEK_SET to negative offset should return -EINVAL");
 
   close_ret := io.await(file.close(fd));
   assert((close_ret == i32(0)), "closing temp file after seek error test should succeed");
@@ -92,7 +95,7 @@ test "lseek on pipe returns non-seekable error", using(io : IO), {
       assert((seek_ret < i64(0)), "lseek on Windows pipe should return a negative error");
     },
     true => {
-      assert((seek_ret == i64(-29)), "lseek on POSIX pipe should return -ESPIPE (-29)");
+      assert((seek_ret == (i64(0) - i64(ESPIPE))), "lseek on POSIX pipe should return -ESPIPE");
     }
   );
 
