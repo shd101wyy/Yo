@@ -6,7 +6,7 @@ The async state machine struct stores ALL local variables referenced in the asyn
 
 ## Reproduction
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({

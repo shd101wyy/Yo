@@ -4,7 +4,7 @@
 
 Currently, traits with associated types in Yo use a **function wrapper** pattern:
 
-```yo
+```rust
 Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
   return trait(
     Item := Item,
@@ -32,7 +32,7 @@ This plan redesigns Yo's traits to follow the Rust model.
 
 ### Trait definition
 
-```yo
+```rust
 Iterator :: trait(
   Item : Type,
   next : (fn(self : *(Self)) -> Option(Self.Item))
@@ -47,7 +47,7 @@ Iterator :: trait(
 
 Use `:` to provide values for all fields (associated types and methods together):
 
-```yo
+```rust
 // Concrete impl
 impl(Counter, Iterator(
   Item : i32,
@@ -67,7 +67,7 @@ The `:` syntax is consistent with existing trait value creation — `tryToImplem
 
 Use `:=` to constrain associated types in where clauses and trait specialization contexts:
 
-```yo
+```rust
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -175,7 +175,7 @@ The specialized TraitType has the same `functionValue` (undefined) and same `typ
 
 **Test in `src/tests/fixme.yo`**:
 
-```yo
+```rust
 // Define trait directly (no function wrapper)
 Iter :: trait(
   Item : Type,
@@ -260,7 +260,7 @@ impl(forall(T : Type), MyIter(T), Iter(
 
 **Test in `src/tests/fixme.yo`**:
 
-```yo
+```rust
 IntoIter :: trait(
   Item : Type,
   IntoIterType : Type,

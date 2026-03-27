@@ -2,7 +2,7 @@
 
 Yo 标准库提供了一套全面的模块，用于常见的编程任务。所有模块均通过 `import` 或 `open import` 语句导入。
 
-```yo
+```rust
 // 命名导入
 { ArrayList } :: import "std/collections/array_list";
 
@@ -12,7 +12,7 @@ open import "std/string";
 
 当目录名与文件名相同（如 `url/url.yo`）时，使用 `index.yo` 以获得简洁的导入路径：
 
-```yo
+```rust
 // 简洁导入 — 加载 std/url/index.yo
 { Url } :: import "std/url";
 { Regex } :: import "std/regex";
@@ -21,7 +21,7 @@ open import "std/string";
 
 包含多个独立子模块的目录需要显式导入：
 
-```yo
+```rust
 // 显式子模块导入
 { TcpStream } :: import "std/net/tcp";
 open import "std/fs/file";
@@ -85,7 +85,7 @@ open import "std/fs/file";
 
 ### String (`std/string`)
 
-```yo
+```rust
 open import "std/string";
 ```
 
@@ -137,7 +137,7 @@ open import "std/string";
 
 ### ArrayList (`std/collections/array_list`)
 
-```yo
+```rust
 { ArrayList } :: import "std/collections/array_list";
 ```
 
@@ -162,7 +162,7 @@ open import "std/string";
 
 ### HashMap (`std/collections/hash_map`)
 
-```yo
+```rust
 { HashMap } :: import "std/collections/hash_map";
 ```
 
@@ -181,7 +181,7 @@ open import "std/string";
 
 ### HashSet (`std/collections/hash_set`)
 
-```yo
+```rust
 { HashSet } :: import "std/collections/hash_set";
 ```
 
@@ -215,7 +215,7 @@ open import "std/string";
 
 ### File (`std/fs/file`)
 
-```yo
+```rust
 open import "std/fs/file";
 ```
 
@@ -231,7 +231,7 @@ open import "std/fs/file";
 
 ### SeekFrom (`std/fs/types`)
 
-```yo
+```rust
 SeekFrom :: enum(Start(offset: i64), Current(offset: i64), End(offset: i64));
 ```
 
@@ -257,7 +257,7 @@ SeekFrom :: enum(Start(offset: i64), Current(offset: i64), End(offset: i64));
 
 ### TCP (`std/net/tcp`)
 
-```yo
+```rust
 open import "std/net/tcp";
 ```
 
@@ -281,7 +281,7 @@ DNS 解析，支持 `resolve`。
 
 ### HTTP (`std/http`)
 
-```yo
+```rust
 // 通过 index 导入（推荐）
 { HttpMethod, HttpRequest, HttpResponse, fetch, FetchOptions } :: import "std/http";
 
@@ -294,7 +294,7 @@ DNS 解析，支持 `resolve`。
 
 **HttpRequest** — 使用构建器模式构造 HTTP 请求：
 
-```yo
+```rust
 req := HttpRequest.new(.GET, `/api/users`);
 req = req.header(`Host`, `example.com`);
 req = req.header(`Accept`, `application/json`);
@@ -303,7 +303,7 @@ s := req.to_string();  // 序列化为 HTTP/1.1 格式
 
 **HttpResponse** — 包含状态码辅助方法的响应对象：
 
-```yo
+```rust
 resp.status_code  // i32
 resp.is_ok()      // 2xx
 resp.is_redirect() // 3xx
@@ -317,7 +317,7 @@ resp.get_header(`Content-Type`)  // Option(String)
 
 **fetch** — 高级异步 HTTP GET，类似于 JavaScript 的 `fetch`：
 
-```yo
+```rust
 { fetch } :: import "std/http";
 { Exception } :: import "std/error";
 
@@ -333,7 +333,7 @@ main :: (fn(using(io : IO)) -> unit)({
 
 **fetch_with** — 带自定义选项的异步 HTTP 请求：
 
-```yo
+```rust
 opts := FetchOptions.new()
   .with_method(.POST)
   .with_header(`Content-Type`, `application/json`)
@@ -356,7 +356,7 @@ resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
 
 ## 编码
 
-```yo
+```rust
 // 导入特定的编码模块
 open import "std/encoding/json";
 { toml_parse, TomlValue } :: import "std/encoding/toml";
@@ -365,7 +365,7 @@ open import "std/encoding/json";
 
 ### JSON (`std/encoding/json`)
 
-```yo
+```rust
 open import "std/encoding/json";
 ```
 
@@ -373,7 +373,7 @@ open import "std/encoding/json";
 
 **JsonValue** — 枚举：`Null`、`Bool`、`Number`、`Str`、`Array`、`Object`。
 
-```yo
+```rust
 // 解析
 result := json_parse(`{"name": "Yo", "version": 1}`);
 obj := result.unwrap();
@@ -387,7 +387,7 @@ s := json_stringify(val);
 
 ### Base64 (`std/encoding/base64`)
 
-```yo
+```rust
 open import "std/encoding/base64";
 ```
 
@@ -409,14 +409,14 @@ UTF-16 编码/解码工具。
 
 ### SHA-256 (`std/crypto/sha256`)
 
-```yo
+```rust
 open import "std/crypto/sha256";
 hash := sha256(`Hello`);  // 返回十六进制字符串
 ```
 
 ### MD5 (`std/crypto/md5`)
 
-```yo
+```rust
 open import "std/crypto/md5";
 hash := md5(`Hello`);  // 返回十六进制字符串
 ```
@@ -431,13 +431,13 @@ hash := md5(`Hello`);  // 返回十六进制字符串
 
 ### Regex (`std/regex`)
 
-```yo
+```rust
 open import "std/regex";
 ```
 
 完整的正则表达式引擎，支持编译和匹配。
 
-```yo
+```rust
 re := Regex.compile(`\d+`);
 m := re.find(`abc 123 def`);
 // 支持的匹配操作：find、find_all、test、replace
@@ -449,13 +449,13 @@ m := re.find(`abc 123 def`);
 
 ### ArgParser (`std/cli/arg_parser`)
 
-```yo
+```rust
 { ArgParser, ParsedArgs } :: import "std/cli/arg_parser";
 ```
 
 基于构建器模式的命令行参数解析器：
 
-```yo
+```rust
 parser := ArgParser.new(`my-tool`, `A helpful tool`);
 parser = parser.add_flag(`verbose`, `v`, `Enable verbose output`);
 parser = parser.add_option(`output`, `o`, `Output file`, `out.txt`);
@@ -476,13 +476,13 @@ args.get_positional(`input`)    // Option(String)
 
 为与其他数据格式保持一致，TOML 已移至 `std/encoding/` 模块。
 
-```yo
+```rust
 { toml_parse, TomlValue } :: import "std/encoding/toml";
 ```
 
 基础 TOML 解析器，支持字符串、整数、布尔值和表节。
 
-```yo
+```rust
 result := toml_parse(`
 [server]
 host = "localhost"
@@ -515,13 +515,13 @@ port := srv.get(`port`).unwrap().as_int().unwrap();      // i64(8080)
 
 ### Glob (`std/glob`)
 
-```yo
+```rust
 { glob_match, GlobPattern } :: import "std/glob";
 ```
 
 Unix 风格的 glob 模式匹配。
 
-```yo
+```rust
 glob_match(`*.txt`, `readme.txt`)     // true
 glob_match(`src/**/*.yo`, `src/a/b.yo`) // true
 glob_match(`[abc].txt`, `a.txt`)       // true
@@ -535,13 +535,13 @@ glob_match(`[abc].txt`, `a.txt`)       // true
 
 ### Reader (`std/io/reader`)
 
-```yo
+```rust
 { Reader } :: import "std/io/reader";
 ```
 
 用于读取字节的 trait：
 
-```yo
+```rust
 Reader :: trait(
   read : (fn(self: *(Self), buf: *(u8), size: usize, using(exn: Exception)) -> usize)
 );
@@ -549,13 +549,13 @@ Reader :: trait(
 
 ### Writer (`std/io/writer`)
 
-```yo
+```rust
 { Writer } :: import "std/io/writer";
 ```
 
 用于写入字节的 trait：
 
-```yo
+```rust
 Writer :: trait(
   write : (fn(self: *(Self), buf: *(u8), size: usize, using(exn: Exception)) -> usize),
   flush : (fn(self: *(Self), using(exn: Exception)) -> unit)
@@ -568,7 +568,7 @@ Writer :: trait(
 
 ### URL (`std/url`)
 
-```yo
+```rust
 { Url, url_parse } :: import "std/url";
 ```
 
@@ -644,7 +644,7 @@ URL 解析与组件提取。
 
 ### Fmt (`std/fmt`)
 
-```yo
+```rust
 open import "std/fmt";
 ```
 
@@ -667,7 +667,7 @@ open import "std/fmt";
 
 ### Log (`std/log`)
 
-```yo
+```rust
 open import "std/log";
 ```
 
@@ -705,7 +705,7 @@ Unix 信号处理。
 
 ### Path (`std/path`)
 
-```yo
+```rust
 open import "std/path";
 ```
 
@@ -728,7 +728,7 @@ open import "std/path";
 
 ### Build (`std/build`)
 
-```yo
+```rust
 open import "std/build";
 ```
 
@@ -740,7 +740,7 @@ open import "std/build";
 
 ## 导入约定
 
-```yo
+```rust
 // 导入特定导出项
 { HashMap } :: import "std/collections/hash_map";
 

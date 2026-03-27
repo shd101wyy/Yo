@@ -28,7 +28,7 @@ description: "Use when making design decisions about the Yo language, writing st
 ## Box and box
 
 Implemented in `prelude.yo`:
-```yo
+```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
@@ -54,7 +54,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 ## Platform-specific code
 
 Use `process.yo` module `platform` and `Platform`:
-```yo
+```rust
 AF_INET6 :: cond(
   (platform == Platform.Darwin) => i32(30),
   true => i32(10)
@@ -71,7 +71,7 @@ Yo is a new, evolving language. Don't worry about breaking changes when making d
 
 Functions that only execute at compile time (e.g., build system functions, macro-like utilities) must wrap their return type in `comptime(...)`. If the return type is not wrapped in `comptime`, the evaluator treats it as a runtime function.
 
-```yo
+```rust
 // WRONG — unit return without comptime means runtime:
 register_module :: (fn(comptime(config) : ModuleConfig) -> unit) {
   __yo_build_module(config);
@@ -109,7 +109,7 @@ This applies to all parameters and return types in comptime-only APIs:
 - When a function uses `using(io : IO)`, its return type must include `IO` in the `Future`: `Impl(Future(Result(T, E), IO))` — NOT `Impl(Future(Result(T, E)))`
 - Return `io.async(...)` directly as the last expression — do NOT assign to an intermediate variable:
 
-```yo
+```rust
 // WRONG — intermediate variable prevents enum variant type inference:
 my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
   task := io.async((using(io)) => {
@@ -131,7 +131,7 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
 `JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
 
 ### API
-```yo
+```rust
 handle := io.spawn(task, using(io, raise));  // → JoinHandle(T)
 result := handle.await(using(io));            // → Option(T)
 ```
@@ -145,7 +145,7 @@ result := handle.await(using(io));            // → Option(T)
 - `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
 
 ### Definition (in prelude.yo)
-```yo
+```rust
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(__future : *(T))
 ;
@@ -156,7 +156,7 @@ The `*(T)` field is required so the type parameter `T` appears in the struct fie
 
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:
 
-```yo
+```rust
 // Trait definition — Item is an associated type
 Iterator :: trait(
   Item : Type,
@@ -201,7 +201,7 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 
 Only create `index.yo` when the directory contains a **single public module file whose name duplicates the directory name** (the `dir/dir.yo` pattern). Rename that file to `index.yo` so users get clean imports without repetition:
 
-```yo
+```rust
 // std/url/url.yo → std/url/index.yo
 // Users write:
 { Url } :: import "std/url";
@@ -215,7 +215,7 @@ Modules that follow this pattern: `std/url`, `std/regex`, `std/glob`, `std/log`.
 
 Do **not** create `index.yo` re-export files for directories with multiple distinct submodules. Users should import each submodule explicitly:
 
-```yo
+```rust
 // CORRECT — explicit submodule imports:
 { TcpStream } :: import "std/net/tcp";
 { HashMap } :: import "std/collections/hash_map";
@@ -232,7 +232,7 @@ Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/os`,
 
 When a directory has a primary public file matching the directory name **plus** additional files, use an `index.yo` that re-exports all public submodules:
 
-```yo
+```rust
 // std/http/ has http.yo (types) + client.yo (async fetch)
 // std/http/index.yo re-exports both:
 _http :: import "./http.yo";

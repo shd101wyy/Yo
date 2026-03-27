@@ -133,7 +133,7 @@ break; // Only generate one case per variant
 
 **Example:**
 
-```yo
+```rust
 Pair :: enum(Both(left: ObjA, right: ObjB));
 Container :: object(pair: Pair);
 ```

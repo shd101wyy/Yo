@@ -2787,6 +2787,7 @@ Yo 提供了 `asm()` 和 `global_asm()` 内置函数用于嵌入内联汇编，�
 - **破坏声明和选项**：`clobber("memory")`、`asm_options(volatile, noreturn)`
 - **多架构支持**：x86_64 和 aarch64
 
+````rust
 ```yo
 // 简单示例：将立即数移入寄存器
 result := asm(
@@ -2797,7 +2798,7 @@ result := asm(
 // 未初始化变量输出
 x : i32;
 asm("mov {0}, #42", out(reg, x));
-```
+````
 
 完整的设计、语法参考和 C 代码生成细节，请参阅 [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md)。
 

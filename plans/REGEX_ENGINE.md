@@ -40,7 +40,7 @@ regex.exec(`abc123def`)
 
 ### Core Types
 
-```yo
+```rust
 // Compiled regex pattern
 Regex :: object(
   _bytecode : ArrayList(u8),     // Compiled NFA bytecode
@@ -80,7 +80,7 @@ RegexError :: enum(
 
 ### Internal Types (Pattern AST)
 
-```yo
+```rust
 RegexNode :: enum(
   Literal(codepoint: rune),
   Dot,                                       // . (any char)
@@ -103,7 +103,7 @@ CharRange :: struct(low: rune, high: rune);
 
 ### NFA Bytecode Instructions
 
-```yo
+```rust
 OpCode :: enum(
   Char(codepoint: rune),         // Match single character
   CharClass(index: usize),       // Match character class (lookup table)
@@ -130,7 +130,7 @@ OpCode :: enum(
 
 ### Regex Methods
 
-```yo
+```rust
 // Constructor
 Regex.new : (fn(pattern: String, (flags: String) ?= ``) -> Result(Regex, RegexError))
 
@@ -152,7 +152,7 @@ Regex.flags_str : (fn(self: Self) -> String)
 
 ### String Integration Methods
 
-```yo
+```rust
 // These extend the existing String type
 
 // Match against regex, return first match
@@ -174,7 +174,7 @@ String.split : (fn(self: Self, regex: Regex) -> ArrayList(Self))
 
 ### Match Methods
 
-```yo
+```rust
 // Get the full matched text
 Match.text : (fn(self: Self) -> String)
 

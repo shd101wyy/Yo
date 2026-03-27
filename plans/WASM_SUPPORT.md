@@ -90,7 +90,7 @@ The codegen conditionally emits the WASI or Emscripten variant based on the targ
 A file can have one or both target-specific directives, or the generic one. The test runner checks
 for the directive matching the current target and skips the file before compilation.
 
-```yo
+```rust
 // @skip_wasm32-emscripten — no network stack in WASM
 // @skip_wasm32-wasi — no network stack in WASM
 open import "std/libc/stdio";
@@ -102,7 +102,7 @@ open import "std/libc/stdio";
 For files where only some tests need skipping, use an `if` early-return at the start of the test body.
 Since `process.arch` is comptime, the guard is resolved at compile time — no runtime overhead on non-WASM targets.
 
-```yo
+```rust
 { arch, Arch } :: import "std/process";
 
 test "my test", using(io : IO), {

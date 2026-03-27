@@ -31,7 +31,7 @@ The server will be a single-file demo (~200-300 lines) that:
 
 ### TCP Networking (`std/net/tcp`)
 
-```yo
+```rust
 TcpListener.bind(addr, using(io, exn)) → Future(TcpListener, IO, Exception)
 TcpListener.accept(using(io, exn))     → Future(TcpStream, IO, Exception)
 TcpStream.connect(addr, using(io, exn))→ Future(TcpStream, IO, Exception)
@@ -45,7 +45,7 @@ TcpStream.shutdown(how, using(io))     → Future(unit, IO)
 
 ### HTTP Types (`std/http/http`)
 
-```yo
+```rust
 HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH)
 HttpHeader :: object(name: String, value: String)
 HttpRequest :: object(method: HttpMethod, path: String, headers: ArrayList(HttpHeader), body: String)
@@ -58,7 +58,7 @@ http_status_text(code: i32) → String
 
 ### Error Handling (`std/error`)
 
-```yo
+```rust
 Exception :: module(throw : fn(err: AnyError) -> unit)
 // Usage:
 given(exn) := Exception(throw : ((err) -> { escape (); }));
@@ -66,7 +66,7 @@ given(exn) := Exception(throw : ((err) -> { escape (); }));
 
 ### String (`std/string`)
 
-```yo
+```rust
 String.from(s), String.len(), String.is_empty()
 String.contains(sub), String.starts_with(prefix), String.ends_with(suffix)
 String.index_of(sub) → Option(usize)
@@ -125,7 +125,7 @@ String.parse_i32() → Option(i32)
 
 ## Example Code Skeleton
 
-```yo
+```rust
 { TcpListener, TcpStream } :: import "std/net/tcp";
 { SocketAddr, IpAddr } :: import "std/net/addr";
 { Error, AnyError, Exception } :: import "std/error";

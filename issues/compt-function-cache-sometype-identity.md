@@ -14,7 +14,7 @@ When evaluating generic impls with where clause constraints, calling a generic t
 
 ### Example
 
-```yo
+```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object((*) : V)
 ;
@@ -162,7 +162,7 @@ This fix ensures that:
 
 The fix was verified with the following test case in `fixme.yo`:
 
-```yo
+```rust
 x := Box(u64)(42);
 y := x.hash();  // Now works correctly
 ```

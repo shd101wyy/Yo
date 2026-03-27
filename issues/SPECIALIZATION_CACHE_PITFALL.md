@@ -8,7 +8,7 @@ A bug occurred where the C compiler reported "incompatible type" errors when usi
 
 When compiling code like:
 
-```yo
+```rust
 closure := dyn(box(y => x.*))
 ```
 

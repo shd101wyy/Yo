@@ -29,7 +29,7 @@ Yo projects currently have no way to depend on external libraries — neither ot
 
 ### 1.1 API in `build.yo`
 
-```yo
+```rust
 build :: import "std/build";
 
 build.project({ name: "my-app", root: "./src/lib.yo" });
@@ -53,7 +53,7 @@ build.executable({
 
 ### 1.2 Config Struct
 
-```yo
+```rust
 GitDependency :: struct(
   name : comptime_string,                          // Import name
   url : comptime_string,                           // Git repository URL
@@ -152,7 +152,7 @@ The `.yo-cache/` directory is gitignored. The lock file (`yo.lock`) is committed
 
 ### 3.1 API in `build.yo`
 
-```yo
+```rust
 build :: import "std/build";
 
 // Link against a system C library discovered via pkg-config
@@ -176,7 +176,7 @@ build.executable({
 
 ### 3.2 Config Struct
 
-```yo
+```rust
 SystemLibrary :: struct(
   name : comptime_string,                                // Identifier and pkg-config package name
   (fallback_include : comptime_string) ?= "",             // Manual include path
@@ -325,7 +325,7 @@ Path dependencies allow depending on a local package by filesystem path, without
 
 ### 8.1 API in `build.yo`
 
-```yo
+```rust
 build :: import "std/build";
 
 build.path_dependency({
@@ -336,7 +336,7 @@ build.path_dependency({
 
 ### 8.2 Config Struct
 
-```yo
+```rust
 PathDependency :: struct(
   name : comptime_string,
   path : comptime_string
@@ -356,7 +356,7 @@ PathDependency :: struct(
 
 The `Project` struct has a `root` field that specifies the library entry point:
 
-```yo
+```rust
 Project :: struct(
   name : comptime_string,
   (root : comptime_string) ?= "./src/lib.yo"
@@ -375,7 +375,7 @@ When a dependency has its own `build.yo` that defines artifacts (e.g., a static 
 
 ### 9.1 API
 
-```yo
+```rust
 build :: import "std/build";
 
 build.project({ name: "demo" });
@@ -396,7 +396,7 @@ install.depend_on(exe);
 
 ### 9.2 Dependency Struct
 
-```yo
+```rust
 Dependency :: struct(
   name : comptime_string
 );

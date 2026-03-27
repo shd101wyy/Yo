@@ -45,7 +45,7 @@ The runtime automatically initializes the event loop when the thread starts (`__
 
 ### API
 
-```yo
+```rust
 Thread :: struct(
   handle : __yo_thread_t
 );
@@ -61,7 +61,7 @@ impl(Thread,
 
 ### Usage
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 { yield } :: import "std/async";
 
@@ -96,7 +96,7 @@ thread.join();
 
 ### API
 
-```yo
+```rust
 Worker :: import "std/worker";
 
 // Spawn a task on the thread pool
@@ -111,7 +111,7 @@ Worker.get_num_threads : (fn() -> usize);
 
 ### Usage
 
-```yo
+```rust
 Worker :: import "std/worker";
 { yield } :: import "std/async";
 
@@ -163,7 +163,7 @@ Worker.spawn((using(io : IO)) => {
 
 Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer communication between threads.
 
-```yo
+```rust
 { Channel } :: import "std/sync/channel";
 
 // Create a bounded channel (capacity 10), wrapped in Arc for cross-thread sharing
@@ -195,7 +195,7 @@ Only types that implement `Send` can cross thread boundaries:
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
 - **Not Sendable**: `object(...)`, `Dyn`, closures capturing non-Send values
 
-```yo
+```rust
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
 Thread.spawn(() => {
@@ -250,7 +250,7 @@ This means:
 
 ### Quick Reference
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 Worker :: import "std/worker";
 { Channel } :: import "std/sync/channel";

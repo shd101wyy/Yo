@@ -75,7 +75,7 @@ if (isSomeType(valueType) && valueType.resolvedConcreteType) {
 
 Field labels like `*` (used by `Box`) are not valid identifiers. The generated code now uses aliased destructuring:
 
-```yo
+```rust
 // Before (broken):
 { * } := self;
 (___drop)(*);

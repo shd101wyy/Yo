@@ -18,7 +18,7 @@ automatically.
 
 ### `build.module()` — replaces `build.project()`
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib :: build.system_library({ name: "raylib", defines: "NOMINMAX NOGDI NOUSER" });
@@ -37,7 +37,7 @@ mod.link(raylib);   // this module's code requires the raylib C library
 
 ### `Dependency.module(name)` — get a module from a dependency
 
-```yo
+```rust
 raylib_yo :: build.dependency({
   name: "raylib_yo",
   url: "https://github.com/shd101wyy/raylib_yo.git",
@@ -60,7 +60,7 @@ sole module when the name is empty).
 
 ### `Step.add_import(entry)` — explicit import binding
 
-```yo
+```rust
 // ImportEntry pairs an import name with a module
 exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 ```
@@ -75,7 +75,7 @@ exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 
 For convenience when importing many dependency modules:
 
-```yo
+```rust
 raylib_yo :: build.dependency({ ... });
 other_dep :: build.dependency({ ... });
 
@@ -94,7 +94,7 @@ Takes a `ComptimeList(ImportEntry)`. Duplicate names are a compile-time error.
 
 When `tetris_yo` does:
 
-```yo
+```rust
 exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 ```
 
@@ -121,7 +121,7 @@ that link their own system libraries, those propagate too (BFS over the module g
 
 **Before:**
 
-```yo
+```rust
 build :: import "std/build";
 build.project({ name: "raylib_yo", root: "./src/lib.yo" });
 raylib :: build.system_library({ name: "raylib", defines: "NOMINMAX NOGDI NOUSER" });
@@ -132,7 +132,7 @@ lib :: build.static_library({ name: "raylib_yo-lib", root: "./src/lib.yo" });
 
 **After:**
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib :: build.system_library({ name: "raylib", defines: "NOMINMAX NOGDI NOUSER" });
@@ -155,7 +155,7 @@ install.depend_on(lib);
 
 **Before:**
 
-```yo
+```rust
 build :: import "std/build";
 raylib_yo :: build.dependency({ name: "raylib_yo", url: "...", ref: "v0.0.3" });
 raylib :: build.system_library({ name: "raylib", defines: "NOMINMAX NOGDI NOUSER" });
@@ -166,7 +166,7 @@ exe.link(raylib);
 
 **After:**
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib_yo :: build.dependency({ name: "raylib_yo", url: "...", ref: "v0.0.3" });

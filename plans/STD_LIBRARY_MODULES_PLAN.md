@@ -10,7 +10,7 @@ Async I/O in Yo is expressed via the **`IO` algebraic effect** for suspension/re
 
 Async functions that perform I/O take `using(io : IO)` as an implicit parameter. Fallible async operations include `Exception` in their `Future` return type: `Impl(Future(T, IO, Exception))`. The `Exception` effect is forwarded via the `io.async` closure — the outer function itself only needs `using(io : IO)` in its parameters, not `using(exn : Exception)`. Sync fallible functions take `using(exn : Exception)` directly in their parameter list.
 
-```yo
+```rust
 // Async + fallible: only `using(io : IO)` in params, Exception in Future return type
 File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
 
@@ -100,7 +100,7 @@ Async functions take `using(io : IO)` only — `Exception` appears only in the `
 
 A high-level `File` object wrapping a file descriptor with buffered I/O.
 
-```yo
+```rust
 // Open mode — determines how the file is opened
 OpenMode :: enum(
   Read,        // O_RDONLY — read existing file
@@ -172,7 +172,7 @@ exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO))) ...;
 
 ### 1.2 `std/fs/metadata.yo` — File Metadata
 
-```yo
+```rust
 Metadata :: struct(
   _buf : ArrayList(u8)
 );
@@ -200,7 +200,7 @@ symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, 
 
 ### 1.3 `std/fs/dir.yo` — Directory Operations
 
-```yo
+```rust
 // High-level directory operations — default takes Path; _str variants available
 create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
@@ -233,7 +233,7 @@ read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(DirEntry
 
 ### 1.4 `std/fs/walker.yo` — Recursive Directory Traversal
 
-```yo
+```rust
 WalkEntry :: struct(
   path : Path,
   name : String,
@@ -255,7 +255,7 @@ walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories
 
-```yo
+```rust
 TempDir :: object(
   _path : Path,
   _removed : bool
@@ -289,7 +289,7 @@ TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exce
 
 ### 2.1 `std/net/errors.yo` — Network Errors
 
-```yo
+```rust
 NetError :: enum(
   ConnectionRefused,
   ConnectionReset,
@@ -311,7 +311,7 @@ NetError.check :: (fn(result: i32, using(exn : Exception)) -> i32) ...;  // Thro
 
 ### 2.2 `std/net/addr.yo` — Network Addresses
 
-```yo
+```rust
 IpAddr :: enum(
   V4(a: u8, b: u8, c: u8, d: u8),
   V6(segments: Array(u16, usize(8)))
@@ -339,7 +339,7 @@ SocketAddr.any :: (fn(port: u16) -> Self) ...;
 
 ### 2.3 `std/net/tcp.yo` — TCP Client and Server
 
-```yo
+```rust
 TcpListener :: object(
   _fd         : i32,
   _local_addr : SocketAddr
@@ -375,7 +375,7 @@ TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Imp
 
 ### 2.4 `std/net/udp.yo` — UDP Socket
 
-```yo
+```rust
 UdpSocket :: object(
   _fd         : i32,
   _local_addr : SocketAddr,
@@ -396,7 +396,7 @@ UdpSocket.fd :: (fn(self: Self) -> i32) ...;
 
 ### 2.5 `std/net/dns.yo` — DNS Resolution
 
-```yo
+```rust
 lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception))) ...;
 resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception))) ...;
 ```
@@ -421,7 +421,7 @@ resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList
 
 ### 3.1 `std/time/duration.yo` — Time Duration
 
-```yo
+```rust
 Duration :: struct(
   secs : i64,
   nanos : i64
@@ -444,7 +444,7 @@ Duration.is_zero :: (fn(self: *(Self)) -> bool) ...;
 
 ### 3.2 `std/time/instant.yo` — Monotonic Clock
 
-```yo
+```rust
 Instant :: struct(
   secs : i64,
   nanos : i64
@@ -457,7 +457,7 @@ Instant.duration_since :: (fn(self: *(Self), earlier: Instant) -> Duration) ...;
 
 ### 3.3 `std/time/datetime.yo` — Wall Clock Time
 
-```yo
+```rust
 DateTime :: struct(
   year : i32,
   month : u8,
@@ -506,14 +506,14 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 ### 5.1 `std/encoding/hex.yo` — Hexadecimal (11 tests)
 
-```yo
+```rust
 hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
 hex_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 ```
 
 ### 5.2 `std/encoding/base64.yo` — Base64 (13 tests)
 
-```yo
+```rust
 base64_encode :: (fn(data: ArrayList(u8)) -> String) ...;
 base64_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 base64_encode_url :: (fn(data: ArrayList(u8)) -> String) ...;
@@ -524,7 +524,7 @@ base64_decode_url :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 
 Uses `ArrayList` pairs for Object (keys + values) instead of `HashMap` due to `HashMap(String, Self)` not being supported with recursive enum types.
 
-```yo
+```rust
 JsonValue :: enum(
   Null,
   Bool(value: bool),
@@ -548,7 +548,7 @@ JsonValue.as_object :: (fn(self: Self) -> Option(ArrayList(JsonKV))) ...;
 
 ### 5.4 `std/encoding/utf16.yo` — UTF-16 (12 tests)
 
-```yo
+```rust
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16)) ...;
 utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String) ...;
 ```
@@ -567,7 +567,7 @@ utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String) ..
 
 ### 6.1 `std/crypto/sha256.yo` — SHA-256
 
-```yo
+```rust
 Sha256 :: object(state: ...);
 Sha256.new :: (fn() -> Sha256) ...;
 Sha256.update :: (fn(self: Self, data: ArrayList(u8)) -> Self) ...;
@@ -579,14 +579,14 @@ sha256_hex :: (fn(data: ArrayList(u8)) -> String) ...;
 
 ### 6.2 `std/crypto/md5.yo` — MD5
 
-```yo
+```rust
 md5 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(16))) ...;
 md5_hex :: (fn(data: ArrayList(u8)) -> String) ...;
 ```
 
 ### 6.3 `std/crypto/random.yo` — Secure Random
 
-```yo
+```rust
 random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit) ...;
 random_u32 :: (fn() -> u32) ...;
 random_u64 :: (fn() -> u64) ...;
@@ -651,7 +651,7 @@ All fallible operations in the standard library use the `Exception` effect inste
 
 ### 11.1 `std/collections/deque.yo` — Double-Ended Queue
 
-```yo
+```rust
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
     _buf : Option(*(T)),
@@ -671,7 +671,7 @@ Deque.len :: ...;
 
 ### 11.2 `std/collections/btree_map.yo` — Sorted Map (B-Tree)
 
-```yo
+```rust
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   object(...)
 ;
@@ -687,7 +687,7 @@ BTreeMap.iter :: ...;
 
 ### 11.3 `std/collections/priority_queue.yo` — Binary Heap
 
-```yo
+```rust
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))
   object(...)
 ;
@@ -712,7 +712,7 @@ PriorityQueue.len :: ...;
 
 ### 12.1 `std/os/signal.yo` — High-Level Signal Handling
 
-```yo
+```rust
 Signal :: enum(
   Interrupt,
   Terminate,
@@ -732,7 +732,7 @@ off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit) ...;
 
 ### 12.2 `std/os/env.yo` — Environment Utilities
 
-```yo
+```rust
 home_dir :: (fn() -> Option(String)) ...;
 config_dir :: (fn() -> Option(String)) ...;
 cache_dir :: (fn() -> Option(String)) ...;
@@ -803,7 +803,7 @@ The Channel uses **blocking** `send`/`recv` via condition variables rather than 
 2. **Simpler mental model**: `send()` blocks when the buffer is full; `recv()` blocks when the buffer is empty. No need to manage IO effects or futures for basic message passing.
 3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/sys`.
 4. **Async wrapping is easy**: If async semantics are needed, users can wrap `recv()` in `io.async(...)`:
-   ```yo
+   ```rust
    // Async recv — non-blocking in IO context
    async_recv := io.async((using(io : IO)) => {
      return ch.recv();
@@ -813,7 +813,7 @@ The Channel uses **blocking** `send`/`recv` via condition variables rather than 
 
 ### 13.1 `std/sync/channel.yo` — Bounded MPMC Channel
 
-```yo
+```rust
 Channel :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
     _buf      : Deque(T),
@@ -860,7 +860,7 @@ Channel.is_empty :: (fn(self: Self) -> bool) ...;
 
 A lock that allows multiple concurrent readers or one exclusive writer.
 
-```yo
+```rust
 RwLock :: object(
   _readers : i32,
   _writer  : bool,
@@ -880,7 +880,7 @@ RwLock.write_unlock :: (fn(self: Self) -> unit) ...;
 
 Wait for a group of tasks to complete. Similar to Go's `sync.WaitGroup`.
 
-```yo
+```rust
 WaitGroup :: object(
   _count : i32,
   _mutex : Mutex,
@@ -897,7 +897,7 @@ WaitGroup.wait :: (fn(self: Self) -> unit) ...;
 
 Execute a function exactly once, thread-safely.
 
-```yo
+```rust
 Once :: object(
   _done  : bool,
   _mutex : Mutex
@@ -911,7 +911,7 @@ Once.call :: (fn(self: Self, f: Fn(() -> unit)) -> unit) ...;
 
 Parse and manipulate URLs.
 
-```yo
+```rust
 Url :: object(
   scheme : String,
   host   : String,
@@ -929,7 +929,7 @@ Url.to_string :: (fn(self: Self) -> String) ...;
 
 Buffered reader/writer wrappers for any file descriptor.
 
-```yo
+```rust
 BufReader :: object(fd: i32, buf: ArrayList(u8), pos: usize);
 BufWriter :: object(fd: i32, buf: ArrayList(u8));
 

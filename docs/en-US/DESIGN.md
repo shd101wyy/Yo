@@ -2787,7 +2787,7 @@ Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, i
 - **Clobbers and options**: `clobber("memory")`, `asm_options(volatile, noreturn)`
 - **Multi-architecture**: x86_64 and aarch64 support
 
-```yo
+```rust
 // Simple example: move immediate to register
 result := asm(
   "mov {0}, #42",

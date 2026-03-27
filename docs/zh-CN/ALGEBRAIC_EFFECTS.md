@@ -395,7 +395,7 @@ result := apply_effect(i32(10));
 
 效应处理器函数编译为**独立的 C 函数**——它们不是闭包。处理器函数不能引用外部作用域的变量。这是有意设计的：证据传递将处理器转换为显式的函数指针参数，这些必须是 C 中独立可调用的函数。
 
-```yo
+```rust
 // 错误——处理器引用外部变量 `threshold`，编译错误：
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
@@ -504,7 +504,7 @@ Async/await 使用状态机基础设施（`src/codegen/shared/suspension-analysi
 
 对于带有模块效应的函数：
 
-```yo
+```rust
 safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
   cond(y == 0 => exn.throw(Error.new(`div by zero`)), true => (x / y))
 );
@@ -562,7 +562,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 
 一个处理器可以在一个分支中 `return`，在另一个分支中 `escape`：
 
-```yo
+```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
     (msg == `recoverable`) => return i32(0),  // resume with 0
@@ -588,7 +588,7 @@ given(raise_mod) := Raise(
 
 **示例——带 resume 的 forall 效应：**
 
-```yo
+```rust
 Throw :: (fn(forall(T : Type), msg : str, resume_val : T) -> T);
 
 safe_divide :: (fn(x : i32, y : i32, using(throw : Throw)) -> i32)(

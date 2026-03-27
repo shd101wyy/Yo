@@ -6,7 +6,7 @@ The dup/drop optimization was incorrectly blocking optimization for variables us
 
 ## Example
 
-```yo
+```rust
 Path :: object(
   _segments: ArrayList(Box(i32)),
 
@@ -176,7 +176,7 @@ Fallthrough branches that don't use a variable don't affect that variable's opti
 
 ## Test Case
 
-```yo
+```rust
 Path :: object(
   _segments: ArrayList(Box(i32)),
   new :: (fn(path_str: Box(i32)) -> Self)({

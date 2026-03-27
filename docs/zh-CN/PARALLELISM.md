@@ -45,7 +45,7 @@ Yo 提供两种并行执行机制：
 
 ### API
 
-```yo
+```rust
 Thread :: struct(
   handle : __yo_thread_t
 );
@@ -61,7 +61,7 @@ impl(Thread,
 
 ### 用法
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 { yield } :: import "std/async";
 
@@ -96,7 +96,7 @@ thread.join();
 
 ### API
 
-```yo
+```rust
 Worker :: import "std/worker";
 
 // 在线程池上派生一个任务
@@ -111,7 +111,7 @@ Worker.get_num_threads : (fn() -> usize);
 
 ### 用法
 
-```yo
+```rust
 Worker :: import "std/worker";
 { yield } :: import "std/async";
 
@@ -163,7 +163,7 @@ Worker.spawn((using(io : IO)) => {
 
 Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程间通信。
 
-```yo
+```rust
 { Channel } :: import "std/sync/channel";
 
 // 创建一个有界 Channel（容量为 10），用 Arc 包装以实现跨线程共享
@@ -195,7 +195,7 @@ Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 
 - **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体
 - **不可发送**：`object(...)`、`Dyn`、捕获了非 Send 值的闭包
 
-```yo
+```rust
 // ✅ 可发送
 Point :: struct(x: i32, y: i32);
 Thread.spawn(() => {
@@ -250,7 +250,7 @@ Thread.spawn(() => {
 
 ### 快速参考
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 Worker :: import "std/worker";
 { Channel } :: import "std/sync/channel";

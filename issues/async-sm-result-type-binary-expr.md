@@ -17,7 +17,7 @@ error: incompatible integer to pointer conversion assigning to 'void *' from 'in
 
 ## Reproducer
 
-```yo
+```rust
 open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
@@ -56,7 +56,7 @@ sm->result = ((sm->var_a) + (sm->var_b));  // int32_t → void* error
 
 Assign the expression to a variable and return the variable:
 
-```yo
+```rust
 task := io.async((using(io : IO)) => {
   a := i32(5);
   io.await(yield());

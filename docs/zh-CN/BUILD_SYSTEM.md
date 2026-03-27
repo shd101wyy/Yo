@@ -53,7 +53,7 @@ yo-out/
 
 构建文件是一个普通的 Yo 源文件，通过导入 `std/build` 模块来使用。所有构建函数在编译期执行，用于注册产物和步骤。
 
-```yo
+```rust
 build :: import "std/build";
 
 // 模块元数据
@@ -182,7 +182,7 @@ test_step.depend_on(tests);
 
 步骤是命名的目标，定义了 `yo build <step>` 的行为。每个构建函数（`executable`、`static_library`、`test`、`run`）都返回一个 `Step` 值。使用 `step.depend_on(dep)` 来连接依赖：
 
-```yo
+```rust
 // 每个构建函数都返回一个 Step
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
@@ -282,7 +282,7 @@ install success
 
 ### 定义模块
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib :: build.system_library({
@@ -322,7 +322,7 @@ install.depend_on(exe);
 
 使用 `dep.module()` 和 `exe.add_import()` 从依赖中导入模块：
 
-```yo
+```rust
 build :: import "std/build";
 
 // Git 依赖
@@ -366,7 +366,7 @@ install.depend_on(exe);
 
 使用 `step.link()` 将任何库链接到产物 —— 支持静态库、共享库和系统库。类似 Zig 的 `exe.linkLibrary(lib)`：
 
-```yo
+```rust
 build :: import "std/build";
 
 // Yo 库
@@ -405,7 +405,7 @@ install.depend_on(lib);
 
 **库模块**（`add.yo`）：
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)(
   (a + b)
 );
@@ -415,7 +415,7 @@ export add;
 
 **可执行模块**（`demo.yo`）：
 
-```yo
+```rust
 stdio :: import "std/libc/stdio";
 
 extern "Yo",
@@ -431,7 +431,7 @@ export main;
 
 **构建文件**（`build.yo`）：
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({
@@ -479,7 +479,7 @@ yo compile demo.yo --extern libadd.a -o demo
 
 类似 Zig 的 `b.option()`，可以声明用户可配置的构建选项，并通过 CLI 的 `-Dname=value` 设置：
 
-```yo
+```rust
 build :: import "std/build";
 
 // 声明带有默认值的构建选项
@@ -525,7 +525,7 @@ Yo 通过目标三元组支持交叉编译。可以在 `build.yo` 中或命令�
 
 ### 在 `build.yo` 中
 
-```yo
+```rust
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
@@ -536,7 +536,7 @@ build.executable({
 
 也可以使用原始目标字符串：
 
-```yo
+```rust
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
@@ -574,7 +574,7 @@ yo build --cc zig --target aarch64-linux-gnu
 
 使用 `std/process` 编写平台相关代码：
 
-```yo
+```rust
 { platform, arch, Platform, Arch } :: import "std/process";
 
 cond(
@@ -622,7 +622,7 @@ Options:
 
 可以在单个 `build.yo` 中定义针对不同目标的多个产物：
 
-```yo
+```rust
 build :: import "std/build";
 
 // 模块定义
@@ -660,7 +660,7 @@ run_step.depend_on(run_native);
 
 在 `build.yo` 中声明 Git 托管的依赖：
 
-```yo
+```rust
 build :: import "std/build";
 
 // 添加 Git 依赖——返回一个 Dependency 句柄
@@ -711,7 +711,7 @@ yo install ./path/to/local/dep           # 本地路径依赖
 
 如果某个依赖有自己的 `build.yo` 且定义了产物（如静态库），可以使用 `dep.artifact()` 来链接：
 
-```yo
+```rust
 build :: import "std/build";
 
 // 注册依赖（Git 或路径）
@@ -730,7 +730,7 @@ install.depend_on(exe);
 
 依赖的 `build.yo` 定义了静态库：
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
@@ -747,7 +747,7 @@ install.depend_on(lib);
 
 使用方的源码通过 `extern "Yo"` 声明依赖的函数：
 
-```yo
+```rust
 extern "Yo",
   add : (fn(a: i32, b: i32) -> i32);
 ```
@@ -756,7 +756,7 @@ extern "Yo",
 
 使用 `path_dependency` 通过文件系统路径依赖本地包。与 `dependency` 一样，它返回一个 `Dependency` 句柄：
 
-```yo
+```rust
 build :: import "std/build";
 
 // 依赖同级项目——返回一个 Dependency 句柄
@@ -773,7 +773,7 @@ install.depend_on(exe);
 
 在源码中按名称导入依赖：
 
-```yo
+```rust
 mylib :: import "mylib";
 
 main :: (fn() -> unit) {
@@ -878,7 +878,7 @@ root project
 
 通过 `pkg-config` 链接系统 C 库：
 
-```yo
+```rust
 build.system_library({
   name: "openssl",
   fallback_include: "/usr/include/openssl",
@@ -894,7 +894,7 @@ build.system_library({
 
 例如，`raylib` 在 Windows 上需要在包含 `raylib.h` 之前定义几个 Win32 宏：
 
-```yo
+```rust
 raylib :: build.system_library({
   name: "raylib",
   defines: "NOMINMAX NOGDI NOUSER"

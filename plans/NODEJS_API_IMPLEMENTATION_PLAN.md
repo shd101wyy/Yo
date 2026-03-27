@@ -55,7 +55,7 @@ Operations that don't involve I/O or blocking syscalls:
 
 ### Example
 
-```yo
+```rust
 main :: (fn() -> Impl Future(unit))(async {
   // Sync - no I/O
   args := Process.args();

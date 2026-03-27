@@ -25,7 +25,7 @@ Two iteration modes for each collection:
 
 **Iterator trait** — direct trait with associated type `Item`:
 
-```yo
+```rust
 Iterator :: trait(
   Item : Type,
   next : (fn(self : *(Self)) -> Option(Self.Item))
@@ -34,7 +34,7 @@ Iterator :: trait(
 
 **IntoIterator trait** — with `where` clause constraining the iterator's `Item` type:
 
-```yo
+```rust
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -47,7 +47,7 @@ IntoIterator :: trait(
 
 **`for` macro** (lines 3685–3743):
 
-```yo
+```rust
 for iter_expr, (variable) => { body };
 // Expands to:
 // iter_var := iter_expr;
@@ -63,7 +63,7 @@ Each collection defines:
 
 Both are `struct` (value types), not `object`. Iterators are lightweight, stack-allocated, and mutated via pointer by the `for` macro.
 
-```yo
+```rust
 // Pattern for each collection (VERIFIED WORKING SYNTAX):
 CollectionIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
@@ -95,7 +95,7 @@ impl(forall(T : Type), Collection(T),
 
 For the pointer variant:
 
-```yo
+```rust
 CollectionIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _source : Collection(T),   // RC handle
@@ -130,7 +130,7 @@ impl(forall(T : Type), Collection(T),
 
 Trait impl function bodies using block form `({...})` cause "Enum variant not selected" errors. Use expression form `(cond(...))` instead — the cond branches can still contain `{...}` begin blocks.
 
-```yo
+```rust
 // ❌ WRONG — causes evaluator error
 next : (fn(self : *(Self)) -> Option(T))({
   // body
@@ -177,7 +177,7 @@ Iterator struct types are exported alongside the collection type, allowing users
 
 **Iterator structs:**
 
-```yo
+```rust
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _list  : ArrayList(T),
@@ -206,7 +206,7 @@ ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Iterator structs:**
 
-```yo
+```rust
 LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _current : Option(Node(T))
@@ -233,7 +233,7 @@ LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Iterator structs:**
 
-```yo
+```rust
 DequeIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _deque     : Deque(T),
@@ -264,7 +264,7 @@ DequeIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Iterator structs:**
 
-```yo
+```rust
 HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   struct(
     _map   : HashMap(K, V),
@@ -294,7 +294,7 @@ HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
 - `keys()` → iterator yielding `K` values
 - `values()` → iterator yielding `V` values
 
-```yo
+```rust
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   struct(_inner : HashMapIter(K, V))
 ;
@@ -312,7 +312,7 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
 
 **Iterator structs:**
 
-```yo
+```rust
 HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _set   : HashSet(T),
@@ -343,7 +343,7 @@ Since BTreeMap uses a sorted `ArrayList(BTreeEntry(K, V))` internally, iteration
 
 **Iterator structs:**
 
-```yo
+```rust
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   struct(
     _entries : ArrayList(BTreeEntry(K, V)),
@@ -378,7 +378,7 @@ Iteration yields elements in **arbitrary heap order** (not sorted), consistent w
 
 **Iterator structs:**
 
-```yo
+```rust
 PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _data  : ArrayList(T),
@@ -410,7 +410,7 @@ String iteration is different — runes are decoded from UTF-8 bytes on-the-fly,
 
 **Iterator structs:**
 
-```yo
+```rust
 StringChars :: struct(
   _string     : String,
   _byte_index : usize
@@ -439,7 +439,7 @@ StringBytes :: struct(
 
 Array is a value type. `iter` with `self: *(Self)` is the natural fit.
 
-```yo
+```rust
 ArrayIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _ptr : *(T),
@@ -456,7 +456,7 @@ ArrayIter :: (fn(comptime(T) : Type) -> comptime(Type))
 
 Similar to Array but dynamically sized.
 
-```yo
+```rust
 SliceIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _ptr : *(T),

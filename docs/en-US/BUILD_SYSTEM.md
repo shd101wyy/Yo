@@ -53,7 +53,7 @@ yo-out/
 
 The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps.
 
-```yo
+```rust
 build :: import "std/build";
 
 // Module metadata
@@ -182,7 +182,7 @@ The host target is also available as `build.target_host`.
 
 Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
 
-```yo
+```rust
 // Each build function returns a Step
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
@@ -282,7 +282,7 @@ Modules are the unit of reuse across Yo dependencies. A module declares its sour
 
 ### Defining a Module
 
-```yo
+```rust
 build :: import "std/build";
 
 raylib :: build.system_library({
@@ -322,7 +322,7 @@ Returned by `build.module()`. Has one method:
 
 Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Git dependency
@@ -366,7 +366,7 @@ This means the consumer doesn't need to declare `build.system_library({ name: "r
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Yo libraries
@@ -405,7 +405,7 @@ Static libraries export Yo functions that other modules can call using `extern "
 
 **Library module** (`add.yo`):
 
-```yo
+```rust
 add :: (fn(a: i32, b: i32) -> i32)(
   (a + b)
 );
@@ -415,7 +415,7 @@ export add;
 
 **Executable module** (`demo.yo`):
 
-```yo
+```rust
 stdio :: import "std/libc/stdio";
 
 extern "Yo",
@@ -431,7 +431,7 @@ export main;
 
 **Build file** (`build.yo`):
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({
@@ -479,7 +479,7 @@ yo compile demo.yo --extern libadd.a -o demo
 
 Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Declare a build option with a default value
@@ -525,7 +525,7 @@ Yo supports cross-compilation via target triples. Specify the target in `build.y
 
 ### In `build.yo`
 
-```yo
+```rust
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
@@ -536,7 +536,7 @@ build.executable({
 
 You can also use raw target strings if preferred:
 
-```yo
+```rust
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
@@ -574,7 +574,7 @@ Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `w
 
 Use `std/process` to write platform-aware code:
 
-```yo
+```rust
 { platform, arch, Platform, Arch } :: import "std/process";
 
 cond(
@@ -622,7 +622,7 @@ Options:
 
 Define multiple artifacts with different targets in a single `build.yo`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Module definition
@@ -660,7 +660,7 @@ run_step.depend_on(run_native);
 
 Declare git-hosted dependencies in `build.yo`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Add a git dependency — returns a Dependency handle
@@ -711,7 +711,7 @@ Dependencies are stored in a global cache and tracked by `yo.lock` (commit this 
 
 If a dependency has its own `build.yo` that defines artifacts (e.g., a static library), you can link them using `dep.artifact()`:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Register a dependency (git or path)
@@ -730,7 +730,7 @@ install.depend_on(exe);
 
 The dependency's `build.yo` defines the static library:
 
-```yo
+```rust
 build :: import "std/build";
 
 lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
@@ -747,7 +747,7 @@ When you run `yo build`, the build system:
 
 The consumer's source code declares the dependency functions using `extern "Yo"`:
 
-```yo
+```rust
 extern "Yo",
   add : (fn(a: i32, b: i32) -> i32);
 ```
@@ -756,7 +756,7 @@ extern "Yo",
 
 Use `path_dependency` to depend on a local package by filesystem path. Like `dependency`, it returns a `Dependency` handle:
 
-```yo
+```rust
 build :: import "std/build";
 
 // Depend on a sibling project — returns a Dependency handle
@@ -773,7 +773,7 @@ install.depend_on(exe);
 
 In your source code, import the dependency by name:
 
-```yo
+```rust
 mylib :: import "mylib";
 
 main :: (fn() -> unit) {
@@ -878,7 +878,7 @@ No special configuration is needed — transitive dependencies are discovered an
 
 Link against system C libraries discovered via `pkg-config`:
 
-```yo
+```rust
 build.system_library({
   name: "openssl",
   fallback_include: "/usr/include/openssl",
@@ -894,7 +894,7 @@ When `pkg-config` is available (Linux, macOS), it automatically resolves include
 
 For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
 
-```yo
+```rust
 raylib :: build.system_library({
   name: "raylib",
   defines: "NOMINMAX NOGDI NOUSER"
