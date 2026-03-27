@@ -84,6 +84,12 @@ test "utime on nonexistent file returns -ENOENT", using(io : IO), {
 };
 
 test "lutime changes symlink timestamps without affecting target", using(io : IO), {
+  // NODERAWFS does not support utimensat with AT_SYMLINK_NOFOLLOW on symlinks
+  if((arch == Arch.Wasm32), {
+    printf("  skipped on wasm32 (lutime on symlinks unsupported)\n");
+    return ();
+  });
+
   path_cstr := make_test_file(`yo_time_lutime_target.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("lutime test"), u32(11));

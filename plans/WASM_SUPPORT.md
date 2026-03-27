@@ -147,10 +147,11 @@ available in standalone WASI. The Emscripten target provides these via NODERAWFS
 - **sys/**: `advise`, `bufio`, `copy`, `dir`, `fallocate`, `fcntl`, `file`, `iov`, `path`,
   `perm`, `pipe`, `seek`, `temp`, `time`, `umask`
 
-### Test-level skips (5 individual tests)
+### Test-level skips (6 individual tests)
 
 - `tests/sys/fcntl.test.yo` — `FD_CLOEXEC` test (no exec() in WASM)
 - `tests/sys/time.test.yo` — nanosecond precision test (NODERAWFS has µs precision)
+- `tests/sys/time.test.yo` — lutime symlink test (NODERAWFS doesn't support `AT_SYMLINK_NOFOLLOW`)
 - `tests/sys/dir.test.yo` — hard link test (NODERAWFS returns EMLINK for link())
 - `tests/sys/advise.test.yo` — madvise test (no mmap support)
 - `tests/fs/dir.test.yo` — hard link test (same NODERAWFS limitation)
