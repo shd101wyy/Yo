@@ -1,5 +1,5 @@
 // Activate the extension
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
@@ -24,6 +24,13 @@ import {
   FnCallExpr,
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
+import {
+  clearBuildRegistry,
+  getBuildRegistry,
+  setModuleImportRoot,
+  clearModuleImportRoots,
+} from "@yo/evaluator/builtins/build";
+import type { BuildRegistry } from "@yo/evaluator/builtins/build";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
 import { areTypesCompatible } from "@yo/types/compatibility";
 import { Type } from "@yo/types/definitions";
@@ -219,6 +226,9 @@ export function activate(context: vscode.ExtensionContext) {
   let rootModuleManager: ModuleManager | null = null;
   let moduleManagerStdPath: string | null = null;
 
+  // Cache evaluated build.yo per project directory to avoid re-evaluating
+  const evaluatedBuildProjects = new Map<string, boolean>();
+
   const findStdPathForDocument = (
     document: vscode.TextDocument
   ): string | null => {
@@ -258,9 +268,115 @@ export function activate(context: vscode.ExtensionContext) {
       rootModuleManager.resetAllState();
       rootModuleManager.stdPath = stdPath;
       moduleManagerStdPath = stdPath;
+      // Re-evaluate build.yo when std path changes
+      evaluatedBuildProjects.clear();
+      clearModuleImportRoots();
     }
 
     return rootModuleManager;
+  };
+
+  // --- Build.yo awareness for custom import resolution ---
+
+  const findBuildYoForDocument = (
+    document: vscode.TextDocument
+  ): { buildFile: string; projectDir: string } | null => {
+    if (document.uri.scheme !== "file") {
+      return null;
+    }
+    let currentPath = path.dirname(document.uri.fsPath);
+    const root = path.parse(currentPath).root;
+
+    while (currentPath !== root) {
+      const candidate = path.join(currentPath, "build.yo");
+      if (existsSync(candidate)) {
+        return { buildFile: candidate, projectDir: currentPath };
+      }
+      currentPath = path.dirname(currentPath);
+    }
+    return null;
+  };
+
+  const ensureBuildImportsResolved = (document: vscode.TextDocument): void => {
+    const buildInfo = findBuildYoForDocument(document);
+    if (!buildInfo) return;
+
+    // Skip if already evaluated for this project
+    if (evaluatedBuildProjects.has(buildInfo.projectDir)) return;
+    evaluatedBuildProjects.set(buildInfo.projectDir, true);
+
+    try {
+      // Evaluate build.yo in an isolated ModuleManager
+      clearBuildRegistry();
+      const buildModuleManager = new ModuleManager();
+      const modulePath = `file://${realpathSync(buildInfo.buildFile)}`;
+      buildModuleManager.loadModule(modulePath);
+      buildModuleManager.resetAllState();
+
+      const registry: BuildRegistry = getBuildRegistry();
+
+      // Resolve local module import roots from all artifacts
+      for (const artifact of registry.artifacts) {
+        for (const imported of artifact.importedModules) {
+          const depName = imported.dependencyName;
+          if (!depName) {
+            // Local module — resolve root relative to project
+            const localModule = registry.modules.find(
+              (m) => m.name === imported.moduleName
+            );
+            if (localModule) {
+              const resolvedRoot = path.resolve(
+                buildInfo.projectDir,
+                localModule.root
+              );
+              setModuleImportRoot(imported.importName, resolvedRoot);
+            }
+          } else {
+            // Git/path dependency — try to resolve if cached
+            const pathDep = registry.pathDependencies.find(
+              (d) => d.name === depName
+            );
+            if (pathDep) {
+              const depDir = path.resolve(buildInfo.projectDir, pathDep.path);
+              if (existsSync(depDir)) {
+                // Evaluate dependency's build.yo to find its module root
+                const depBuildFile = path.join(depDir, "build.yo");
+                if (existsSync(depBuildFile)) {
+                  try {
+                    const depModulePath = `file://${realpathSync(depBuildFile)}`;
+                    const depMm = new ModuleManager();
+                    clearBuildRegistry();
+                    depMm.loadModule(depModulePath);
+                    depMm.resetAllState();
+                    const depRegistry = getBuildRegistry();
+
+                    const depModule =
+                      imported.moduleName === ""
+                        ? depRegistry.modules[0]
+                        : depRegistry.modules.find(
+                            (m) => m.name === imported.moduleName
+                          );
+                    if (depModule) {
+                      setModuleImportRoot(
+                        imported.importName,
+                        path.resolve(depDir, depModule.root)
+                      );
+                    }
+                  } catch {
+                    // Dependency build.yo evaluation failed — skip silently
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Clear the build registry to avoid leaking state into user file evaluation
+      clearBuildRegistry();
+    } catch {
+      // build.yo evaluation failed — skip silently, user will see errors from yo build
+    }
   };
 
   // Track in-flight analyses to avoid race conditions where an older run clears
@@ -278,6 +394,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const moduleManager = getModuleManagerForDocument(document);
+
+    // Resolve build.yo import mappings (cached per project, runs only once)
+    ensureBuildImportsResolved(document);
 
     const uriKey = document.uri.toString();
     const text = document.getText();
