@@ -160,6 +160,6 @@ if a == 1,
 ;; 死了，没留下任何遗憾。
 ```
 
-Yiyi 著，
-Yo 项目地址: https://github.com/shd101wyy/Yo
+By Yiyi，  
+For Yo: https://github.com/shd101wyy/Yo  
 2026 年 3 月
