@@ -103,7 +103,7 @@ Worker :: import "std/worker";
 Worker.spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit);
 
 // 配置线程池大小（需在首次 spawn 之前调用）
-Worker.set_num_threads : (fn(n : usize) -> unit);
+Worker.set_num_threads : (fn(num : usize) -> unit);
 
 // 获取线程池中的线程数（默认值：硬件线程数）
 Worker.get_num_threads : (fn() -> usize);

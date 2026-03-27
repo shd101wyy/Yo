@@ -144,7 +144,7 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | `Optimize.Debug`        | `-O0 -g`       | No optimization, debug symbols |
 | `Optimize.ReleaseSafe`  | `-O2 -g`       | Optimized with debug symbols   |
 | `Optimize.ReleaseFast`  | `-O3`          | Maximum performance            |
-| `Optimize.ReleaseSmall` | `-Os`          | Optimize for binary size       |
+| `Optimize.ReleaseSmall` | `-O2`          | Optimize for binary size       |
 
 ### Allocators
 
@@ -228,10 +228,11 @@ Level 2: install                (depends on app, tests)
 
 ### Step Methods
 
-| Method                  | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `step.depend_on(other)` | Add a dependency — `other` is built before `step`             |
-| `step.link(library)`    | Link a library to an artifact (static, shared, or system lib) |
+| Method                   | Description                                                   |
+| ------------------------ | ------------------------------------------------------------- |
+| `step.depend_on(other)`  | Add a dependency — `other` is built before `step`             |
+| `step.link(library)`     | Link a library to an artifact (static, shared, or system lib) |
+| `step.add_import(entry)` | Add a module import to this step (for dependency modules)     |
 
 ### `StepKind`
 

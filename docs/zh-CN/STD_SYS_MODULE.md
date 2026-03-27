@@ -154,7 +154,7 @@ timer  :: import "std/sys/timer";
 | **Socket**         | `socket`、`bind`、`listen`、`accept`、`connect`、`send`、`recv`、`sendto`、`recvfrom` | ✅ 已完成 |
 | **Socket 选项**    | `setsockopt`、`getsockopt`、`shutdown`、`getsockname`、`getpeername`、`socketpair`    | ✅ 已完成 |
 | **DNS**            | `getaddrinfo`、`getnameinfo`                                                          | ✅ 已完成 |
-| **信号**           | `signal_start`、`signal_stop`、`kill`                                                 | ✅ 已完成 |
+| **信号**           | `on_signal`、`off_signal`、`kill`                                                     | ✅ 已完成 |
 | **TTY**            | `tty_init`、`tty_set_mode`、`tty_reset_mode`、`tty_get_winsize`、`isatty`             | ✅ 已完成 |
 | **FS 事件**        | `fs_event_init`、`fs_event_start`、`fs_event_stop`、`fs_event_close`                  | ✅ 已完成 |
 | **Poll**           | `poll_init`、`poll_start`、`poll_stop`、`poll_close`                                  | ✅ 已完成 |

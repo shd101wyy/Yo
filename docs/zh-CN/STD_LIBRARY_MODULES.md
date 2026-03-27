@@ -143,22 +143,22 @@ open import "std/string";
 
 基于可增长缓冲区的动态数组。
 
-| 方法                                | 描述                        |
-| ----------------------------------- | --------------------------- |
-| `new()`                             | 创建空列表                  |
-| `with_capacity(cap)`                | 以指定初始容量创建          |
-| `push(item)`                        | 追加元素                    |
-| `pop() -> Option(T)`                | 移除并返回最后一个元素      |
-| `get(index) -> Option(T)`           | 按索引获取                  |
-| `set(index, value)`                 | 按索引设置                  |
-| `len() -> usize`                    | 元素数量                    |
-| `is_empty() -> bool`                | 检查是否为空                |
-| `contains(item) -> bool`            | 检查是否包含（需实现 `Eq`） |
-| `index_of(item) -> Option(usize)`   | 查找索引（需实现 `Eq`）     |
-| `reverse()`                         | 原地反转                    |
-| `sort()`                            | 原地排序（需实现 `Ord`）    |
-| `clear()`                           | 移除所有元素                |
-| `slice(start, end) -> ArrayList(T)` | 提取子列表                  |
+| 方法                                                | 描述                        |
+| --------------------------------------------------- | --------------------------- |
+| `new()`                                             | 创建空列表                  |
+| `with_capacity(cap)`                                | 以指定初始容量创建          |
+| `push(item)`                                        | 追加元素                    |
+| `pop() -> Option(T)`                                | 移除并返回最后一个元素      |
+| `get(index) -> Option(T)`                           | 按索引获取                  |
+| `set(index, value)`                                 | 按索引设置                  |
+| `len() -> usize`                                    | 元素数量                    |
+| `is_empty() -> bool`                                | 检查是否为空                |
+| `contains(item) -> bool`                            | 检查是否包含（需实现 `Eq`） |
+| `index_of(item) -> Option(usize)`                   | 查找索引（需实现 `Eq`）     |
+| `reverse()`                                         | 原地反转                    |
+| `sort()`                                            | 原地排序（需实现 `Ord`）    |
+| `clear()`                                           | 移除所有元素                |
+| `slice(start, end) -> Result(Self, ArrayListError)` | 提取子列表                  |
 
 ### HashMap (`std/collections/hash_map`)
 
@@ -232,7 +232,7 @@ open import "std/fs/file";
 ### SeekFrom (`std/fs/types`)
 
 ```rust
-SeekFrom :: enum(Start(offset: i64), Current(offset: i64), End(offset: i64));
+SeekFrom :: enum(Start, Current, End);
 ```
 
 ### Directory (`std/fs/dir`)
@@ -592,7 +592,7 @@ URL 解析与组件提取。
 
 ### Sleep (`std/time/sleep`)
 
-通过 `io.sleep(duration, using(io))` 实现异步休眠。
+通过 `sleep(ms)` 实现同步休眠。如需异步休眠，使用 `std/sys/timer` 中的 `sleep()` 函数，它返回一个 `IOFuture`。
 
 ---
 
@@ -671,7 +671,7 @@ open import "std/fmt";
 open import "std/log";
 ```
 
-分级日志：`log_debug`、`log_info`、`log_warn`、`log_error`。
+分级日志：`trace`、`debug`、`info`、`warn`、`error`。
 
 ---
 
@@ -709,18 +709,25 @@ Unix 信号处理。
 open import "std/path";
 ```
 
-跨平台路径操作：
+通过 `Path` 类型进行跨平台路径操作：
 
-| 函数                    | 描述               |
-| ----------------------- | ------------------ |
-| `path_join(a, b)`       | 拼接路径           |
-| `path_dirname(p)`       | 获取目录部分       |
-| `path_basename(p)`      | 获取文件名         |
-| `path_extname(p)`       | 获取扩展名         |
-| `path_is_absolute(p)`   | 检查是否为绝对路径 |
-| `exists(p, using(io))`  | 检查是否存在       |
-| `is_file(p, using(io))` | 检查是否为文件     |
-| `is_dir(p, using(io))`  | 检查是否为目录     |
+| 方法                 | 描述                   |
+| -------------------- | ---------------------- |
+| `Path.new(s)`        | 从字符串创建           |
+| `path.join(other)`   | 拼接路径               |
+| `path.parent()`      | 获取父目录             |
+| `path.file_name()`   | 获取文件名             |
+| `path.file_stem()`   | 获取不含扩展名的文件名 |
+| `path.extension()`   | 获取扩展名             |
+| `path.is_absolute()` | 检查是否为绝对路径     |
+
+文件存在性检查（来自 `std/fs`）：
+
+| 函数                    | 描述           |
+| ----------------------- | -------------- |
+| `exists(p, using(io))`  | 检查是否存在   |
+| `is_file(p, using(io))` | 检查是否为文件 |
+| `is_dir(p, using(io))`  | 检查是否为目录 |
 
 ---
 

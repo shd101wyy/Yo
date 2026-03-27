@@ -16,14 +16,14 @@ a := Arc(i32)(i32(42));
 
 ### Dereferencing
 
-Access the inner value with `.(*)`, which returns a **borrowed** reference:
+Access the inner value with `.*`, which returns a **borrowed** reference:
 
 ```rust
 a := arc(i32(42));
-val := a.(*);       // val : i32 = 42
+val := a.*;       // val : i32 = 42
 ```
 
-For objects, method delegation works through `.(*)`:
+For objects, method delegation works through `.*`:
 
 ```rust
 Counter :: object(count : i32);
@@ -32,7 +32,7 @@ impl(Counter,
 );
 
 c := arc(Counter(i32(10)));
-c.(*).get_count()    // returns 10
+c.*.get_count()    // returns 10
 ```
 
 ### Sharing (Copy semantics)
@@ -44,7 +44,7 @@ a := arc(i32(42));
 b := a;              // refcount: 1 → 2
 c := b;              // refcount: 2 → 3
 // All three share the same underlying data
-assert(a.(*) == b.(*));
+assert(a.* == b.*);
 ```
 
 ### Cross-thread sharing
@@ -59,23 +59,23 @@ Arc implements `Send`, so it can be captured in thread/worker closures:
 ch := arc(Channel(i32).new(usize(10)));
 
 producer := Thread.spawn(() => {
-  ch.(*).send(i32(42));
+  ch.*.send(i32(42));
 });
 
-val := ch.(*).recv().unwrap();
+val := ch.*.recv().unwrap();
 producer.join();
 ```
 
 ## Comparison with Iso(T)
 
-| Feature         | `Arc(T)`                        | `Iso(T)`                        |
-| --------------- | ------------------------------- | ------------------------------- |
-| Ownership       | Shared (multiple refs)          | Unique (single owner)           |
-| Reference count | Atomic (`_Atomic`)              | Atomic (`_Atomic`)              |
-| Copy behavior   | Increments refcount             | Extracts (moves) value          |
-| Mutability      | Read-only via `.(*)` (borrowed) | Full ownership via `.(^)`       |
-| Send            | Yes (always)                    | Yes (always)                    |
-| Use case        | Cross-thread shared reads       | Cross-thread ownership transfer |
+| Feature         | `Arc(T)`                      | `Iso(T)`                        |
+| --------------- | ----------------------------- | ------------------------------- |
+| Ownership       | Shared (multiple refs)        | Unique (single owner)           |
+| Reference count | Atomic (`_Atomic`)            | Atomic (`_Atomic`)              |
+| Copy behavior   | Increments refcount           | Extracts (moves) value          |
+| Mutability      | Read-only via `.*` (borrowed) | Full ownership via `.(^)`       |
+| Send            | Yes (always)                  | Yes (always)                    |
+| Use case        | Cross-thread shared reads     | Cross-thread ownership transfer |
 
 ## Implementation details
 

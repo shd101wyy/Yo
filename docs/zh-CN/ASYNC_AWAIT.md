@@ -582,7 +582,7 @@ int main(int argc, char** argv) {
 
 #### WASM 异步支持
 
-WASM 目标（通过 emcc 的 `wasm32-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `io.sleep()` 均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
+WASM 目标（通过 emcc 的 `wasm32-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `sleep()`（来自 `std/sys/timer`）均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
 
 WASM 上可用的功能：
 
@@ -591,8 +591,8 @@ WASM 上可用的功能：
 - `io.spawn()` / `JoinHandle.await()` — 创建并等待任务
 - `yield()` — 任务间的协作式让出
 - 异步中的代数效应
-- `io.sleep()` — 通过排序定时器队列实现基于定时器的延迟
-- 文件 I/O（`io.open`、`io.read`、`io.write`）— 通过 NODERAWFS（Node.js）或 Emscripten FS
+- `sleep()`（来自 `std/sys/timer`）— 通过排序定时器队列实现基于定时器的延迟
+- 文件 I/O（`File.open`、`read`、`write`，来自 `std/fs/file` 和 `std/sys/file`）— 通过 NODERAWFS（Node.js）或 Emscripten FS
 
 WASM 上不可用的功能：
 

@@ -410,7 +410,7 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 是 p1 的副本
 
 // 对象类型 - 堆分配，引用计数
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 s1 := String.from("Hello");
@@ -735,7 +735,7 @@ Yo 使用**对象类型**，配合[编译期引用计数与所有权和生命周
 
 ```rust
 // 定义一个对象类型
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 impl(String,
@@ -1552,7 +1552,7 @@ match(first,
 );
 
 // 设置元素
-list.set(usize(1), usize(150));
+list.set(usize(1), i32(150));
 
 // 弹出元素
 popped := list.pop();

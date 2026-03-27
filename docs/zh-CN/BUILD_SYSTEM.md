@@ -144,7 +144,7 @@ test_step.depend_on(tests);
 | `Optimize.Debug`        | `-O0 -g`   | 无优化，包含调试符号 |
 | `Optimize.ReleaseSafe`  | `-O2 -g`   | 优化并包含调试符号   |
 | `Optimize.ReleaseFast`  | `-O3`      | 最大性能             |
-| `Optimize.ReleaseSmall` | `-Os`      | 优化二进制体积       |
+| `Optimize.ReleaseSmall` | `-O2`      | 优化二进制体积       |
 
 ### 分配器
 
@@ -228,10 +228,11 @@ Level 2: install                （依赖 app, tests）
 
 ### Step 方法
 
-| 方法                    | 描述                                     |
-| ----------------------- | ---------------------------------------- |
-| `step.depend_on(other)` | 添加依赖——`other` 会在 `step` 之前构建   |
-| `step.link(library)`    | 将库链接到产物（静态库、共享库或系统库） |
+| 方法                     | 描述                                     |
+| ------------------------ | ---------------------------------------- |
+| `step.depend_on(other)`  | 添加依赖——`other` 会在 `step` 之前构建   |
+| `step.link(library)`     | 将库链接到产物（静态库、共享库或系统库） |
+| `step.add_import(entry)` | 添加模块导入到此步骤（用于依赖模块）     |
 
 ### `StepKind`
 

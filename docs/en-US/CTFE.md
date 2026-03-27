@@ -115,7 +115,7 @@ comptime_assert(fib(10) == 55);
 
 ### 5. Compile-Time Parameters
 
-Use `compt` to require compile-time known parameters:
+Use `comptime` to require compile-time known parameters:
 
 ```rust
 // T must be known at compile-time for monomorphization

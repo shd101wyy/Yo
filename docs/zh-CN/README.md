@@ -2,6 +2,8 @@
 
 <img src="../../Yo_logo.png" width=96 height=96 />
 
+[English](../../README.md) | **简体中文**
+
 **开发中 :) 尚未就绪！**
 
 一种多范式、通用型、编译型编程语言。

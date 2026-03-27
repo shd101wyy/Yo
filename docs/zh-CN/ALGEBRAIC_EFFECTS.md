@@ -506,7 +506,7 @@ Async/await 使用状态机基础设施（`src/codegen/shared/suspension-analysi
 
 ```rust
 safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
-  cond(y == 0 => exn.throw(Error.new(`div by zero`)), true => (x / y))
+  cond((y == 0) => exn.throw(Error.new(`div by zero`)), true => (x / y))
 );
 ```
 
@@ -592,7 +592,7 @@ given(raise_mod) := Raise(
 Throw :: (fn(forall(T : Type), msg : str, resume_val : T) -> T);
 
 safe_divide :: (fn(x : i32, y : i32, using(throw : Throw)) -> i32)(
-  cond(y == 0 => throw(`div by zero`, 0), true => (x / y))
+  cond((y == 0) => throw(`div by zero`, 0), true => (x / y))
 );
 ```
 

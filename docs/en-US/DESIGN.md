@@ -410,7 +410,7 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 s1 := String.from("Hello");
@@ -735,7 +735,7 @@ Object types are heap-allocated types with automatic reference counting:
 
 ```rust
 // Define an object type
-String :: object(
+String :: newtype(
   _bytes : ArrayList(u8)
 );
 impl(String,
@@ -1552,7 +1552,7 @@ match(first,
 );
 
 // Set an element
-list.set(usize(1), usize(150));
+list.set(usize(1), i32(150));
 
 // Pop an element
 popped := list.pop();

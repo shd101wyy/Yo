@@ -2,6 +2,8 @@
 
 <img src="./Yo_logo.png" width=96 height=96 />
 
+**English** | [简体中文](./docs/zh-CN/README.md)
+
 **Work in Progress :) Not Ready!**
 
 A multi-paradigm, general-purpose, compiled programming language.

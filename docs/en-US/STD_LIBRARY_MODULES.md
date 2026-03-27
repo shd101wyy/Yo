@@ -143,22 +143,22 @@ Implements: `Eq`, `Ord`, `Hash`, `ToString`.
 
 Dynamic array backed by a growable buffer.
 
-| Method                              | Description                       |
-| ----------------------------------- | --------------------------------- |
-| `new()`                             | Create empty list                 |
-| `with_capacity(cap)`                | Create with initial capacity      |
-| `push(item)`                        | Append item                       |
-| `pop() -> Option(T)`                | Remove and return last            |
-| `get(index) -> Option(T)`           | Get by index                      |
-| `set(index, value)`                 | Set by index                      |
-| `len() -> usize`                    | Element count                     |
-| `is_empty() -> bool`                | Check if empty                    |
-| `contains(item) -> bool`            | Check containment (requires `Eq`) |
-| `index_of(item) -> Option(usize)`   | Find index (requires `Eq`)        |
-| `reverse()`                         | Reverse in-place                  |
-| `sort()`                            | Sort in-place (requires `Ord`)    |
-| `clear()`                           | Remove all items                  |
-| `slice(start, end) -> ArrayList(T)` | Extract sub-list                  |
+| Method                                              | Description                       |
+| --------------------------------------------------- | --------------------------------- |
+| `new()`                                             | Create empty list                 |
+| `with_capacity(cap)`                                | Create with initial capacity      |
+| `push(item)`                                        | Append item                       |
+| `pop() -> Option(T)`                                | Remove and return last            |
+| `get(index) -> Option(T)`                           | Get by index                      |
+| `set(index, value)`                                 | Set by index                      |
+| `len() -> usize`                                    | Element count                     |
+| `is_empty() -> bool`                                | Check if empty                    |
+| `contains(item) -> bool`                            | Check containment (requires `Eq`) |
+| `index_of(item) -> Option(usize)`                   | Find index (requires `Eq`)        |
+| `reverse()`                                         | Reverse in-place                  |
+| `sort()`                                            | Sort in-place (requires `Ord`)    |
+| `clear()`                                           | Remove all items                  |
+| `slice(start, end) -> Result(Self, ArrayListError)` | Extract sub-list                  |
 
 ### HashMap (`std/collections/hash_map`)
 
@@ -232,7 +232,7 @@ Async file I/O operations using effects.
 ### SeekFrom (`std/fs/types`)
 
 ```rust
-SeekFrom :: enum(Start(offset: i64), Current(offset: i64), End(offset: i64));
+SeekFrom :: enum(Start, Current, End);
 ```
 
 ### Directory (`std/fs/dir`)
@@ -592,7 +592,7 @@ Date and time representation.
 
 ### Sleep (`std/time/sleep`)
 
-Async sleep using `io.sleep(duration, using(io))`.
+Synchronous sleep using `sleep(ms)`. For async sleep, use `sleep()` from `std/sys/timer` which returns an `IOFuture`.
 
 ---
 
@@ -671,7 +671,7 @@ Display trait for formatted output.
 open import "std/log";
 ```
 
-Leveled logging: `log_debug`, `log_info`, `log_warn`, `log_error`.
+Leveled logging: `trace`, `debug`, `info`, `warn`, `error`.
 
 ---
 
@@ -709,15 +709,22 @@ Signal handling for Unix signals.
 open import "std/path";
 ```
 
-Cross-platform path manipulation:
+Cross-platform path manipulation via the `Path` type:
+
+| Method               | Description                    |
+| -------------------- | ------------------------------ |
+| `Path.new(s)`        | Create from string             |
+| `path.join(other)`   | Join paths                     |
+| `path.parent()`      | Get parent directory           |
+| `path.file_name()`   | Get filename                   |
+| `path.file_stem()`   | Get filename without extension |
+| `path.extension()`   | Get extension                  |
+| `path.is_absolute()` | Check if absolute              |
+
+File existence checks (from `std/fs`):
 
 | Function                | Description        |
 | ----------------------- | ------------------ |
-| `path_join(a, b)`       | Join paths         |
-| `path_dirname(p)`       | Get directory      |
-| `path_basename(p)`      | Get filename       |
-| `path_extname(p)`       | Get extension      |
-| `path_is_absolute(p)`   | Check if absolute  |
 | `exists(p, using(io))`  | Check existence    |
 | `is_file(p, using(io))` | Check if file      |
 | `is_dir(p, using(io))`  | Check if directory |

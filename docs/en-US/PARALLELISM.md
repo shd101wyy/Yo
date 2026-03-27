@@ -103,7 +103,7 @@ Worker :: import "std/worker";
 Worker.spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit);
 
 // Configure thread pool size (call before first spawn)
-Worker.set_num_threads : (fn(n : usize) -> unit);
+Worker.set_num_threads : (fn(num : usize) -> unit);
 
 // Get number of threads in pool (default: hardware threads)
 Worker.get_num_threads : (fn() -> usize);
