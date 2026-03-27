@@ -259,15 +259,20 @@ WASM/Emscripten now uses `getentropy()` (via WASI `random_get`, available since 
 3.1.67+). The `std/crypto/random.yo` module checks for both `Platform.Emscripten` and
 `Platform.Wasi` and calls `getentropy()` in a loop for buffers larger than 256 bytes.
 
-### Async Escape (Function Pointer Table Mismatch)
+### Async Escape (Function Pointer Table Mismatch) — RESOLVED
 
-The codegen now passes `-sEMULATE_FUNCTION_POINTER_CASTS=1` to emcc, which generates JS shims
-to handle function pointer type mismatches at indirect call sites.
+The codegen passes `-sEMULATE_FUNCTION_POINTER_CASTS=1` to emcc, which generates JS shims
+to handle function pointer type mismatches at indirect call sites. All async escape tests
+(including `Test escape in async closure`, `JoinHandle await returns None on escape`,
+`JoinHandle two tasks one escapes`, `JoinHandle escape via spawn-injected effect`) now pass
+on both emscripten and native targets. The `if((arch == Arch.Wasm32), return ())` guards
+have been removed.
 
-### Compile-time Integer Overflow (32-bit)
+### Compile-time Integer Overflow (32-bit) — RESOLVED
 
-The `Test comptime isize` test used values (`100000 * 25000 = 2.5B`) that overflowed 32-bit
-`isize` on wasm32. The test values were reduced to fit within i32 range.
+The `Test comptime isize` test originally used values (`100000 * 25000 = 2.5B`) that
+overflowed 32-bit `isize` on wasm32. The test values were reduced to fit within i32 range
+and the test now passes on WASM without any arch guard.
 
 ### Threading (pthread)
 
