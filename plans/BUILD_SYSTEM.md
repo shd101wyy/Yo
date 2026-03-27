@@ -356,8 +356,11 @@ run(artifact_name: comptime_string) -> Step  // kind: StepKind.Run
 step(name: comptime_string, description: comptime_string) -> Step  // kind: StepKind.Custom
 
 // Step methods:
-// step.depend_on(other_step) -> unit  — add dependency
-// step.link(library_step)   -> unit  — link library to artifact
+// step.depend_on(other_step) -> unit                       — add dependency
+// step.link(library_step) -> unit                          — link library to artifact
+// step.add_import(entry: ImportEntry) -> unit              — import one dependency module into an artifact
+// step.add_import_list(entries: ComptimeList(ImportEntry)) -> unit
+//   bulk import dependency modules into an artifact
 ```
 
 **Step struct:**
@@ -368,6 +371,17 @@ Step :: struct(
   kind : StepKind
 );
 ```
+
+**Import helpers:**
+
+```rust
+ImportEntry :: struct(
+  name : comptime_string,
+  module : BuildModule
+);
+```
+
+`step.add_import()` registers a single dependency module import on an artifact step. `step.add_import_list()` accepts a `ComptimeList(ImportEntry)` and applies the same registration to every entry in the list, which is useful when a dependency exposes multiple modules that should all be imported into the generated build artifact.
 
 Internally, wrapper functions decompose the config struct and pass individual fields to the evaluator builtins (e.g., `__yo_build_executable(config.name, config.root, ...)`). This keeps the builtin implementation simple while providing a clean struct-based API to users.
 
