@@ -168,6 +168,11 @@ export class CodeGenerator {
        * Arbitrary flags to pass directly to the C compiler.
        */
       cflags?: string;
+      /**
+       * Emscripten environment: "web" skips -sNODERAWFS (browser target),
+       * "node" adds -sNODERAWFS (default for tests/CLI).
+       */
+      emccEnvironment?: "web" | "node";
     }
   ): void {
     // Resolve the compilation target
@@ -549,8 +554,9 @@ export class CodeGenerator {
           if (isTargetStandaloneWasi(targetInfo)) {
             // Standalone WASI: produce a .wasm file without JS glue
             compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
-          } else {
-            // Emscripten target: use Node.js's real filesystem instead of MEMFS
+          } else if (options.emccEnvironment !== "web") {
+            // Emscripten Node.js target: use Node.js's real filesystem instead of MEMFS
+            // Skip for web targets — NODERAWFS uses require('fs') which doesn't exist in browsers
             compileArgs.splice(-2, 0, "-sNODERAWFS=1");
           }
 

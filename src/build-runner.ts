@@ -962,6 +962,7 @@ async function compileArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
     cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
+    emccEnvironment: isTargetWasm(parsedTarget) ? "web" : undefined,
   });
 
   if (
@@ -1831,6 +1832,7 @@ async function compileDependencyArtifact(
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
     cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
+    emccEnvironment: isTargetWasm(parsedTarget) ? "web" : undefined,
   });
 
   if (
