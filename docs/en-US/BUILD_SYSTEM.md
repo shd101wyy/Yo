@@ -26,6 +26,7 @@ yo build
 ```
 my-project/
 ├── build.yo              ← Build configuration
+├── deps.yo               ← Dependency declarations (managed by yo install)
 ├── src/
 │   ├── main.yo           ← Executable entry point
 │   └── lib.yo            ← Library code
@@ -661,6 +662,15 @@ Options:
   --name <name>          Project name (default: directory name)
 ```
 
+Creates the following files:
+
+- `build.yo` — Build configuration (imports `deps.yo`)
+- `deps.yo` — Dependency declarations (empty template)
+- `src/main.yo` — Executable entry point
+- `src/lib.yo` — Library code
+- `tests/main.test.yo` — Test file
+- `.gitignore`, `README.md`
+
 ## Multi-Target Builds
 
 Define multiple artifacts with different targets in a single `build.yo`:
@@ -837,6 +847,68 @@ export main;
 
 Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
 
+### `deps.yo` — Dependency Declaration File
+
+`yo init` generates a `deps.yo` file alongside `build.yo`. This file is the central place to declare all project dependencies, keeping `build.yo` focused on build logic.
+
+**Generated `deps.yo` (empty):**
+
+```rust
+// Dependencies for this project.
+// Managed by `yo install`. Manual edits are preserved.
+//
+// Usage in build.yo:
+//   { imports } :: import "./deps.yo";
+//   exe.add_import_list(imports);
+//
+// Add a dependency:
+//   yo install user/repo
+//   yo install user/repo@v1.0.0
+//   yo install ./local-path
+
+build :: import "std/build";
+
+// --- Dependencies ---
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)();
+export imports;
+```
+
+**`deps.yo` with dependencies:**
+
+```rust
+build :: import "std/build";
+
+// --- Dependencies ---
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+json :: build.path_dependency({ name: "json", path: "../json-yo" });
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)(
+  { name: "raylib_yo", module: raylib_yo.module("") },
+  { name: "json", module: json.module("") }
+);
+export imports;
+```
+
+**Using `deps.yo` in `build.yo`:**
+
+```rust
+build :: import "std/build";
+{ imports } :: import "./deps.yo";
+
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+exe.add_import_list(imports);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+When you run `yo install`, the dependency is automatically added to `deps.yo` and the `imports` list is regenerated. If `deps.yo` doesn't exist yet, it is created from the template.
+
+> **Note:** Inline `build.dependency()` calls in `build.yo` still work. The `deps.yo` pattern is the recommended approach for new projects.
+
 ### Global Cache
 
 Dependencies are cached globally to avoid redundant downloads across projects:
@@ -993,15 +1065,18 @@ Package specifier formats:
 1. Parses the package specifier and infers the dependency name from the repo name
 2. Resolves the latest semver tag via `git ls-remote --tags` (or uses the pinned version)
 3. Falls back to the default branch if no semver tags are found
-4. Appends `build.dependency(...)` to `build.yo`
-5. Fetches the dependency and updates `yo.lock`
+4. Appends `build.dependency(...)` to `deps.yo` (creates the file if it doesn't exist)
+5. Regenerates the `imports` ComptimeList in `deps.yo`
+6. Fetches the dependency and updates `yo.lock`
 
 **For local path dependencies:**
 
 1. Infers the name from the directory basename
 2. Validates that the path exists
-3. Appends `build.path_dependency(...)` to `build.yo`
-4. Prints `add_import` guidance for wiring the dependency's module
+3. Appends `build.path_dependency(...)` to `deps.yo`
+4. Regenerates the `imports` ComptimeList in `deps.yo`
+
+If `build.yo` already imports `deps.yo`, no further manual changes are needed.
 
 ## `yo cache` Reference
 

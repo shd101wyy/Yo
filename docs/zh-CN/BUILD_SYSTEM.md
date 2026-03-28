@@ -26,6 +26,7 @@ yo build
 ```
 my-project/
 ├── build.yo              ← 构建配置
+├── deps.yo               ← 依赖声明（由 yo install 管理）
 ├── src/
 │   ├── main.yo           ← 可执行文件入口
 │   └── lib.yo            ← 库代码
@@ -661,6 +662,15 @@ Options:
   --name <name>          项目名称（默认：目录名）
 ```
 
+创建以下文件：
+
+- `build.yo` — 构建配置（导入 `deps.yo`）
+- `deps.yo` — 依赖声明（空模板）
+- `src/main.yo` — 可执行文件入口
+- `src/lib.yo` — 库代码
+- `tests/main.test.yo` — 测试文件
+- `.gitignore`、`README.md`
+
 ## 多目标构建
 
 可以在单个 `build.yo` 中定义针对不同目标的多个产物：
@@ -837,6 +847,68 @@ export main;
 
 路径依赖不需要拉取或锁文件条目——直接从本地文件系统解析。
 
+### `deps.yo` — 依赖声明文件
+
+`yo init` 会在 `build.yo` 旁生成一个 `deps.yo` 文件。该文件是声明所有项目依赖的集中位置，让 `build.yo` 专注于构建逻辑。
+
+**生成的 `deps.yo`（空模板）：**
+
+```rust
+// Dependencies for this project.
+// Managed by `yo install`. Manual edits are preserved.
+//
+// Usage in build.yo:
+//   { imports } :: import "./deps.yo";
+//   exe.add_import_list(imports);
+//
+// Add a dependency:
+//   yo install user/repo
+//   yo install user/repo@v1.0.0
+//   yo install ./local-path
+
+build :: import "std/build";
+
+// --- Dependencies ---
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)();
+export imports;
+```
+
+**包含依赖的 `deps.yo`：**
+
+```rust
+build :: import "std/build";
+
+// --- Dependencies ---
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+json :: build.path_dependency({ name: "json", path: "../json-yo" });
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)(
+  { name: "raylib_yo", module: raylib_yo.module("") },
+  { name: "json", module: json.module("") }
+);
+export imports;
+```
+
+**在 `build.yo` 中使用 `deps.yo`：**
+
+```rust
+build :: import "std/build";
+{ imports } :: import "./deps.yo";
+
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+exe.add_import_list(imports);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+运行 `yo install` 时，依赖会自动添加到 `deps.yo` 中，并重新生成 `imports` 列表。如果 `deps.yo` 不存在，会从模板创建。
+
+> **注意：** 在 `build.yo` 中直接使用 `build.dependency()` 仍然有效。`deps.yo` 模式是新项目的推荐做法。
+
 ### 全局缓存
 
 依赖被全局缓存，避免跨项目重复下载：
@@ -993,15 +1065,18 @@ Options:
 1. 解析包标识符并从仓库名推断依赖名称
 2. 通过 `git ls-remote --tags` 解析最新的语义化版本标签（或使用固定版本）
 3. 如果没有语义化版本标签，回退到默认分支
-4. 在 `build.yo` 中追加 `build.dependency(...)`
-5. 拉取依赖并更新 `yo.lock`
+4. 在 `deps.yo` 中追加 `build.dependency(...)`（如果文件不存在则创建）
+5. 重新生成 `deps.yo` 中的 `imports` ComptimeList
+6. 拉取依赖并更新 `yo.lock`
 
 **对于本地路径依赖：**
 
 1. 从目录名推断名称
 2. 验证路径是否存在
-3. 在 `build.yo` 中追加 `build.path_dependency(...)`
-4. 打印 `add_import` 指引以连接依赖的模块
+3. 在 `deps.yo` 中追加 `build.path_dependency(...)`
+4. 重新生成 `deps.yo` 中的 `imports` ComptimeList
+
+如果 `build.yo` 已经导入了 `deps.yo`，则无需额外修改。
 
 ## `yo cache` 参考
 

@@ -46,6 +46,12 @@ export function initProject(options: InitOptions): void {
   // Generate build.yo
   fs.writeFileSync(buildYoPath, generateBuildYo(projectName));
 
+  // Generate deps.yo
+  const depsYoPath = path.join(projectDir, "deps.yo");
+  if (!fs.existsSync(depsYoPath)) {
+    fs.writeFileSync(depsYoPath, generateDepsYo());
+  }
+
   // Generate both source files
   const mainPath = path.join(projectDir, "src/main.yo");
   if (!fs.existsSync(mainPath)) {
@@ -78,6 +84,7 @@ export function initProject(options: InitOptions): void {
   console.log();
   console.log("  Created:");
   console.log(`    build.yo`);
+  console.log(`    deps.yo`);
   console.log(`    src/main.yo`);
   console.log(`    src/lib.yo`);
   console.log(`    tests/main.test.yo`);
@@ -96,10 +103,12 @@ export function initProject(options: InitOptions): void {
 
 function generateBuildYo(name: string): string {
   return `build :: import "std/build";
+{ imports } :: import "./deps.yo";
 
 mod :: build.module({ name: "${name}", root: "./src/lib.yo" });
 
 exe :: build.executable({ name: "${name}", root: "./src/main.yo" });
+exe.add_import_list(imports);
 
 lib :: build.static_library({ name: "${name}-lib", root: "./src/lib.yo" });
 
@@ -146,6 +155,32 @@ function generateTestFile(): string {
 };
 `;
 }
+
+function generateDepsYo(): string {
+  return `// Dependencies for this project.
+// Managed by \`yo install\`. Manual edits are preserved.
+//
+// Usage in build.yo:
+//   { imports } :: import "./deps.yo";
+//   exe.add_import_list(imports);
+//
+// Add a dependency:
+//   yo install user/repo
+//   yo install user/repo@v1.0.0
+//   yo install ./local-path
+
+build :: import "std/build";
+
+// --- Dependencies ---
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)();
+export imports;
+`;
+}
+
+// Exported for use by install-command.ts
+export { generateDepsYo };
 
 function generateGitignore(): string {
   return `# Build output
