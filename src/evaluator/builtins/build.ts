@@ -1130,6 +1130,37 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
+  // __yo_build_add_cflags(artifact_name, flags)
+  // Appends custom C compiler/linker flags to the artifact
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_cflags)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_add_cflags expects 2 arguments (artifact_name, flags), got ${expr.args.length}`,
+      });
+    }
+    const artifactName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+    const flags = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "flags",
+      expr.token
+    );
+
+    const artifact = registry.findArtifact(artifactName);
+    if (artifact) {
+      const flagList = flags
+        .trim()
+        .split(/\s+/)
+        .filter((f) => f.length > 0);
+      artifact.cFlags.push(...flagList);
+    }
+    return makeUnitResult(expr, env);
+  }
+
   // __yo_build_dep_module(dependency_name, module_name)
   // Returns comptime_string encoding: "dep_name\0module_name"
   // The build runner interprets this to resolve the module at build time.

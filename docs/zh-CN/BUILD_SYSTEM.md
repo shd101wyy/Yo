@@ -26,6 +26,7 @@ yo build
 ```
 my-project/
 ├── build.yo              ← 构建配置
+├── deps.yo               ← 依赖声明（由 yo install 管理）
 ├── src/
 │   ├── main.yo           ← 可执行文件入口
 │   └── lib.yo            ← 库代码
@@ -46,7 +47,9 @@ yo-out/
 │       └── libmy-project-lib.a
 └── wasm32-emscripten/           ← 交叉编译目标（Emscripten）
     └── bin/
-        └── my-project.js
+        ├── my-project.html
+        ├── my-project.js
+        └── my-project.wasm
 ```
 
 ## `build.yo`
@@ -228,11 +231,13 @@ Level 2: install                （依赖 app, tests）
 
 ### Step 方法
 
-| 方法                     | 描述                                     |
-| ------------------------ | ---------------------------------------- |
-| `step.depend_on(other)`  | 添加依赖——`other` 会在 `step` 之前构建   |
-| `step.link(library)`     | 将库链接到产物（静态库、共享库或系统库） |
-| `step.add_import(entry)` | 添加模块导入到此步骤（用于依赖模块）     |
+| 方法                            | 描述                                                |
+| ------------------------------- | --------------------------------------------------- |
+| `step.depend_on(other)`         | 添加依赖——`other` 会在 `step` 之前构建              |
+| `step.link(library)`            | 将库链接到产物（静态库、共享库或系统库）            |
+| `step.add_import(entry)`        | 添加单个模块导入到此步骤（用于依赖模块）            |
+| `step.add_import_list(entries)` | 从 `ComptimeList(ImportEntry)` 批量添加多个模块导入 |
+| `step.add_c_flags(flags)`       | 添加自定义 C 编译器/链接器标志（空格分隔的字符串）  |
 
 ### `StepKind`
 
@@ -335,15 +340,28 @@ raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd1
 exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
 
 // 导入模块——系统库（raylib）会被传递性地传播
-exe.add_import({ name: "raylib_yo", module: raylib_yo.module("") });
+exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
 ```
 
-- `dep.module("")` — 获取依赖中唯一的模块（空名称默认为唯一模块）
+- `dep.module()` — 获取依赖中唯一的模块（空名称默认为唯一模块）
 - `dep.module("name")` — 如果依赖定义了多个模块，按名称获取特定模块
-- `exe.add_import({ name, module })` — 在产物上注册一个模块导入
+- `exe.add_import({ name, module })` — 在产物上注册单个模块导入
+- `exe.add_import_list(list)` — 从 `ComptimeList(ImportEntry)` 批量注册多个模块导入
+
+### 使用 `add_import_list` 批量导入
+
+当依赖导出多个模块时，使用 `add_import_list` 一次性注册所有模块：
+
+```rust
+import_list :: ComptimeList(build.ImportEntry)(
+  { name: "mod_a", module: dep.module("a") },
+  { name: "mod_b", module: dep.module("b") }
+);
+exe.add_import_list(import_list);
+```
 
 ### `ImportEntry`
 
@@ -571,6 +589,31 @@ yo build --cc zig --target aarch64-linux-gnu
 
 缩写别名：`wasm-emscripten` → `wasm32-emscripten`，`wasm-wasi` → `wasm32-wasi`。
 
+### WASM Emscripten 环境
+
+通过 `yo build` 构建 `wasm32-emscripten` 目标时，默认输出为**浏览器**环境：
+
+- 输出为 `.html` + `.js` + `.wasm`（完整的浏览器页面）
+- **不**添加 `-sNODERAWFS`（该选项使用 `require('fs')`，浏览器中不存在）
+- 始终添加 `-sEMULATE_FUNCTION_POINTER_CASTS=1`（代码生成所需）
+- 通过 `system_library()` 声明的系统库以 `-l<name>` 形式传递给 emcc（跳过 pkg-config/vcpkg 宿主平台解析）
+
+要运行输出文件，需使用本地 HTTP 服务器（WASM 需要 HTTP，不支持 `file://`）：
+
+```bash
+cd yo-out/wasm32-emscripten/bin
+python -m http.server 8080
+# 打开 http://localhost:8080/my-project.html
+```
+
+如需 Node.js 执行环境（如无界面/服务端 WASM），可手动添加标志：
+
+```rust
+exe_wasm.add_c_flags("-sNODERAWFS=1");
+```
+
+> **注意：** `yo test --cc emcc` 始终使用 Node.js 模式（`-sNODERAWFS=1`），因为测试通过 Node 运行。
+
 ### 代码中的平台检测
 
 使用 `std/process` 编写平台相关代码：
@@ -619,6 +662,15 @@ Options:
   --name <name>          项目名称（默认：目录名）
 ```
 
+创建以下文件：
+
+- `build.yo` — 构建配置（导入 `deps.yo`）
+- `deps.yo` — 依赖声明（空模板）
+- `src/main.yo` — 可执行文件入口
+- `src/lib.yo` — 库代码
+- `tests/main.test.yo` — 测试文件
+- `.gitignore`、`README.md`
+
 ## 多目标构建
 
 可以在单个 `build.yo` 中定义针对不同目标的多个产物：
@@ -644,6 +696,9 @@ wasm :: build.executable({
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
 });
+
+// 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置
+wasm.add_c_flags("-sASYNCIFY -DPLATFORM_WEB");
 
 run_native :: build.run(native);
 
@@ -791,6 +846,68 @@ export main;
 4. `<name>.yo`
 
 路径依赖不需要拉取或锁文件条目——直接从本地文件系统解析。
+
+### `deps.yo` — 依赖声明文件
+
+`yo init` 会在 `build.yo` 旁生成一个 `deps.yo` 文件。该文件是声明所有项目依赖的集中位置，让 `build.yo` 专注于构建逻辑。
+
+**生成的 `deps.yo`（空模板）：**
+
+```rust
+// Dependencies for this project.
+// Managed by `yo install`. Manual edits are preserved.
+//
+// Usage in build.yo:
+//   { imports } :: import "./deps.yo";
+//   exe.add_import_list(imports);
+//
+// Add a dependency:
+//   yo install user/repo
+//   yo install user/repo@v1.0.0
+//   yo install ./local-path
+
+build :: import "std/build";
+
+// --- Dependencies ---
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)();
+export imports;
+```
+
+**包含依赖的 `deps.yo`：**
+
+```rust
+build :: import "std/build";
+
+// --- Dependencies ---
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+json :: build.path_dependency({ name: "json", path: "../json-yo" });
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)(
+  { name: "raylib_yo", module: raylib_yo.module() },
+  { name: "json", module: json.module() }
+);
+export imports;
+```
+
+**在 `build.yo` 中使用 `deps.yo`：**
+
+```rust
+build :: import "std/build";
+{ imports } :: import "./deps.yo";
+
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+exe.add_import_list(imports);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+运行 `yo install` 时，依赖会自动添加到 `deps.yo` 中，并重新生成 `imports` 列表。如果 `deps.yo` 不存在，会从模板创建。
+
+> **注意：** 在 `build.yo` 中直接使用 `build.dependency()` 仍然有效。`deps.yo` 模式是新项目的推荐做法。
 
 ### 全局缓存
 
@@ -948,15 +1065,18 @@ Options:
 1. 解析包标识符并从仓库名推断依赖名称
 2. 通过 `git ls-remote --tags` 解析最新的语义化版本标签（或使用固定版本）
 3. 如果没有语义化版本标签，回退到默认分支
-4. 在 `build.yo` 中追加 `build.dependency(...)`
-5. 拉取依赖并更新 `yo.lock`
+4. 在 `deps.yo` 中追加 `build.dependency(...)`（如果文件不存在则创建）
+5. 重新生成 `deps.yo` 中的 `imports` ComptimeList
+6. 拉取依赖并更新 `yo.lock`
 
 **对于本地路径依赖：**
 
 1. 从目录名推断名称
 2. 验证路径是否存在
-3. 在 `build.yo` 中追加 `build.path_dependency(...)`
-4. 打印 `add_import` 指引以连接依赖的模块
+3. 在 `deps.yo` 中追加 `build.path_dependency(...)`
+4. 重新生成 `deps.yo` 中的 `imports` ComptimeList
+
+如果 `build.yo` 已经导入了 `deps.yo`，则无需额外修改。
 
 ## `yo cache` 参考
 

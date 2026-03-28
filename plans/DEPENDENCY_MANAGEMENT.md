@@ -468,7 +468,58 @@ When dep A's source does `import "dep_b"`, import resolution falls back to the r
 
 ---
 
-## 11. Open Questions
+## 11. `deps.yo` — Declarative Dependency File
+
+`yo install` now writes dependencies to a dedicated `deps.yo` file instead of inlining them in `build.yo`.
+
+### Motivation
+
+- Separates dependency declarations from build logic
+- `yo install` never modifies `build.yo` — it only touches `deps.yo`
+- Auto-generated `imports` ComptimeList eliminates manual `add_import` calls
+
+### File Structure
+
+```rust
+// Dependencies for this project.
+// Managed by `yo install`. Manual edits are preserved.
+
+build :: import "std/build";
+
+// --- Dependencies ---
+raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
+json :: build.path_dependency({ name: "json", path: "../json-yo" });
+
+// --- Import list ---
+imports :: ComptimeList(build.ImportEntry)(
+  { name: "raylib_yo", module: raylib_yo.module() },
+  { name: "json", module: json.module() }
+);
+export imports;
+```
+
+### Usage in `build.yo`
+
+```rust
+build :: import "std/build";
+{ imports } :: import "./deps.yo";
+
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+exe.add_import_list(imports);
+```
+
+### Workflow
+
+1. `yo init` generates empty `deps.yo` and `build.yo` (with `import "./deps.yo"`)
+2. `yo install user/repo` appends dep to `deps.yo`, regenerates imports list, runs fetch
+3. `yo build` evaluates `build.yo` → imports `deps.yo` → all deps discovered transitively
+4. `yo fetch` works unchanged (evaluates `build.yo` which imports `deps.yo`)
+
+### Backward Compatibility
+
+Inline `build.dependency()` calls in `build.yo` still work. The `deps.yo` pattern is recommended for new projects but not mandatory.
+
+## 12. Open Questions
 
 1. ~~**Transitive dependencies**~~: ✅ Resolved — see Section 10.
 

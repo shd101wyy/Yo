@@ -82,7 +82,7 @@ export function getArtifactOutputFileName(
   }
 
   if (artifact.kind === "executable" && isTargetWasm(effectiveTarget)) {
-    return `${artifact.name}.js`;
+    return `${artifact.name}.html`;
   }
 
   return artifact.name;
@@ -226,14 +226,28 @@ export async function runBuild(options: BuildOptions): Promise<void> {
   }
 
   // Resolve system libraries per-artifact via pkg-config
-  // Each artifact only gets flags for system libraries explicitly linked to it
+  // Each artifact only gets flags for system libraries explicitly linked to it.
+  // For WASM targets, skip host-platform pkg-config/vcpkg resolution (paths are
+  // incompatible) but still add -l<name> so the emscripten linker finds them.
   if (registry.systemLibraries.length > 0) {
     for (const artifact of registry.artifacts) {
       if (artifact.linkedSystemLibraries.length === 0) continue;
+      const effectiveTarget = options.targetTriple ?? artifact.target;
       const linkedLibs = registry.systemLibraries.filter((lib) =>
         artifact.linkedSystemLibraries.includes(lib.name)
       );
       if (linkedLibs.length === 0) continue;
+
+      if (isTargetWasm(parseTarget(effectiveTarget))) {
+        // WASM: just add -l<name> for each linked system library
+        for (const lib of linkedLibs) {
+          if (!artifact.linkLibraries.includes(lib.name)) {
+            artifact.linkLibraries.push(lib.name);
+          }
+        }
+        continue;
+      }
+
       const sysLibFlags = resolveAllSystemLibraries(
         linkedLibs,
         options.verbose,
@@ -947,6 +961,8 @@ async function compileArtifact(
     static: artifact.staticLink,
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
+    cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
+    emccEnvironment: isTargetWasm(parsedTarget) ? "web" : undefined,
   });
 
   if (
@@ -1638,38 +1654,49 @@ function resolveImportedModule(
     );
   }
 
-  // Propagate system libraries from the module
+  // Propagate system libraries from the module.
+  // For WASM targets, skip host-platform pkg-config/vcpkg resolution but
+  // still add -l<name> so the emscripten linker finds them in its sysroot.
   if (depModule.linkedSystemLibraries.length > 0) {
-    // Find the system library definitions from the dependency's registry
-    const sysLibs = depModule.linkedSystemLibraries
-      .map((name) => depRegistry.findSystemLibrary(name))
-      .filter((lib): lib is NonNullable<typeof lib> => lib != null);
+    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
 
-    if (sysLibs.length > 0) {
-      if (verbose) {
-        console.log(
-          `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
-        );
+    if (isTargetWasm(parseTarget(artifact.target))) {
+      // WASM: just add -l<name> for each linked system library
+      for (const name of depModule.linkedSystemLibraries) {
+        if (!artifact.linkLibraries.includes(name)) {
+          artifact.linkLibraries.push(name);
+        }
       }
+    } else {
+      // Native: resolve via pkg-config/vcpkg for full paths and flags
+      const sysLibs = depModule.linkedSystemLibraries
+        .map((name) => depRegistry.findSystemLibrary(name))
+        .filter((lib): lib is NonNullable<typeof lib> => lib != null);
 
-      const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
-        preferDebugRuntime: artifact.optimize === "debug",
-      });
+      if (sysLibs.length > 0) {
+        if (verbose) {
+          console.log(
+            `  Propagating system libraries from module "${depModule.name}": ${sysLibs.map((l) => l.name).join(", ")}`
+          );
+        }
 
-      artifact.includePaths.push(...sysLibFlags.includePaths);
-      artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
-      artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
-      artifact.defines.push(...sysLibFlags.defines);
-      artifact.cFlags.push(...sysLibFlags.cFlags);
-      artifact.runtimeFiles ??= [];
-      for (const runtimeFile of sysLibFlags.runtimeFiles) {
-        if (!artifact.runtimeFiles.includes(runtimeFile)) {
-          artifact.runtimeFiles.push(runtimeFile);
+        const sysLibFlags = resolveAllSystemLibraries(sysLibs, verbose, {
+          preferDebugRuntime: artifact.optimize === "debug",
+        });
+
+        artifact.includePaths.push(...sysLibFlags.includePaths);
+        artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+        artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+        artifact.defines.push(...sysLibFlags.defines);
+        artifact.cFlags.push(...sysLibFlags.cFlags);
+        artifact.runtimeFiles ??= [];
+        for (const runtimeFile of sysLibFlags.runtimeFiles) {
+          if (!artifact.runtimeFiles.includes(runtimeFile)) {
+            artifact.runtimeFiles.push(runtimeFile);
+          }
         }
       }
     }
-
-    imported.propagatedSystemLibraries = [...depModule.linkedSystemLibraries];
   }
 }
 
@@ -1682,6 +1709,17 @@ function propagateSystemLibraries(
   sysLibNames: string[],
   verbose: boolean
 ): void {
+  // For WASM targets, skip host-platform pkg-config/vcpkg resolution but
+  // still add -l<name> so the emscripten linker finds them in its sysroot.
+  if (isTargetWasm(parseTarget(artifact.target))) {
+    for (const name of sysLibNames) {
+      if (!artifact.linkLibraries.includes(name)) {
+        artifact.linkLibraries.push(name);
+      }
+    }
+    return;
+  }
+
   const sysLibs = sysLibNames
     .map((name) => registry.findSystemLibrary(name))
     .filter((lib): lib is NonNullable<typeof lib> => lib != null);
@@ -1793,6 +1831,8 @@ async function compileDependencyArtifact(
     static: artifact.staticLink,
     shared: artifact.kind === "shared_library",
     staticLibrary: artifact.kind === "static_library",
+    cflags: artifact.cFlags.length > 0 ? artifact.cFlags.join(" ") : undefined,
+    emccEnvironment: isTargetWasm(parsedTarget) ? "web" : undefined,
   });
 
   if (
@@ -1839,20 +1879,25 @@ async function runExecutable(
     process.exit(1);
   }
 
-  // WASM executables (.js) need to be run with node
+  // WASM executables (.html) produce .js alongside — run with node
   const parsedTarget = parseTarget(effectiveTarget);
   const isWasm = isTargetWasm(parsedTarget);
 
   const { spawnSync } = await import("child_process");
-  const result = isWasm
-    ? spawnSync("node", [exePath, ...args], {
-        stdio: "inherit",
-        cwd: projectDir,
-      })
-    : spawnSync(exePath, args, {
-        stdio: "inherit",
-        cwd: projectDir,
-      });
+  let result;
+  if (isWasm) {
+    // emcc with .html output generates .js alongside — use the .js for node execution
+    const jsPath = exePath.replace(/\.html$/, ".js");
+    result = spawnSync("node", [jsPath, ...args], {
+      stdio: "inherit",
+      cwd: projectDir,
+    });
+  } else {
+    result = spawnSync(exePath, args, {
+      stdio: "inherit",
+      cwd: projectDir,
+    });
+  }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }

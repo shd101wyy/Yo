@@ -160,6 +160,6 @@ I feel like I've regained the passion I had when building `Walley` and `Markdown
 ;; 死了，没留下任何遗憾。
 ```
 
-By Yiyi,
-For Yo: https://github.com/shd101wyy/Yo
+By Yiyi,  
+For Yo: https://github.com/shd101wyy/Yo  
 March 2026

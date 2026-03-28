@@ -1,11 +1,12 @@
 /**
  * Implementation for the `yo install` CLI command.
  *
- * Installs a git dependency by:
+ * Installs a git or path dependency by:
  * 1. Parsing the package specifier (e.g., "github.com/user/repo@v1.0.0")
  * 2. Resolving the latest semver tag (or falling back to the default branch)
- * 3. Appending a build.dependency(...) call to build.yo
- * 4. Running yo fetch to populate the cache and lock file
+ * 3. Appending a build.dependency(...) or build.path_dependency(...) call to deps.yo
+ * 4. Regenerating the `imports` ComptimeList in deps.yo
+ * 5. Running yo fetch to populate the cache and lock file
  */
 
 import * as fs from "fs";
@@ -17,6 +18,7 @@ import {
 } from "./evaluator/builtins/build";
 import { fetchAllDependencies } from "./fetch";
 import { ModuleManager } from "./module-manager";
+import { generateDepsYo } from "./init";
 
 export interface InstallOptions {
   /** Package specifier: "github.com/user/repo" or "github.com/user/repo@v1.0.0" */
@@ -218,9 +220,9 @@ function resolveDefaultBranch(url: string): string {
 }
 
 /**
- * Check if a dependency already exists in build.yo content.
+ * Check if a dependency already exists in deps.yo content.
  */
-function dependencyExistsInBuildFile(content: string, name: string): boolean {
+function dependencyExistsInDepsFile(content: string, name: string): boolean {
   const escaped = escapeRegex(name);
   const gitPattern = new RegExp(
     `build\\.dependency\\(\\{[^}]*name:\\s*"${escaped}"`,
@@ -238,60 +240,138 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Insert a build.dependency() or build.path_dependency() call into build.yo.
- * Inserts before the first build.executable/build.static_library/build.test call
- * so the dependency binding is available for exe.add_import().
+ * Parse all dependency names from deps.yo content.
+ * Finds patterns like: `name :: build.dependency(...)` or `name :: build.path_dependency(...)`
  */
-function appendDependencyToBuildFile(
-  buildFilePath: string,
+function parseDependencyNames(content: string): string[] {
+  const names: string[] = [];
+  const pattern =
+    /^([a-zA-Z_]\w*)\s*::\s*build\.(dependency|path_dependency)\s*\(/gm;
+  let match;
+  while ((match = pattern.exec(content)) !== null) {
+    if (match[1]) {
+      names.push(match[1]);
+    }
+  }
+  return names;
+}
+
+/**
+ * Regenerate the `imports :: ComptimeList(...)` and `export imports;` block
+ * in deps.yo content based on all dependency declarations found.
+ * Preserves any content the user added after `export imports;`.
+ */
+function regenerateImportsList(content: string): string {
+  const depNames = parseDependencyNames(content);
+
+  // Build the new imports block
+  let importsBlock: string;
+  if (depNames.length === 0) {
+    importsBlock = `imports :: ComptimeList(build.ImportEntry)();\nexport imports;\n`;
+  } else {
+    const entries = depNames
+      .map((name) => `  { name: "${name}", module: ${name}.module() }`)
+      .join(",\n");
+    importsBlock = `imports :: ComptimeList(build.ImportEntry)(\n${entries}\n);\nexport imports;\n`;
+  }
+
+  // Replace existing imports block (between "// --- Import list ---" and "export imports;")
+  // Preserve any user content after "export imports;"
+  const importListMarker = "// --- Import list ---";
+  const markerIdx = content.indexOf(importListMarker);
+  if (markerIdx !== -1) {
+    const exportImportsPattern = /export imports;\n?/;
+    const afterMarker = content.slice(markerIdx);
+    const exportMatch = exportImportsPattern.exec(afterMarker);
+    if (exportMatch) {
+      const endOfBlock = markerIdx + exportMatch.index + exportMatch[0].length;
+      const tail = content.slice(endOfBlock);
+      return (
+        content.slice(0, markerIdx) +
+        importListMarker +
+        "\n" +
+        importsBlock +
+        tail
+      );
+    }
+    // No "export imports;" found — replace to end
+    return content.slice(0, markerIdx) + importListMarker + "\n" + importsBlock;
+  }
+
+  // Fallback: append at end
+  if (!content.endsWith("\n")) {
+    content += "\n";
+  }
+  return content + "\n" + importListMarker + "\n" + importsBlock;
+}
+
+/**
+ * Insert a dependency declaration into deps.yo and regenerate the imports list.
+ * Creates deps.yo from template if it doesn't exist.
+ */
+function appendDependencyToDepsFile(
+  depsFilePath: string,
   parsed: ParsedPackage | ParsedLocalPackage,
   ref?: string
 ): boolean {
-  let content = fs.readFileSync(buildFilePath, "utf-8");
+  // Create deps.yo from template if it doesn't exist
+  if (!fs.existsSync(depsFilePath)) {
+    fs.writeFileSync(depsFilePath, generateDepsYo(), "utf-8");
+    console.log(`Created ${path.basename(depsFilePath)}`);
+  }
+
+  let content = fs.readFileSync(depsFilePath, "utf-8");
 
   // Check if already exists
-  if (dependencyExistsInBuildFile(content, parsed.name)) {
+  if (dependencyExistsInDepsFile(content, parsed.name)) {
     console.log(
-      `Dependency "${parsed.name}" already exists in ${path.basename(buildFilePath)}. ` +
+      `Dependency "${parsed.name}" already exists in ${path.basename(depsFilePath)}. ` +
         `Update it manually if needed.`
     );
     return false;
   }
 
-  // Build the dependency declaration
+  // Build the dependency declaration line
   let depLine: string;
   if (parsed.kind === "path") {
-    depLine = `${parsed.name} :: build.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n\n`;
+    depLine = `${parsed.name} :: build.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n`;
   } else {
-    depLine = `${parsed.name} :: build.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n\n`;
+    depLine = `${parsed.name} :: build.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n`;
   }
 
-  // Try to insert before the first artifact declaration so the binding
-  // is available for exe.add_import() calls below it.
-  const artifactPattern =
-    /^[a-zA-Z_]\w*\s*::?\s*build\.(executable|static_library|shared_library|test)\s*\(/m;
-  const match = artifactPattern.exec(content);
-
-  if (match?.index !== undefined) {
-    content =
-      content.slice(0, match.index) + depLine + content.slice(match.index);
+  // Insert after "// --- Dependencies ---" marker
+  const depMarker = "// --- Dependencies ---";
+  const depMarkerIdx = content.indexOf(depMarker);
+  if (depMarkerIdx !== -1) {
+    const insertPos = depMarkerIdx + depMarker.length + 1; // after the marker line
+    content = content.slice(0, insertPos) + depLine + content.slice(insertPos);
   } else {
-    // Fallback: append at end
-    if (!content.endsWith("\n")) {
-      content += "\n";
+    // Fallback: insert before imports marker or append
+    const importMarkerIdx = content.indexOf("// --- Import list ---");
+    if (importMarkerIdx !== -1) {
+      content =
+        content.slice(0, importMarkerIdx) +
+        depLine +
+        "\n" +
+        content.slice(importMarkerIdx);
+    } else {
+      if (!content.endsWith("\n")) content += "\n";
+      content += "\n" + depLine;
     }
-    content += "\n" + depLine;
   }
 
-  fs.writeFileSync(buildFilePath, content, "utf-8");
+  // Regenerate the imports list
+  content = regenerateImportsList(content);
+
+  fs.writeFileSync(depsFilePath, content, "utf-8");
 
   if (parsed.kind === "path") {
     console.log(
-      `Added path dependency "${parsed.name}" (${parsed.path}) to ${path.basename(buildFilePath)}`
+      `Added path dependency "${parsed.name}" (${parsed.path}) to ${path.basename(depsFilePath)}`
     );
   } else {
     console.log(
-      `Added dependency "${parsed.name}" @ ${ref} to ${path.basename(buildFilePath)}`
+      `Added dependency "${parsed.name}" @ ${ref} to ${path.basename(depsFilePath)}`
     );
   }
   return true;
@@ -303,7 +383,7 @@ export async function runInstall(options: InstallOptions): Promise<void> {
   // 1. Parse the package specifier
   const parsed = parsePackageSpecifier(packageSpec);
 
-  // 2. Locate and validate build.yo
+  // 2. Locate and validate build.yo (ensures project exists)
   const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
   const resolvedBuildFile = path.resolve(userCwd, buildFile);
   if (!fs.existsSync(resolvedBuildFile)) {
@@ -311,6 +391,10 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     console.error("Run 'yo init' to create a project with a build.yo file.");
     process.exit(1);
   }
+
+  // deps.yo lives alongside build.yo
+  const projectDir = path.dirname(resolvedBuildFile);
+  const depsFilePath = path.join(projectDir, "deps.yo");
 
   if (parsed.kind === "path") {
     // Local path dependency
@@ -328,8 +412,8 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     console.log(
       `Installing local dependency "${parsed.name}" from ${parsed.path}...`
     );
-    appendDependencyToBuildFile(resolvedBuildFile, parsed);
-    printAddImportGuidance(parsed.name);
+    appendDependencyToDepsFile(depsFilePath, parsed);
+    printAddImportGuidance(depsFilePath, resolvedBuildFile);
     console.log("Done.");
     return;
   }
@@ -365,16 +449,13 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     console.log(`Installing ${parsed.name} @ ${ref} ...`);
   }
 
-  // 4. Append dependency to build.yo
-  const added = appendDependencyToBuildFile(resolvedBuildFile, parsed, ref);
+  // 4. Append dependency to deps.yo
+  const added = appendDependencyToDepsFile(depsFilePath, parsed, ref);
   if (!added) return;
 
-  // 5. Fetch the dependency
-  const projectDir = path.dirname(resolvedBuildFile);
-
-  // Re-evaluate build.yo to get all dependencies
+  // 5. Fetch the dependency by evaluating deps.yo to discover all deps
   clearBuildRegistry();
-  const modulePath = `file://${fs.realpathSync(resolvedBuildFile)}`;
+  const modulePath = `file://${fs.realpathSync(depsFilePath)}`;
   try {
     const moduleManager = new ModuleManager();
     moduleManager.loadModule(modulePath);
@@ -392,13 +473,32 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     console.log("Done. Lock file updated: yo.lock");
   }
 
-  printAddImportGuidance(parsed.name);
+  printAddImportGuidance(depsFilePath, resolvedBuildFile);
 }
 
-function printAddImportGuidance(depName: string): void {
+/**
+ * Check if build.yo already imports deps.yo.
+ */
+function buildFileImportsDeps(buildFilePath: string): boolean {
+  if (!fs.existsSync(buildFilePath)) return false;
+  const content = fs.readFileSync(buildFilePath, "utf-8");
+  return content.includes('import "./deps.yo"');
+}
+
+function printAddImportGuidance(
+  depsFilePath: string,
+  buildFilePath: string
+): void {
   console.log();
-  console.log("To use this dependency in your project, add to your build.yo:");
-  console.log(
-    `  exe.add_import({ name: "${depName}", module: ${depName}.module("") });`
-  );
+
+  if (!buildFileImportsDeps(buildFilePath)) {
+    console.log("Add the following to your build.yo:");
+    console.log('  { imports } :: import "./deps.yo";');
+    console.log("  exe.add_import_list(imports);");
+  } else {
+    console.log(
+      `Dependencies updated in ${path.basename(depsFilePath)}. ` +
+        `Your build.yo already imports deps.yo — no further changes needed.`
+    );
+  }
 }

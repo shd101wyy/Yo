@@ -149,6 +149,18 @@ impl(Step,
   }),
   add_import : (fn(comptime(self) : Self, comptime(entry) : ImportEntry) -> comptime(unit))({
     __yo_build_add_import(self.name, entry.name, entry.module.name, entry.module._dep);
+  }),
+  add_import_list : (fn(comptime(self) : Self, comptime(entries) : ComptimeList(ImportEntry)) -> comptime(unit))({
+    cond(
+      (entries.len() == usize(0)) => (),
+      true => {
+        self.add_import(entries.car());
+        recur(self, entries.cdr())
+      }
+    )
+  }),
+  add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_string) -> comptime(unit))({
+    __yo_build_add_cflags(self.name, flags);
   })
 );
 
@@ -214,7 +226,7 @@ impl(Dependency,
   }),
   // Get a module from the dependency's build.yo.
   // Empty module_name defaults to the sole module if exactly one exists.
-  module : (fn(comptime(self) : Self, comptime(module_name) : comptime_string) -> comptime(BuildModule))({
+  module : (fn(comptime(self) : Self, (comptime(module_name) : comptime_string) ?= "") -> comptime(BuildModule))({
     _encoded :: __yo_build_dep_module(self.name, module_name);
     BuildModule(name: module_name, root: "", _dep: self.name)
   })
