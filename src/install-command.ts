@@ -259,6 +259,7 @@ function parseDependencyNames(content: string): string[] {
 /**
  * Regenerate the `imports :: ComptimeList(...)` and `export imports;` block
  * in deps.yo content based on all dependency declarations found.
+ * Preserves any content the user added after `export imports;`.
  */
 function regenerateImportsList(content: string): string {
   const depNames = parseDependencyNames(content);
@@ -269,15 +270,31 @@ function regenerateImportsList(content: string): string {
     importsBlock = `imports :: ComptimeList(build.ImportEntry)();\nexport imports;\n`;
   } else {
     const entries = depNames
-      .map((name) => `  { name: "${name}", module: ${name}.module("") }`)
+      .map((name) => `  { name: "${name}", module: ${name}.module() }`)
       .join(",\n");
     importsBlock = `imports :: ComptimeList(build.ImportEntry)(\n${entries}\n);\nexport imports;\n`;
   }
 
-  // Replace existing imports block (between "// --- Import list ---" and end of file)
+  // Replace existing imports block (between "// --- Import list ---" and "export imports;")
+  // Preserve any user content after "export imports;"
   const importListMarker = "// --- Import list ---";
   const markerIdx = content.indexOf(importListMarker);
   if (markerIdx !== -1) {
+    const exportImportsPattern = /export imports;\n?/;
+    const afterMarker = content.slice(markerIdx);
+    const exportMatch = exportImportsPattern.exec(afterMarker);
+    if (exportMatch) {
+      const endOfBlock = markerIdx + exportMatch.index + exportMatch[0].length;
+      const tail = content.slice(endOfBlock);
+      return (
+        content.slice(0, markerIdx) +
+        importListMarker +
+        "\n" +
+        importsBlock +
+        tail
+      );
+    }
+    // No "export imports;" found — replace to end
     return content.slice(0, markerIdx) + importListMarker + "\n" + importsBlock;
   }
 

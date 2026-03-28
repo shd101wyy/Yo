@@ -492,8 +492,8 @@ json :: build.path_dependency({ name: "json", path: "../json-yo" });
 
 // --- Import list ---
 imports :: ComptimeList(build.ImportEntry)(
-  { name: "raylib_yo", module: raylib_yo.module("") },
-  { name: "json", module: json.module("") }
+  { name: "raylib_yo", module: raylib_yo.module() },
+  { name: "json", module: json.module() }
 );
 export imports;
 ```

@@ -340,13 +340,13 @@ raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd1
 exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
 
 // 导入模块——系统库（raylib）会被传递性地传播
-exe.add_import({ name: "raylib_yo", module: raylib_yo.module("") });
+exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
 ```
 
-- `dep.module("")` — 获取依赖中唯一的模块（空名称默认为唯一模块）
+- `dep.module()` — 获取依赖中唯一的模块（空名称默认为唯一模块）
 - `dep.module("name")` — 如果依赖定义了多个模块，按名称获取特定模块
 - `exe.add_import({ name, module })` — 在产物上注册单个模块导入
 - `exe.add_import_list(list)` — 从 `ComptimeList(ImportEntry)` 批量注册多个模块导入
@@ -886,8 +886,8 @@ json :: build.path_dependency({ name: "json", path: "../json-yo" });
 
 // --- Import list ---
 imports :: ComptimeList(build.ImportEntry)(
-  { name: "raylib_yo", module: raylib_yo.module("") },
-  { name: "json", module: json.module("") }
+  { name: "raylib_yo", module: raylib_yo.module() },
+  { name: "json", module: json.module() }
 );
 export imports;
 ```

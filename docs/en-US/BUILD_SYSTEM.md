@@ -340,13 +340,13 @@ raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd1
 exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
 
 // Import the module — system libraries (raylib) are transitively propagated
-exe.add_import({ name: "raylib_yo", module: raylib_yo.module("") });
+exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
 ```
 
-- `dep.module("")` — get the sole module from a dependency (empty name defaults to the only module)
+- `dep.module()` — get the sole module from a dependency (empty name defaults to the only module)
 - `dep.module("name")` — get a specific module by name if the dependency defines multiple modules
 - `exe.add_import({ name, module })` — register a single module import on an artifact
 - `exe.add_import_list(list)` — register multiple module imports at once from a `ComptimeList(ImportEntry)`
@@ -886,8 +886,8 @@ json :: build.path_dependency({ name: "json", path: "../json-yo" });
 
 // --- Import list ---
 imports :: ComptimeList(build.ImportEntry)(
-  { name: "raylib_yo", module: raylib_yo.module("") },
-  { name: "json", module: json.module("") }
+  { name: "raylib_yo", module: raylib_yo.module() },
+  { name: "json", module: json.module() }
 );
 export imports;
 ```
