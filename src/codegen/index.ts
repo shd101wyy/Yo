@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawnSync, type SpawnSyncOptions } from "child_process";
 import * as fs from "fs";
 import path from "path";
 import {
@@ -8,6 +8,10 @@ import {
   isLiburingAvailable,
 } from "../compiler-utils";
 import { ModuleManager } from "../module-manager";
+
+// On Windows, .bat/.cmd scripts require shell:true for spawnSync to find them.
+const spawnShellOption: SpawnSyncOptions =
+  process.platform === "win32" ? { shell: true } : {};
 import {
   type TargetInfo,
   clangTriple,
@@ -280,6 +284,7 @@ export class CodeGenerator {
           );
           const objResult = spawnSync(compiler, compileToObjArgs, {
             stdio: "inherit",
+            ...spawnShellOption,
           });
           if (objResult.error || objResult.status !== 0) {
             console.error(`Object compilation failed`);
@@ -300,7 +305,10 @@ export class CodeGenerator {
             : [...archiver.argsPrefix, "rcs", archiveFile, objectFile];
 
           console.log(`Creating archive: ${arTool} ${arArgs.join(" ")}`);
-          const arResult = spawnSync(arTool, arArgs, { stdio: "inherit" });
+          const arResult = spawnSync(arTool, arArgs, {
+            stdio: "inherit",
+            ...spawnShellOption,
+          });
           if (arResult.error || arResult.status !== 0) {
             console.error(`Archive creation failed`);
             process.exit(arResult.status || 1);
@@ -586,7 +594,10 @@ export class CodeGenerator {
 
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
 
-        const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
+        const result = spawnSync(compiler, compileArgs, {
+          stdio: "inherit",
+          ...spawnShellOption,
+        });
 
         if (result.error) {
           console.error(`Compilation failed: ${result.error.message}`);
