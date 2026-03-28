@@ -87,6 +87,44 @@ function reEvaluateFunctionType({
   specializedEnv: Environment;
   SelfType: Type | undefined;
 }): FunctionType {
+  // Build re-evaluation env by merging the function type's definition env
+  // (which captures scope variables like `F` from HKT trait constructors)
+  // with the substitution frame from specializedEnv (which has concrete bindings
+  // like A=i32 from the generic impl's forall parameters).
+  const substitutionFrame =
+    specializedEnv.frames[specializedEnv.frames.length - 1]!;
+  const substitutionNames = new Set(
+    substitutionFrame.variables.map((v) => v.name)
+  );
+
+  // The functionType.env does NOT include forall params (they were popped into
+  // parametersFrame). We need to re-add unresolved forall params so that nested
+  // type expressions like `(fn(a: A) -> B)` can reference them.
+  const baseEnv = pushEnvFrame(functionType.env, substitutionFrame);
+
+  // Add forall parameter variables that are NOT resolved by substitutions
+  // (e.g., B in Functor's map when only A is resolved from impl's forall)
+  // These are added to a separate env used only for re-evaluation, NOT stored
+  // in the returned function type's env (otherwise they'd conflict with forall
+  // arg processing at the call site).
+  let reEvalEnv = baseEnv;
+  const forallParamVars = functionType.parametersFrame.variables.filter(
+    (v) =>
+      functionType.forallParameters.some((fp) => fp.label === v.name) &&
+      !substitutionNames.has(v.name)
+  );
+  if (forallParamVars.length > 0) {
+    reEvalEnv = pushEnvFrame(baseEnv);
+    for (const v of forallParamVars) {
+      const { env: nextEnv } = addVariableToEnv({
+        env: reEvalEnv,
+        variable: { ...v },
+        allowVariableShadowing: true,
+      });
+      reEvalEnv = nextEnv;
+    }
+  }
+
   // Re-evaluate each parameter's type expression
   const newParameters: FunctionParameter[] = functionType.parameters.map(
     (param) => {
@@ -99,7 +137,7 @@ function reEvaluateFunctionType({
       const typeExprClone = cloneExpr(param.exprs.typeExpr);
       const evaluatedTypeExpr = evaluateExpression({
         expr: typeExprClone,
-        env: specializedEnv,
+        env: reEvalEnv,
         context: {
           isEvaluatingGenericImplSpecialization: true,
           stdPath: "",
@@ -127,7 +165,7 @@ function reEvaluateFunctionType({
   const returnTypeExprClone = cloneExpr(functionType.return.typeExpr);
   const evaluatedReturnTypeExpr = evaluateExpression({
     expr: returnTypeExprClone,
-    env: specializedEnv,
+    env: reEvalEnv,
     context: {
       isEvaluatingGenericImplSpecialization: true,
       stdPath: "",
@@ -146,6 +184,13 @@ function reEvaluateFunctionType({
     newSelfType = SelfType;
   }
 
+  // Determine which forall parameters have been resolved by the substitutions.
+  // Only clear forall parameters whose names exist in the substitution frame;
+  // method-level forall params (like B in Functor's map) may remain unresolved.
+  const remainingForallParams = functionType.forallParameters.filter(
+    (fp) => !substitutionNames.has(fp.label)
+  );
+
   // Create the new parametersFrame with re-evaluated types
   const newParametersFrame = {
     ...functionType.parametersFrame,
@@ -163,8 +208,8 @@ function reEvaluateFunctionType({
 
   return {
     ...functionType,
-    env: specializedEnv,
-    forallParameters: [], // Clear forall parameters since we've specialized them
+    env: baseEnv,
+    forallParameters: remainingForallParams,
     parameters: newParameters,
     parametersFrame: newParametersFrame,
     return: { ...functionType.return, type: newReturnType },

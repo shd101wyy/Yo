@@ -37,6 +37,7 @@ import type {
   TraitType,
   TupleType,
   Type,
+  TypeApplicationType,
   TypeField,
   TypeHierarchyType,
   UnionType,
@@ -1259,6 +1260,29 @@ export function createDynType({
   */
 
   return dynType;
+}
+
+/**
+ * Create a TypeApplicationType representing the symbolic application of an
+ * abstract type constructor to type arguments. E.g., `F(A)` where F is abstract.
+ */
+export function createTypeApplicationType(
+  constructor: SomeType,
+  args: Type[],
+  resultKind: Type,
+  env: Environment
+): TypeApplicationType {
+  const trait = createTraitType(env);
+  const typeApp: TypeApplicationType = {
+    id: `typeapp_${constructor.id}_${args.map((a) => a.id).join("_")}_${randomId(env.modulePath)}`,
+    tag: TypeTag.TypeApplication,
+    constructor,
+    args,
+    resultKind,
+    trait,
+  };
+  trait.receiverType = typeApp;
+  return typeApp;
 }
 
 export function clearAllCachedTypes(): void {

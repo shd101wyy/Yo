@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
+  addWhereClauseConstraintForTypeApplication,
   type Environment,
   getVariablesFromEnv,
   popEnvFrame,
@@ -48,6 +49,7 @@ import {
   isFunctionType,
   isSomeType,
   isTraitType,
+  isTypeApplicationType,
 } from "../../types/guards";
 import { getFunctionParameterToken, typeOfType } from "../../types/hierarchy";
 import {
@@ -1170,7 +1172,7 @@ function parseWhereClauseConstraints({
         };
       }
     } else {
-      // Evaluate the LHS expression (must be a SomeType - type parameter)
+      // Evaluate the LHS expression (must be a SomeType or TypeApplication)
       const evaluatedLhs = evaluateExpression({
         expr: lhsExpr,
         env,
@@ -1189,6 +1191,91 @@ function parseWhereClauseConstraints({
       env = evaluatedLhs.$.env;
 
       const lhsTypeValue = evaluatedLhs.$.value;
+
+      // HKT: Check if LHS is a TypeApplication (e.g., F(A) in `where(F(A) <: Functor(F))`)
+      if (isTypeApplicationType(lhsTypeValue.value)) {
+        const typeApp = lhsTypeValue.value;
+
+        // Parse and evaluate the RHS trait(s)
+        const traitExprsForTypeApp: Expr[] = [];
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+        ) {
+          traitExprsForTypeApp.push(...rhsExpr.args);
+        } else {
+          traitExprsForTypeApp.push(rhsExpr);
+        }
+
+        for (const traitExpr of traitExprsForTypeApp) {
+          let isNegated = false;
+          let unwrappedTraitExpr = traitExpr;
+          if (
+            exprIsFunctionCall(traitExpr) &&
+            exprIsFunctionCallOf(traitExpr, "!") &&
+            traitExpr.args.length === 1
+          ) {
+            isNegated = true;
+            unwrappedTraitExpr = traitExpr.args[0]!;
+          }
+
+          let evaluatedRhs: Expr;
+          try {
+            evaluatedRhs = evaluateExpression({
+              expr: unwrappedTraitExpr,
+              env,
+              context: { ...context },
+            });
+          } catch (error) {
+            if (collectPendingTraits) {
+              pendingTraits.push({
+                lhsExpr,
+                traitExpr,
+                originalConstraintExpr: constraintExpr,
+              });
+              continue;
+            }
+            throw error;
+          }
+
+          if (
+            !evaluatedRhs.$ ||
+            !evaluatedRhs.$.value ||
+            !isTypeValue(evaluatedRhs.$.value)
+          ) {
+            if (collectPendingTraits) {
+              pendingTraits.push({
+                lhsExpr,
+                traitExpr,
+                originalConstraintExpr: constraintExpr,
+              });
+              continue;
+            }
+            throw formatErrorMessage({
+              token: unwrappedTraitExpr.token,
+              errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
+            });
+          }
+          env = evaluatedRhs.$.env;
+
+          const traitTypeValue = evaluatedRhs.$.value;
+          if (!isTraitType(traitTypeValue.value)) {
+            throw formatErrorMessage({
+              token: unwrappedTraitExpr.token,
+              errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
+            });
+          }
+
+          const traitType = traitTypeValue.value;
+          env = addWhereClauseConstraintForTypeApplication({
+            env,
+            typeApp,
+            traitType,
+            isNegated,
+          });
+        }
+        continue;
+      }
 
       // Check if this is a SomeType (type parameter) or a concrete type
       if (!isSomeType(lhsTypeValue.value)) {

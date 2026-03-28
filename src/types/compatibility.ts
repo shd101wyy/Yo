@@ -5,7 +5,13 @@ import {
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import type { FunctionType, SomeType, TraitType, Type } from "./definitions";
+import type {
+  FunctionType,
+  SomeType,
+  TraitType,
+  Type,
+  TypeApplicationType,
+} from "./definitions";
 import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArcType,
@@ -33,6 +39,7 @@ import {
   isStructType,
   isTraitType,
   isTupleType,
+  isTypeApplicationType,
   isTypeHierarchyType,
   isU8Type,
   isUnionType,
@@ -947,6 +954,35 @@ export function areTypesCompatible(
       { type: givenType_, env: given.env },
       requireExactMatch,
       visitedPairs
+    );
+  }
+
+  // TypeApplication compatibility: TypeApp(F, [A]) ≡ TypeApp(G, [B]) iff F≡G and A≡B
+  if (
+    isTypeApplicationType(expected.type) &&
+    isTypeApplicationType(given.type)
+  ) {
+    const expectedApp = expected.type as TypeApplicationType;
+    const givenApp = given.type as TypeApplicationType;
+
+    // Same constructor (by SomeType identity)
+    if (expectedApp.constructor.id !== givenApp.constructor.id) {
+      return false;
+    }
+
+    // Same number of args
+    if (expectedApp.args.length !== givenApp.args.length) {
+      return false;
+    }
+
+    // All args compatible
+    return expectedApp.args.every((expectedArg, i) =>
+      areTypesCompatible(
+        { type: expectedArg, env: expected.env },
+        { type: givenApp.args[i]!, env: given.env },
+        requireExactMatch,
+        visitedPairs
+      )
     );
   }
 

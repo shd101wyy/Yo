@@ -94,4 +94,7 @@ export enum TypeTag {
 
   // Effect row type — holds a list of implicit parameters bound to an effect row variable
   EffectsRow = "EffectsRow",
+
+  // Higher-kinded type application — represents F(A) when F is an abstract type constructor
+  TypeApplication = "TypeApplication",
 }

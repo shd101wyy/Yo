@@ -20,6 +20,7 @@ import type {
   TraitType,
   TupleType,
   Type,
+  TypeApplicationType,
   TypeHierarchyType,
   UnionType,
   VoidType,
@@ -253,6 +254,12 @@ export function isArcType(type?: Type): type is ArcType {
 
 export function isDynType(type?: Type): type is DynType {
   return type?.tag === TypeTag.Dyn;
+}
+
+export function isTypeApplicationType(
+  type?: Type
+): type is TypeApplicationType {
+  return type?.tag === TypeTag.TypeApplication;
 }
 
 /**

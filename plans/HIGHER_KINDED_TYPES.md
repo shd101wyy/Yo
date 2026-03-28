@@ -287,6 +287,48 @@ Phase 1 → Phase 2 → Phase 3 → Phase 5 → Phase 4 → Phase 6 → Phase 7
 Phase 5 (compatibility) before Phase 4 (resolution) because the evaluator needs compatibility
 checks while building types with TypeApplications before resolution happens.
 
+## Implementation Notes
+
+### Phase 1–3: Core Type System (Complete)
+
+- `TypeApplication` added to TypeTag enum, with full type interface, guard, creator, toString, and compatibility.
+- `SomeType.kindFunctionType` stores the function-type kind for HKT forall params.
+- `createUnknownValue` detects function-type-kinded forall params and creates SomeType with `kindFunctionType`.
+- In `evaluateFunctionCall` (function.ts), when callee is SomeType with `kindFunctionType`, creates `TypeApplicationType` instead of attempting a function call.
+
+### Phase 4: TypeApplication Resolution (Complete)
+
+Key challenge: generic impl re-evaluation for HKT traits.
+
+- Added where-clause constraint storage for TypeApplications in `env.ts`:
+  `typeApplicationConstraintKey()`, `addWhereClauseConstraintForTypeApplication()`, `getWhereClauseConstraintsForTypeApplication()`.
+- Modified `getReceiverMethodsByNameFromEnv` to check TypeApplication constraints for method dispatch.
+- Modified `parseWhereClauseConstraints` in `function.ts` to handle TypeApplication LHS.
+- **Critical fix in `reEvaluateFunctionType` (impl.ts):**
+  - The function type's `env` does NOT include forall params (they're in `parametersFrame`).
+  - Must temporarily add unresolved forall params back into `reEvalEnv` for type expression re-evaluation.
+  - But the returned `env` must NOT include these forall params — otherwise call-site forall arg processing will hit variable shadowing errors.
+  - Solution: separate `reEvalEnv` (with forall params, used for re-evaluation) from `baseEnv` (without, stored in result).
+- **Method call forall detection:** When `x.map(forall(i32), ...)` is processed, the call args become `[self, forall(i32), closure]`. Added detection for forall at index 1 (after prepended self) in `helper.ts`.
+
+### Phase 5: TypeApplication Compatibility (Complete)
+
+- `TypeApp(F, [A]) ≡ TypeApp(G, [B])` iff `F.id === G.id` and all args compatible.
+
+### Phase 6: Partial Application with `_` (Complete)
+
+- No lexer/parser changes needed — `_` is already tokenized as an identifier.
+- Detection added in `evaluateFunctionCall` (function.ts): when calling a comptime type-constructor function with `_` args.
+- Creates a synthetic `FunctionValue` that:
+  - Captures non-`_` args as variables in the closure env.
+  - Takes `_` positions as parameters.
+  - Body is a `FnCallExpr` calling the original function with mixed captured + parameter refs.
+- Example: `Result(_, MyError)` → `fn(comptime(__pa_0) : Type) -> comptime(Type)` that calls `Result(__pa_0, MyError)`.
+
+### Phase 7: Tests (Complete)
+
+- `tests/higher_kinded_types.test.yo` — 12 integration tests covering all features.
+
 ## Non-goals (for now)
 
 - Associated type constructors in traits (Path B) — can be added later on top of this

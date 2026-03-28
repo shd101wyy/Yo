@@ -10,6 +10,7 @@ import type {
   SomeType,
   TraitType,
   Type,
+  TypeApplicationType,
 } from "./types/definitions";
 import {
   isComptimeFloatType,
@@ -22,6 +23,7 @@ import {
   isPtrType,
   isSomeType,
   isTraitType,
+  isTypeApplicationType,
 } from "./types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -437,6 +439,101 @@ export function getWhereClauseConstraintsForSomeType(
           negativeIds.add(trait.id);
           negativeTraits.push(trait);
         }
+      }
+    }
+  }
+
+  if (!found) {
+    return undefined;
+  }
+
+  return { requiredTraits, negativeTraits };
+}
+
+/**
+ * Generate a structural key for a TypeApplicationType for use in where clause
+ * constraint storage. Two TypeApplications with the same constructor and arg
+ * ids get the same key, allowing constraints to be matched structurally.
+ */
+function typeApplicationConstraintKey(typeApp: TypeApplicationType): string {
+  return `typeapp:${typeApp.constructor.id}:${typeApp.args.map((a) => a.id).join(",")}`;
+}
+
+/**
+ * Add a where-clause constraint for a TypeApplicationType.
+ * This is used for HKT where clauses like `where(F(A) <: Functor(F))`.
+ */
+export function addWhereClauseConstraintForTypeApplication({
+  env,
+  typeApp,
+  traitType,
+  isNegated,
+}: {
+  env: Environment;
+  typeApp: TypeApplicationType;
+  traitType: TraitType;
+  isNegated: boolean;
+}): Environment {
+  const currentFrameLevel = env.frames.length - 1;
+  const targetFrame = env.frames[currentFrameLevel];
+  if (!targetFrame) {
+    return env;
+  }
+
+  const key = typeApplicationConstraintKey(typeApp);
+  let entry = targetFrame.whereClauseConstraints.get(key);
+  if (!entry) {
+    // Use the TypeApplication's constructor SomeType as the constraint's someType
+    // field for backward compatibility. The key distinguishes from regular SomeType
+    // constraints.
+    entry = {
+      someType: typeApp.constructor,
+      requiredTraits: [],
+      negativeTraits: [],
+    };
+    targetFrame.whereClauseConstraints.set(key, entry);
+  }
+
+  const targetList = isNegated ? entry.negativeTraits : entry.requiredTraits;
+  if (!targetList.some((t) => t.id === traitType.id)) {
+    targetList.push(traitType);
+  }
+
+  return env;
+}
+
+/**
+ * Look up where-clause constraints for a TypeApplicationType.
+ * Matches by structural key (constructor id + arg ids).
+ */
+export function getWhereClauseConstraintsForTypeApplication(
+  env: Environment,
+  typeApp: TypeApplicationType
+): { requiredTraits: TraitType[]; negativeTraits: TraitType[] } | undefined {
+  const key = typeApplicationConstraintKey(typeApp);
+  const requiredTraits: TraitType[] = [];
+  const negativeTraits: TraitType[] = [];
+  const requiredIds = new Set<string>();
+  const negativeIds = new Set<string>();
+  let found = false;
+
+  for (const frame of env.frames) {
+    const entry = frame.whereClauseConstraints.get(key);
+    if (!entry) {
+      continue;
+    }
+
+    found = true;
+    for (const trait of entry.requiredTraits) {
+      if (!requiredIds.has(trait.id)) {
+        requiredIds.add(trait.id);
+        requiredTraits.push(trait);
+      }
+    }
+    for (const trait of entry.negativeTraits) {
+      if (!negativeIds.has(trait.id)) {
+        negativeIds.add(trait.id);
+        negativeTraits.push(trait);
       }
     }
   }
@@ -1450,6 +1547,21 @@ export function getReceiverMethodsByNameFromEnv({
         env,
       });
       methods.push(...genericMethods);
+    }
+  }
+
+  // HKT: If receiver type is a TypeApplication (e.g., F(A)), look up where clause
+  // constraints. When `where(F(A) <: SomeTrait)` is declared, methods from SomeTrait
+  // should be available on values of type F(A).
+  if (methods.length === 0 && isTypeApplicationType(dereferencedReceiverType)) {
+    const constraints = getWhereClauseConstraintsForTypeApplication(
+      env,
+      dereferencedReceiverType
+    );
+    if (constraints) {
+      for (const requiredTraitType of constraints.requiredTraits) {
+        checkTraitForMethod(requiredTraitType, methodName);
+      }
     }
   }
 
