@@ -1,4 +1,9 @@
-import { execSync } from "child_process";
+import {
+  execSync,
+  spawnSync,
+  type SpawnSyncOptions,
+  type SpawnSyncReturns,
+} from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -248,4 +253,24 @@ export function getMacOSLsanSuppressions(): string {
     return "";
   }
   return "leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld";
+}
+
+/**
+ * Spawn a compiler process, handling Windows .bat/.cmd wrappers.
+ *
+ * On Windows, tools like `emcc` are .bat scripts that Node's `spawnSync`
+ * cannot find without `shell: true`. Using `shell: true` with an args array
+ * triggers DEP0190. Instead we invoke `cmd.exe /c <tool> ...args` which
+ * resolves .bat files and keeps args properly separated.
+ */
+export function spawnCompiler(
+  command: string,
+  args: readonly string[],
+  options?: SpawnSyncOptions
+): SpawnSyncReturns<string | Buffer> {
+  if (process.platform === "win32") {
+    const comspec = process.env.COMSPEC || "cmd.exe";
+    return spawnSync(comspec, ["/c", command, ...args], options ?? {});
+  }
+  return spawnSync(command, args, options ?? {});
 }
