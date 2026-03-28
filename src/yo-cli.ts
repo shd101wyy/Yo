@@ -376,9 +376,9 @@ yo --version                     Show version number
         .option("parallel", {
           alias: "p",
           describe:
-            "Number of tests to run in parallel (0 = auto/max CPUs, 1 = sequential)",
+            "Number of test files to run in parallel (0 = auto/max CPUs, 1 = sequential)",
           type: "number",
-          default: 1,
+          default: 0,
         })
         .option("keep-generated-files", {
           alias: "k",

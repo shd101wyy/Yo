@@ -1,7 +1,11 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type SpawnSyncOptions } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+// On Windows, .bat/.cmd scripts require shell:true for spawnSync to find them.
+const spawnShellOption: SpawnSyncOptions =
+  process.platform === "win32" ? { shell: true } : {};
 import {
   buildAsanRunEnvironment,
   findClangAsanDllPath,
@@ -532,6 +536,7 @@ function runSingleTest(
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",
       encoding: "utf-8",
+      ...spawnShellOption,
     });
     const cCompileEnd = Date.now();
 
