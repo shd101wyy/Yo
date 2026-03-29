@@ -414,10 +414,10 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 是 p1 的副本
 
 // 对象类型 - 堆分配，引用计数
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-s1 := String.from("Hello");
+s1 := MyString.from("Hello");
 s2 := s1;  // s2 和 s1 指向同一个对象（引用计数）
 ```
 
@@ -773,10 +773,10 @@ Yo 使用**对象类型**，配合[编译期引用计数与所有权和生命周
 
 ```rust
 // 定义一个对象类型
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-impl(String,
+impl(MyString,
   // 方法
   from : (fn(slice : [u8]) -> Self)({
     // 实现...
@@ -792,7 +792,7 @@ impl(String,
 );
 
 // 使用
-s1 := String.from("Hello");  // RC = 1
+s1 := MyString.from("Hello");  // RC = 1
 s2 := s1;                    // RC = 2（两者指向同一个对象）
 s3 := s2;                    // RC = 3
 // 当 s1、s2、s3 离开作用域时，RC 递减

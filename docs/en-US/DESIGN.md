@@ -414,10 +414,10 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-s1 := String.from("Hello");
+s1 := MyString.from("Hello");
 s2 := s1;  // s2 and s1 point to the same object (reference counted)
 ```
 
@@ -773,10 +773,10 @@ Object types are heap-allocated types with automatic reference counting:
 
 ```rust
 // Define an object type
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-impl(String,
+impl(MyString,
   // Methods
   from : (fn(slice : [u8]) -> Self)({
     // Implementation...
@@ -792,7 +792,7 @@ impl(String,
 );
 
 // Usage
-s1 := String.from("Hello");  // RC = 1
+s1 := MyString.from("Hello");  // RC = 1
 s2 := s1;                    // RC = 2 (both point to same object)
 s3 := s2;                    // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
