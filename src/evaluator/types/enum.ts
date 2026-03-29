@@ -1,4 +1,4 @@
-import type { Environment } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -10,9 +10,9 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { createEnumType } from "../../types/creators";
-import type { EnumVariant, TypeField } from "../../types/definitions";
+import type { EnumVariant, Type, TypeField } from "../../types/definitions";
 import { isComptimeIntType } from "../../types/guards";
-import { createTypeValue, isComptimeIntValue } from "../../value";
+import { createTypeValue, isComptimeIntValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -55,7 +55,30 @@ export function evaluateEnumType({
   let nextDiscriminant = 0n;
 
   for (let i = 0; i < expr.args.length; i++) {
-    const enumArg = expr.args[i]!;
+    let enumArg: Expr = expr.args[i]!;
+    let gadtReturnExpr: Expr | undefined = undefined;
+
+    // Extract GADT return type: ... -> recur(...)
+    // Case 1: Variant -> recur(Type) (no discriminant)
+    if (exprIsFunctionCallOf(enumArg, "->", 2)) {
+      gadtReturnExpr = (enumArg as FnCallExpr).args[1]!;
+      enumArg = (enumArg as FnCallExpr).args[0]!;
+    }
+    // Case 2: (Variant -> recur(Type)) = discriminant
+    // Parsed as: FnCallExpr("=", [FnCallExpr("->", [...]), discriminant])
+    else if (
+      exprIsFunctionCallOf(enumArg, "=", 2) &&
+      exprIsFunctionCallOf((enumArg as FnCallExpr).args[0]!, "->", 2)
+    ) {
+      const outerFnCall = enumArg as FnCallExpr;
+      const arrowExpr = outerFnCall.args[0]! as FnCallExpr;
+      gadtReturnExpr = arrowExpr.args[1]!;
+      // Reconstruct = expression without the -> wrapper
+      enumArg = {
+        ...outerFnCall,
+        args: [arrowExpr.args[0]!, outerFnCall.args[1]!],
+      };
+    }
 
     // Check if this is a variant with discriminant: VariantName = value
     // This is different from compile-time field because the LHS is a simple atom
@@ -280,6 +303,85 @@ export function evaluateEnumType({
           discriminant,
         });
         nextDiscriminant = discriminant + 1n;
+      }
+    }
+
+    // Process GADT return type for the last pushed variant
+    if (gadtReturnExpr) {
+      if (!exprIsFunctionCallOf(gadtReturnExpr, BuiltinKeywords.recur)) {
+        throw formatErrorMessage({
+          token: gadtReturnExpr.token,
+          errorMessage: `Expected "recur(...)" for GADT return type, got: ${exprToString(gadtReturnExpr)}`,
+        });
+      }
+
+      const gadtReturnTypeArgs: Type[] = [];
+      for (const arg of (gadtReturnExpr as FnCallExpr).args) {
+        const evaluated = evaluateExpression({
+          expr: arg,
+          env,
+          context: { ...context, SelfType: enumType },
+        });
+
+        if (!evaluated.$) {
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Failed to evaluate GADT return type argument: ${exprToString(arg)}`,
+          });
+        }
+
+        if (!isTypeValue(evaluated.$.value)) {
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `GADT return type argument must be a type, got: ${exprToString(arg)}`,
+          });
+        }
+
+        gadtReturnTypeArgs.push(evaluated.$.value.value);
+        env = evaluated.$.env;
+      }
+
+      // Validate arg count matches the type constructor's compile-time parameters
+      if (
+        context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+      ) {
+        const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
+        const comptimeParams = fnType.parameters.filter(
+          (p) => p.isCompileTimeOnly
+        );
+        if (comptimeParams.length !== gadtReturnTypeArgs.length) {
+          throw formatErrorMessage({
+            token: gadtReturnExpr.token,
+            errorMessage: `GADT return type has ${gadtReturnTypeArgs.length} argument(s), but the type constructor has ${comptimeParams.length} type parameter(s)`,
+          });
+        }
+      }
+
+      variants[variants.length - 1]!.gadtReturnTypeArgs = gadtReturnTypeArgs;
+      enumType.isGadt = true;
+    }
+  }
+
+  // For GADT enums, extract the type constructor arguments from the environment
+  if (
+    enumType.isGadt &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+  ) {
+    const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
+    const comptimeParams = fnType.parameters.filter((p) => p.isCompileTimeOnly);
+    if (comptimeParams.length > 0) {
+      const typeArgs: Type[] = [];
+      for (const param of comptimeParams) {
+        const variables = getVariablesFromEnv(env, param.label);
+        if (variables.length > 0 && variables[variables.length - 1]!.value) {
+          const typeVal = variables[variables.length - 1]!.value![0];
+          if (isTypeValue(typeVal)) {
+            typeArgs.push(typeVal.value);
+          }
+        }
+      }
+      if (typeArgs.length === comptimeParams.length) {
+        enumType.typeConstructorArgs = typeArgs;
       }
     }
   }

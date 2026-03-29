@@ -721,7 +721,14 @@ export interface EnumVariant {
    * based on the previous variant's discriminant + 1.
    */
   discriminant?: bigint;
-  // TODO: return type? For GADT
+  /**
+   * GADT return type arguments for this variant.
+   * When a variant uses `-> recur(Type1, Type2, ...)`, these are the
+   * type arguments [Type1, Type2, ...] that specify the concrete
+   * instantiation of the enum this constructor produces.
+   * Absent means unconstrained (same as regular enum behavior).
+   */
+  gadtReturnTypeArgs?: Type[];
 }
 
 export interface EnumType extends Type {
@@ -773,6 +780,19 @@ export interface EnumType extends Type {
    * Here, the type of circle is Shape(.Circle required).
    */
   requiredVariantNames?: string[];
+
+  /**
+   * GADT: The type arguments this enum was instantiated with.
+   * For `Expr(i32)`, this is `[i32Type]`.
+   * For `Expr(T)` where T is a SomeType, this is `[SomeType(T)]`.
+   * Only set for generic enums created by type constructor functions.
+   */
+  typeConstructorArgs?: Type[];
+
+  /**
+   * Whether this enum is a GADT (has at least one variant with gadtReturnTypeArgs).
+   */
+  isGadt?: boolean;
 }
 
 export interface UnionType extends Type {

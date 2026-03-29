@@ -277,6 +277,30 @@ chained := x.and_then((a) =>
 );
 ```
 
+## Generalized Algebraic Data Types (GADTs)
+
+GADTs extend enum types with per-constructor return type annotations using `-> recur(...)`:
+
+```rust
+Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),
+    BoolVal(b : bool) -> recur(bool),
+    PairVal(a : i32, b : bool) -> recur(i32)
+  )
+);
+```
+
+Key semantics:
+- `-> recur(ConcreteType)` after variant fields specifies what type the constructor produces
+- When omitted, defaults to the unconstrained type parameters (regular enum behavior)
+- Match type refinement: in `match(v, .IntVal(i) => i, .BoolVal(b) => b)`, each branch refines T to the variant's declared type
+- Exhaustiveness: unreachable variants (e.g., `BoolVal` when matching `Value(i32)`) are excluded from exhaustiveness checking
+- Runtime representation is identical to regular enums — all GADT logic is erased at compile time
+- GADTs with custom discriminants: wrap variant in parens `(TagInt(i : i32) -> recur(i32)) = 10`
+- Mixed GADT/regular variants: some variants can have `-> recur(...)` while others remain unconstrained
+- For full design document, see `plans/GADTS.md` and `docs/en-US/GADTS.md`
+
 ## Standard library module organization (`std/`)
 
 ### When to use `index.yo`

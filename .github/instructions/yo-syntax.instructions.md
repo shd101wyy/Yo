@@ -262,6 +262,31 @@ For files within the same directory, always use relative paths (`./file.yo`). Fo
 
 **Do NOT import `std/prelude`** — the prelude is automatically loaded for every file. Explicitly importing it (`import "std/prelude"` or `import "std/prelude.yo"`) will produce a compile error. Third-party modules named `prelude.yo` are fine — only the std prelude is blocked.
 
+## GADT enum syntax
+
+GADT constructors use `-> recur(Type1, Type2, ...)` after fields to specify the return type:
+
+```rust
+Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),       // constructs Value(i32)
+    BoolVal(b : bool) -> recur(bool),    // constructs Value(bool)
+    MGeneric(v : T)                       // no annotation = unconstrained
+  )
+);
+```
+
+With discriminants, wrap the variant in parentheses:
+
+```rust
+Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
+  )
+);
+```
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.

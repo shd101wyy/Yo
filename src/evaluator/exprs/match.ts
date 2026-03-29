@@ -35,6 +35,7 @@ import {
   isFunctionTypeAndReturnsComptimeValue,
   isIntegerType,
   isPtrType,
+  isSomeType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import {
@@ -76,6 +77,68 @@ function flattenOrPattern(expr: Expr): Expr[] {
   const left = fnCall.args[0]!;
   const right = fnCall.args[1]!;
   return [...flattenOrPattern(left), ...flattenOrPattern(right)];
+}
+
+/**
+ * Compute the GADT-refined expected type for a match branch.
+ * Given the original expected type (e.g., SomeType_T), the enum's type constructor args,
+ * and the variant's GADT return type args, substitute SomeType parameters
+ * with their refined concrete types.
+ *
+ * For example, if expectedType is SomeType_T, typeConstructorArgs is [SomeType_T],
+ * and gadtReturnTypeArgs is [i32], the refined expected type is i32.
+ */
+function getGadtRefinedExpectedType(
+  expectedType: Type,
+  typeConstructorArgs: Type[],
+  gadtReturnTypeArgs: Type[]
+): Type {
+  if (isSomeType(expectedType)) {
+    for (let k = 0; k < typeConstructorArgs.length; k++) {
+      const tca = typeConstructorArgs[k];
+      if (tca && isSomeType(tca) && expectedType.id === tca.id) {
+        const refined = gadtReturnTypeArgs[k];
+        if (refined) {
+          return refined;
+        }
+      }
+    }
+  }
+  return expectedType;
+}
+
+/**
+ * Check if a GADT branch is reachable given the enum's concrete type constructor args.
+ * A branch is unreachable when the enum is instantiated with concrete types that
+ * don't match the variant's GADT return type args.
+ * For example, Value(i32).BoolVal is unreachable because BoolVal -> recur(bool) and bool != i32.
+ */
+function isGadtBranchReachable(
+  enumType: EnumType,
+  variant: { gadtReturnTypeArgs?: Type[] }
+): boolean {
+  if (
+    !enumType.isGadt ||
+    !variant.gadtReturnTypeArgs ||
+    !enumType.typeConstructorArgs
+  ) {
+    return true;
+  }
+  for (let k = 0; k < enumType.typeConstructorArgs.length; k++) {
+    const tca = enumType.typeConstructorArgs[k];
+    const gra = variant.gadtReturnTypeArgs[k];
+    if (tca && gra && !isSomeType(tca)) {
+      if (
+        !areTypesCompatible(
+          { type: tca, env: enumType.env },
+          { type: gra, env: enumType.env }
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -204,6 +267,13 @@ export function evaluateMatch({
 
   const enumType = matchedType;
 
+  // Detect GADT match: the enum is a GADT and we have an expected type to refine against
+  const isGadtMatch =
+    enumType.isGadt === true &&
+    context.expectedType?.type !== undefined &&
+    enumType.typeConstructorArgs !== undefined &&
+    enumType.typeConstructorArgs.length > 0;
+
   // Check if there is already selected variant,
   // If yes, then we disallow to use enum because we already know the selected variant.
   /*
@@ -302,6 +372,12 @@ export function evaluateMatch({
       }
 
       checkedVariantNames.add(variantName);
+
+      // Skip unreachable GADT branches (e.g., BoolVal when matching Value(i32))
+      if (variant && !isGadtBranchReachable(enumType, variant)) {
+        continue;
+      }
+
       if (
         variantName !== "_" &&
         isEnumValue(scrutineeValue) &&
@@ -463,7 +539,34 @@ export function evaluateMatch({
       if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
 
-        if (!resultType) {
+        if (isGadtMatch) {
+          // For GADT matches, verify each branch body type against its GADT-refined expected type
+          // rather than checking cross-branch consistency
+          if (variant?.gadtReturnTypeArgs && context.expectedType) {
+            const refinedExpected = getGadtRefinedExpectedType(
+              context.expectedType.type,
+              enumType.typeConstructorArgs!,
+              variant.gadtReturnTypeArgs
+            );
+            if (
+              !areTypesCompatible(
+                { type: refinedExpected, env: caseEnv },
+                { type: evaluatedBody.$.type, env: caseEnv }
+              )
+            ) {
+              throw formatErrorMessage({
+                token: evaluatedBody.token,
+                errorMessage: `GADT type mismatch in branch ".${variantName}":
+- Expected: ${typeToString(refinedExpected)}
+- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+              });
+            }
+          }
+          // Set resultType to the context's expected type (the unrefined type parameter)
+          if (!resultType) {
+            resultType = context.expectedType!;
+          }
+        } else if (!resultType) {
           resultType = { type: evaluatedBody.$?.type, env: caseEnv };
         } else if (
           !areTypesCompatible(
@@ -535,6 +638,11 @@ export function evaluateMatch({
       }
 
       checkedVariantNames.add(variantName);
+
+      // Skip unreachable GADT branches (e.g., BoolVal when matching Value(i32))
+      if (!isGadtBranchReachable(enumType, variant)) {
+        continue;
+      }
 
       // Check if this variant should be matched
       if (
@@ -836,7 +944,32 @@ export function evaluateMatch({
       if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
 
-        if (!resultType) {
+        if (isGadtMatch) {
+          // For GADT matches, verify each branch body type against its GADT-refined expected type
+          if (variant.gadtReturnTypeArgs && context.expectedType) {
+            const refinedExpected = getGadtRefinedExpectedType(
+              context.expectedType.type,
+              enumType.typeConstructorArgs!,
+              variant.gadtReturnTypeArgs
+            );
+            if (
+              !areTypesCompatible(
+                { type: refinedExpected, env: caseEnv },
+                { type: evaluatedBody.$.type, env: caseEnv }
+              )
+            ) {
+              throw formatErrorMessage({
+                token: evaluatedBody.token,
+                errorMessage: `GADT type mismatch in branch ".${variantName}":
+- Expected: ${typeToString(refinedExpected)}
+- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+              });
+            }
+          }
+          if (!resultType) {
+            resultType = context.expectedType!;
+          }
+        } else if (!resultType) {
           resultType = { type: evaluatedBody.$?.type, env: caseEnv };
         } else if (
           !areTypesCompatible(
@@ -905,7 +1038,10 @@ Supported patterns:
     // Perform exhaustiveness check
     if (!checkedVariantNames.has("_")) {
       const missingVariants = enumType.variants.filter(
-        (variant) => !checkedVariantNames.has(variant.name)
+        (variant) =>
+          !checkedVariantNames.has(variant.name) &&
+          // GADT: don't require unreachable variants
+          isGadtBranchReachable(enumType, variant)
       );
       if (missingVariants.length > 0) {
         throw formatErrorMessage({
@@ -955,10 +1091,14 @@ Supported patterns:
     expr.$ = {
       env,
       type:
-        context.expectedType?.type &&
-        !typeContainsSomeType(context.expectedType.type)
+        // For GADT matches, use the expected type (the unrefined type parameter)
+        // even though it contains SomeType
+        isGadtMatch && context.expectedType?.type
           ? context.expectedType.type
-          : resultType.type,
+          : context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+            ? context.expectedType.type
+            : resultType.type,
       // - undefined scrutinee = runtime value, result is undefined (runtime)
       // - UnknownValue scrutinee = compile-time value of unknown concrete value,
       //   result is UnknownValue (CTFE is possible)

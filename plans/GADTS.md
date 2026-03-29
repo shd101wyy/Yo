@@ -1,6 +1,6 @@
 # Generalized Algebraic Data Types (GADTs)
 
-## Status: 📋 Design Phase
+## Status: ✅ Implemented
 
 ## Overview
 

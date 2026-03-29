@@ -638,6 +638,25 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
+
+    // Also synthesize via typeConstructorArgs (needed for GADT enums
+    // where variant field types are concrete and don't contain type parameters)
+    if (expected.type.typeConstructorArgs && given.type.typeConstructorArgs) {
+      const len = Math.min(
+        expected.type.typeConstructorArgs.length,
+        given.type.typeConstructorArgs.length
+      );
+      for (let i = 0; i < len; i++) {
+        const { expectedEnv, givenEnv } = synthesizeTypes(
+          { type: expected.type.typeConstructorArgs[i]!, env: expected.env },
+          { type: given.type.typeConstructorArgs[i]!, env: given.env },
+          checkedTypePairs,
+          options
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+      }
+    }
   } else if (isEnumType(expected.type) && isEnumType(given.type)) {
     throw new Error(
       `Cannot unify incompatible enum types: "${typeToString(
