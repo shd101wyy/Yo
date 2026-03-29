@@ -40,9 +40,12 @@ import type {
 } from "../../types/definitions";
 import {
   isDynType,
+  isEnumType,
   isFunctionType,
   isModuleType,
+  isPtrType,
   isSomeType,
+  isStructType,
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -75,6 +78,95 @@ import {
   generateCapturedVariableDupExpressions,
   validateCaptureTraitRequirements,
 } from "../utils/closure";
+
+/**
+ * Recursively walks two types in parallel. When a SomeType without a
+ * resolvedConcreteType is found in `expected` and the corresponding position
+ * in `given` is a concrete type, sets `resolvedConcreteType` on that SomeType.
+ * This enables forall parameter inference for nested SomeTypes (e.g., Option(B)
+ * matched against Option(i32) resolves B = i32).
+ */
+function resolveNestedSomeTypes(
+  expected: Type,
+  given: Type,
+  env: Environment,
+  visited: Set<Type> = new Set()
+): void {
+  if (visited.has(expected)) return;
+  visited.add(expected);
+
+  if (isSomeType(expected)) {
+    if (!expected.resolvedConcreteType && !isSomeType(given)) {
+      const runtimeType = convertComptimeTypeToRuntimeType({
+        type: given,
+        expectedType: undefined,
+        expr: undefined,
+        env,
+      });
+      expected.resolvedConcreteType = runtimeType;
+    }
+    return;
+  }
+
+  if (
+    isEnumType(expected) &&
+    isEnumType(given) &&
+    expected.functionValue &&
+    given.functionValue &&
+    expected.functionValue === given.functionValue
+  ) {
+    for (let i = 0; i < expected.variants.length; i++) {
+      const expectedFields = expected.variants[i]?.fields ?? [];
+      const givenFields = given.variants[i]?.fields ?? [];
+      for (let j = 0; j < expectedFields.length; j++) {
+        if (givenFields[j]) {
+          resolveNestedSomeTypes(
+            expectedFields[j]!.type,
+            givenFields[j]!.type,
+            env,
+            visited
+          );
+        }
+      }
+    }
+  } else if (
+    isStructType(expected) &&
+    isStructType(given) &&
+    expected.functionValue &&
+    given.functionValue &&
+    expected.functionValue === given.functionValue
+  ) {
+    for (let i = 0; i < expected.fields.length; i++) {
+      if (given.fields[i]) {
+        resolveNestedSomeTypes(
+          expected.fields[i]!.type,
+          given.fields[i]!.type,
+          env,
+          visited
+        );
+      }
+    }
+  } else if (isPtrType(expected) && isPtrType(given)) {
+    resolveNestedSomeTypes(expected.childType, given.childType, env, visited);
+  } else if (isFunctionType(expected) && isFunctionType(given)) {
+    for (let i = 0; i < expected.parameters.length; i++) {
+      if (given.parameters[i]) {
+        resolveNestedSomeTypes(
+          expected.parameters[i]!.type,
+          given.parameters[i]!.type,
+          env,
+          visited
+        );
+      }
+    }
+    resolveNestedSomeTypes(
+      expected.return.type,
+      given.return.type,
+      env,
+      visited
+    );
+  }
+}
 
 export function evaluateAnonymousFunctionImplementation({
   expr,
@@ -973,6 +1065,29 @@ Got:      "${paramName}"`,
       });
       functionType.return.type.resolvedConcreteType = runtimeType;
     }
+  }
+
+  // When return type contains nested SomeTypes (e.g., Option(B)) but is not itself
+  // a SomeType, resolve nested SomeTypes by matching the expected return type structure
+  // against the actual body return type. This sets resolvedConcreteType on each SomeType
+  // so that forall parameter inference in helper.ts can pick them up.
+  // Also update the return type on both functionType and newFunctionType so codegen
+  // sees the concrete type.
+  if (
+    !isSomeType(functionType.return.type) &&
+    typeContainsSomeType(functionType.return.type) &&
+    evaluatedBodyReturnType &&
+    !isSomeType(evaluatedBodyReturnType) &&
+    !typeContainsSomeType(evaluatedBodyReturnType)
+  ) {
+    resolveNestedSomeTypes(
+      functionType.return.type,
+      evaluatedBodyReturnType,
+      env
+    );
+    functionType.return.type = evaluatedBodyReturnType;
+    // newFunctionType has its own return object (spread copy), so update it too
+    newFunctionType.return.type = evaluatedBodyReturnType;
   }
 
   if (

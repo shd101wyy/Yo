@@ -39,6 +39,7 @@ import {
 import { TypeTag } from "../../types/tags";
 import {
   convertComptimeTypeToRuntimeType,
+  typeContainsSomeType,
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -412,7 +413,11 @@ export function evaluateMatch({
           // If the scrutinee value is an enum value, we can return it directly
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -421,7 +426,11 @@ export function evaluateMatch({
           // Scrutinee is a runtime value - don't propagate compile-time values
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: undefined,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -793,7 +802,11 @@ export function evaluateMatch({
         ) {
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -802,7 +815,11 @@ export function evaluateMatch({
           // Scrutinee is a runtime value - don't propagate compile-time values
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: undefined,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -937,7 +954,11 @@ Supported patterns:
     // Set the type and value of the match expression
     expr.$ = {
       env,
-      type: context.expectedType?.type ?? resultType.type,
+      type:
+        context.expectedType?.type &&
+        !typeContainsSomeType(context.expectedType.type)
+          ? context.expectedType.type
+          : resultType.type,
       // - undefined scrutinee = runtime value, result is undefined (runtime)
       // - UnknownValue scrutinee = compile-time value of unknown concrete value,
       //   result is UnknownValue (CTFE is possible)
@@ -1192,7 +1213,11 @@ function evaluatePrimitiveMatch({
         if (scrutineeValue !== undefined && !isUnknownValue(scrutineeValue)) {
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -1200,7 +1225,11 @@ function evaluatePrimitiveMatch({
         } else if (scrutineeValue === undefined) {
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: undefined,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -1227,7 +1256,11 @@ function evaluatePrimitiveMatch({
 
           expr.$ = {
             env,
-            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            type:
+              context.expectedType?.type &&
+              !typeContainsSomeType(context.expectedType.type)
+                ? context.expectedType.type
+                : evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: [],
             isPrimitiveMatch: true,
@@ -1412,7 +1445,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       if (scrutineeValue !== undefined && matchesAtCompileTime) {
         expr.$ = {
           env: evaluatedBody.$.env,
-          type: context.expectedType?.type ?? evaluatedBody.$.type,
+          type:
+            context.expectedType?.type &&
+            !typeContainsSomeType(context.expectedType.type)
+              ? context.expectedType.type
+              : evaluatedBody.$.type,
           value: evaluatedBody.$.value,
           pathCollection: evaluatedBody.$.pathCollection,
           controlFlow: evaluatedBody.$.controlFlow,
@@ -1422,7 +1459,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       } else if (scrutineeValue === undefined) {
         expr.$ = {
           env: evaluatedBody.$.env,
-          type: context.expectedType?.type ?? evaluatedBody.$.type,
+          type:
+            context.expectedType?.type &&
+            !typeContainsSomeType(context.expectedType.type)
+              ? context.expectedType.type
+              : evaluatedBody.$.type,
           value: undefined,
           pathCollection: evaluatedBody.$.pathCollection,
           controlFlow: evaluatedBody.$.controlFlow,
@@ -1439,7 +1480,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       ) {
         expr.$ = {
           env: evaluatedBody.$.env,
-          type: context.expectedType?.type ?? evaluatedBody.$.type,
+          type:
+            context.expectedType?.type &&
+            !typeContainsSomeType(context.expectedType.type)
+              ? context.expectedType.type
+              : evaluatedBody.$.type,
           value: evaluatedBody.$.value,
           pathCollection: evaluatedBody.$.pathCollection,
           isPrimitiveMatch: true,
@@ -1557,7 +1602,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     // Set the type and value of the match expression
     expr.$ = {
       env,
-      type: context.expectedType?.type ?? resultType.type,
+      type:
+        context.expectedType?.type &&
+        !typeContainsSomeType(context.expectedType.type)
+          ? context.expectedType.type
+          : resultType.type,
       // - undefined scrutinee = runtime value, result is undefined (runtime)
       // - UnknownValue scrutinee = compile-time value of unknown concrete value,
       //   result is UnknownValue (CTFE is possible)

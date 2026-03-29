@@ -3419,6 +3419,85 @@ impl(forall(T : Type), Option(T),
   )
 );
 
+// Functional combinators for Option(T)
+impl(forall(T : Type), Option(T),
+  map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> B)) -> Option(B))(
+    match(self,
+      .Some(value) => Option(B).Some(f(value)),
+      .None => Option(B).None
+    )
+  ),
+
+  and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> Option(B))) -> Option(B))(
+    match(self,
+      .Some(value) => f(value),
+      .None => Option(B).None
+    )
+  ),
+
+  filter : (fn(self : Self, predicate : Impl(Fn(a : T) -> bool)) -> Option(T))(
+    match(self,
+      .Some(value) => cond(
+        predicate(value) => Option(T).Some(value),
+        true => Option(T).None
+      ),
+      .None => Option(T).None
+    )
+  ),
+
+  or_else : (fn(self : Self, f : Impl(Fn() -> Option(T))) -> Option(T))(
+    match(self,
+      .Some(value) => Option(T).Some(value),
+      .None => f()
+    )
+  ),
+
+  map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : T) -> B)) -> B)(
+    match(self,
+      .Some(value) => f(value),
+      .None => default_val
+    )
+  ),
+
+  map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn() -> B), f : Impl(Fn(a : T) -> B)) -> B)(
+    match(self,
+      .Some(value) => f(value),
+      .None => default_fn()
+    )
+  ),
+
+  and : (fn(forall(B : Type), self : Self, optb : Option(B)) -> Option(B))(
+    match(self,
+      .Some(_) => optb,
+      .None => Option(B).None
+    )
+  ),
+
+  or : (fn(self : Self, optb : Option(T)) -> Option(T))(
+    match(self,
+      .Some(value) => Option(T).Some(value),
+      .None => optb
+    )
+  ),
+
+  unwrap_or_else : (fn(self : Self, f : Impl(Fn() -> T)) -> T)(
+    match(self,
+      .Some(value) => value,
+      .None => f()
+    )
+  )
+);
+
+// Flatten for nested Option
+impl(forall(T : Type), Option(Option(T)),
+  flatten : (fn(self : Self) -> Option(T))(
+    match(self,
+      .Some(inner) => inner,
+      .None => Option(T).None
+    )
+  )
+);
+
 // Option(T) implements Comptime when T implements Comptime
 impl(forall(T : Type), where(T <: Comptime), Option(T), Comptime());
 
@@ -3499,6 +3578,103 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     match(self,
       .Err(_) => true,
       .Ok(_) => false
+    )
+  )
+);
+
+// Functional combinators for Result(OkType, ErrorType)
+impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
+  map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> B)) -> Result(B, ErrorType))(
+    match(self,
+      .Ok(value) => Result(B, ErrorType).Ok(f(value)),
+      .Err(error) => Result(B, ErrorType).Err(error)
+    )
+  ),
+
+  map_err : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> F)) -> Result(OkType, F))(
+    match(self,
+      .Ok(value) => Result(OkType, F).Ok(value),
+      .Err(error) => Result(OkType, F).Err(f(error))
+    )
+  ),
+
+  and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+    match(self,
+      .Ok(value) => f(value),
+      .Err(error) => Result(B, ErrorType).Err(error)
+    )
+  ),
+
+  or_else : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+    match(self,
+      .Ok(value) => Result(OkType, F).Ok(value),
+      .Err(error) => f(error)
+    )
+  ),
+
+  and : (fn(forall(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
+    match(self,
+      .Ok(_) => res,
+      .Err(error) => Result(B, ErrorType).Err(error)
+    )
+  ),
+
+  or : (fn(forall(F : Type), self : Self, res : Result(OkType, F)) -> Result(OkType, F))(
+    match(self,
+      .Ok(value) => Result(OkType, F).Ok(value),
+      .Err(_) => res
+    )
+  ),
+
+  ok : (fn(self : Self) -> Option(OkType))(
+    match(self,
+      .Ok(value) => Option(OkType).Some(value),
+      .Err(_) => Option(OkType).None
+    )
+  ),
+
+  err : (fn(self : Self) -> Option(ErrorType))(
+    match(self,
+      .Ok(_) => Option(ErrorType).None,
+      .Err(error) => Option(ErrorType).Some(error)
+    )
+  ),
+
+  map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : OkType) -> B)) -> B)(
+    match(self,
+      .Ok(value) => f(value),
+      .Err(_) => default_val
+    )
+  ),
+
+  map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn(a : ErrorType) -> B), f : Impl(Fn(a : OkType) -> B)) -> B)(
+    match(self,
+      .Ok(value) => f(value),
+      .Err(error) => default_fn(error)
+    )
+  ),
+
+  unwrap_or_else : (fn(self : Self, f : Impl(Fn(a : ErrorType) -> OkType)) -> OkType)(
+    match(self,
+      .Ok(value) => value,
+      .Err(error) => f(error)
+    )
+  )
+);
+
+// Option -> Result conversion (defined after Result)
+impl(forall(T : Type), Option(T),
+  ok_or : (fn(forall(E : Type), self : Self, err : E) -> Result(T, E))(
+    match(self,
+      .Some(value) => Result(T, E).Ok(value),
+      .None => Result(T, E).Err(err)
+    )
+  ),
+
+  ok_or_else : (fn(forall(E : Type), self : Self, err_fn : Impl(Fn() -> E)) -> Result(T, E))(
+    match(self,
+      .Some(value) => Result(T, E).Ok(value),
+      .None => Result(T, E).Err(err_fn())
     )
   )
 );
