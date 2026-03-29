@@ -263,14 +263,16 @@ Partial application works on **any** comptime function (functions whose return t
 - **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`
 - **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`
 
-Combinators use method-level `forall` for type changes:
+Combinators use `Impl(Fn(...))` callbacks, and the forall type parameter is inferred automatically:
 
 ```rust
 (x : Option(i32)) = .Some(i32(5));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a * i32(2))));
+
+// B is inferred as i32 from the callback return type — no forall(i32) needed
+result := x.map(Impl(Fn(a: i32) -> i32)((a * i32(2))));
 // result = .Some(i32(10))
 
-chained := x.and_then(forall(i32), (fn(a: i32) -> Option(i32))(
+chained := x.and_then(Impl(Fn(a: i32) -> Option(i32))(
   cond((a > i32(0)) => .Some((a * i32(2))), true => .None)
 ));
 ```
