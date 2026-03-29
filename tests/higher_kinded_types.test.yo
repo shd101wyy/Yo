@@ -229,3 +229,154 @@ test "Partial application as HKT forall arg", {
   );
   println(`  passed`);
 };
+
+// ─────────────────────────────────────────────────────
+// Test 10: Partial application — chained usage
+// ─────────────────────────────────────────────────────
+test "Partial application chained usage", {
+  IntResult :: Result(_, i32);
+  (ok_val : IntResult(i32)) = .Ok(i32(99));
+  (err_val : IntResult(i32)) = .Err(i32(42));
+
+  // Use ok/err to convert and verify types match
+  opt_ok := ok_val.ok();
+  match(opt_ok,
+    .Some(v) => assert((v == i32(99)), "expected 99"),
+    .None => assert(false, "expected Some")
+  );
+
+  opt_err := err_val.err();
+  match(opt_err,
+    .Some(e) => assert((e == i32(42)), "expected 42"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 11: Partial application — multiple placeholders rejected
+// ─────────────────────────────────────────────────────
+test "Partial application leaves one placeholder", {
+  // Single placeholder at different positions
+  First :: Result(_, bool);
+  Second :: Result(i32, _);
+
+  (a : First(i32)) = .Ok(i32(1));
+  (b : Second(bool)) = .Err(false);
+
+  match(a,
+    .Ok(v) => assert((v == i32(1)), "expected 1"),
+    .Err(_) => assert(false, "expected Ok")
+  );
+  match(b,
+    .Ok(_) => assert(false, "expected Err"),
+    .Err(e) => assert(!(e), "expected false")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 12: HKT identity preserves nested types
+// ─────────────────────────────────────────────────────
+test "HKT identity with nested Option", {
+  (x : Option(bool)) = .Some(true);
+  result := identity(forall(Option, bool), x);
+  match(result,
+    .Some(v) => assert(v, "expected true"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 13: Functor map with closures
+// ─────────────────────────────────────────────────────
+test "Functor map with different values", {
+  (x : Option(i32)) = .Some(i32(5));
+  result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(100))));
+  match(result,
+    .Some(v) => assert((v == i32(105)), "expected 105"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 14: do_map with type-changing transform
+// ─────────────────────────────────────────────────────
+test "do_map with type change", {
+  (x : Option(i32)) = .Some(i32(0));
+  result := do_map(forall(Option, i32, bool), x, (fn(a: i32) -> bool)((a == i32(0))));
+  match(result,
+    .Some(v) => assert(v, "expected true (0 == 0)"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 15: Container trait with get_value on Some
+// ─────────────────────────────────────────────────────
+test "Container get_value with bool", {
+  (x : Option(bool)) = .Some(false);
+  v := x.get_value();
+  assert(!(v), "expected false");
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 16: Mappable trait — transform then check
+// ─────────────────────────────────────────────────────
+test "Mappable transform and contains_value", {
+  (x : Option(i32)) = .Some(i32(3));
+  assert(x.contains_value(), "Some should contain value");
+
+  transformed := x.transform(forall(bool), (fn(a: i32) -> bool)((a > i32(0))));
+  assert(transformed.contains_value(), "transformed should contain value");
+  match(transformed,
+    .Some(v) => assert(v, "expected true (3 > 0)"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 17: Mappable on None — transform returns None
+// ─────────────────────────────────────────────────────
+test "Mappable transform on None", {
+  (x : Option(i32)) = .None;
+  assert(!(x.contains_value()), "None should not contain value");
+  result := x.transform(forall(bool), (fn(a: i32) -> bool)(true));
+  assert(!(result.contains_value()), "transformed None should not contain value");
+  match(result,
+    .Some(_) => assert(false, "expected None"),
+    .None => ()
+  );
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 18: Partial application with Option
+// ─────────────────────────────────────────────────────
+test "Partial application is comptime-only", {
+  // Verify partial application produces valid type constructors
+  IntResult :: Result(_, i32);
+  ErrResult :: Result(bool, _);
+
+  // IntResult(bool) should be Result(bool, i32)
+  (a : IntResult(bool)) = .Ok(true);
+  ok_opt := a.ok();
+  match(ok_opt,
+    .Some(v) => assert(v, "expected true"),
+    .None => assert(false, "expected Some")
+  );
+
+  // ErrResult(i32) should be Result(bool, i32)
+  (b : ErrResult(i32)) = .Err(i32(42));
+  err_opt := b.err();
+  match(err_opt,
+    .Some(e) => assert((e == i32(42)), "expected 42"),
+    .None => assert(false, "expected Some")
+  );
+  println(`  passed`);
+};

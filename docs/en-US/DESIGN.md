@@ -37,6 +37,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
+  - [Higher-Kinded Types (HKT)](#higher-kinded-types-hkt)
+  - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
   - [recur](#recur)
   - [Object Types and Memory Management](#object-types-and-memory-management)
@@ -641,6 +643,101 @@ compare_and_add :: (fn(
     true => (y + z)
   )
 ;
+```
+
+### Higher-Kinded Types (HKT)
+
+Yo supports higher-kinded types through **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime function values — HKT lets you abstract over them.
+
+| Haskell Kind  | Yo Equivalent                                                  |
+| ------------- | -------------------------------------------------------------- |
+| `*`           | `Type`                                                         |
+| `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
+| `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
+
+#### HKT forall parameters
+
+Declare a forall parameter with a function-type kind to accept type constructors:
+
+```rust
+// F is a type constructor (kind: Type → Type)
+identity :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  x: F(A)
+) -> F(A))(x);
+
+// Usage:
+(x : Option(i32)) = .Some(i32(42));
+result := identity(forall(Option, i32), x);  // result: Option(i32)
+```
+
+#### HKT traits
+
+Define traits parameterized by type constructors:
+
+```rust
+// Functor trait — F is a type constructor
+Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
+  trait(
+    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+  )
+);
+
+// Implement Functor for Option
+impl(forall(A : Type), Option(A), Functor(Option)(
+  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+    match(self,
+      .Some(v) => .Some(f(v)),
+      .None => .None
+    )
+  )
+));
+
+// Use the trait method
+(x : Option(i32)) = .Some(i32(42));
+result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+// result = .Some(i32(43))
+```
+
+#### Generic functions with HKT where clauses
+
+```rust
+do_map :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  container: F(A),
+  f: (fn(a : A) -> B),
+  where(F(A) <: Functor(F))
+) -> F(B))(
+  container.map(forall(B), f)
+);
+
+(x : Option(i32)) = .Some(i32(10));
+result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+// result = .Some(i32(20))
+```
+
+### Partial Application with `_`
+
+Multi-parameter type constructors can be partially applied using `_` as a placeholder. This creates a new type constructor with reduced arity:
+
+```rust
+// Result has kind: (Type, Type) -> Type
+// Partial application fixes one parameter:
+IntResult :: Result(_, i32);    // kind: Type -> Type
+StrOkResult :: Result(str, _);  // kind: Type -> Type
+
+// Use like any type constructor:
+(r : IntResult(bool)) = .Ok(true);      // = Result(bool, i32)
+(r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
+```
+
+Partial application works **only** on comptime type-constructor functions (functions that return `comptime(Type)`). It cannot be used on runtime functions.
+
+Partially applied type constructors can be used as HKT forall arguments:
+
+```rust
+IntResult :: Result(_, i32);
+// IntResult has kind: Type -> Type, so it can be passed where F : (Type -> Type)
 ```
 
 ### Type Methods

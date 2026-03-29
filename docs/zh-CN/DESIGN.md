@@ -37,6 +37,8 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
+  - [Higher-Kinded Types (HKT)](#高阶类型higher-kinded-typeshkt)
+  - [Partial Application with `_`](#使用-_-进行偏应用partial-application)
   - [Type Methods](#type-methods)
   - [recur](#recur)
   - [Object Types and Memory Management](#object-types-and-memory-management)
@@ -641,6 +643,101 @@ compare_and_add :: (fn(
     true => (y + z)
   )
 ;
+```
+
+### 高阶类型（Higher-Kinded Types，HKT）
+
+Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option` 和 `Result` 这样的类型构造器已经是一等的编译期函数值——HKT 让你可以对它们进行抽象。
+
+| Haskell Kind  | Yo 等价形式                                                    |
+| ------------- | -------------------------------------------------------------- |
+| `*`           | `Type`                                                         |
+| `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
+| `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
+
+#### HKT forall 参数
+
+声明一个具有函数类型 Kind 的 forall 参数来接受类型构造器：
+
+```rust
+// F 是一个类型构造器（kind: Type → Type）
+identity :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  x: F(A)
+) -> F(A))(x);
+
+// 使用：
+(x : Option(i32)) = .Some(i32(42));
+result := identity(forall(Option, i32), x);  // result: Option(i32)
+```
+
+#### HKT Trait
+
+定义以类型构造器为参数的 Trait：
+
+```rust
+// Functor trait —— F 是一个类型构造器
+Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
+  trait(
+    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+  )
+);
+
+// 为 Option 实现 Functor
+impl(forall(A : Type), Option(A), Functor(Option)(
+  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+    match(self,
+      .Some(v) => .Some(f(v)),
+      .None => .None
+    )
+  )
+));
+
+// 使用 trait 方法
+(x : Option(i32)) = .Some(i32(42));
+result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+// result = .Some(i32(43))
+```
+
+#### 使用 HKT where 子句的泛型函数
+
+```rust
+do_map :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  container: F(A),
+  f: (fn(a : A) -> B),
+  where(F(A) <: Functor(F))
+) -> F(B))(
+  container.map(forall(B), f)
+);
+
+(x : Option(i32)) = .Some(i32(10));
+result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+// result = .Some(i32(20))
+```
+
+### 使用 `_` 进行偏应用（Partial Application）
+
+多参数类型构造器可以使用 `_` 作为占位符进行偏应用。这会创建一个参数更少的新类型构造器：
+
+```rust
+// Result 的 kind 是：(Type, Type) -> Type
+// 偏应用固定一个参数：
+IntResult :: Result(_, i32);    // kind: Type -> Type
+StrOkResult :: Result(str, _);  // kind: Type -> Type
+
+// 像任何类型构造器一样使用：
+(r : IntResult(bool)) = .Ok(true);      // = Result(bool, i32)
+(r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
+```
+
+偏应用**仅**适用于编译期类型构造器函数（返回 `comptime(Type)` 的函数），不能用于运行时函数。
+
+偏应用的类型构造器可以作为 HKT forall 参数使用：
+
+```rust
+IntResult :: Result(_, i32);
+// IntResult 的 kind 是 Type -> Type，所以可以传递给 F : (Type -> Type)
 ```
 
 ### 类型方法

@@ -1,5 +1,7 @@
 # Higher-Kinded Types (HKTs) via Comptime Function Types as Kinds
 
+**Status: ✅ Complete**
+
 ## Problem
 
 Yo currently cannot express type constructor polymorphism — you can't write a generic `Functor` trait
