@@ -27,7 +27,7 @@ z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
 Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
 ```rust
-fn print_point(p : Point) -> unit {
+print_point :: (fn(p : Point) -> unit) {
   printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
 }
 
@@ -55,12 +55,12 @@ match(result,
 You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
 
 ```rust
-fn move_point(p : Point, dx : i32, dy : i32) -> unit {
+move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit) {
   p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
   p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
 }
 
-fn broken(p : Point) -> unit {
+broken :: (fn(p : Point) -> unit) {
   p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
 }
 ```
@@ -77,7 +77,7 @@ Use `own()` to transfer ownership to a function parameter.
 - If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
 
 ```rust
-fn consume(own(box): Box(i32)) -> unit {
+consume :: (fn(own(box): Box(i32)) -> unit) {
   printf("value: %d\n", box.(*));
   // box is dropped at end of function
 }
@@ -85,12 +85,12 @@ fn consume(own(box): Box(i32)) -> unit {
 b := box(42);      // b owns
 consume(b);        // b cannot be used after this point
 
-fn call_consume(p : Box(i32)) -> unit { // p borrows by default
+call_consume :: (fn(p : Box(i32)) -> unit) { // p borrows by default
   consume(p); // compiler inserts ___dup(p) to satisfy own(box)
   // p is NOT usable here (moved/consumed by the own() call)
 }
 
-fn call_consume_but_keep_using(p : Box(i32)) -> unit { // p borrows by default
+call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p borrows by default
   p2 := p;    // compiler inserts ___dup(p); p2 owns
   consume(p2); // p2 is consumed
   // p is still usable here
@@ -137,7 +137,7 @@ ___drop(temp_var); // RC = 0, memory freed
 Function parameters do not increment the reference count:
 
 ```rust
-fn use_point(p : Point) -> unit {
+use_point :: (fn(p : Point) -> unit) {
   printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
 }
 
@@ -257,11 +257,11 @@ result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 **Call `___dup` when returning a borrowed parameter:**
 
 ```rust
-fn identity(p : Point) -> Point {  // p borrows (parameter)
+identity :: (fn(p : Point) -> Point) {  // p borrows (parameter)
   return p;  // ___dup(p), return value owns a copy
 }
 
-fn create() -> Point {
+create :: (fn() -> Point) {
   p := Point(3, 4);  // p owns
   return p;          // ___dup(p), return value owns a copy
   // ___drop(p) after return
@@ -306,7 +306,7 @@ x := match(optional,
 **`own()` parameters take ownership (move if possible, otherwise dup):**
 
 ```rust
-fn consume(own(box): Box(i32)) -> unit {
+consume :: (fn(own(box): Box(i32)) -> unit) {
   printf("value: %d\n", box.(*));
   // box is dropped at end of function
 }
@@ -317,7 +317,7 @@ consume(b);        // b is consumed
 
 // If the argument is borrowed/non-owning, the compiler inserts ___dup.
 // Example: borrowed parameter passing to an own() parameter.
-fn call_consume(p : Box(i32)) -> unit {
+call_consume :: (fn(p : Box(i32)) -> unit) {
   consume(p); // inserts ___dup(p); p is consumed (not usable after this)
 }
 ```
@@ -327,7 +327,7 @@ fn call_consume(p : Box(i32)) -> unit {
 **No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
 ```rust
-fn print_point(p : Point) -> unit {  // p borrows (no own keyword)
+print_point :: (fn(p : Point) -> unit) {  // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
 }
 
