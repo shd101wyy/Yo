@@ -4,7 +4,7 @@ import {
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, type Token } from "../../token";
 import { createEffectsRowType } from "../../types/creators";
 import type {
   EffectsRowType,
@@ -163,6 +163,10 @@ export interface SynthesizeTypesOptions {
    * bindings that cross environment boundaries (e.g., from closure body evaluation
    * back to the call site). Only enable at targeted call sites. */
   setResolvedConcreteType?: boolean;
+  /** Optional source token for variable bindings created during synthesis.
+   * When provided, improves error messages by pointing to the actual source
+   * location where type inference occurred instead of a placeholder. */
+  token?: Token;
 }
 
 export function synthesizeTypes(
@@ -211,8 +215,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -240,8 +244,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -279,8 +283,8 @@ export function synthesizeTypes(
               value: [value],
               type: value.type,
               isCompileTimeOnly: true,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
+              token: options?.token ?? PlaceholderToken,
+              initializedAtToken: options?.token ?? PlaceholderToken,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
@@ -309,8 +313,8 @@ export function synthesizeTypes(
               value: [value],
               type: value.type,
               isCompileTimeOnly: true,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
+              token: options?.token ?? PlaceholderToken,
+              initializedAtToken: options?.token ?? PlaceholderToken,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
@@ -420,8 +424,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
-            initializedAtToken: PlaceholderToken, // Set as initialized
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheRcValue: false,
           },
@@ -529,8 +533,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -855,8 +859,8 @@ export function synthesizeTypes(
             value: [givenLength],
             type: given.type.length.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
-            initializedAtToken: PlaceholderToken, // Set as initialized
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheRcValue: false,
           },
@@ -1121,8 +1125,8 @@ export function synthesizeTypes(
                 value: [typeValue],
                 type: typeValue.type,
                 isCompileTimeOnly: true,
-                token: PlaceholderToken,
-                initializedAtToken: PlaceholderToken,
+                token: options?.token ?? PlaceholderToken,
+                initializedAtToken: options?.token ?? PlaceholderToken,
                 consumedAtToken: undefined,
                 isOwningTheRcValue: false,
               },
@@ -1306,8 +1310,8 @@ function synthesizeFutureEffects(
             value: [typeValue],
             type: typeValue.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
