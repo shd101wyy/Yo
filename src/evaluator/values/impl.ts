@@ -206,9 +206,40 @@ function reEvaluateFunctionType({
     }),
   };
 
+  // Use specializedEnv as the base for the returned env, NOT baseEnv.
+  // baseEnv is built from functionType.env (which includes extra frames from
+  // impl field list evaluation) and causes frame-level mismatches — the
+  // assignment.ts check compares variable.frameLevel against env.frames.length.
+  //
+  // However, functionType.env may contain variables not in specializedEnv
+  // (e.g., F from HKT trait scopes). The returned function type's
+  // exprs.typeExpr still references original expressions (e.g., F(A)), so
+  // subsequent re-evaluations at call sites need those variables available.
+  // Merge them into specializedEnv's top frame to preserve the frame count.
+  let returnEnv = specializedEnv;
+  const existingVarNames = new Set<string>();
+  for (const frame of specializedEnv.frames) {
+    for (const v of frame.variables) {
+      existingVarNames.add(v.name);
+    }
+  }
+  for (const frame of functionType.env.frames) {
+    for (const v of frame.variables) {
+      if (!existingVarNames.has(v.name)) {
+        const { env: updatedEnv } = addVariableToEnv({
+          env: returnEnv,
+          variable: { ...v },
+          allowVariableShadowing: true,
+        });
+        returnEnv = updatedEnv;
+        existingVarNames.add(v.name);
+      }
+    }
+  }
+
   return {
     ...functionType,
-    env: baseEnv,
+    env: returnEnv,
     forallParameters: remainingForallParams,
     parameters: newParameters,
     parametersFrame: newParametersFrame,
