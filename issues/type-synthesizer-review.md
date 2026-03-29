@@ -212,13 +212,13 @@ The `synthesizeTypes` entry point tracks checked type pairs by object identity t
 
 ## Summary
 
-| #   | Issue                                                  | Severity | File             | Line     |
-| --- | ------------------------------------------------------ | -------- | ---------------- | -------- |
-| 1   | Asymmetric SomeType–SomeType binding                   | Medium   | synthesizer.ts   | 242      |
-| 2   | occursCheck missing TypeApplication/Trait/Module/Union | Medium   | synthesizer.ts   | 59–133   |
-| 3   | Name-based SomeType fallback                           | Medium   | synthesizer.ts   | 373–375  |
-| 4   | visitedPairs not passed for function types             | Low-Med  | compatibility.ts | 608      |
-| 5   | Silent false for unbound SomeTypes                     | Low-Med  | compatibility.ts | 922, 949 |
-| 6   | DynType bypasses SomeType constraints                  | Medium   | compatibility.ts | 705–708  |
-| 7   | PlaceholderToken for synthesized bindings              | Low      | synthesizer.ts   | 407      |
-| 8   | Effect row spread swallows unmatched params            | Low      | synthesizer.ts   | 1078     |
+| #   | Issue                                                  | Severity | Status                             |
+| --- | ------------------------------------------------------ | -------- | ---------------------------------- |
+| 1   | Asymmetric SomeType–SomeType binding                   | Medium   | ✅ Documented — intentional design |
+| 2   | occursCheck missing TypeApplication/Trait/Module/Union | Medium   | ✅ Fixed                           |
+| 3   | Name-based SomeType fallback                           | Medium   | ✅ Fixed                           |
+| 4   | visitedPairs not passed for function types             | Low-Med  | ✅ Fixed                           |
+| 5   | Silent false for unbound SomeTypes                     | Low-Med  | ✅ Documented — correct behavior   |
+| 6   | DynType bypasses SomeType constraints                  | Medium   | ✅ Fixed                           |
+| 7   | PlaceholderToken for synthesized bindings              | Low      | ✅ Fixed                           |
+| 8   | Effect row spread swallows unmatched params            | Low      | ✅ Fixed                           |
