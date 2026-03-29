@@ -136,6 +136,8 @@ In the end, I chose non-atomic reference counting with a cycle collector based o
 
 In 2025, vibe coding became a thing. With LLM assistance, `Yo`'s development accelerated dramatically. Hard problems that had stumped me — like implementing a state machine for async/await, or one-shot delimited continuations for effect handlers that work in `C` with Yo's memory model — suddenly had solutions.
 
+Along the way, I also experimented with stackful coroutines for `Yo`'s async runtime. I implemented them and got them working, but ultimately decided to switch back to stackless coroutines. Stackful coroutines introduced extra overhead — each coroutine needs its own stack, and determining the right stack size is tricky. Too small and you risk overflow; too large and you waste memory. Stackless coroutines, which compile async functions into state machines, fit `Yo`'s design better: they're zero-overhead, deterministic in memory usage, and integrate cleanly with the C code generation pipeline.
+
 `Yo` absorbs ideas from every programming language I've encountered along the way. It's a distillation of the good ideas I've collected over 15 years of hopping between languages. It's still in its early stages, with many features to add and refine. But I'm excited about where it's going, and I hope it can be useful to others too.
 
 I feel like I've regained the passion I had when building `Walley` and `Markdown Preview Enhanced`. To build something great, you need to be its user and enjoy using it. That's my story with programming languages. I'll end with a piece of code from my `WalleyLanguage` that I wrote years ago:
