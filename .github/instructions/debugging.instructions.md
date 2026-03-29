@@ -39,6 +39,27 @@ Key facts:
 - Ignore editor errors for `.yo` files — the extension may not use updated grammar/evaluator code.
 - To rebuild: `cd vscode-extension && bun package`
 
-## CTFE (Compile-Time Function Evaluation)
+## Debugging regressions with git bisect
 
-See `cfte-analysis.ts`. Yo tries to replace all parameters/return as `comptime` and re-evaluate the function body at compile-time. If it succeeds, the function can be called at compile-time.
+When a test fails after a series of commits:
+1. First confirm the test passes on `origin/develop`: `git stash && git checkout origin/develop && ./yo-cli test <file> --bail`
+2. Use `git bisect` or manually check individual commits to find the first failing commit
+3. Read the diff of that commit to understand what changed
+4. Embed debug info in **error messages** (not `console.log`) — test workers run in separate processes where stdout is isolated
+
+## Environment frame debugging
+
+The evaluator uses frame-based environments. Key debugging facts:
+- `variable.frameLevel` = the frame index where the variable was defined
+- `env.frames.length` = total number of frames in the environment
+- `functionType.env` captures the env at the function's **definition site** (minus parameters frame)
+- `impl.definitionEnv` is captured AFTER `popEnvFrame` removes the forall frame
+- The check in `assignment.ts:454-471` compares `variable.frameLevel < functionType.env.frames.length` to detect "variable defined outside function body"
+- Frame count mismatches between `functionType.env` and the actual evaluation env cause false positives in this check
+
+## Test file conventions
+
+Each `.test.yo` file has its own import set. Check whether a test file imports `std/fmt` before using `println`:
+- Files with `open import "std/fmt"` → `println` available
+- Files without it → use `assert` only, or add the import
+- Match the existing style of the test file when adding new tests

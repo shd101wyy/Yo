@@ -303,6 +303,26 @@ Key semantics:
 
 ## Standard library module organization (`std/`)
 
+## reEvaluateFunctionType — impl specialization
+
+`reEvaluateFunctionType` in `src/evaluator/values/impl.ts` re-evaluates a function type's parameter/return type expressions with concrete substitutions during generic impl specialization.
+
+Key invariants:
+- The **returned `env`** must have the same frame count as `specializedEnv` (the caller's specialization env). Using `functionType.env` (the original definition scope) adds extra frames from impl field list evaluation, breaking the frame-level check in `assignment.ts`.
+- The **re-evaluation env** (`reEvalEnv`) can differ from the returned env — it's used only for evaluating type expressions and can include extra scope (HKT variables like `F`).
+- Variables from `functionType.env` that don't exist in `specializedEnv` (e.g., `F` from HKT trait scopes) must be merged into the returned env because `exprs.typeExpr` still references original expressions.
+- The `exprs.typeExpr` on parameters retains the **original** source expressions (e.g., `F(A)` from a trait definition), so every re-evaluation needs the same variables available.
+
+### When to use `specializedEnv` vs `functionType.env`
+
+| Purpose | Use |
+|---|---|
+| Returned function type's `env` field | `specializedEnv` (correct frame count) + merged missing vars |
+| Re-evaluating type expressions inside `reEvaluateFunctionType` | `reEvalEnv` (built from `functionType.env`, has all scope vars) |
+| Frame-level checks in `assignment.ts` | Compared against `functionType.env.frames.length` |
+
+### Standard library module organization (`std/`)
+
 ### When to use `index.yo`
 
 Only create `index.yo` when the directory contains a **single public module file whose name duplicates the directory name** (the `dir/dir.yo` pattern). Rename that file to `index.yo` so users get clean imports without repetition:
