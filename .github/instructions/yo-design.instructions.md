@@ -195,6 +195,86 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 
+## Higher-Kinded Types (HKT)
+
+Yo supports HKT by using **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime functions — HKT lets you abstract over them.
+
+### Function-typed forall parameters
+
+Declare a forall parameter with a function-type kind to accept type constructors:
+
+```rust
+// F is a type constructor (kind: Type → Type)
+identity :: (fn(forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+```
+
+### HKT traits
+
+Define traits parameterized by type constructors:
+
+```rust
+Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
+  trait(
+    map : (fn(forall(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+  )
+);
+```
+
+### Where clauses with TypeApplication
+
+Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
+
+```rust
+do_map :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  container: F(A),
+  f: (fn(a : A) -> B),
+  where(F(A) <: Functor(F))
+) -> F(B))(
+  container.map(forall(B), f)
+);
+```
+
+### TypeApplication resolution
+
+`TypeApplication` (`F(A)`) is compile-time only — it gets fully resolved during specialization and must never reach codegen.
+
+## Partial Application with `_`
+
+Multi-parameter comptime functions can be partially applied using `_` as a placeholder:
+
+```rust
+// Type constructors:
+IntResult :: Result(_, i32);     // kind: Type -> Type
+StrResult :: Result(str, _);     // kind: Type -> Type
+
+// Comptime value functions:
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);          // fn(comptime(__0) : i32) -> comptime(i32)
+result :: add1(i32(2));           // 3
+```
+
+Partial application works on **any** comptime function (functions whose return type is `comptime`). It cannot be used on runtime functions.
+
+## Option and Result combinators
+
+`Option(T)` and `Result(T, E)` provide Rust-style combinator methods. Key methods:
+
+- **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`
+- **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`
+
+Combinators use method-level `forall` for type changes:
+
+```rust
+(x : Option(i32)) = .Some(i32(5));
+result := x.map(forall(i32), (fn(a: i32) -> i32)((a * i32(2))));
+// result = .Some(i32(10))
+
+chained := x.and_then(forall(i32), (fn(a: i32) -> Option(i32))(
+  cond((a > i32(0)) => .Some((a * i32(2))), true => .None)
+));
+```
+
 ## Standard library module organization (`std/`)
 
 ### When to use `index.yo`

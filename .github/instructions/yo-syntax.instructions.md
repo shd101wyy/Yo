@@ -255,6 +255,25 @@ In Yo, function calls are parsed differently depending on spacing:
 
 Always use `func(a, b)` with no space. Never `func (a, b)`.
 
+## Partial application with `_` placeholder
+
+Use `_` as a placeholder argument to partially apply any comptime function:
+
+```rust
+// Type constructors (return comptime(Type)):
+IntResult :: Result(_, i32);    // fn(comptime(T) : Type) -> comptime(Type)
+(r : IntResult(bool)) = .Ok(true);  // = Result(bool, i32)
+
+// Comptime value functions:
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2));   // 3
+```
+
+- `_` is only valid in arguments to **comptime functions** (functions with `comptime` return type)
+- The number of arguments must match the original function's parameter count
+- `_` cannot be used with runtime functions
+
 ## `return` without parentheses consumes all following comma-separated arguments
 
 `return` without parentheses follows the same rule as any other call: `return expr1, expr2` is parsed as `return(expr1, expr2)`. Inside match/cond branches, commas separate branches, so:
