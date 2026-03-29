@@ -731,7 +731,17 @@ StrOkResult :: Result(str, _);  // kind: Type -> Type
 (r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
 ```
 
-Partial application works **only** on comptime type-constructor functions (functions that return `comptime(Type)`). It cannot be used on runtime functions.
+Partial application works **only** on comptime functions (functions whose return type is `comptime`). It cannot be used on runtime functions.
+
+```rust
+// Type constructors (return comptime(Type)):
+IntResult :: Result(_, i32);    // kind: Type -> Type
+
+// Comptime value functions (return comptime(i32), comptime(bool), etc.):
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2));   // 3
+```
 
 Partially applied type constructors can be used as HKT forall arguments:
 

@@ -320,16 +320,19 @@ Key challenge: generic impl re-evaluation for HKT traits.
 ### Phase 6: Partial Application with `_` (Complete)
 
 - No lexer/parser changes needed — `_` is already tokenized as an identifier.
-- Detection added in `evaluateFunctionCall` (function.ts): when calling a comptime type-constructor function with `_` args.
+- Detection added in `evaluateFunctionCall` (function.ts): when calling any comptime function with `_` args (the function must have `return.isCompileTimeOnly`).
+- Works on type constructors (`comptime(Type)` return) AND comptime value functions (`comptime(i32)`, `comptime(bool)`, etc.).
 - Creates a synthetic `FunctionValue` that:
   - Captures non-`_` args as variables in the closure env.
   - Takes `_` positions as parameters.
   - Body is a `FnCallExpr` calling the original function with mixed captured + parameter refs.
-- Example: `Result(_, MyError)` → `fn(comptime(__pa_0) : Type) -> comptime(Type)` that calls `Result(__pa_0, MyError)`.
+- Examples:
+  - `Result(_, MyError)` → `fn(comptime(__pa_0) : Type) -> comptime(Type)` that calls `Result(__pa_0, MyError)`.
+  - `add(1, _)` → `fn(comptime(__pa_1) : i32) -> comptime(i32)` that calls `add(1, __pa_1)`.
 
 ### Phase 7: Tests (Complete)
 
-- `tests/higher_kinded_types.test.yo` — 12 integration tests covering all features.
+- `tests/higher_kinded_types.test.yo` — 23 integration tests covering all features.
 
 ## Non-goals (for now)
 

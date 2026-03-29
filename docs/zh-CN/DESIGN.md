@@ -731,7 +731,17 @@ StrOkResult :: Result(str, _);  // kind: Type -> Type
 (r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
 ```
 
-偏应用**仅**适用于编译期类型构造器函数（返回 `comptime(Type)` 的函数），不能用于运行时函数。
+偏应用**仅**适用于编译期函数（返回类型为 `comptime` 的函数），不能用于运行时函数。
+
+```rust
+// 类型构造器（返回 comptime(Type)）：
+IntResult :: Result(_, i32);    // kind: Type -> Type
+
+// 编译期值函数（返回 comptime(i32)、comptime(bool) 等）：
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2));   // 3
+```
 
 偏应用的类型构造器可以作为 HKT forall 参数使用：
 

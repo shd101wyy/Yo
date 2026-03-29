@@ -380,3 +380,32 @@ test "Partial application is comptime-only", {
   );
   println(`  passed`);
 };
+
+// ─────────────────────────────────────────────────────
+// Test 22: Partial application on comptime non-Type function
+// ─────────────────────────────────────────────────────
+test "Partial application on comptime function returning value", {
+  add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+  add1 :: add(i32(1), _);
+  result :: add1(i32(2));
+  comptime_assert((result == i32(3)), "expected 3");
+
+  // Also test with first arg as placeholder
+  add_to_10 :: add(_, i32(10));
+  result2 :: add_to_10(i32(5));
+  comptime_assert((result2 == i32(15)), "expected 15");
+
+  println(`  passed`);
+};
+
+// ─────────────────────────────────────────────────────
+// Test 23: Partial application on comptime bool function
+// ─────────────────────────────────────────────────────
+test "Partial application on comptime bool function", {
+  is_equal :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(bool))((a == b));
+  is_five :: is_equal(i32(5), _);
+  comptime_assert(is_five(i32(5)), "5 == 5");
+  comptime_assert(!(is_five(i32(3))), "5 != 3");
+
+  println(`  passed`);
+};

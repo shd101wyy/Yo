@@ -550,10 +550,12 @@ export function evaluateFunctionCall({
   // explicitly declared as compile-time via comptime_fn().
 
   // Partial application with `_` placeholder.
-  // When a comptime type-constructor function is called with `_` in some argument
-  // positions, create a new FunctionValue that captures the non-`_` arguments and
+  // When a comptime function is called with `_` in some argument positions,
+  // create a new FunctionValue that captures the non-`_` arguments and
   // takes the `_` positions as parameters.
-  // Example: Result(_, MyError) → fn(comptime(__0) : Type) -> comptime(Type)
+  // Examples:
+  //   Result(_, MyError) → fn(comptime(__0) : Type) -> comptime(Type)
+  //   add(1, _) → fn(comptime(__0) : i32) -> comptime(i32)
   {
     const hasPlaceholder = args.some(
       (arg) => exprIsAtom(arg) && arg.token.value === "_"
@@ -563,7 +565,6 @@ export function evaluateFunctionCall({
       functions.length === 1 &&
       isFunctionValue(functions[0]!.value) &&
       isFunctionType(functions[0]!.type) &&
-      isTypeHierarchyType(functions[0]!.type.return.type) &&
       functions[0]!.type.return.isCompileTimeOnly
     ) {
       const origFuncValue = functions[0]!.value as FunctionValue;
