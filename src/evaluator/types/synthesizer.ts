@@ -1052,9 +1052,11 @@ export function synthesizeTypes(
 
       // Track which given params have been matched
       const matchedGiven = new Set<number>();
+      const matchedExpected = new Set<number>();
 
       // 1. Match concrete expected params against given (set-based by type id)
-      for (const exp of concreteExpected) {
+      for (let i = 0; i < concreteExpected.length; i++) {
+        const exp = concreteExpected[i]!;
         for (let j = 0; j < givenImplicit.length; j++) {
           if (matchedGiven.has(j)) continue;
           if (exp.type.id === givenImplicit[j]!.type.id) {
@@ -1067,6 +1069,7 @@ export function synthesizeTypes(
             expected.env = expectedEnv;
             given.env = givenEnv;
             matchedGiven.add(j);
+            matchedExpected.add(i);
             break;
           }
         }
@@ -1093,6 +1096,23 @@ export function synthesizeTypes(
             }
           }
         }
+      }
+
+      // Verify all concrete expected params were matched before binding the spread.
+      // If a concrete expected param has no match, the given side is missing a required
+      // effect — unmatched given params should not absorb what should have been concrete matches.
+      if (
+        unsolvedSpreads.length === 1 &&
+        matchedExpected.size < concreteExpected.length
+      ) {
+        const unmatchedExpected = concreteExpected.filter(
+          (_, i) => !matchedExpected.has(i)
+        );
+        throw new Error(
+          `Effect row unification failed: expected effect(s) ` +
+            `${unmatchedExpected.map((p) => `"${p.label ?? typeToString(p.type)}"`).join(", ")} ` +
+            `not found in given implicit parameters.`
+        );
       }
 
       // 3. Bind the single unsolved spread to remaining unmatched given params
