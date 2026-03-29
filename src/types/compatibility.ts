@@ -506,7 +506,8 @@ export function areTypesCompatible(
           !areFunctionTypesCompatible(
             { type: expected.type.isFn.callType, env: expected.env },
             { type: given.type.isFn.callType, env: given.env },
-            requireExactMatch
+            requireExactMatch,
+            visitedPairs
           )
         ) {
           return false;
@@ -604,8 +605,8 @@ export function areTypesCompatible(
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
       { type: given.type, env: given.env },
-      requireExactMatch
-      // TODO: pass visitedPairs?
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -1005,7 +1006,8 @@ export function areFunctionTypesCompatible(
     type: FunctionType;
     env: Environment;
   },
-  requireExactMatch = false
+  requireExactMatch = false,
+  visitedPairs: Set<string> = new Set()
 ): boolean {
   if (expected.type === given.type) {
     return true;
@@ -1057,7 +1059,8 @@ export function areFunctionTypesCompatible(
       !areTypesCompatible(
         { type: expectedTypeParam.type, env: expected.env },
         { type: givenTypeParam.type, env: given.env },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       )
     ) {
       return false;
@@ -1083,7 +1086,8 @@ export function areFunctionTypesCompatible(
           type: givenParam.type,
           env: given.env,
         },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       )
     ) {
       return false;
@@ -1093,7 +1097,8 @@ export function areFunctionTypesCompatible(
   const returnTypesMatch = areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env },
-    requireExactMatch
+    requireExactMatch,
+    visitedPairs
   );
   return returnTypesMatch;
 }
