@@ -37,8 +37,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
-  - [Higher-Kinded Types (HKT)](#高阶类型higher-kinded-typeshkt)
-  - [Partial Application with `_`](#使用-_-进行偏应用partial-application)
+  - [偏应用（Partial Application）](#使用-_-进行偏应用partial-application)
   - [Type Methods](#type-methods)
   - [recur](#recur)
   - [Object Types and Memory Management](#object-types-and-memory-management)
@@ -65,6 +64,9 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [while](#while)
   - [Iterator and for loop](#iterator-and-for-loop)
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
+- [高级类型系统](#高级类型系统)
+  - [高阶类型（HKT）](#高阶类型higher-kinded-typeshkt)
+  - [广义代数数据类型（GADTs）](#广义代数数据类型gadts)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
 - [C union](#c-union)
@@ -643,77 +645,6 @@ compare_and_add :: (fn(
     true => (y + z)
   )
 ;
-```
-
-### 高阶类型（Higher-Kinded Types，HKT）
-
-Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option` 和 `Result` 这样的类型构造器已经是一等的编译期函数值——HKT 让你可以对它们进行抽象。
-
-| Haskell Kind  | Yo 等价形式                                                    |
-| ------------- | -------------------------------------------------------------- |
-| `*`           | `Type`                                                         |
-| `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
-| `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
-
-#### HKT forall 参数
-
-声明一个具有函数类型 Kind 的 forall 参数来接受类型构造器：
-
-```rust
-// F 是一个类型构造器（kind: Type → Type）
-identity :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
-  x: F(A)
-) -> F(A))(x);
-
-// 使用：
-(x : Option(i32)) = .Some(i32(42));
-result := identity(forall(Option, i32), x);  // result: Option(i32)
-```
-
-#### HKT Trait
-
-定义以类型构造器为参数的 Trait：
-
-```rust
-// Functor trait —— F 是一个类型构造器
-Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
-  trait(
-    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
-  )
-);
-
-// 为 Option 实现 Functor
-impl(forall(A : Type), Option(A), Functor(Option)(
-  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
-    match(self,
-      .Some(v) => .Some(f(v)),
-      .None => .None
-    )
-  )
-));
-
-// 使用 trait 方法
-(x : Option(i32)) = .Some(i32(42));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
-// result = .Some(i32(43))
-```
-
-#### 使用 HKT where 子句的泛型函数
-
-```rust
-do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-  container: F(A),
-  f: (fn(a : A) -> B),
-  where(F(A) <: Functor(F))
-) -> F(B))(
-  container.map(forall(B), f)
-);
-
-(x : Option(i32)) = .Some(i32(10));
-result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
-// result = .Some(i32(20))
 ```
 
 ### 使用 `_` 进行偏应用（Partial Application）
@@ -1380,6 +1311,169 @@ m := Message.Write(String.from("hello"));
 m := Message.Move(x: 3, y: 4);
 m := Message.ChangeColor(r: 1, g: 2, b: 3);
 ```
+
+## 高级类型系统
+
+### 高阶类型（Higher-Kinded Types，HKT）
+
+Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option` 和 `Result` 这样的类型构造器已经是一等的编译期函数值——HKT 让你可以对它们进行抽象。
+
+| Haskell Kind  | Yo 等价形式                                                    |
+| ------------- | -------------------------------------------------------------- |
+| `*`           | `Type`                                                         |
+| `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
+| `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
+
+#### HKT forall 参数
+
+声明一个具有函数类型 Kind 的 forall 参数来接受类型构造器：
+
+```rust
+// F 是一个类型构造器（kind: Type → Type）
+identity :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  x: F(A)
+) -> F(A))(x);
+
+// 使用：
+(x : Option(i32)) = .Some(i32(42));
+result := identity(forall(Option, i32), x);  // result: Option(i32)
+```
+
+#### HKT Trait
+
+定义以类型构造器为参数的 Trait：
+
+```rust
+// Functor trait —— F 是一个类型构造器
+Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
+  trait(
+    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+  )
+);
+
+// 为 Option 实现 Functor
+impl(forall(A : Type), Option(A), Functor(Option)(
+  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+    match(self,
+      .Some(v) => .Some(f(v)),
+      .None => .None
+    )
+  )
+));
+
+// 使用 trait 方法
+(x : Option(i32)) = .Some(i32(42));
+result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+// result = .Some(i32(43))
+```
+
+#### 使用 HKT where 子句的泛型函数
+
+```rust
+do_map :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  container: F(A),
+  f: (fn(a : A) -> B),
+  where(F(A) <: Functor(F))
+) -> F(B))(
+  container.map(forall(B), f)
+);
+
+(x : Option(i32)) = .Some(i32(10));
+result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+// result = .Some(i32(20))
+```
+
+### 广义代数数据类型（GADTs）
+
+GADTs 扩展了枚举类型，允许每个构造器通过 `-> recur(Type1, ...)` 指定其返回的精确类型参数实例化：
+
+```rust
+Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),
+    BoolVal(b : bool) -> recur(bool),
+    PairVal(a : i32, b : bool) -> recur(i32)
+  )
+);
+```
+
+#### GADT 匹配类型细化
+
+对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量：
+
+```rust
+eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+  match(v,
+    .IntVal(i) => i,      // T 被细化为 i32，返回 i32 ✓
+    .BoolVal(b) => b,     // T 被细化为 bool，返回 bool ✓
+    .PairVal(a, b) => a   // T 被细化为 i32，返回 i32 ✓
+  )
+);
+
+v := Value(i32).IntVal(i32(42));
+result := eval_value(v);  // result : i32 = 42
+```
+
+#### GADT 穷尽性检查
+
+当匹配具有具体类型的 GADT 值时，不可达的变体会从穷尽性检查中排除：
+
+```rust
+// Value(i32) 只能是 IntVal 或 PairVal
+// BoolVal 不可达（它返回 Value(bool)，而不是 Value(i32)）
+eval_int_only :: (fn(v : Value(i32)) -> i32)(
+  match(v,
+    .IntVal(i) => i,
+    .PairVal(a, b) => a
+    // 不需要 .BoolVal —— 对于 Value(i32) 它不可达
+  )
+);
+```
+
+#### 多参数 GADTs
+
+```rust
+MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  enum(
+    MkIntBool(x : i32, y : bool) -> recur(i32, bool),
+    MkBoolInt(x : bool, y : i32) -> recur(bool, i32)
+  )
+);
+
+my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+  match(p,
+    .MkIntBool(x, y) => x,
+    .MkBoolInt(x, y) => x
+  )
+);
+```
+
+#### 带自定义判别值的 GADTs
+
+```rust
+Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
+  )
+);
+```
+
+#### 混合 GADT 和普通变体
+
+```rust
+MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    MInt(i : i32) -> recur(i32),
+    MBool(b : bool) -> recur(bool),
+    MGeneric(v : T)  // 无 GADT 注解 —— 无约束
+  )
+);
+```
+
+GADTs 具有与普通枚举相同的运行时表示——所有类型细化都纯粹是编译时的。完整设计文档请参阅 [GADTS.md](GADTS.md)。
 
 ## C struct
 
