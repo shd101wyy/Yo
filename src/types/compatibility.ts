@@ -703,9 +703,27 @@ export function areTypesCompatible(
   // eg: x: T
   // here T should already be added to env by the if condition above ^^^
   if (isSomeType(expected.type)) {
-    // QUESTION: Is this correct?
     if (isDynType(given.type)) {
-      return true; // DynType is compatible with SomeType
+      // DynType is compatible with SomeType, but if the SomeType has
+      // required traits, verify the DynType's traits satisfy them.
+      if (expected.type.requiredTraits.length > 0) {
+        for (const { traitType: requiredTrait } of expected.type
+          .requiredTraits) {
+          const satisfied = given.type.requiredTraits.some(
+            ({ traitType: dynTrait }) =>
+              areTypesCompatible(
+                { type: requiredTrait, env: expected.env },
+                { type: dynTrait, env: given.env },
+                false,
+                visitedPairs
+              )
+          );
+          if (!satisfied) {
+            return false;
+          }
+        }
+      }
+      return true;
     }
 
     if (isSomeType(given.type)) {
