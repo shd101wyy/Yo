@@ -92,6 +92,32 @@ Use `cond` when there are more than two branches or when the branches are large.
 - The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
 - With semicolon, like `{ expr; }`, the return value is `unit`.
 
+## Enum definition syntax
+
+Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values:
+
+```rust
+// CORRECT — no dots in definition:
+Color :: enum(Red, Green, Blue);
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(None, Some(value : T))
+);
+
+// WRONG — dots in definition:
+Color :: enum(.Red, .Green, .Blue);
+
+// Dots are used when constructing values:
+(c : Color) = .Red;
+(x : Option(i32)) = .Some(i32(42));
+
+// Dots are used in match branches:
+match(c,
+  .Red => println(`red`),
+  .Green => println(`green`),
+  .Blue => println(`blue`)
+);
+```
+
 ## Always add `()` after function name to avoid parsing ambiguity
 
 Because we didn't write `await(...`, code like:

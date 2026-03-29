@@ -13,7 +13,7 @@ With regular enums, all constructors produce the same type:
 ```rust
 // Regular enum — all variants return Expr(T) for the same T
 Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(.Lit(T), .Add(Expr(T), Expr(T)))
+  enum(Lit(T), Add(Expr(T), Expr(T)))
 );
 ```
 
@@ -23,11 +23,11 @@ This prevents expressing "a literal integer expression has type `Expr(i32)`" whi
 // GADT — each constructor specifies its own return type
 Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    .IntLit(i : i32) -> recur(i32),
-    .BoolLit(b : bool) -> recur(bool),
-    .Add(a : Expr(i32), b : Expr(i32)) -> recur(i32),
-    .Eq(a : Expr(i32), b : Expr(i32)) -> recur(bool),
-    .If(cond : Expr(bool), then : Expr(T), else_ : Expr(T))  // unconstrained T
+    IntLit(i : i32) -> recur(i32),
+    BoolLit(b : bool) -> recur(bool),
+    Add(a : Expr(i32), b : Expr(i32)) -> recur(i32),
+    Eq(a : Expr(i32), b : Expr(i32)) -> recur(bool),
+    If(cond : Expr(bool), then : Expr(T), else_ : Expr(T))  // unconstrained T
   )
 );
 ```
@@ -61,10 +61,10 @@ eval :: (fn(forall(T : Type), e : Expr(T)) -> T)(
 ```rust
 MyExpr :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    .IntLit(i : i32) -> recur(i32),
-    .BoolLit(b : bool) -> recur(bool),
-    .EqExpr(a : MyExpr(i32), b : MyExpr(i32)) -> recur(bool),
-    .If(cond : MyExpr(bool), then : MyExpr(T), else_ : MyExpr(T))
+    IntLit(i : i32) -> recur(i32),
+    BoolLit(b : bool) -> recur(bool),
+    EqExpr(a : MyExpr(i32), b : MyExpr(i32)) -> recur(bool),
+    If(cond : MyExpr(bool), then : MyExpr(T), else_ : MyExpr(T))
   )
 );
 ```
@@ -83,8 +83,8 @@ MyExpr :: (fn(comptime(T) : Type) -> comptime(Type))(
 // Type-safe key-value store
 Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   enum(
-    .IntToStr(key : i32, value : str) -> recur(i32, str),
-    .StrToInt(key : str, value : i32) -> recur(str, i32)
+    IntToStr(key : i32, value : str) -> recur(i32, str),
+    StrToInt(key : str, value : i32) -> recur(str, i32)
   )
 );
 ```
@@ -96,9 +96,9 @@ Custom discriminants and GADT return types can coexist:
 ```rust
 Packet :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    .Header(len : u32) -> recur(u32) = 0,
-    .Data(payload : Slice(u8)) -> recur(Slice(u8)) = 1,
-    .Eof -> recur(unit) = 255
+    Header(len : u32) -> recur(u32) = 0,
+    Data(payload : Slice(u8)) -> recur(Slice(u8)) = 1,
+    Eof -> recur(unit) = 255
   )
 );
 ```
@@ -175,7 +175,7 @@ Existential types (constructors that introduce new type variables not in the enu
 ```rust
 // NOT supported initially:
 SomeContainer :: enum(
-  .Wrap(forall(T : Type), value : T, show : (fn(T) -> str))  // T is existential
+  Wrap(forall(T : Type), value : T, show : (fn(T) -> str))  // T is existential
 );
 ```
 
