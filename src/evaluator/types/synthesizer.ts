@@ -389,12 +389,7 @@ export function synthesizeTypes(
 
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
 
-    if (
-      isSomeType(type) &&
-      (type.id === expected.type.id ||
-        // QUESTION: Is this condition below needed?
-        type.name === expected.type.name)
-    ) {
+    if (isSomeType(type) && type.id === expected.type.id) {
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(expected.type.id, given.type)) {
         throw new Error(
