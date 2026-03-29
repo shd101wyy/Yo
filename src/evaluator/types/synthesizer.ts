@@ -29,7 +29,9 @@ import {
   isStructType,
   isTraitType,
   isTupleType,
+  isTypeApplicationType,
   isTypeHierarchyType,
+  isUnionType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
@@ -127,6 +129,25 @@ function occursCheck(
 
   if (isFnTraitType(type)) {
     return occursCheck(someTypeId, type.isFn.callType, visited);
+  }
+
+  if (isTypeApplicationType(type)) {
+    return (
+      occursCheck(someTypeId, type.constructor, visited) ||
+      type.args.some((arg) => occursCheck(someTypeId, arg, visited))
+    );
+  }
+
+  if (isTraitType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
+  }
+
+  if (isModuleType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
+  }
+
+  if (isUnionType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
   }
 
   return false;
