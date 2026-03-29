@@ -921,6 +921,8 @@ export function areTypesCompatible(
         expected.type
       );
       if (expected.type === expectedType_) {
+        // SomeType is unbound (not resolved in env). An unbound type parameter
+        // cannot be proven compatible with any concrete type.
         return false;
       }
       return areTypesCompatible(
@@ -948,6 +950,8 @@ export function areTypesCompatible(
 
     const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
     if (given.type === givenType_) {
+      // SomeType is unbound (not resolved in env). An unbound type parameter
+      // cannot be proven compatible with any concrete type.
       return false;
     }
     return areTypesCompatible(
