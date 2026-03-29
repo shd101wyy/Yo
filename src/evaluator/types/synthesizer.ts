@@ -262,11 +262,12 @@ export function synthesizeTypes(
     }
     // both are some type
     else {
-      // Bind both to the same new concrete type
-      const value = createTypeValue(
-        given.type // NOTE: Using expected.type here causes some errors in tests
-        // createSomeType(createType0(), `type_synth_${randomId()}`) // <= This also causes some errors in tests
-      );
+      // Both SomeTypes are unbound. Bind both to given.type as the representative.
+      // This is intentionally asymmetric: in the expected/given convention, the given side
+      // represents the actual value being matched, so it becomes the unification target.
+      // Expected's SomeType gets bound to given.type, while given.type remains self-bound
+      // (effectively unbound until resolved later via concrete type assignment).
+      const value = createTypeValue(given.type);
 
       // Update expected env
       {
