@@ -571,6 +571,26 @@ function evaluateImplFieldList({
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
+ * Version counter for the generic impl registry. Incremented whenever a new
+ * generic impl is registered or the registry is mutated. Used to invalidate
+ * the method lookup cache.
+ */
+let genericImplRegistryVersion = 0;
+
+/**
+ * Cache for findMethodsFromGenericImpls results.
+ * Key: `typeToString(concreteType) + "\0" + methodName`
+ * Value: { result, version } where version is the registry version at cache time.
+ */
+const genericImplMethodCache = new Map<
+  string,
+  {
+    result: { type: FunctionType; value: Value | undefined }[];
+    version: number;
+  }
+>();
+
+/**
  * Registry tracking which trait are implemented for which types.
  * Maps from type id to an array of impl records.
  * Used for duplicate impl detection.
@@ -598,6 +618,8 @@ export function clearGenericImplsFromModule(modulePath: string): void {
       genericImplRegistry.set(traitTypeName, filteredImpls);
     }
   }
+  genericImplRegistryVersion++;
+  genericImplMethodCache.clear();
 }
 
 /**
@@ -625,6 +647,8 @@ export function clearAllGlobalImplState(): void {
   implRegistry.clear();
   genericImplRegistry.clear();
   typeImplRegistry.clear();
+  genericImplMethodCache.clear();
+  genericImplRegistryVersion = 0;
 }
 
 /**
@@ -712,6 +736,7 @@ function registerGenericImpl(
     genericImplRegistry.set(traitTypeName, impls);
   }
   impls.push(genericImpl);
+  genericImplRegistryVersion++;
 }
 
 /**
@@ -878,6 +903,16 @@ export function findMethodsFromGenericImpls({
     const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
     if (!isSomeType(resolvedType)) {
       concreteType = resolvedType;
+    }
+  }
+
+  // Check cache: if we've already resolved this concrete type + method name
+  // with the same registry version, return the cached result
+  if (!isSomeType(concreteType)) {
+    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cached = genericImplMethodCache.get(cacheKey);
+    if (cached && cached.version === genericImplRegistryVersion) {
+      return cached.result;
     }
   }
 
@@ -1197,6 +1232,15 @@ export function findMethodsFromGenericImpls({
         }
       }
     }
+  }
+
+  // Store result in cache for non-SomeType concrete types
+  if (!isSomeType(concreteType)) {
+    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    genericImplMethodCache.set(cacheKey, {
+      result: methods,
+      version: genericImplRegistryVersion,
+    });
   }
 
   return methods;
