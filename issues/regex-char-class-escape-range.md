@@ -27,6 +27,12 @@ After `_parse_class_escape()` returns a single-codepoint range (i.e., exactly on
 
 Multi-range escapes (`\d`, `\w`, `\s`) are unaffected since they return multiple ranges.
 
-## Also Missing: `\xHH` hex escape support
+## Also: `\xHH` hex escape support — FIXED
 
-The regex engine does not support `\xHH` hex escapes (e.g., `\x00`, `\x20`). Characters like `\x` are treated as literal `x`. Workaround: use `\0` for null, `\n` for newline, `\t` for tab, or literal characters.
+The regex engine now supports `\xHH` hex escapes (e.g., `\x00`, `\x20`, `\x7F`).
+
+- Works in both character classes and escape sequences
+- Supports uppercase and lowercase hex digits
+- Falls back to literal `x` if fewer than 2 valid hex digits follow
+
+Additionally, `_try_parse_char_range` was updated to handle escape sequences as range endpoints (e.g., `[\x00-\x20]` correctly creates range 0x00..0x20).
