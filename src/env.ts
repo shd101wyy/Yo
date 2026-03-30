@@ -592,6 +592,10 @@ export function addVariableToEnv({
 }): { env: Environment; variable: Variable } {
   let frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
 
+  // Fast path for temp variables: they have unique machine-generated names,
+  // so skip duplicate/shadowing checks and use direct append.
+  const isTempVar = isTempVariableName(env.modulePath, variable.name);
+
   // If addToBeginBlockFrame is true, find the nearest begin block frame
   if (addToBeginBlockFrame) {
     const beginBlockFrameLevel = findNearestBeginBlockFrameLevel(env);
@@ -604,7 +608,8 @@ export function addVariableToEnv({
   // Prevent variable shadowing across all scopes
   // Variables with the same name cannot exist in different frames
   // EXCEPT: When allowVariableShadowing is true (for function type parameters)
-  if (variable.name !== YoSelf) {
+  // Skip for temp variables — they have unique generated names and never shadow
+  if (variable.name !== YoSelf && !isTempVar) {
     const existingVariables = getVariablesFromEnv(env, variable.name);
     if (existingVariables.length > 0 && !allowVariableShadowing) {
       const existingVariable = existingVariables[existingVariables.length - 1]!;
@@ -633,14 +638,16 @@ export function addVariableToEnv({
     );
   }
 
-  const id = isTempVariableName(env.modulePath, variable.name)
+  const id = isTempVar
     ? variable.name
     : (variableId ?? generateVarialeId(env.modulePath, variable.name));
   const newVariable: Variable = { ...variable, frameLevel, id };
-  const newFrame = addVariableToFrame({
-    frame,
-    variable: newVariable,
-  });
+  const newFrame = isTempVar
+    ? addTempVariableToFrame(frame, newVariable)
+    : addVariableToFrame({
+        frame,
+        variable: newVariable,
+      });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
   const newEnv: Environment = {
@@ -703,6 +710,30 @@ export function addVariableToFrame({
     variables: [...frame.variables, variable],
     isBeginBlockFrame: frame.isBeginBlockFrame,
     whereClauseConstraints: new Map(frame.whereClauseConstraints),
+  };
+}
+
+/**
+ * Fast path for adding temp variables to a frame.
+ * Temp variables have unique machine-generated names, so we skip:
+ * - "_" check (temp names are never "_")
+ * - Duplicate name check (names are unique by construction)
+ * - Uninitialized variable replacement check (never applies)
+ *
+ * OPTIMIZATION: Creates a new frame but SHARES the whereClauseConstraints
+ * Map (no copy). Temp vars never affect where clause constraints, so
+ * sharing is safe and avoids the expensive Map copy.
+ *
+ * NOTE: We cannot mutate frame.variables in place (push) because frames
+ * are shared across environments — branch constructs (cond/match) reuse
+ * the same frame objects, and in-place mutation would pollute sibling branches.
+ */
+function addTempVariableToFrame(frame: Frame, variable: Variable): Frame {
+  return {
+    id: frame.id,
+    variables: [...frame.variables, variable],
+    isBeginBlockFrame: frame.isBeginBlockFrame,
+    whereClauseConstraints: frame.whereClauseConstraints,
   };
 }
 
@@ -1168,10 +1199,15 @@ export function getReceiverMethodsByNameFromEnv({
     value: Value | undefined;
     needsPointerConversion?: boolean;
   }[] {
-    const filtered = methodsToFilter.filter((method) => {
+    const filtered: {
+      type: Type;
+      value: Value | undefined;
+      needsPointerConversion?: boolean;
+    }[] = [];
+    for (const method of methodsToFilter) {
       if (isFunctionType(method.type)) {
         if (method.type.parameters.length === 0) {
-          return false; // Methods must have at least one parameter (receiver)
+          continue; // Methods must have at least one parameter (receiver)
         }
         const methodFirstParam = method.type.parameters[0]!;
         const methodFirstParamType = methodFirstParam.type;
@@ -1222,20 +1258,22 @@ export function getReceiverMethodsByNameFromEnv({
             { type: effectiveReceiverType, env },
             true // isMethodReceiver
           );
-          // console.log(
-          //   `DEBUG filter ptr: compatible: ${receiverCompatibleWithPtrChild}`
-          // );
-
           if (receiverCompatibleWithPtrChild) {
-            // Mark this method as needing pointer conversion
-            method.needsPointerConversion = true;
-            return true;
+            // Create a new object with pointer conversion flag — do NOT mutate
+            // the original method object as it may be shared via the cache.
+            filtered.push({
+              type: method.type,
+              value: method.value,
+              needsPointerConversion: true,
+            });
+            continue;
           }
         }
 
         if (typeContainsSomeType(methodFirstParamType)) {
           // Leave it to the later function call checker.
-          return true;
+          filtered.push(method);
+          continue;
         }
 
         // If only method has SomeType but receiver doesn't
@@ -1243,7 +1281,8 @@ export function getReceiverMethodsByNameFromEnv({
           typeContainsSomeType(methodFirstParamType) &&
           !typeContainsSomeType(receiverType)
         ) {
-          return true;
+          filtered.push(method);
+          continue;
         }
 
         // Special case: if receiverType is a SomeType with resolvedConcreteType,
@@ -1265,7 +1304,8 @@ export function getReceiverMethodsByNameFromEnv({
             true // isMethodReceiver
           )
         ) {
-          return true;
+          filtered.push(method);
+          continue;
         }
 
         // If only receiver has SomeType, but method doesn't
@@ -1273,7 +1313,7 @@ export function getReceiverMethodsByNameFromEnv({
           !typeContainsSomeType(methodFirstParamType) &&
           typeContainsSomeType(receiverType)
         ) {
-          return false;
+          continue; // skip (was return false)
         }
 
         // Special case: comptime types (comptime_int, comptime_float, comptime_string) can call
@@ -1289,19 +1329,14 @@ export function getReceiverMethodsByNameFromEnv({
             expr: undefined,
             env,
           });
-          // console.log(
-          //   `DEBUG filter: checking comptime ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
-          // );
           const isRuntimeCompatible = areTypesCompatible(
             { type: methodFirstParamType, env: method.type.env },
             { type: runtimeReceiverType, env },
             true // isMethodReceiver
           );
-          // console.log(
-          //   `DEBUG filter: runtime compatible: ${isRuntimeCompatible}`
-          // );
           if (isRuntimeCompatible) {
-            return true;
+            filtered.push(method);
+            continue;
           }
         }
 
@@ -1326,7 +1361,7 @@ export function getReceiverMethodsByNameFromEnv({
                   !isDynType(selfParamType) &&
                   !isPtrType(selfParamType)
                 ) {
-                  return false;
+                  continue; // skip
                 }
               }
             }
@@ -1339,7 +1374,7 @@ export function getReceiverMethodsByNameFromEnv({
                 method.type.SelfType
               )
             ) {
-              return false;
+              continue; // skip
             }
           }
         }
@@ -1354,10 +1389,13 @@ export function getReceiverMethodsByNameFromEnv({
           true // isMethodReceiver
         );
 
-        return isCompatible;
+        if (isCompatible) {
+          filtered.push(method);
+        }
+      } else {
+        filtered.push(method); // Non-function types pass through
       }
-      return true; // QUESTION: How to handle non-function types?
-    });
+    }
 
     return filtered;
   }
