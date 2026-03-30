@@ -1,3 +1,4 @@
+import type { Expr } from "../expr";
 import { Emitter } from "../emitter";
 import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
@@ -61,6 +62,7 @@ export class CodeGeneratorC {
       debugAsyncAwait?: boolean;
       allocator?: "mimalloc" | "libc";
       isLibrary?: boolean;
+      allModuleLevelInitExprs?: Expr[];
     } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
@@ -108,7 +110,8 @@ export class CodeGeneratorC {
       currentModuleId: options.isLibrary
         ? generateModuleId(modulePath)
         : undefined,
-      moduleLevelInitExprs: moduleValue.moduleLevelInitExprs,
+      moduleLevelInitExprs:
+        options.allModuleLevelInitExprs ?? moduleValue.moduleLevelInitExprs,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)

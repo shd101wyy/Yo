@@ -420,13 +420,17 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   __yo_async_wait_all();`
       : "";
 
-    // Generate module-level mutable variable declarations and init code
-    let moduleLevelInitCode = "";
+    // Collect module-level mutable variable declarations (static vars at file scope)
+    // The init code will be generated INSIDE main() to avoid file-scope initializer issues.
+    const moduleLevelVars: Array<{
+      cVarName: string;
+      cTypeStr: string;
+      rhs: Expr;
+    }> = [];
     if (
       context.moduleLevelInitExprs &&
       context.moduleLevelInitExprs.length > 0
     ) {
-      const initStatements: string[] = [];
       for (const initExpr of context.moduleLevelInitExprs) {
         if (!exprIsFunctionCall(initExpr) || initExpr.args.length < 2) continue;
         const lhs = initExpr.args[0]!;
@@ -437,20 +441,16 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
         const cVarName = getVariableNameForCodegen(varName, lhs.$.env);
         const cTypeStr = getTypeString(lhs.$.type, context);
 
-        // Emit file-scope static declaration
+        // Emit file-scope static declaration (no initializer)
         emitter.emitDeclarationLine(
           `static ${cTypeStr} ${cVarName}; // module-level mutable variable`
         );
 
-        // Generate RHS code and collect init statement
-        const rhsCode = generateExpr(rhs, "  ", context);
-        initStatements.push(`  ${cVarName} = ${rhsCode};`);
-      }
-      if (initStatements.length > 0) {
-        moduleLevelInitCode = `\n  // Initialize module-level mutable variables\n${initStatements.join("\n")}`;
+        moduleLevelVars.push({ cVarName, cTypeStr, rhs });
       }
     }
 
+    // Emit main() header
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -458,8 +458,19 @@ int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
-  ${asyncInit}${moduleLevelInitCode}
-  // Call sync main
+  ${asyncInit}`);
+
+    // Generate module-level init code INSIDE main() so temp vars and function calls
+    // are valid C (not file-scope initializers).
+    if (moduleLevelVars.length > 0) {
+      emitter.emitLine(`  // Initialize module-level mutable variables`);
+      for (const { cVarName, rhs } of moduleLevelVars) {
+        const rhsCode = generateExpr(rhs, "  ", context);
+        emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+      }
+    }
+
+    emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}
   return 0;
