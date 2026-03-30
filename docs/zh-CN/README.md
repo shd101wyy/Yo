@@ -52,7 +52,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
-- 受 Zig 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
+- 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
 - **C** 语言互操作。
 - 等等。
 

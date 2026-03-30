@@ -52,7 +52,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
-- [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig (`yo build`, `yo init`, cross-compilation).
+- [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig and Nix (`yo build`, `yo init`, cross-compilation).
 - **C** interop.
 - etc.
 
