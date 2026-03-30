@@ -15,7 +15,11 @@ import { typeContainsRcType } from "../../types/utils";
 import { randomId } from "../../utils";
 import { isFunctionValue, isNumberValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getTypeString } from "../utils";
+import {
+  type CodeGenContext,
+  getDeferredDropTargetAtomName,
+  getTypeString,
+} from "../utils";
 import { generateExpr } from "./expr";
 
 /**
@@ -271,6 +275,17 @@ export function generateDeferredDropExpressions(
 
   if (expr.$?.deferredDropExpressions) {
     for (const dropExpr of expr.$.deferredDropExpressions) {
+      // Skip drops already emitted inside short-circuit conditional branches
+      if (context.shortCircuitHandledDropVarNames) {
+        const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+        if (
+          targetVarName &&
+          context.shortCircuitHandledDropVarNames.has(targetVarName)
+        ) {
+          context.shortCircuitHandledDropVarNames.delete(targetVarName);
+          continue;
+        }
+      }
       const dropCode = generateExpr(dropExpr, indent, context);
       if (dropCode) {
         emitter.emitLine(`${indent}${dropCode};`);

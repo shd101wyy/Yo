@@ -229,12 +229,27 @@ export function evaluateFunctionCall({
     functions = [givenFunc];
   } else {
     if (exprIsFunctionCall(func)) {
+      // Clear expectedType when the callee is a genuine call expression that
+      // produces a callable (e.g., `.unwrap()` returning a function type).
+      // The outer call's expected return type should not leak into the callee's
+      // generic type resolution. For example, in
+      //   `rules.get(0).unwrap()(state, a, b, c)`
+      // where the outer call returns bool, passing expectedType=bool into
+      // .unwrap() incorrectly binds T=bool instead of T=BlockRuleFn.
+      //
+      // However, DON'T clear expectedType when the callee is a property access
+      // expression (`.X`), because enum variant constructors like `.Some(ptr)`
+      // need expectedType to infer which enum type they belong to.
+      const isPropertyAccess = exprIsFunctionCallOf(func, ".");
       const functionToCall = evaluateExpression({
         expr: func,
         env,
-        context: {
-          ...context,
-        },
+        context: isPropertyAccess
+          ? { ...context }
+          : {
+              ...context,
+              expectedType: undefined,
+            },
       });
       func = functionToCall;
 
@@ -2031,12 +2046,18 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr, true);
 
-      // Attach necessary info to the func
+      // Attach necessary info to the func.
+      // Preserve runtimeArgExprsInOrder and deferredDropExpressions if func was
+      // a pre-evaluated function call (chained call pattern like `opt.unwrap()(args)`).
+      const isChainedCallCallee = exprIsFunctionCall(func);
       func.$ = {
         env,
         type: functionToCall.type,
         value: specializedFunctionValue || functionToCall.value,
         pathCollection: [],
+        runtimeArgExprsInOrder: func.$?.runtimeArgExprsInOrder,
+        deferredDropExpressions: func.$?.deferredDropExpressions,
+        variableName: isChainedCallCallee ? func.$?.variableName : undefined,
       };
       if (methodExpr) {
         methodExpr.$ = {
@@ -2131,12 +2152,18 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     // Set temp variable which holds the result of the function call
     attachTempVariableToExpr(expr, true);
 
-    // Attach necessary info to the func
+    // Attach necessary info to the func.
+    // Preserve runtimeArgExprsInOrder and deferredDropExpressions if func was
+    // a pre-evaluated function call (chained call pattern like `opt.unwrap()(args)`).
+    const isChainedCallCallee = exprIsFunctionCall(func);
     func.$ = {
       env,
       type: functionToCall.type,
       value: specializedFunctionValue || functionToCall.value,
       pathCollection: [],
+      runtimeArgExprsInOrder: func.$?.runtimeArgExprsInOrder,
+      deferredDropExpressions: func.$?.deferredDropExpressions,
+      variableName: isChainedCallCallee ? func.$?.variableName : undefined,
     };
     if (methodExpr) {
       methodExpr.$ = {

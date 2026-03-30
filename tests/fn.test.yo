@@ -1063,6 +1063,55 @@ test "Partial application preserves return type", {
   ();
 };
 
+test "Chained unwrap call on Option of function type", {
+  MyStruct :: struct(x: i32);
+  MyFn :: (fn(s: *(MyStruct), a: i32) -> bool);
+
+  my_fn :: (fn(s: *(MyStruct), a: i32) -> bool)(
+    ((s.*.x + a) > i32(0))
+  );
+
+  chained_call :: (fn(opt: Option(MyFn), s: *(MyStruct), a: i32) -> bool)({
+    return opt.unwrap()(s, a);
+  });
+
+  (s : MyStruct) = MyStruct(x: i32(10));
+  (opt : Option(MyFn)) = .Some(my_fn);
+  result := chained_call(opt, &(s), i32(1));
+  assert(result, "chained unwrap()() should return true");
+
+  // Also verify two-step works
+  fn_val := opt.unwrap();
+  result2 := fn_val(&(s), i32(2));
+  assert(result2, "two-step unwrap should return true");
+  ();
+};
+
+test "Short-circuit operators with RC temporaries", {
+  open import "std/string";
+
+  // Test || with RC types (String) - should not use-after-free or leak
+  make_str :: (fn(s: str) -> String)(String.from(s));
+
+  (a : String) = make_str("hello");
+  result_or := ((a.len() > usize(0)) || (make_str("fallback").len() > usize(0)));
+  assert(result_or, "|| with RC temps should work");
+
+  // Test && with RC types
+  (b : String) = make_str("world");
+  result_and := ((b.len() > usize(0)) && (make_str("check").len() > usize(0)));
+  assert(result_and, "&& with RC temps should work");
+
+  // Test short-circuit: RHS should NOT be evaluated when LHS determines result
+  (c : String) = make_str("test");
+  result_or2 := ((c.len() > usize(0)) || (make_str("never").len() == usize(999)));
+  assert(result_or2, "|| should short-circuit");
+
+  result_and2 := ((make_str("").len() > usize(0)) && (make_str("never").len() > usize(0)));
+  assert(!(result_and2), "&& should short-circuit on false");
+  ();
+};
+
 // TODO:
 /*
 test "Test variadic function", {

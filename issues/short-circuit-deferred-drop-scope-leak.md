@@ -1,5 +1,7 @@
 # Short-circuit || with RC temporaries: deferred drops leak to outer scope
 
+**Status: FIXED**
+
 ## Problem
 
 When chaining `||` expressions that produce RC-typed temporaries (e.g., `String`),
@@ -15,38 +17,19 @@ has_match :: (fn(content: String) -> bool)(
 );
 ```
 
-## Generated C (simplified)
+## Root cause
 
-```c
-bool has_match(String content) {
-  String temp1 = to_string("(c)");
-  bool r1 = contains(content, temp1, 0);
-  if (!r1) {
-    String temp2 = to_string("(C)");  // declared inside if
-    bool r2 = contains(content, temp2, 0);
-    __sc = r2;
-    drop(temp2);  // correct: inside if
-  }
-  drop(temp2);  // BUG: temp2 not declared here!
-  drop(temp1);
-  return __sc;
-}
-```
+`generateDeferredDropExpressions()` in `src/codegen/exprs/drop-dup.ts` didn't check
+`context.shortCircuitHandledDropVarNames` before emitting drops. The `and-or.ts`
+codegen already correctly handled drops inside conditional branches and recorded
+variable names in `shortCircuitHandledDropVarNames`, but `drop-dup.ts` re-emitted
+those same drops at function scope where the variables weren't declared.
 
-## Workaround
+## Fix
 
-Compute each `contains` call into a separate `bool` variable before combining
-with `||`:
+Added the same `shortCircuitHandledDropVarNames` check that `begin.ts` already had
+to `generateDeferredDropExpressions()` in `drop-dup.ts`.
 
-```rust
-has_match :: (fn(content: String) -> bool)({
-  (has_c : bool) = content.contains(`(c)`);
-  (has_C : bool) = content.contains(`(C)`);
-  (has_c || has_C)
-});
-```
+## Regression test
 
-## Impact
-
-Affects any chained `||` or `&&` where the operands produce RC-typed temporaries.
-Pure value-type comparisons (e.g., `rune == rune`) are not affected.
+Added "Short-circuit operators with RC temporaries" test in `tests/fn.test.yo`.
