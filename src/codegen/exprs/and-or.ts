@@ -21,6 +21,19 @@ function exprMayHaveSideEffects(expr: Expr): boolean {
   if (expr.$?.value !== undefined) {
     return false;
   }
+  // Recursively check sub-expressions in function calls.
+  // This catches nested operators like (a && (b || side_effect_fn()))
+  // where the inner || has side-effectful args that must not be eagerly evaluated.
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of expr.args) {
+      if (exprMayHaveSideEffects(arg)) {
+        return true;
+      }
+    }
+    if (expr.func && exprMayHaveSideEffects(expr.func)) {
+      return true;
+    }
+  }
   // Runtime values without variableName are typically simple variable references
   return false;
 }
