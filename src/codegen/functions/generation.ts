@@ -6,6 +6,7 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   hasAnyControlFlow,
@@ -419,6 +420,37 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   __yo_async_wait_all();`
       : "";
 
+    // Generate module-level mutable variable declarations and init code
+    let moduleLevelInitCode = "";
+    if (
+      context.moduleLevelInitExprs &&
+      context.moduleLevelInitExprs.length > 0
+    ) {
+      const initStatements: string[] = [];
+      for (const initExpr of context.moduleLevelInitExprs) {
+        if (!exprIsFunctionCall(initExpr) || initExpr.args.length < 2) continue;
+        const lhs = initExpr.args[0]!;
+        const rhs = initExpr.args[1]!;
+        if (!exprIsAtom(lhs) || !lhs.$?.type) continue;
+
+        const varName = lhs.$?.variableName ?? lhs.token.value;
+        const cVarName = getVariableNameForCodegen(varName, lhs.$.env);
+        const cTypeStr = getTypeString(lhs.$.type, context);
+
+        // Emit file-scope static declaration
+        emitter.emitDeclarationLine(
+          `static ${cTypeStr} ${cVarName}; // module-level mutable variable`
+        );
+
+        // Generate RHS code and collect init statement
+        const rhsCode = generateExpr(rhs, "  ", context);
+        initStatements.push(`  ${cVarName} = ${rhsCode};`);
+      }
+      if (initStatements.length > 0) {
+        moduleLevelInitCode = `\n  // Initialize module-level mutable variables\n${initStatements.join("\n")}`;
+      }
+    }
+
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -426,7 +458,7 @@ int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
-  ${asyncInit}
+  ${asyncInit}${moduleLevelInitCode}
   // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}

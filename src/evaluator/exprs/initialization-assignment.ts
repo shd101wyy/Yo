@@ -387,6 +387,12 @@ ${exprToString(rhs)}`,
         : actualLhs.token.value;
 
     // Create new variable
+    // Mark as module-level if we're NOT inside a function body — these become
+    // C file-scope static variables accessible from all module functions.
+    const isModuleLevel =
+      !effectiveIsCompileTimeOnly &&
+      !context.isEvaluatingFunctionBodyOrAsyncBlock;
+
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -404,6 +410,7 @@ ${exprToString(rhs)}`,
         isOwningTheSameRcValueAs,
         isReassignable: !isImplicit,
         isImplicit,
+        isModuleLevel,
       },
     });
     env = nextEnv;

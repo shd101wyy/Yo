@@ -108,6 +108,12 @@ export type ModuleValue = {
    * undefined element means runtime value.
    */
   fields: (Value | undefined)[];
+  /**
+   * Module-level `:=` initialization expressions that need to be
+   * emitted as file-scope static variables with initialization in main().
+   * These are collected during module evaluation for use by codegen.
+   */
+  moduleLevelInitExprs?: Expr[];
 };
 
 export type TraitValue = {
@@ -637,12 +643,17 @@ export function createStructValue(
 
 export function createModuleValue(
   type: ModuleType,
-  fields: (Value | undefined)[]
+  fields: (Value | undefined)[],
+  moduleLevelInitExprs?: Expr[]
 ): ModuleValue {
   return {
     tag: ValueTag.Module,
     type,
     fields,
+    moduleLevelInitExprs:
+      moduleLevelInitExprs && moduleLevelInitExprs.length > 0
+        ? moduleLevelInitExprs
+        : undefined,
   };
 }
 

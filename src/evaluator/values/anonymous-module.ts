@@ -48,6 +48,8 @@ export function evaluateAnonymousModuleBeginExprs({
   // Create module type
   const moduleType = createModuleType(env);
   const moduleElementValues: (Value | undefined)[] = [];
+  // Collect module-level `:=` initialization expressions for codegen
+  const moduleLevelInitExprs: Expr[] = [];
 
   let partialModuleError: Error | undefined = undefined;
 
@@ -353,6 +355,18 @@ export function evaluateAnonymousModuleBeginExprs({
         if (evaluatedExpr.$?.env) {
           env = evaluatedExpr.$?.env;
         }
+        // Collect module-level `:=` initialization expressions for codegen.
+        // These will be emitted as file-scope static variables.
+        if (
+          exprIsFunctionCall(evaluatedExpr) &&
+          exprIsFunctionCallOf(evaluatedExpr, ":=", 2)
+        ) {
+          const initLhs = evaluatedExpr.args[0]!;
+          // Only collect if the LHS is an atom (simple variable) and has a runtime type
+          if (exprIsAtom(initLhs) && initLhs.$?.type && !initLhs.$.value) {
+            moduleLevelInitExprs.push(evaluatedExpr);
+          }
+        }
       }
     } catch (error) {
       if (allowPartialModule) {
@@ -380,7 +394,11 @@ export function evaluateAnonymousModuleBeginExprs({
   }
 
   // Create the module value
-  const moduleValue = createModuleValue({ ...moduleType }, moduleElementValues);
+  const moduleValue = createModuleValue(
+    { ...moduleType },
+    moduleElementValues,
+    moduleLevelInitExprs
+  );
 
   return {
     moduleValue,

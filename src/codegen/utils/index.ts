@@ -266,6 +266,13 @@ export interface CodeGenContext {
   needsIntelAsmSyntax?: boolean;
 
   /**
+   * Module-level mutable variable initialization expressions.
+   * These are `:=` expressions at module scope that need to be emitted
+   * in `__yo_user_main` before calling the user's main function.
+   */
+  moduleLevelInitExprs?: Expr[];
+
+  /**
    * The module ID of the current module being compiled (e.g., "yo3818ce2d").
    * Used in library mode to distinguish user-defined exports from std library functions.
    */

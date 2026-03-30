@@ -203,6 +203,13 @@ export interface Variable {
    * and injected at io.spawn/io.await time via using(...).
    */
   isEffectParam?: boolean;
+
+  /**
+   * Whether this variable is a module-level mutable variable (`:=` at module scope).
+   * Module-level mutable variables are emitted as C file-scope static variables
+   * rather than function-local variables, so they can be accessed by all module functions.
+   */
+  isModuleLevel?: boolean;
 }
 
 export type WhereClauseConstraints = {

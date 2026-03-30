@@ -108,6 +108,7 @@ export class CodeGeneratorC {
       currentModuleId: options.isLibrary
         ? generateModuleId(modulePath)
         : undefined,
+      moduleLevelInitExprs: moduleValue.moduleLevelInitExprs,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)
