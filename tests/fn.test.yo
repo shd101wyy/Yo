@@ -899,6 +899,170 @@ test "Test contextual parameters (using/given)", {
   };
 };
 
+// ─────────────────────────────────────────────────────
+// Partial application tests
+// ─────────────────────────────────────────────────────
+test "Partial application on type constructors", {
+  // _ on second parameter of Result
+  IntResult :: Result(_, i32);
+  (a : IntResult(bool)) = .Ok(true);
+  ok_opt := a.ok();
+  match(ok_opt,
+    .Some(v) => assert(v, "expected true"),
+    .None => assert(false, "expected Some")
+  );
+
+  // _ on first parameter of Result
+  ErrResult :: Result(bool, _);
+  (b : ErrResult(i32)) = .Err(i32(42));
+  err_opt := b.err();
+  match(err_opt,
+    .Some(e) => assert((e == i32(42)), "expected 42"),
+    .None => assert(false, "expected Some")
+  );
+
+  ();
+};
+
+test "Partial application on comptime value functions", {
+  // 2-arg function, _ on second position
+  add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+  add1 :: add(i32(1), _);
+  result :: add1(i32(2));
+  comptime_assert((result == i32(3)), "1 + 2 = 3");
+
+  // 2-arg function, _ on first position
+  add_to_10 :: add(_, i32(10));
+  result2 :: add_to_10(i32(5));
+  comptime_assert((result2 == i32(15)), "5 + 10 = 15");
+
+  // Boolean function, _ on second position
+  is_equal :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(bool))((a == b));
+  is_five :: is_equal(i32(5), _);
+  comptime_assert(is_five(i32(5)), "5 == 5");
+  comptime_assert(!(is_five(i32(3))), "5 != 3");
+
+  // Boolean function, _ on first position
+  equals_seven :: is_equal(_, i32(7));
+  comptime_assert(equals_seven(i32(7)), "7 == 7");
+  comptime_assert(!(equals_seven(i32(0))), "0 != 7");
+
+  ();
+};
+
+test "Partial application with multiple placeholders", {
+  // 3-arg function, _ on first and third positions
+  add3 :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))(((a + b) + c));
+  fix_middle :: add3(_, i32(100), _);
+  result :: fix_middle(i32(1), i32(2));
+  comptime_assert((result == i32(103)), "1 + 100 + 2 = 103");
+
+  // 3-arg function, _ on second and third positions
+  fix_first :: add3(i32(10), _, _);
+  result2 :: fix_first(i32(20), i32(30));
+  comptime_assert((result2 == i32(60)), "10 + 20 + 30 = 60");
+
+  // 3-arg function, _ on first and second positions
+  fix_last :: add3(_, _, i32(1000));
+  result3 :: fix_last(i32(1), i32(2));
+  comptime_assert((result3 == i32(1003)), "1 + 2 + 1000 = 1003");
+
+  // 3-arg function, all positions are _
+  all_free :: add3(_, _, _);
+  result4 :: all_free(i32(5), i32(6), i32(7));
+  comptime_assert((result4 == i32(18)), "5 + 6 + 7 = 18");
+
+  ();
+};
+
+test "Partial application with different types", {
+  // Mix i32 and bool parameters
+  check :: (fn(comptime(x) : i32, comptime(flag) : bool, comptime(y) : i32) -> comptime(i32))(
+    cond(
+      flag => (x + y),
+      true => (x - y)
+    )
+  );
+
+  // Fix flag to true (addition mode)
+  add_mode :: check(_, true, _);
+  comptime_assert((add_mode(i32(3), i32(4)) == i32(7)), "3 + 4 = 7");
+
+  // Fix flag to false (subtraction mode)
+  sub_mode :: check(_, false, _);
+  comptime_assert((sub_mode(i32(10), i32(3)) == i32(7)), "10 - 3 = 7");
+
+  // Fix first and last, leave flag free
+  fixed_operands :: check(i32(5), _, i32(3));
+  comptime_assert((fixed_operands(true) == i32(8)), "5 + 3 = 8");
+  comptime_assert((fixed_operands(false) == i32(2)), "5 - 3 = 2");
+
+  ();
+};
+
+test "Partial application chaining", {
+  // Chain partial applications: fix one arg at a time
+  mul_add :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))(((a * b) + c));
+
+  // First partial: fix a = 2
+  double_add :: mul_add(i32(2), _, _);
+  // Second partial: fix b = 3
+  double3_add :: double_add(i32(3), _);
+  // Now only c is free
+  result :: double3_add(i32(10));
+  comptime_assert((result == i32(16)), "2 * 3 + 10 = 16");
+
+  ();
+};
+
+test "Partial application on type constructors with multiple params", {
+  // Define a 3-parameter generic type
+  Triple :: (fn(comptime(A) : Type, comptime(B) : Type, comptime(C) : Type) -> comptime(Type))(struct(first : A, second : B, third : C));
+
+  // Fix first type: IntPair(B, C) = Triple(i32, B, C)
+  IntPair :: Triple(i32, _, _);
+  FullType :: IntPair(bool, u8);
+  t1 := FullType(i32(1), true, u8(42));
+  assert((t1.first == i32(1)), "first = 1");
+  assert(t1.second, "second = true");
+  assert((t1.third == u8(42)), "third = 42");
+
+  // Fix middle type: MidBool(A, C) = Triple(A, bool, C)
+  MidBool :: Triple(_, bool, _);
+  FullType2 :: MidBool(i32, u8);
+  t2 := FullType2(i32(10), false, u8(5));
+  assert((t2.first == i32(10)), "first = 10");
+  assert(!(t2.second), "second = false");
+
+  // Fix last type: LastU8(A, B) = Triple(A, B, u8)
+  LastU8 :: Triple(_, _, u8);
+  FullType3 :: LastU8(i32, bool);
+  t3 := FullType3(i32(7), true, u8(0));
+  assert((t3.first == i32(7)), "first = 7");
+  assert((t3.third == u8(0)), "third = 0");
+
+  ();
+};
+
+test "Partial application preserves return type", {
+  // comptime string return
+  greet :: (fn(comptime(prefix) : comptime_string, comptime(name) : comptime_string) -> comptime(comptime_string))(
+    cond(
+      (prefix == "Hello") => "Hello!",
+      true => "Hi!"
+    )
+  );
+  hello :: greet("Hello", _);
+  result :: hello("world");
+  comptime_assert((result == "Hello!"), "greeting should be Hello!");
+
+  other :: greet("Hey", _);
+  result2 :: other("world");
+  comptime_assert((result2 == "Hi!"), "greeting should be Hi!");
+
+  ();
+};
+
 // TODO:
 /*
 test "Test variadic function", {

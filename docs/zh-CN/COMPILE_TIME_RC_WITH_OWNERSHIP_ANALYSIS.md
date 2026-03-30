@@ -27,7 +27,7 @@ z = y;              // ___dup(y)，___drop(旧 z)，z 获得所有权，RC = 4
 函数参数默认**借用**（不改变引用计数）。没有 `own()` 显式标记即表示参数是借用的：
 
 ```rust
-fn print_point(p : Point) -> unit {
+print_point :: (fn(p : Point) -> unit) {
   printf("(%d, %d)", p.x, p.y);  // 仅读取，无 RC 开销
 }
 
@@ -55,12 +55,12 @@ match(result,
 可以**通过**参数修改字段，但不能**重新赋值**参数本身：
 
 ```rust
-fn move_point(p : Point, dx : i32, dy : i32) -> unit {
+move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit) {
   p.x = (p.x + dx);  // ✅ 允许：通过参数修改字段
   p.y = (p.y + dy);  // ✅ 允许：通过参数修改字段
 }
 
-fn broken(p : Point) -> unit {
+broken :: (fn(p : Point) -> unit) {
   p = Point(0, 0);   // ❌ 错误：不能重新赋值参数
 }
 ```
@@ -77,7 +77,7 @@ fn broken(p : Point) -> unit {
 - 如果实参仅是**借用/非拥有**的（例如借用的参数），编译器会插入 `___dup` 以创建一个拥有所有权的临时值传入被调用函数，同时原始绑定仍会被**消费**（变为不可用），以保证 `own()` 调用的线性/消费语义。
 
 ```rust
-fn consume(own(box): Box(i32)) -> unit {
+consume :: (fn(own(box): Box(i32)) -> unit) {
   printf("value: %d\n", box.(*));
   // box 在函数末尾被 drop
 }
@@ -85,12 +85,12 @@ fn consume(own(box): Box(i32)) -> unit {
 b := box(42);      // b 拥有所有权
 consume(b);        // 此后 b 不可再使用
 
-fn call_consume(p : Box(i32)) -> unit { // p 默认借用
+call_consume :: (fn(p : Box(i32)) -> unit) { // p 默认借用
   consume(p); // 编译器插入 ___dup(p) 以满足 own(box)
   // p 在此处不可使用（已被 own() 调用移动/消费）
 }
 
-fn call_consume_but_keep_using(p : Box(i32)) -> unit { // p 默认借用
+call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p 默认借用
   p2 := p;    // 编译器插入 ___dup(p)；p2 拥有所有权
   consume(p2); // p2 被消费
   // p 在此处仍可使用
@@ -137,7 +137,7 @@ ___drop(temp_var); // RC = 0，内存释放
 函数参数不会增加引用计数：
 
 ```rust
-fn use_point(p : Point) -> unit {
+use_point :: (fn(p : Point) -> unit) {
   printf("(%d, %d)", p.x, p.y);  // p 是借用的，不改变 RC
 }
 
@@ -257,11 +257,11 @@ result := Result(Point).Ok(p1); // ___dup(p1)，enum 拥有副本
 **返回借用的参数时调用 `___dup`：**
 
 ```rust
-fn identity(p : Point) -> Point {  // p 是借用的（参数）
+identity :: (fn(p : Point) -> Point) {  // p 是借用的（参数）
   return p;  // ___dup(p)，返回值拥有副本
 }
 
-fn create() -> Point {
+create :: (fn() -> Point) {
   p := Point(3, 4);  // p 拥有所有权
   return p;          // ___dup(p)，返回值拥有副本
   // return 之后 ___drop(p)
@@ -306,7 +306,7 @@ x := match(optional,
 **`own()` 参数获取所有权（可能时移动，否则 dup）：**
 
 ```rust
-fn consume(own(box): Box(i32)) -> unit {
+consume :: (fn(own(box): Box(i32)) -> unit) {
   printf("value: %d\n", box.(*));
   // box 在函数末尾被 drop
 }
@@ -317,7 +317,7 @@ consume(b);        // b 被消费
 
 // 如果实参是借用/非拥有的，编译器会插入 ___dup。
 // 示例：借用的参数传递给 own() 参数。
-fn call_consume(p : Box(i32)) -> unit {
+call_consume :: (fn(p : Box(i32)) -> unit) {
   consume(p); // 插入 ___dup(p)；p 被消费（此后不可使用）
 }
 ```
@@ -327,7 +327,7 @@ fn call_consume(p : Box(i32)) -> unit {
 **传递给借用参数（没有 `own()` 的参数）时不调用 `___dup`：**
 
 ```rust
-fn print_point(p : Point) -> unit {  // p 是借用的（无 own 关键字）
+print_point :: (fn(p : Point) -> unit) {  // p 是借用的（无 own 关键字）
   printf("(%d, %d)", p.x, p.y);
 }
 

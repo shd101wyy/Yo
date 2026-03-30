@@ -87,6 +87,44 @@ function reEvaluateFunctionType({
   specializedEnv: Environment;
   SelfType: Type | undefined;
 }): FunctionType {
+  // Build re-evaluation env by merging the function type's definition env
+  // (which captures scope variables like `F` from HKT trait constructors)
+  // with the substitution frame from specializedEnv (which has concrete bindings
+  // like A=i32 from the generic impl's forall parameters).
+  const substitutionFrame =
+    specializedEnv.frames[specializedEnv.frames.length - 1]!;
+  const substitutionNames = new Set(
+    substitutionFrame.variables.map((v) => v.name)
+  );
+
+  // The functionType.env does NOT include forall params (they were popped into
+  // parametersFrame). We need to re-add unresolved forall params so that nested
+  // type expressions like `(fn(a: A) -> B)` can reference them.
+  const baseEnv = pushEnvFrame(functionType.env, substitutionFrame);
+
+  // Add forall parameter variables that are NOT resolved by substitutions
+  // (e.g., B in Functor's map when only A is resolved from impl's forall)
+  // These are added to a separate env used only for re-evaluation, NOT stored
+  // in the returned function type's env (otherwise they'd conflict with forall
+  // arg processing at the call site).
+  let reEvalEnv = baseEnv;
+  const forallParamVars = functionType.parametersFrame.variables.filter(
+    (v) =>
+      functionType.forallParameters.some((fp) => fp.label === v.name) &&
+      !substitutionNames.has(v.name)
+  );
+  if (forallParamVars.length > 0) {
+    reEvalEnv = pushEnvFrame(baseEnv);
+    for (const v of forallParamVars) {
+      const { env: nextEnv } = addVariableToEnv({
+        env: reEvalEnv,
+        variable: { ...v },
+        allowVariableShadowing: true,
+      });
+      reEvalEnv = nextEnv;
+    }
+  }
+
   // Re-evaluate each parameter's type expression
   const newParameters: FunctionParameter[] = functionType.parameters.map(
     (param) => {
@@ -99,7 +137,7 @@ function reEvaluateFunctionType({
       const typeExprClone = cloneExpr(param.exprs.typeExpr);
       const evaluatedTypeExpr = evaluateExpression({
         expr: typeExprClone,
-        env: specializedEnv,
+        env: reEvalEnv,
         context: {
           isEvaluatingGenericImplSpecialization: true,
           stdPath: "",
@@ -127,7 +165,7 @@ function reEvaluateFunctionType({
   const returnTypeExprClone = cloneExpr(functionType.return.typeExpr);
   const evaluatedReturnTypeExpr = evaluateExpression({
     expr: returnTypeExprClone,
-    env: specializedEnv,
+    env: reEvalEnv,
     context: {
       isEvaluatingGenericImplSpecialization: true,
       stdPath: "",
@@ -146,6 +184,13 @@ function reEvaluateFunctionType({
     newSelfType = SelfType;
   }
 
+  // Determine which forall parameters have been resolved by the substitutions.
+  // Only clear forall parameters whose names exist in the substitution frame;
+  // method-level forall params (like B in Functor's map) may remain unresolved.
+  const remainingForallParams = functionType.forallParameters.filter(
+    (fp) => !substitutionNames.has(fp.label)
+  );
+
   // Create the new parametersFrame with re-evaluated types
   const newParametersFrame = {
     ...functionType.parametersFrame,
@@ -161,10 +206,41 @@ function reEvaluateFunctionType({
     }),
   };
 
+  // Use specializedEnv as the base for the returned env, NOT baseEnv.
+  // baseEnv is built from functionType.env (which includes extra frames from
+  // impl field list evaluation) and causes frame-level mismatches — the
+  // assignment.ts check compares variable.frameLevel against env.frames.length.
+  //
+  // However, functionType.env may contain variables not in specializedEnv
+  // (e.g., F from HKT trait scopes). The returned function type's
+  // exprs.typeExpr still references original expressions (e.g., F(A)), so
+  // subsequent re-evaluations at call sites need those variables available.
+  // Merge them into specializedEnv's top frame to preserve the frame count.
+  let returnEnv = specializedEnv;
+  const existingVarNames = new Set<string>();
+  for (const frame of specializedEnv.frames) {
+    for (const v of frame.variables) {
+      existingVarNames.add(v.name);
+    }
+  }
+  for (const frame of functionType.env.frames) {
+    for (const v of frame.variables) {
+      if (!existingVarNames.has(v.name)) {
+        const { env: updatedEnv } = addVariableToEnv({
+          env: returnEnv,
+          variable: { ...v },
+          allowVariableShadowing: true,
+        });
+        returnEnv = updatedEnv;
+        existingVarNames.add(v.name);
+      }
+    }
+  }
+
   return {
     ...functionType,
-    env: specializedEnv,
-    forallParameters: [], // Clear forall parameters since we've specialized them
+    env: returnEnv,
+    forallParameters: remainingForallParams,
     parameters: newParameters,
     parametersFrame: newParametersFrame,
     return: { ...functionType.return, type: newReturnType },
@@ -495,6 +571,26 @@ function evaluateImplFieldList({
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
+ * Version counter for the generic impl registry. Incremented whenever a new
+ * generic impl is registered or the registry is mutated. Used to invalidate
+ * the method lookup cache.
+ */
+let genericImplRegistryVersion = 0;
+
+/**
+ * Cache for findMethodsFromGenericImpls results.
+ * Key: `typeToString(concreteType) + "\0" + methodName`
+ * Value: { result, version } where version is the registry version at cache time.
+ */
+const genericImplMethodCache = new Map<
+  string,
+  {
+    result: { type: FunctionType; value: Value | undefined }[];
+    version: number;
+  }
+>();
+
+/**
  * Registry tracking which trait are implemented for which types.
  * Maps from type id to an array of impl records.
  * Used for duplicate impl detection.
@@ -522,6 +618,8 @@ export function clearGenericImplsFromModule(modulePath: string): void {
       genericImplRegistry.set(traitTypeName, filteredImpls);
     }
   }
+  genericImplRegistryVersion++;
+  genericImplMethodCache.clear();
 }
 
 /**
@@ -549,6 +647,8 @@ export function clearAllGlobalImplState(): void {
   implRegistry.clear();
   genericImplRegistry.clear();
   typeImplRegistry.clear();
+  genericImplMethodCache.clear();
+  genericImplRegistryVersion = 0;
 }
 
 /**
@@ -636,6 +736,7 @@ function registerGenericImpl(
     genericImplRegistry.set(traitTypeName, impls);
   }
   impls.push(genericImpl);
+  genericImplRegistryVersion++;
 }
 
 /**
@@ -802,6 +903,16 @@ export function findMethodsFromGenericImpls({
     const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
     if (!isSomeType(resolvedType)) {
       concreteType = resolvedType;
+    }
+  }
+
+  // Check cache: if we've already resolved this concrete type + method name
+  // with the same registry version, return the cached result
+  if (!isSomeType(concreteType)) {
+    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cached = genericImplMethodCache.get(cacheKey);
+    if (cached && cached.version === genericImplRegistryVersion) {
+      return cached.result;
     }
   }
 
@@ -1121,6 +1232,15 @@ export function findMethodsFromGenericImpls({
         }
       }
     }
+  }
+
+  // Store result in cache for non-SomeType concrete types
+  if (!isSomeType(concreteType)) {
+    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    genericImplMethodCache.set(cacheKey, {
+      result: methods,
+      version: genericImplRegistryVersion,
+    });
   }
 
   return methods;

@@ -101,6 +101,11 @@ export function generateInitializationAssignment(
     const rhsCode = generateExpr(rhs, indent, context);
     const rhsType = rhs.$?.type;
     runtimeDestructurings.forEach(({ label, type, variableName }) => {
+      // Skip "_" placeholder variables — no C variable needed for discarded fields
+      if (variableName === "_") {
+        return;
+      }
+
       // Sanitize the variable name for C
       const sanitizedVariableName = sanitizeForCIdentifier(
         variableName,
@@ -149,7 +154,8 @@ export function generateInitializationAssignment(
   }
 
   if (exprIsAtom(lhs)) {
-    const varName = lhs.token.value;
+    // Use renamed variable name (e.g., "_" → temp name) if available
+    const varName = lhs.$?.variableName ?? lhs.token.value;
     if (!lhs.$?.type) {
       return `// Error: No type information for variable ${varName}\n`;
     }

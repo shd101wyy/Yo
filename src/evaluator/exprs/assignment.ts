@@ -203,6 +203,14 @@ export function evaluateAssignment({
       variableName = nextVariableName;
     }
 
+    // Disallow reassignment to "_" — it's a discard placeholder, not a real variable
+    if (variableName === "_") {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`,
+      });
+    }
+
     const variables = getVariablesFromEnv(env, variableName);
     if (!variables.length) {
       throw formatErrorMessage({

@@ -1,7 +1,7 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
-import { isComptimeStringType } from "../../types/guards";
+import { isComptimeStringType, isNewtypeType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -52,24 +52,27 @@ export function evaluatePanic({
         ...context,
       },
     });
-    // Let's require it to be a comptime_string for now
+    // Let's require it to be a comptime_string or str
     if (!evaluatedMessageExpr.$) {
       throw formatErrorMessage({
         token: messageExpr.token,
         errorMessage: `Failed to evaluate panic message`,
       });
     }
-    if (
-      !evaluatedMessageExpr.$.value ||
-      (!isComptimeStringValue(evaluatedMessageExpr.$.value) &&
-        !(
-          isUnknownValue(evaluatedMessageExpr.$.value) &&
-          isComptimeStringType(evaluatedMessageExpr.$.value.type)
-        ))
-    ) {
+
+    const msgType = evaluatedMessageExpr.$.type;
+    const msgValue = evaluatedMessageExpr.$.value;
+    const isStrType =
+      msgType && isNewtypeType(msgType) && msgType.typeName === "str";
+    const isComptimeStr =
+      msgValue &&
+      (isComptimeStringValue(msgValue) ||
+        (isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)));
+
+    if (!isStrType && !isComptimeStr) {
       throw formatErrorMessage({
         token: messageExpr.token,
-        errorMessage: `panic message must be a comptime_string`,
+        errorMessage: `panic message must be a comptime_string or str`,
       });
     }
   }

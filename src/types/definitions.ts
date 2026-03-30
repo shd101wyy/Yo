@@ -228,6 +228,14 @@ export interface SomeType extends Type {
    * When bound, its value will be an EffectsRowType containing the concrete implicit parameters.
    */
   isEffectsRow?: boolean;
+
+  /**
+   * When present, this SomeType represents a higher-kinded type variable with a function-type kind.
+   * For example, `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` creates a SomeType
+   * with kindFunctionType set to the `fn(comptime(T) : Type) -> comptime(Type)` function type.
+   * This enables HKT support — F can be passed `Option`, `ArrayList`, etc. as concrete constructors.
+   */
+  kindFunctionType?: FunctionType;
 }
 
 /**
@@ -239,6 +247,44 @@ export interface SomeType extends Type {
 export interface EffectsRowType extends Type {
   tag: TypeTag.EffectsRow;
   implicitParameters: FunctionImplicitParameter[];
+  trait: TraitType;
+}
+
+/**
+ * TypeApplicationType represents the symbolic application of an abstract type constructor
+ * to type arguments. Created when `F(A)` is evaluated and `F` is an abstract SomeType
+ * with a function-type kind (e.g., `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))`).
+ *
+ * TypeApplication must NEVER reach codegen — it must be fully resolved during type evaluation
+ * when the abstract constructor becomes concrete.
+ *
+ * Example: `F(A)` where F is abstract → TypeApplicationType { constructor: F, args: [A] }
+ *          When F is bound to `Option`, resolves to `Option(A)`.
+ */
+export interface TypeApplicationType extends Type {
+  tag: TypeTag.TypeApplication;
+
+  /**
+   * The abstract type constructor (a SomeType with kindFunctionType).
+   * This is the `F` in `F(A)`.
+   */
+  constructor: SomeType;
+
+  /**
+   * The type arguments applied to the constructor.
+   * For example, `F(A, B)` has args [A, B].
+   */
+  args: Type[];
+
+  /**
+   * The result kind of the application, inferred from the constructor's
+   * return type. Usually Type (level 0).
+   */
+  resultKind: Type;
+
+  /**
+   * The trait associated with this type application.
+   */
   trait: TraitType;
 }
 
@@ -675,7 +721,14 @@ export interface EnumVariant {
    * based on the previous variant's discriminant + 1.
    */
   discriminant?: bigint;
-  // TODO: return type? For GADT
+  /**
+   * GADT return type arguments for this variant.
+   * When a variant uses `-> recur(Type1, Type2, ...)`, these are the
+   * type arguments [Type1, Type2, ...] that specify the concrete
+   * instantiation of the enum this constructor produces.
+   * Absent means unconstrained (same as regular enum behavior).
+   */
+  gadtReturnTypeArgs?: Type[];
 }
 
 export interface EnumType extends Type {
@@ -727,6 +780,19 @@ export interface EnumType extends Type {
    * Here, the type of circle is Shape(.Circle required).
    */
   requiredVariantNames?: string[];
+
+  /**
+   * GADT: The type arguments this enum was instantiated with.
+   * For `Expr(i32)`, this is `[i32Type]`.
+   * For `Expr(T)` where T is a SomeType, this is `[SomeType(T)]`.
+   * Only set for generic enums created by type constructor functions.
+   */
+  typeConstructorArgs?: Type[];
+
+  /**
+   * Whether this enum is a GADT (has at least one variant with gadtReturnTypeArgs).
+   */
+  isGadt?: boolean;
 }
 
 export interface UnionType extends Type {

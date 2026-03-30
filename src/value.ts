@@ -31,6 +31,7 @@ import type {
   ComptimeListType,
   EnumType,
   ExprType,
+  FunctionType,
   ModuleType,
   PtrType,
   SliceType,
@@ -39,7 +40,11 @@ import type {
   TupleType,
   Type,
 } from "./types/definitions";
-import { isExprType, isTypeHierarchyType } from "./types/guards";
+import {
+  isExprType,
+  isFunctionType,
+  isTypeHierarchyType,
+} from "./types/guards";
 import { typeOfType } from "./types/hierarchy";
 import { typeToString } from "./types/utils";
 import type { UnitValue } from "./unit-value";
@@ -582,6 +587,34 @@ export function createUnknownValue(
       context,
     });
     return createTypeValue(someType);
+  }
+
+  // Handle function-type kind annotations for HKT support.
+  // When a forall parameter has a kind like `fn(comptime(T) : Type) -> comptime(Type)`,
+  // create a SomeType with kindFunctionType set.
+  if (isFunctionType(type) && variableName) {
+    const funcType = type as FunctionType;
+    // Check if return type is comptime Type (Type hierarchy)
+    if (
+      funcType.return.isCompileTimeOnly &&
+      isTypeHierarchyType(funcType.return.type) &&
+      funcType.return.type.level === 0
+    ) {
+      // Check that all parameters are comptime
+      const allParamsComptime = funcType.parameters.every(
+        (p) => p.isCompileTimeOnly
+      );
+      if (allParamsComptime) {
+        // Create a SomeType with kindFunctionType
+        const someType = createSomeType(
+          funcType.return.type, // parentType is Type (level 0) — F IS a type
+          variableName,
+          { recursiveTypeRef, env, context }
+        );
+        someType.kindFunctionType = funcType;
+        return createTypeValue(someType);
+      }
+    }
   }
 
   return {

@@ -33,35 +33,37 @@ Yo source → Lexer → Parser → AST (expr.ts)
 
 ### Key directories
 
-| Path                             | Role                                                                  |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `src/lexer.ts`                   | Tokenizes Yo source into tokens                                       |
-| `src/parser.ts`                  | Parses tokens → AST                                                   |
-| `src/expr.ts`                    | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …) |
-| `src/evaluator/`                 | Compile-time evaluator — type checking, CTFE, trait resolution        |
-| `src/evaluator/exprs/`           | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)     |
-| `src/evaluator/calls/`           | Function call specialization and dispatch                             |
-| `src/evaluator/effects/`         | Algebraic effects analysis                                            |
-| `src/codegen/`                   | C11 code generation                                                   |
-| `src/codegen/exprs/`             | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)      |
-| `src/codegen/effects/`           | Effect state machine C emitter                                        |
-| `src/codegen/functions/`         | Function-level C emitters                                             |
-| `src/types/`                     | Type value definitions and compatibility helpers                      |
-| `src/yo-cli.ts`                  | CLI entry point for `yo` / `yo-cli`                                   |
-| `std/`                           | Yo standard library (`.yo` source)                                    |
-| `tests/`                         | Integration test files (`*.test.yo`)                                  |
-| `std/build.yo`                   | Build system API (Project, Step, Executable, etc.)                    |
-| `src/build-runner.ts`            | Build execution engine — DAG scheduler, artifact compilation          |
-| `src/install-command.ts`         | `yo install` — add git/path dependencies                              |
-| `src/fetch.ts`                   | Git dependency fetching, lock file pruning                            |
-| `src/fetch-command.ts`           | `yo fetch` CLI command                                                |
-| `src/lock-file.ts`               | `yo.lock` parse/write                                                 |
-| `src/cache.ts`                   | Global dependency cache (`~/.cache/yo/deps/`)                         |
-| `src/init.ts`                    | `yo init` — project scaffolding                                       |
-| `src/pkg-config.ts`              | pkg-config integration for system libraries                           |
-| `src/dag.ts`                     | DAG builder and level-based scheduler for build steps                 |
-| `plans/BUILD_SYSTEM.md`          | Build system design document                                          |
-| `plans/DEPENDENCY_MANAGEMENT.md` | Dependency management design                                          |
+| Path                                 | Role                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `src/lexer.ts`                       | Tokenizes Yo source into tokens                                       |
+| `src/parser.ts`                      | Parses tokens → AST                                                   |
+| `src/expr.ts`                        | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …) |
+| `src/evaluator/`                     | Compile-time evaluator — type checking, CTFE, trait resolution        |
+| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)     |
+| `src/evaluator/calls/`               | Function call specialization and dispatch                             |
+| `src/evaluator/effects/`             | Algebraic effects analysis                                            |
+| `src/codegen/`                       | C11 code generation                                                   |
+| `src/codegen/exprs/`                 | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)      |
+| `src/codegen/effects/`               | Effect state machine C emitter                                        |
+| `src/codegen/functions/`             | Function-level C emitters                                             |
+| `src/types/`                         | Type value definitions and compatibility helpers                      |
+| `src/yo-cli.ts`                      | CLI entry point for `yo` / `yo-cli`                                   |
+| `std/`                               | Yo standard library (`.yo` source)                                    |
+| `tests/`                             | Integration test files (`*.test.yo`)                                  |
+| `std/build.yo`                       | Build system API (Project, Step, Executable, etc.)                    |
+| `src/build-runner.ts`                | Build execution engine — DAG scheduler, artifact compilation          |
+| `src/install-command.ts`             | `yo install` — add git/path dependencies                              |
+| `src/fetch.ts`                       | Git dependency fetching, lock file pruning                            |
+| `src/fetch-command.ts`               | `yo fetch` CLI command                                                |
+| `src/lock-file.ts`                   | `yo.lock` parse/write                                                 |
+| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`)                         |
+| `src/init.ts`                        | `yo init` — project scaffolding                                       |
+| `src/pkg-config.ts`                  | pkg-config integration for system libraries                           |
+| `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                 |
+| `plans/BUILD_SYSTEM.md`              | Build system design document                                          |
+| `plans/DEPENDENCY_MANAGEMENT.md`     | Dependency management design                                          |
+| `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)    |
+| `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                             |
 
 ### Algebraic effects model
 
@@ -155,6 +157,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
 - Always check if there is need to create/update existing instructions & rules files, design/plan docs after implementing a change.
+- Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).
 - Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.

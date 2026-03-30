@@ -29,6 +29,7 @@ import type {
   TraitType,
   TupleType,
   Type,
+  TypeApplicationType,
   TypeField,
   UnionType,
 } from "./definitions";
@@ -303,6 +304,9 @@ export function typeContainsSomeType(
       );
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
+    case TypeTag.TypeApplication:
+      // TypeApplication always contains a SomeType (the constructor)
+      return true;
 
     default:
       return false; // For other types, no SomeType is present
@@ -1100,6 +1104,15 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
       return `Dyn(${allTraitStrings /*.slice(1)*/
         .join(", ")})`;
+    }
+
+    case TypeTag.TypeApplication: {
+      const appType = type as TypeApplicationType;
+      const constructorStr = typeToString(appType.constructor, visited);
+      const argsStr = appType.args
+        .map((arg) => typeToString(arg, visited))
+        .join(", ");
+      return `${constructorStr}(${argsStr})`;
     }
 
     default: {

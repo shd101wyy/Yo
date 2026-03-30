@@ -24,6 +24,7 @@ import {
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
+  typeContainsSomeType,
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -218,7 +219,11 @@ export function evaluateCond({
       // No need to evaluate further if a return was encountered
       expr.$ = {
         env: evaluatedCaseBodyExpr.$!.env,
-        type: context.expectedType?.type ?? evaluatedCaseBodyExpr.$!.type,
+        type:
+          context.expectedType?.type &&
+          !typeContainsSomeType(context.expectedType.type)
+            ? context.expectedType.type
+            : evaluatedCaseBodyExpr.$!.type,
         value: evaluatedCaseBodyExpr.$!.value,
         pathCollection: evaluatedCaseBodyExpr.$!.pathCollection,
         controlFlow: evaluatedCaseBodyExpr.$!.controlFlow,
@@ -252,12 +257,13 @@ export function evaluateCond({
 
       expr.$ = {
         env,
-        type: context.expectedType?.type ?? valueType.type,
+        type:
+          context.expectedType?.type &&
+          !typeContainsSomeType(context.expectedType.type)
+            ? context.expectedType.type
+            : valueType.type,
         value: value,
         pathCollection: [],
-        // Propagate the inner body's variable name if it exists.
-        // This avoids creating an extra temp variable which would cause
-        // double-drop when the value type contains RC fields.
         variableName: evaluatedCaseBodyExpr.$.variableName,
       };
 
@@ -431,7 +437,11 @@ export function evaluateCond({
 
       expr.$ = {
         env,
-        type: context.expectedType?.type ?? valueType.type,
+        type:
+          context.expectedType?.type &&
+          !typeContainsSomeType(context.expectedType.type)
+            ? context.expectedType.type
+            : valueType.type,
         value: value,
         pathCollection: [],
       };

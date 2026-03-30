@@ -92,6 +92,32 @@ Use `cond` when there are more than two branches or when the branches are large.
 - The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
 - With semicolon, like `{ expr; }`, the return value is `unit`.
 
+## Enum definition syntax
+
+Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values:
+
+```rust
+// CORRECT — no dots in definition:
+Color :: enum(Red, Green, Blue);
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(None, Some(value : T))
+);
+
+// WRONG — dots in definition:
+Color :: enum(.Red, .Green, .Blue);
+
+// Dots are used when constructing values:
+(c : Color) = .Red;
+(x : Option(i32)) = .Some(i32(42));
+
+// Dots are used in match branches:
+match(c,
+  .Red => println(`red`),
+  .Green => println(`green`),
+  .Blue => println(`blue`)
+);
+```
+
 ## Always add `()` after function name to avoid parsing ambiguity
 
 Because we didn't write `await(...`, code like:
@@ -236,6 +262,31 @@ For files within the same directory, always use relative paths (`./file.yo`). Fo
 
 **Do NOT import `std/prelude`** — the prelude is automatically loaded for every file. Explicitly importing it (`import "std/prelude"` or `import "std/prelude.yo"`) will produce a compile error. Third-party modules named `prelude.yo` are fine — only the std prelude is blocked.
 
+## GADT enum syntax
+
+GADT constructors use `-> recur(Type1, Type2, ...)` after fields to specify the return type:
+
+```rust
+Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),       // constructs Value(i32)
+    BoolVal(b : bool) -> recur(bool),    // constructs Value(bool)
+    MGeneric(v : T)                       // no annotation = unconstrained
+  )
+);
+```
+
+With discriminants, wrap the variant in parentheses:
+
+```rust
+Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
+  )
+);
+```
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
@@ -254,6 +305,25 @@ In Yo, function calls are parsed differently depending on spacing:
 - `func a, b; c` — semicolon terminates argument list: `func(a, b); c`
 
 Always use `func(a, b)` with no space. Never `func (a, b)`.
+
+## Partial application with `_` placeholder
+
+Use `_` as a placeholder argument to partially apply any comptime function:
+
+```rust
+// Type constructors (return comptime(Type)):
+IntResult :: Result(_, i32);    // fn(comptime(T) : Type) -> comptime(Type)
+(r : IntResult(bool)) = .Ok(true);  // = Result(bool, i32)
+
+// Comptime value functions:
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2));   // 3
+```
+
+- `_` is only valid in arguments to **comptime functions** (functions with `comptime` return type)
+- The number of arguments must match the original function's parameter count
+- `_` cannot be used with runtime functions
 
 ## `return` without parentheses consumes all following comma-separated arguments
 

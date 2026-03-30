@@ -9,10 +9,15 @@
 - [Advanced Types](#advanced-types)
   - [Dependent types](#dependent-types)
   - [Refinement types](#refinement-types)
-  - [Higher Kinded Types](#higher-kinded-types)
-  - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
+  - [Existential types](#existential-types)
 
 <!-- /code_chunk_output -->
+
+> **Implemented features** (moved to DESIGN.md):
+>
+> - **Higher-Kinded Types (HKT)** — see [Advanced Type System](../docs/en-US/DESIGN.md#advanced-type-system)
+> - **Generalized Algebraic Data Types (GADTs)** — see [Advanced Type System](../docs/en-US/DESIGN.md#generalized-algebraic-data-types-gadts)
+> - **Partial Application with `_`** — see [Function Declaration](../docs/en-US/DESIGN.md#partial-application-with-_)
 
 ## Function Declaration
 
@@ -140,39 +145,37 @@ head :: (fn(forall(T: Type), array: NotEmptyArray(T)) -> T)
 ;
 ```
 
-### Higher Kinded Types
+### Existential types
 
-Higher Kinded Types are types that take other types as parameters.
-
-```rust
-T1 :: (fn(comptime(F): (Type -> Type), comptime(A): Type) -> Type)
-  F(A)
-;
-
-Option :: (fn(comptime(T): Type) -> Type)
-  T1(Maybe, T)
-;
-```
-
-### Generalized Algebraic Data Types (GADTs)
+Existential types allow constructors to introduce type variables that are hidden from the outside — the consumer only knows the type satisfies certain constraints, not its concrete identity.
 
 ```rust
-MyExpr :: (fn(comptime(T): Type) -> Type)
-  enum(
-    IntExpr(i : i32), // MyExpr(i32)
-    BoolExpr(b : bool), // MyExpr(bool)
-    EqExpr(a : MyExpr(i32), b : MyExpr(i32)) // MyExpr(bool)
-  )
-;
+// Hypothetical syntax — a constructor with forall introduces an existential
+Showable :: enum(
+  Wrap(forall(T : Type), value : T, show : (fn(v : T) -> String), where(T <: ToString))
+);
 
-eval :: (fn(forall(T: Type), expr: MyExpr(T)) -> T)
-  match(expr,
-    .IntExpr(i) => i,
-    .BoolExpr(b) => b,
-    .EqExpr(left, right) => (eval(left) == eval(right))
-  )
-;
+// Construction: the concrete type (i32) is known here
+s := Showable.Wrap(i32(42), ToString(i32).to_string);
 
-expr1 := MyExpr.EqExpr(MyExpr.IntExpr(1), MyExpr.IntExpr(2)); // expr1: MyExpr(bool)
-eval(expr1); // false
+// Consumption: T is hidden — can only use the provided show function
+match(s,
+  .Wrap(value, show) => show(value)  // returns String, T is skolemized
+);
 ```
+
+**Status: Low priority.** Not planned for near-term implementation for these reasons:
+
+1. **`Dyn`/`dyn` already covers the primary use case.** Type erasure behind a trait interface — the main motivation for existentials — is handled by Yo's existing dynamic dispatch:
+
+   ```rust
+   (s : Dyn(ToString)) = dyn(i32(42));  // type erased, only trait interface remains
+   ```
+
+2. **High implementation complexity.** Existential types require skolemization in the type checker (preventing the hidden type variable from "escaping" its scope), which significantly complicates the evaluator and type inference.
+
+3. **GADTs cover the more useful half.** GADTs provide type refinement on _deconstruction_ (pattern matching). Existentials provide type hiding on _construction_. In practice, the GADT half delivers more value for type-safe DSLs and expression evaluators.
+
+4. **Additive if needed later.** Existentials could be added via `forall` in enum constructors without breaking existing code, so deferring has no cost.
+
+If Yo eventually needs heterogeneous collections beyond what `Dyn` provides, or first-class type-hiding for module boundaries, existential types would be the natural extension.

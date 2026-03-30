@@ -5,7 +5,13 @@ import {
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import type { FunctionType, SomeType, TraitType, Type } from "./definitions";
+import type {
+  FunctionType,
+  SomeType,
+  TraitType,
+  Type,
+  TypeApplicationType,
+} from "./definitions";
 import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArcType,
@@ -33,6 +39,7 @@ import {
   isStructType,
   isTraitType,
   isTupleType,
+  isTypeApplicationType,
   isTypeHierarchyType,
   isU8Type,
   isUnionType,
@@ -499,7 +506,8 @@ export function areTypesCompatible(
           !areFunctionTypesCompatible(
             { type: expected.type.isFn.callType, env: expected.env },
             { type: given.type.isFn.callType, env: given.env },
-            requireExactMatch
+            requireExactMatch,
+            visitedPairs
           )
         ) {
           return false;
@@ -597,8 +605,8 @@ export function areTypesCompatible(
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
       { type: given.type, env: given.env },
-      requireExactMatch
-      // TODO: pass visitedPairs?
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -695,9 +703,27 @@ export function areTypesCompatible(
   // eg: x: T
   // here T should already be added to env by the if condition above ^^^
   if (isSomeType(expected.type)) {
-    // QUESTION: Is this correct?
     if (isDynType(given.type)) {
-      return true; // DynType is compatible with SomeType
+      // DynType is compatible with SomeType, but if the SomeType has
+      // required traits, verify the DynType's traits satisfy them.
+      if (expected.type.requiredTraits.length > 0) {
+        for (const { traitType: requiredTrait } of expected.type
+          .requiredTraits) {
+          const satisfied = given.type.requiredTraits.some(
+            ({ traitType: dynTrait }) =>
+              areTypesCompatible(
+                { type: requiredTrait, env: expected.env },
+                { type: dynTrait, env: given.env },
+                false,
+                visitedPairs
+              )
+          );
+          if (!satisfied) {
+            return false;
+          }
+        }
+      }
+      return true;
     }
 
     if (isSomeType(given.type)) {
@@ -913,6 +939,8 @@ export function areTypesCompatible(
         expected.type
       );
       if (expected.type === expectedType_) {
+        // SomeType is unbound (not resolved in env). An unbound type parameter
+        // cannot be proven compatible with any concrete type.
         return false;
       }
       return areTypesCompatible(
@@ -940,6 +968,8 @@ export function areTypesCompatible(
 
     const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
     if (given.type === givenType_) {
+      // SomeType is unbound (not resolved in env). An unbound type parameter
+      // cannot be proven compatible with any concrete type.
       return false;
     }
     return areTypesCompatible(
@@ -947,6 +977,35 @@ export function areTypesCompatible(
       { type: givenType_, env: given.env },
       requireExactMatch,
       visitedPairs
+    );
+  }
+
+  // TypeApplication compatibility: TypeApp(F, [A]) ≡ TypeApp(G, [B]) iff F≡G and A≡B
+  if (
+    isTypeApplicationType(expected.type) &&
+    isTypeApplicationType(given.type)
+  ) {
+    const expectedApp = expected.type as TypeApplicationType;
+    const givenApp = given.type as TypeApplicationType;
+
+    // Same constructor (by SomeType identity)
+    if (expectedApp.constructor.id !== givenApp.constructor.id) {
+      return false;
+    }
+
+    // Same number of args
+    if (expectedApp.args.length !== givenApp.args.length) {
+      return false;
+    }
+
+    // All args compatible
+    return expectedApp.args.every((expectedArg, i) =>
+      areTypesCompatible(
+        { type: expectedArg, env: expected.env },
+        { type: givenApp.args[i]!, env: given.env },
+        requireExactMatch,
+        visitedPairs
+      )
     );
   }
 
@@ -969,7 +1028,8 @@ export function areFunctionTypesCompatible(
     type: FunctionType;
     env: Environment;
   },
-  requireExactMatch = false
+  requireExactMatch = false,
+  visitedPairs: Set<string> = new Set()
 ): boolean {
   if (expected.type === given.type) {
     return true;
@@ -1021,7 +1081,8 @@ export function areFunctionTypesCompatible(
       !areTypesCompatible(
         { type: expectedTypeParam.type, env: expected.env },
         { type: givenTypeParam.type, env: given.env },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       )
     ) {
       return false;
@@ -1047,7 +1108,8 @@ export function areFunctionTypesCompatible(
           type: givenParam.type,
           env: given.env,
         },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       )
     ) {
       return false;
@@ -1057,7 +1119,8 @@ export function areFunctionTypesCompatible(
   const returnTypesMatch = areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env },
-    requireExactMatch
+    requireExactMatch,
+    visitedPairs
   );
   return returnTypesMatch;
 }

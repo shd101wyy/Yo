@@ -75,6 +75,7 @@ import {
   generateCapturedVariableDupExpressions,
   validateCaptureTraitRequirements,
 } from "../utils/closure";
+import { synthesizeTypes } from "../types/synthesizer";
 
 export function evaluateAnonymousFunctionImplementation({
   expr,
@@ -973,6 +974,31 @@ Got:      "${paramName}"`,
       });
       functionType.return.type.resolvedConcreteType = runtimeType;
     }
+  }
+
+  // When return type contains nested SomeTypes (e.g., Option(B)) but is not itself
+  // a SomeType, resolve nested SomeTypes by matching the expected return type structure
+  // against the actual body return type. synthesizeTypes will recursively walk the
+  // type tree, and when it encounters a SomeType matched against a concrete type,
+  // it sets resolvedConcreteType on the SomeType (enabling forall inference in helper.ts).
+  // Also update the return type on both functionType and newFunctionType so codegen
+  // sees the concrete type.
+  if (
+    !isSomeType(functionType.return.type) &&
+    typeContainsSomeType(functionType.return.type) &&
+    evaluatedBodyReturnType &&
+    !isSomeType(evaluatedBodyReturnType) &&
+    !typeContainsSomeType(evaluatedBodyReturnType)
+  ) {
+    synthesizeTypes(
+      { type: functionType.return.type, env },
+      { type: evaluatedBodyReturnType, env },
+      [],
+      { setResolvedConcreteType: true }
+    );
+    functionType.return.type = evaluatedBodyReturnType;
+    // newFunctionType has its own return object (spread copy), so update it too
+    newFunctionType.return.type = evaluatedBodyReturnType;
   }
 
   if (

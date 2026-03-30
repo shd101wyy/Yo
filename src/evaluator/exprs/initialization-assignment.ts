@@ -11,6 +11,7 @@ import {
   setExprAsNeedsToCallDup,
   type FnCallExpr,
 } from "../../expr";
+import { generateNewTempVariableName } from "../../utils";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
 import { isSomeType } from "../../types/guards";
@@ -377,11 +378,19 @@ ${exprToString(rhs)}`,
       isOwningTheSameRcValueAs = undefined;
     }
 
+    // Rename "_" to a temp variable name so it gets tracked in the frame
+    // for proper drop/RC cleanup. Without this, "_" is skipped by
+    // addVariableToFrame and RC-typed values assigned to it would leak.
+    const varName =
+      actualLhs.token.value === "_"
+        ? generateNewTempVariableName(env.modulePath)
+        : actualLhs.token.value;
+
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
-        name: actualLhs.token.value,
+        name: varName,
         type: finalLhsType,
         isCompileTimeOnly: effectiveIsCompileTimeOnly,
         value: actualLhs.$.value ? [actualLhs.$.value] : undefined,
@@ -399,6 +408,10 @@ ${exprToString(rhs)}`,
     });
     env = nextEnv;
 
+    // Store the renamed variable name so codegen uses it instead of "_"
+    if (actualLhs.token.value === "_") {
+      actualLhs.$.variableName = varName;
+    }
     actualLhs.$.env = env;
     if (isImplicit) {
       lhs.$ = {

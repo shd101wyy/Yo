@@ -1,10 +1,12 @@
 import {
+  addVariableToEnv,
   cloneEnvForCTFECheck,
   type Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
   getVariablesFromEnv,
   popEnvFrame,
+  pushEnvFrame,
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
@@ -21,11 +23,20 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
-import { stringIsOperator, TokenType } from "../../token";
+import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
 import type { TypeValue } from "../../type-value";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createExprType } from "../../types/creators";
-import type { FunctionType, SomeType, Type } from "../../types/definitions";
+import {
+  createExprType,
+  createFunctionType,
+  createTypeApplicationType,
+} from "../../types/creators";
+import type {
+  FunctionParameter,
+  FunctionType,
+  SomeType,
+  Type,
+} from "../../types/definitions";
 import {
   isArcType,
   isArrayType,
@@ -65,6 +76,7 @@ import {
   type Value,
   valueToString,
 } from "../../value";
+import { ValueTag } from "../../value-tag";
 
 import {
   type EvaluatorContext,
@@ -537,6 +549,194 @@ export function evaluateFunctionCall({
   // This makes the behavior predictable - functions are called at runtime unless
   // explicitly declared as compile-time via comptime_fn().
 
+  // Partial application with `_` placeholder.
+  // When a comptime function is called with `_` in some argument positions,
+  // create a new FunctionValue that captures the non-`_` arguments and
+  // takes the `_` positions as parameters.
+  // Examples:
+  //   Result(_, MyError) → fn(comptime(__0) : Type) -> comptime(Type)
+  //   add(1, _) → fn(comptime(__0) : i32) -> comptime(i32)
+  {
+    const hasPlaceholder = args.some(
+      (arg) => exprIsAtom(arg) && arg.token.value === "_"
+    );
+    if (
+      hasPlaceholder &&
+      functions.length === 1 &&
+      isFunctionValue(functions[0]!.value) &&
+      isFunctionType(functions[0]!.type) &&
+      functions[0]!.type.return.isCompileTimeOnly
+    ) {
+      const origFuncValue = functions[0]!.value as FunctionValue;
+      const origFuncType = functions[0]!.type as FunctionType;
+      const origParams = origFuncType.parameters;
+
+      if (args.length !== origParams.length) {
+        throw formatErrorMessage({
+          token: func.token,
+          errorMessage: `Partial application: expected ${origParams.length} argument(s), got ${args.length}`,
+        });
+      }
+
+      // Build the new function's env, capturing non-`_` arg values
+      let partialEnv = pushEnvFrame(env);
+
+      // Store original function in env so the body can reference it
+      const origFuncVarName = `__pa_fn_${randomId(env.modulePath)}`;
+      {
+        const { env: nextEnv } = addVariableToEnv({
+          env: partialEnv,
+          variable: {
+            name: origFuncVarName,
+            type: origFuncType,
+            isCompileTimeOnly: true,
+            value: [origFuncValue],
+            token: func.token,
+            initializedAtToken: func.token,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+          },
+        });
+        partialEnv = nextEnv;
+      }
+
+      // Classify args into free (_) and captured positions
+      const newParams: FunctionParameter[] = [];
+      const bodyArgs: Expr[] = [];
+
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!;
+        const origParam = origParams[i]!;
+
+        if (exprIsAtom(arg) && arg.token.value === "_") {
+          // Free position — becomes a parameter of the new function
+          const paramName = `__pa_${i}_${randomId(env.modulePath)}`;
+          newParams.push({
+            ...origParam,
+            label: paramName,
+          });
+          // Body references this param
+          bodyArgs.push({
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: paramName,
+              position: arg.token.position,
+              modulePath: env.modulePath,
+              inputString: env.inputString,
+            },
+          });
+        } else {
+          // Captured position — evaluate now and store in env
+          const capturedName = `__pa_cap_${i}_${randomId(env.modulePath)}`;
+          const evaluatedArg = evaluateExpression({
+            expr: arg,
+            env: partialEnv,
+            context: { ...context },
+          });
+          if (!evaluatedArg.$) {
+            throw formatErrorMessage({
+              token: arg.token,
+              errorMessage: `Failed to evaluate partial application argument`,
+            });
+          }
+          partialEnv = evaluatedArg.$.env;
+
+          const { env: nextEnv } = addVariableToEnv({
+            env: partialEnv,
+            variable: {
+              name: capturedName,
+              type: evaluatedArg.$.type,
+              isCompileTimeOnly: true,
+              value: evaluatedArg.$.value ? [evaluatedArg.$.value] : undefined,
+              token: arg.token,
+              initializedAtToken: arg.token,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          partialEnv = nextEnv;
+
+          // Body references the captured variable
+          bodyArgs.push({
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: capturedName,
+              position: arg.token.position,
+              modulePath: env.modulePath,
+              inputString: env.inputString,
+            },
+          });
+        }
+      }
+
+      // Create body: call original function with mixed args
+      const bodyExpr: FnCallExpr = {
+        tag: ExprTag.FnCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: origFuncVarName,
+            position: func.token.position,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
+          },
+        },
+        args: bodyArgs,
+        token: func.token,
+      };
+
+      // Create parameters frame
+      const parametersFrame = {
+        id: `pa_frame_${randomId(env.modulePath)}`,
+        variables: newParams.map((p) => ({
+          id: `pa_var_${randomId(env.modulePath)}`,
+          name: p.label,
+          type: p.type,
+          isCompileTimeOnly: true as const,
+          value: undefined,
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+          frameLevel: partialEnv.frames.length,
+        })),
+        isBeginBlockFrame: false,
+        whereClauseConstraints: new Map(),
+      };
+
+      const newFuncType = createFunctionType({
+        parameters: newParams,
+        forallParameters: [],
+        variadicParameter: undefined,
+        return_: { ...origFuncType.return },
+        env: partialEnv,
+        parametersFrame,
+      });
+
+      const newFuncValue: FunctionValue = {
+        tag: ValueTag.Function,
+        type: newFuncType,
+        body: bodyExpr,
+        frameLevel: partialEnv.frames.length - 1,
+        funcName: `partial_${origFuncValue.funcName ?? "anon"}`,
+        funcId: `partial_${randomId(env.modulePath)}`,
+        calledComptimeFunctionCaches: [],
+        specializedFunctionCaches: [],
+      };
+
+      expr.$ = {
+        env,
+        type: newFuncType,
+        value: newFuncValue,
+        pathCollection: [],
+      };
+      return expr;
+    }
+  }
+
   // Optimization: Skip the checking phase when there is exactly one callable
   // function-like candidate (plain function type or Impl/Dyn(Fn(...))).
   //
@@ -1004,6 +1204,87 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "closure-type",
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error as Error | YoError,
+                  },
+                };
+              }
+            } else if (
+              isSomeType(wrapperType) &&
+              wrapperType.kindFunctionType
+            ) {
+              // HKT: F(A) where F is an abstract type constructor
+              // Create a TypeApplication instead of trying to call
+              try {
+                const kindFuncType = wrapperType.kindFunctionType;
+                const evalArgs: Type[] = [];
+
+                // Validate argument count
+                if (argsToUse.length !== kindFuncType.parameters.length) {
+                  throw formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Type constructor "${wrapperType.name}" expects ${kindFuncType.parameters.length} argument(s), got ${argsToUse.length}`,
+                  });
+                }
+
+                // Evaluate each arg and extract its type
+                for (let ai = 0; ai < argsToUse.length; ai++) {
+                  const argExpr = argsToUse[ai]!;
+                  const evaluatedArg = evaluateExpression({
+                    expr: argExpr,
+                    env: env,
+                    context: { ...context },
+                  });
+                  if (!evaluatedArg.$) {
+                    throw formatErrorMessage({
+                      token: argExpr.token,
+                      errorMessage: `Failed to evaluate HKT argument`,
+                    });
+                  }
+                  env = evaluatedArg.$.env;
+
+                  // The arg should be a TypeValue
+                  if (!isTypeValue(evaluatedArg.$.value)) {
+                    throw formatErrorMessage({
+                      token: argExpr.token,
+                      errorMessage: `Expected type argument for type constructor "${wrapperType.name}", got:\n${exprToString(argExpr)}`,
+                    });
+                  }
+                  evalArgs.push(evaluatedArg.$.value.value);
+                }
+
+                // Create TypeApplication
+                const typeApp = createTypeApplicationType(
+                  wrapperType,
+                  evalArgs,
+                  kindFuncType.return.type,
+                  env
+                );
+
+                const typeAppValue = createTypeValue(typeApp);
+                expr.$ = {
+                  env,
+                  type: typeOfType(typeApp),
+                  value: typeAppValue,
+                  pathCollection: [],
+                };
+
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "type",
+                    result: {
+                      values: [typeAppValue],
+                      pathCollection: [],
+                      runtimeArgExprsInOrder: [],
+                      callerEnv: env,
+                    },
                   },
                 };
               } catch (error) {

@@ -37,6 +37,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
+  - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
   - [recur](#recur)
   - [Object Types and Memory Management](#object-types-and-memory-management)
@@ -63,6 +64,9 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [while](#while)
   - [Iterator and for loop](#iterator-and-for-loop)
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
+- [Advanced Type System](#advanced-type-system)
+  - [Higher-Kinded Types (HKT)](#higher-kinded-types-hkt)
+  - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
 - [C union](#c-union)
@@ -410,10 +414,10 @@ p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-s1 := String.from("Hello");
+s1 := MyString.from("Hello");
 s2 := s1;  // s2 and s1 point to the same object (reference counted)
 ```
 
@@ -643,6 +647,40 @@ compare_and_add :: (fn(
 ;
 ```
 
+### Partial Application with `_`
+
+Multi-parameter type constructors can be partially applied using `_` as a placeholder. This creates a new type constructor with reduced arity:
+
+```rust
+// Result has kind: (Type, Type) -> Type
+// Partial application fixes one parameter:
+IntResult :: Result(_, i32);    // kind: Type -> Type
+StrOkResult :: Result(str, _);  // kind: Type -> Type
+
+// Use like any type constructor:
+(r : IntResult(bool)) = .Ok(true);      // = Result(bool, i32)
+(r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
+```
+
+Partial application works **only** on comptime functions (functions whose return type is `comptime`). It cannot be used on runtime functions.
+
+```rust
+// Type constructors (return comptime(Type)):
+IntResult :: Result(_, i32);    // kind: Type -> Type
+
+// Comptime value functions (return comptime(i32), comptime(bool), etc.):
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2));   // 3
+```
+
+Partially applied type constructors can be used as HKT forall arguments:
+
+```rust
+IntResult :: Result(_, i32);
+// IntResult has kind: Type -> Type, so it can be passed where F : (Type -> Type)
+```
+
 ### Type Methods
 
 Yo supports **type methods** - methods defined within the type's trait.
@@ -735,10 +773,10 @@ Object types are heap-allocated types with automatic reference counting:
 
 ```rust
 // Define an object type
-String :: newtype(
+MyString :: object(
   _bytes : ArrayList(u8)
 );
-impl(String,
+impl(MyString,
   // Methods
   from : (fn(slice : [u8]) -> Self)({
     // Implementation...
@@ -754,7 +792,7 @@ impl(String,
 );
 
 // Usage
-s1 := String.from("Hello");  // RC = 1
+s1 := MyString.from("Hello");  // RC = 1
 s2 := s1;                    // RC = 2 (both point to same object)
 s3 := s2;                    // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
@@ -1273,6 +1311,169 @@ m := Message.Write(String.from("hello"));
 m := Message.Move(x: 3, y: 4);
 m := Message.ChangeColor(r: 1, g: 2, b: 3);
 ```
+
+## Advanced Type System
+
+### Higher-Kinded Types (HKT)
+
+Yo supports higher-kinded types through **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime function values — HKT lets you abstract over them.
+
+| Haskell Kind  | Yo Equivalent                                                  |
+| ------------- | -------------------------------------------------------------- |
+| `*`           | `Type`                                                         |
+| `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
+| `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
+
+#### HKT forall parameters
+
+Declare a forall parameter with a function-type kind to accept type constructors:
+
+```rust
+// F is a type constructor (kind: Type → Type)
+identity :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  x: F(A)
+) -> F(A))(x);
+
+// Usage:
+(x : Option(i32)) = .Some(i32(42));
+result := identity(forall(Option, i32), x);  // result: Option(i32)
+```
+
+#### HKT traits
+
+Define traits parameterized by type constructors:
+
+```rust
+// Functor trait — F is a type constructor
+Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
+  trait(
+    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+  )
+);
+
+// Implement Functor for Option
+impl(forall(A : Type), Option(A), Functor(Option)(
+  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+    match(self,
+      .Some(v) => .Some(f(v)),
+      .None => .None
+    )
+  )
+));
+
+// Use the trait method
+(x : Option(i32)) = .Some(i32(42));
+result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+// result = .Some(i32(43))
+```
+
+#### Generic functions with HKT where clauses
+
+```rust
+do_map :: (fn(
+  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  container: F(A),
+  f: (fn(a : A) -> B),
+  where(F(A) <: Functor(F))
+) -> F(B))(
+  container.map(forall(B), f)
+);
+
+(x : Option(i32)) = .Some(i32(10));
+result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+// result = .Some(i32(20))
+```
+
+### Generalized Algebraic Data Types (GADTs)
+
+GADTs extend enum types by allowing each constructor to specify the exact type parameter instantiation it returns, using `-> recur(Type1, ...)`:
+
+```rust
+Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),
+    BoolVal(b : bool) -> recur(bool),
+    PairVal(a : i32, b : bool) -> recur(i32)
+  )
+);
+```
+
+#### GADT match type refinement
+
+When pattern matching on a GADT value, the type system refines type variables in each branch:
+
+```rust
+eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+  match(v,
+    .IntVal(i) => i,      // T refined to i32, returns i32 ✓
+    .BoolVal(b) => b,     // T refined to bool, returns bool ✓
+    .PairVal(a, b) => a   // T refined to i32, returns i32 ✓
+  )
+);
+
+v := Value(i32).IntVal(i32(42));
+result := eval_value(v);  // result : i32 = 42
+```
+
+#### GADT exhaustiveness
+
+When matching a GADT value with a concrete type, unreachable variants are excluded from exhaustiveness checking:
+
+```rust
+// Value(i32) can only be IntVal or PairVal
+// BoolVal is unreachable (it returns Value(bool), not Value(i32))
+eval_int_only :: (fn(v : Value(i32)) -> i32)(
+  match(v,
+    .IntVal(i) => i,
+    .PairVal(a, b) => a
+    // No .BoolVal needed — it's unreachable for Value(i32)
+  )
+);
+```
+
+#### Multi-parameter GADTs
+
+```rust
+MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  enum(
+    MkIntBool(x : i32, y : bool) -> recur(i32, bool),
+    MkBoolInt(x : bool, y : i32) -> recur(bool, i32)
+  )
+);
+
+my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+  match(p,
+    .MkIntBool(x, y) => x,
+    .MkBoolInt(x, y) => x
+  )
+);
+```
+
+#### GADTs with custom discriminants
+
+```rust
+Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
+  )
+);
+```
+
+#### Mixed GADT and regular variants
+
+```rust
+MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    MInt(i : i32) -> recur(i32),
+    MBool(b : bool) -> recur(bool),
+    MGeneric(v : T)  // no GADT annotation — unconstrained
+  )
+);
+```
+
+GADTs have the same runtime representation as regular enums — all type refinement is purely compile-time. For the full design document, see [GADTS.md](GADTS.md).
 
 ## C struct
 

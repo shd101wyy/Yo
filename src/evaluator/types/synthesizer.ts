@@ -4,7 +4,7 @@ import {
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, type Token } from "../../token";
 import { createEffectsRowType } from "../../types/creators";
 import type {
   EffectsRowType,
@@ -29,7 +29,9 @@ import {
   isStructType,
   isTraitType,
   isTupleType,
+  isTypeApplicationType,
   isTypeHierarchyType,
+  isUnionType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
@@ -129,6 +131,25 @@ function occursCheck(
     return occursCheck(someTypeId, type.isFn.callType, visited);
   }
 
+  if (isTypeApplicationType(type)) {
+    return (
+      occursCheck(someTypeId, type.constructor, visited) ||
+      type.args.some((arg) => occursCheck(someTypeId, arg, visited))
+    );
+  }
+
+  if (isTraitType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
+  }
+
+  if (isModuleType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
+  }
+
+  if (isUnionType(type)) {
+    return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
+  }
+
   return false;
 }
 
@@ -136,6 +157,18 @@ function occursCheck(
  * Synthesize the types, such as
  * comptime(T): Type, i32  => T = i32
  */
+export interface SynthesizeTypesOptions {
+  /** When true, also sets `resolvedConcreteType` on SomeType objects when binding
+   * them to concrete types. This allows forall parameter inference to pick up
+   * bindings that cross environment boundaries (e.g., from closure body evaluation
+   * back to the call site). Only enable at targeted call sites. */
+  setResolvedConcreteType?: boolean;
+  /** Optional source token for variable bindings created during synthesis.
+   * When provided, improves error messages by pointing to the actual source
+   * location where type inference occurred instead of a placeholder. */
+  token?: Token;
+}
+
 export function synthesizeTypes(
   expected: {
     type: Type;
@@ -145,7 +178,8 @@ export function synthesizeTypes(
     type: Type;
     env: Environment;
   },
-  checkedTypePairs: { expected: Type; given: Type }[] = []
+  checkedTypePairs: { expected: Type; given: Type }[] = [],
+  options?: SynthesizeTypesOptions
 ): { expectedEnv: Environment; givenEnv: Environment } {
   // Prevent circular checks for `object` and similar recursive types
   if (
@@ -181,8 +215,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -210,8 +244,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -228,11 +262,12 @@ export function synthesizeTypes(
     }
     // both are some type
     else {
-      // Bind both to the same new concrete type
-      const value = createTypeValue(
-        given.type // NOTE: Using expected.type here causes some errors in tests
-        // createSomeType(createType0(), `type_synth_${randomId()}`) // <= This also causes some errors in tests
-      );
+      // Both SomeTypes are unbound. Bind both to given.type as the representative.
+      // This is intentionally asymmetric: in the expected/given convention, the given side
+      // represents the actual value being matched, so it becomes the unification target.
+      // Expected's SomeType gets bound to given.type, while given.type remains self-bound
+      // (effectively unbound until resolved later via concrete type assignment).
+      const value = createTypeValue(given.type);
 
       // Update expected env
       {
@@ -249,8 +284,8 @@ export function synthesizeTypes(
               value: [value],
               type: value.type,
               isCompileTimeOnly: true,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
+              token: options?.token ?? PlaceholderToken,
+              initializedAtToken: options?.token ?? PlaceholderToken,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
@@ -279,8 +314,8 @@ export function synthesizeTypes(
               value: [value],
               type: value.type,
               isCompileTimeOnly: true,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
+              token: options?.token ?? PlaceholderToken,
+              initializedAtToken: options?.token ?? PlaceholderToken,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
@@ -320,7 +355,8 @@ export function synthesizeTypes(
             const { expectedEnv, givenEnv } = synthesizeTypes(
               { type: expectedTrait.isFn.callType, env: expected.env },
               { type: matchingGiven.traitType.isFn.callType, env: given.env },
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
@@ -336,7 +372,8 @@ export function synthesizeTypes(
                 type: matchingGiven.traitType.isFuture.outputType,
                 env: given.env,
               },
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
@@ -345,7 +382,8 @@ export function synthesizeTypes(
               matchingGiven.traitType.isFuture.effects,
               expected,
               given,
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
           }
         }
@@ -356,12 +394,7 @@ export function synthesizeTypes(
 
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
 
-    if (
-      isSomeType(type) &&
-      (type.id === expected.type.id ||
-        // QUESTION: Is this condition below needed?
-        type.name === expected.type.name)
-    ) {
+    if (isSomeType(type) && type.id === expected.type.id) {
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(expected.type.id, given.type)) {
         throw new Error(
@@ -370,6 +403,13 @@ export function synthesizeTypes(
       }
 
       const value = createTypeValue(given.type);
+
+      if (
+        options?.setResolvedConcreteType &&
+        !expected.type.resolvedConcreteType
+      ) {
+        expected.type.resolvedConcreteType = given.type;
+      }
 
       // Check if the same variable already exists in the env
       const existingVariables = getVariablesFromEnv(
@@ -385,8 +425,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
-            initializedAtToken: PlaceholderToken, // Set as initialized
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheRcValue: false,
           },
@@ -411,7 +451,8 @@ export function synthesizeTypes(
             const { expectedEnv, givenEnv } = synthesizeTypes(
               { type: fnCallType, env: expected.env },
               { type: given.type, env: given.env },
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
@@ -422,7 +463,8 @@ export function synthesizeTypes(
             const { expectedEnv, givenEnv } = synthesizeTypes(
               { type: traitType.isFuture.outputType, env: expected.env },
               { type: given.type.isFuture.outputType, env: given.env },
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
@@ -431,7 +473,8 @@ export function synthesizeTypes(
               given.type.isFuture.effects,
               expected,
               given,
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
           }
         }
@@ -440,7 +483,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: type, env: expected.env },
         { type: given.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -457,7 +501,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type, env: expected.env },
         { type: existingType, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -472,6 +517,13 @@ export function synthesizeTypes(
       // Bind the given SomeType to the expected type
       const value = createTypeValue(expected.type);
 
+      if (
+        options?.setResolvedConcreteType &&
+        !given.type.resolvedConcreteType
+      ) {
+        given.type.resolvedConcreteType = expected.type;
+      }
+
       const existingVariables = getVariablesFromEnv(given.env, given.type.name);
       const variable = existingVariables[existingVariables.length - 1];
       if (!variable) {
@@ -482,8 +534,8 @@ export function synthesizeTypes(
             value: [value],
             type: value.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
@@ -506,7 +558,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type.fields[i]!.type, env: expected.env },
         { type: given.type.fields[i]!.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -549,7 +602,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -570,7 +624,8 @@ export function synthesizeTypes(
               type: givenElement.assignedValue.value,
               env: given.env,
             },
-            checkedTypePairs
+            checkedTypePairs,
+            options
           );
         expected.env = _expectedEnv;
         given.env = _givenEnv;
@@ -597,7 +652,27 @@ export function synthesizeTypes(
         const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: expectedTypeVariantElements[j]!.type, env: expected.env },
           { type: givenTypeVariantElements[j]!.type, env: given.env },
-          checkedTypePairs
+          checkedTypePairs,
+          options
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+      }
+    }
+
+    // Also synthesize via typeConstructorArgs (needed for GADT enums
+    // where variant field types are concrete and don't contain type parameters)
+    if (expected.type.typeConstructorArgs && given.type.typeConstructorArgs) {
+      const len = Math.min(
+        expected.type.typeConstructorArgs.length,
+        given.type.typeConstructorArgs.length
+      );
+      for (let i = 0; i < len; i++) {
+        const { expectedEnv, givenEnv } = synthesizeTypes(
+          { type: expected.type.typeConstructorArgs[i]!, env: expected.env },
+          { type: given.type.typeConstructorArgs[i]!, env: given.env },
+          checkedTypePairs,
+          options
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -624,7 +699,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -645,7 +721,8 @@ export function synthesizeTypes(
               type: givenElement.assignedValue.value,
               env: given.env,
             },
-            checkedTypePairs
+            checkedTypePairs,
+            options
           );
         expected.env = _expectedEnv;
         given.env = _givenEnv;
@@ -666,7 +743,8 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -687,7 +765,8 @@ export function synthesizeTypes(
               type: givenElement.assignedValue.value,
               env: given.env,
             },
-            checkedTypePairs
+            checkedTypePairs,
+            options
           );
         expected.env = _expectedEnv;
         given.env = _givenEnv;
@@ -703,7 +782,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -718,7 +798,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -733,7 +814,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -748,7 +830,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -777,8 +860,8 @@ export function synthesizeTypes(
             value: [givenLength],
             type: given.type.length.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
-            initializedAtToken: PlaceholderToken, // Set as initialized
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheRcValue: false,
           },
@@ -803,7 +886,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -821,7 +905,8 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -839,7 +924,8 @@ export function synthesizeTypes(
         type: given.type.isFuture.outputType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -848,7 +934,8 @@ export function synthesizeTypes(
       given.type.isFuture.effects,
       expected,
       given,
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
   } else if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
     // Synthesize FnTraitType types - match the function types (isFn)
@@ -865,7 +952,8 @@ export function synthesizeTypes(
         type: givenFnModule.isFn.callType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -893,7 +981,8 @@ export function synthesizeTypes(
           type: givenForallParam.type,
           env: given.env,
         },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -910,7 +999,8 @@ export function synthesizeTypes(
           type: givenFunction.parameters[i]!.type,
           env: given.env,
         },
-        checkedTypePairs
+        checkedTypePairs,
+        options
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -963,20 +1053,24 @@ export function synthesizeTypes(
 
       // Track which given params have been matched
       const matchedGiven = new Set<number>();
+      const matchedExpected = new Set<number>();
 
       // 1. Match concrete expected params against given (set-based by type id)
-      for (const exp of concreteExpected) {
+      for (let i = 0; i < concreteExpected.length; i++) {
+        const exp = concreteExpected[i]!;
         for (let j = 0; j < givenImplicit.length; j++) {
           if (matchedGiven.has(j)) continue;
           if (exp.type.id === givenImplicit[j]!.type.id) {
             const { expectedEnv, givenEnv } = synthesizeTypes(
               { type: exp.type, env: expected.env },
               { type: givenImplicit[j]!.type, env: given.env },
-              checkedTypePairs
+              checkedTypePairs,
+              options
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
             matchedGiven.add(j);
+            matchedExpected.add(i);
             break;
           }
         }
@@ -993,7 +1087,8 @@ export function synthesizeTypes(
               const { expectedEnv, givenEnv } = synthesizeTypes(
                 { type: exp.type, env: expected.env },
                 { type: givenImplicit[j]!.type, env: given.env },
-                checkedTypePairs
+                checkedTypePairs,
+                options
               );
               expected.env = expectedEnv;
               given.env = givenEnv;
@@ -1002,6 +1097,23 @@ export function synthesizeTypes(
             }
           }
         }
+      }
+
+      // Verify all concrete expected params were matched before binding the spread.
+      // If a concrete expected param has no match, the given side is missing a required
+      // effect — unmatched given params should not absorb what should have been concrete matches.
+      if (
+        unsolvedSpreads.length === 1 &&
+        matchedExpected.size < concreteExpected.length
+      ) {
+        const unmatchedExpected = concreteExpected.filter(
+          (_, i) => !matchedExpected.has(i)
+        );
+        throw new Error(
+          `Effect row unification failed: expected effect(s) ` +
+            `${unmatchedExpected.map((p) => `"${p.label ?? typeToString(p.type)}"`).join(", ")} ` +
+            `not found in given implicit parameters.`
+        );
       }
 
       // 3. Bind the single unsolved spread to remaining unmatched given params
@@ -1034,8 +1146,8 @@ export function synthesizeTypes(
                 value: [typeValue],
                 type: typeValue.type,
                 isCompileTimeOnly: true,
-                token: PlaceholderToken,
-                initializedAtToken: PlaceholderToken,
+                token: options?.token ?? PlaceholderToken,
+                initializedAtToken: options?.token ?? PlaceholderToken,
                 consumedAtToken: undefined,
                 isOwningTheRcValue: false,
               },
@@ -1061,7 +1173,8 @@ export function synthesizeTypes(
         type: givenFunction.return.type,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
+      options
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -1100,7 +1213,8 @@ function synthesizeFutureEffects(
   givenEffects: FunctionImplicitParameter[],
   expected: { env: Environment },
   given: { env: Environment },
-  checkedTypePairs: { expected: Type; given: Type }[]
+  checkedTypePairs: { expected: Type; given: Type }[],
+  options?: SynthesizeTypesOptions
 ): void {
   if (expectedEffects.length === 0 && givenEffects.length === 0) {
     return;
@@ -1157,7 +1271,8 @@ function synthesizeFutureEffects(
         const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: exp.type, env: expected.env },
           { type: givenConcrete[j]!.type, env: given.env },
-          checkedTypePairs
+          checkedTypePairs,
+          options
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -1177,7 +1292,8 @@ function synthesizeFutureEffects(
           const { expectedEnv, givenEnv } = synthesizeTypes(
             { type: exp.type, env: expected.env },
             { type: givenConcrete[j]!.type, env: given.env },
-            checkedTypePairs
+            checkedTypePairs,
+            options
           );
           expected.env = expectedEnv;
           given.env = givenEnv;
@@ -1215,8 +1331,8 @@ function synthesizeFutureEffects(
             value: [typeValue],
             type: typeValue.type,
             isCompileTimeOnly: true,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
+            token: options?.token ?? PlaceholderToken,
+            initializedAtToken: options?.token ?? PlaceholderToken,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },

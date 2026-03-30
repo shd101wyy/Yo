@@ -776,7 +776,7 @@ export function tryToCallFunctionWithArguments({
     functionValue?.definitionSiteEnclosingFunctionType;
 
   // Check if there is `forall(...)` argument.
-  // If yes, then it should be the first argument
+  // If yes, then it should be the first argument (or second for method calls where self is first)
   let regularArgStartIndex = 0;
   if (
     argExprs.length > 0 &&
@@ -785,6 +785,17 @@ export function tryToCallFunctionWithArguments({
   ) {
     forallArgsExpr = argExprs[0]! as FnCallExpr;
     regularArgStartIndex = 1;
+  } else if (
+    isMethodCall &&
+    argExprs.length > 1 &&
+    exprIsFunctionCall(argExprs[1]!) &&
+    exprIsFunctionCallOf(argExprs[1]!, BuiltinKeywords.forall)
+  ) {
+    // For method calls, self is prepended as the first arg, so forall(...)
+    // appears at index 1 instead of index 0
+    forallArgsExpr = argExprs[1]! as FnCallExpr;
+    // Keep self at index 0, remove forall from the middle
+    argExprs = [argExprs[0]!, ...argExprs.slice(2)];
   }
 
   // Split arguments: detect using(...) args for implicit parameters
@@ -1034,13 +1045,27 @@ Got:   ${regularArgsToCheck.length} arguments`,
         if (evaluatedTypeExpr.$?.env) {
           callerEnv = evaluatedTypeExpr.$.env;
         }
-        if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
-          throw formatErrorMessage({
-            token: forallArgExpr.token,
-            errorMessage: `Expected type for argument, got:\n${exprToString(forallArgExpr)}`,
-          });
+
+        // For HKT: when the forall parameter has a function-type kind,
+        // accept FunctionValue (type constructors like Option)
+        const isHktForallParam = isFunctionType(forallParameter.type);
+        if (isHktForallParam) {
+          if (!isFunctionValue(evaluatedTypeExpr.$?.value)) {
+            throw formatErrorMessage({
+              token: forallArgExpr.token,
+              errorMessage: `Expected type constructor for HKT parameter "${forallParameter.label}", got:\n${exprToString(forallArgExpr)}`,
+            });
+          }
+          typeValue = evaluatedTypeExpr.$?.value;
+        } else {
+          if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
+            throw formatErrorMessage({
+              token: forallArgExpr.token,
+              errorMessage: `Expected type for argument, got:\n${exprToString(forallArgExpr)}`,
+            });
+          }
+          typeValue = evaluatedTypeExpr.$?.value;
         }
-        typeValue = evaluatedTypeExpr.$?.value;
       }
 
       if (labelExpr) {
@@ -1052,46 +1077,53 @@ Got:   ${regularArgsToCheck.length} arguments`,
         };
       }
 
-      // Evaluate the forall parameter type first (like we do for regular and implicit parameters)
-      const {
-        parameterType: evaluatedForallParameterType,
-        calleeEnv: updatedCalleeEnv,
-      } = evaluateFunctionParameterTypeAgain({
-        parameter: forallParameter,
-        calleeEnv,
-        definitionSiteEnclosingFunctionType,
-        context: {
-          ...context,
-          isEvaluatingFunctionType: true,
-        },
-        functionType,
-      });
-      calleeEnv = updatedCalleeEnv;
+      // For HKT forall params (function-type kind), skip the standard type synthesis
+      // and comparison since the argument is a FunctionValue, not a TypeValue.
+      const isHktParam = isFunctionType(forallParameter.type);
+      let evaluatedForallParameterType: Type = forallParameter.type;
+      if (!isHktParam) {
+        // Evaluate the forall parameter type first (like we do for regular and implicit parameters)
+        const {
+          parameterType: reEvaluatedParamType,
+          calleeEnv: updatedCalleeEnv,
+        } = evaluateFunctionParameterTypeAgain({
+          parameter: forallParameter,
+          calleeEnv,
+          definitionSiteEnclosingFunctionType,
+          context: {
+            ...context,
+            isEvaluatingFunctionType: true,
+          },
+          functionType,
+        });
+        calleeEnv = updatedCalleeEnv;
+        evaluatedForallParameterType = reEvaluatedParamType;
 
-      // Synthesize the types
-      const { expectedEnv, givenEnv } = synthesizeTypes(
-        { type: evaluatedForallParameterType, env: calleeEnv },
-        { type: typeValue.type, env: callerEnv }
-      );
-      calleeEnv = expectedEnv;
-      callerEnv = givenEnv;
-
-      // Compare the types
-      if (
-        !areTypesCompatible(
+        // Synthesize the types
+        const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: evaluatedForallParameterType, env: calleeEnv },
           { type: typeValue.type, env: callerEnv }
-        )
-      ) {
-        throw formatErrorMessage({
-          token:
-            forallArgExpr?.token ??
-            functionCalleeExpr?.token ??
-            PlaceholderToken,
-          errorMessage: `Type mismatch for type parameter "${forallParameter.label}":
+        );
+        calleeEnv = expectedEnv;
+        callerEnv = givenEnv;
+
+        // Compare the types
+        if (
+          !areTypesCompatible(
+            { type: evaluatedForallParameterType, env: calleeEnv },
+            { type: typeValue.type, env: callerEnv }
+          )
+        ) {
+          throw formatErrorMessage({
+            token:
+              forallArgExpr?.token ??
+              functionCalleeExpr?.token ??
+              PlaceholderToken,
+            errorMessage: `Type mismatch for type parameter "${forallParameter.label}":
 Expected: ${typeToString(evaluatedForallParameterType)}
 Got:   ${typeToString(typeValue.type)}`,
-        });
+          });
+        }
       }
 
       // Add the type to the env
