@@ -101,6 +101,11 @@ export function generateInitializationAssignment(
     const rhsCode = generateExpr(rhs, indent, context);
     const rhsType = rhs.$?.type;
     runtimeDestructurings.forEach(({ label, type, variableName }) => {
+      // Skip "_" placeholder variables — no C variable needed for discarded fields
+      if (variableName === "_") {
+        return;
+      }
+
       // Sanitize the variable name for C
       const sanitizedVariableName = sanitizeForCIdentifier(
         variableName,
