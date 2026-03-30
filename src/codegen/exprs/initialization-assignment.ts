@@ -149,7 +149,8 @@ export function generateInitializationAssignment(
   }
 
   if (exprIsAtom(lhs)) {
-    const varName = lhs.token.value;
+    // Use renamed variable name (e.g., "_" → temp name) if available
+    const varName = lhs.$?.variableName ?? lhs.token.value;
     if (!lhs.$?.type) {
       return `// Error: No type information for variable ${varName}\n`;
     }
