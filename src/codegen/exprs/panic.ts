@@ -1,4 +1,5 @@
 import type { FnCallExpr } from "../../expr";
+import { isNewtypeType, isStructType } from "../../types/guards";
 import { isComptimeStringValue } from "../../value";
 import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
@@ -34,7 +35,20 @@ export function generatePanic(
     } else {
       // Runtime message - generate code to evaluate it
       const messageCode = generateExpr(messageArg, indent, context);
-      emitter.emitLine(`${indent}fprintf(stderr, "%s\\n", ${messageCode});`);
+      const msgType = messageArg.$?.type;
+      const isStrType =
+        msgType &&
+        isStructType(msgType) &&
+        isNewtypeType(msgType) &&
+        msgType.typeName === "str";
+      if (isStrType) {
+        // str is a newtype over Slice(u8), in C it has .data and .length
+        emitter.emitLine(
+          `${indent}fprintf(stderr, "%.*s\\n", (int)${messageCode}.length, ${messageCode}.data);`
+        );
+      } else {
+        emitter.emitLine(`${indent}fprintf(stderr, "%s\\n", ${messageCode});`);
+      }
       emitter.emitLine(`${indent}abort();`);
     }
   } else {

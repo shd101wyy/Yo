@@ -110,14 +110,7 @@ extern "Yo",
 ;
 export __yo_as;
 
-// QUESTION: Change this to accept `String` and move `assert` to a separate module?
-assert :: (fn(flag : bool, (comptime(msg) : comptime_string) ?= "Assertion failed.") -> unit)
-  cond(
-    flag => (),
-    true => panic(msg)
-  )
-;
-export assert;
+
 
 // unsafe module
 unsafe :: impl {
@@ -3271,6 +3264,14 @@ impl(str, Ord(str)(
 ));
 
 export str;
+
+assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)
+  cond(
+    flag => (),
+    true => panic(msg)
+  )
+;
+export assert;
 
 
 /// ComptimeList
