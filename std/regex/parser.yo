@@ -284,10 +284,16 @@ impl(RegexParser,
         esc := self._parse_class_escape();
         match(esc,
           .Ok(esc_ranges) => {
-            j := usize(0);
-            while (j < esc_ranges.len()), (j = (j + usize(1))), {
-              ranges.push(esc_ranges.get(j).unwrap());
-            };
+            // If escape produced a single codepoint, check for range (e.g. \0-\x20)
+            if(((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high)), {
+              (low : u32) = esc_ranges.get(usize(0)).unwrap().low;
+              self._try_parse_char_range(ranges, low);
+            }, {
+              j := usize(0);
+              while (j < esc_ranges.len()), (j = (j + usize(1))), {
+                ranges.push(esc_ranges.get(j).unwrap());
+              };
+            });
           },
           .Err(e) => { return .Err(e); }
         );
