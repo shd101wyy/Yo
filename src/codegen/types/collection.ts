@@ -74,6 +74,14 @@ export function collectRequiredTypes(
     }
   }
 
+  // Collect types from module-level mutable variable init expressions
+  // (these may reference types from imported modules not otherwise reachable)
+  if (context.moduleLevelInitExprs) {
+    for (const initExpr of context.moduleLevelInitExprs) {
+      collectTypesFromExpr(initExpr, context);
+    }
+  }
+
   // Also collect types from non-exported functions we've already collected
   // Keep iterating until no new functions are discovered.
   // This is necessary because collectTypesFromExpr can discover new functions

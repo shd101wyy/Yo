@@ -11,6 +11,7 @@ import {
 import {
   collectDisposeMethodsFromGenericImpls,
   collectRequiredFunctions,
+  findFunctionCallsInExpr,
 } from "./functions/collection";
 import type { FunctionGenerationContext } from "./functions/context";
 import {
@@ -116,6 +117,14 @@ export class CodeGeneratorC {
 
     // First pass: Collect all functions and types (exported and required by exported functions)
     collectRequiredFunctions(moduleValue, context);
+
+    // Also collect functions referenced by module-level mutable variable init expressions
+    if (context.moduleLevelInitExprs) {
+      for (const initExpr of context.moduleLevelInitExprs) {
+        findFunctionCallsInExpr(initExpr, context);
+      }
+    }
+
     collectRequiredTypes(moduleValue, context);
 
     // Store exported function names for library mode
