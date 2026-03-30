@@ -2099,6 +2099,9 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     if (variable.consumedAtToken) return false;
     if (!variable.isOwningTheRcValue) return false;
     if (!typeContainsRcType(variable.type)) return false;
+    // Module-level mutable variables have program lifetime.
+    // They are emitted as C file-scope statics and never need dropping.
+    if (variable.isModuleLevel) return false;
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.
