@@ -2576,6 +2576,44 @@ my_module :: impl {
 };
 ```
 
+### Module-level mutable variables
+
+Yo supports mutable runtime variables at the top level of a module (file scope). These become C `static` file-scope variables, initialized before `main` runs.
+
+Two syntaxes are supported:
+
+```rust
+// := initialization
+counter := i32(0);
+
+// Binding pattern initialization
+(flag : bool) = false;
+```
+
+Functions defined in the same module can read and write these variables:
+
+```rust
+inc :: (fn() -> unit)({
+  counter = (counter + i32(1));
+});
+```
+
+**Restrictions:**
+
+- Standalone type annotations without initialization are not allowed at module scope:
+  ```rust
+  a : i32;  // ❌ Error: use `a := i32(0);` or `(a : i32) = i32(0);` instead
+  ```
+- Mutable runtime variables (`:=` or `(x : T) = val`) are **not allowed inside `impl` blocks**. Use `::` for compile-time definitions:
+  ```rust
+  m :: impl {
+    b := i32(13);  // ❌ Error: not allowed inside impl
+    b :: 13;       // ✅ OK: compile-time constant
+    export b;
+  };
+  ```
+- Module-level mutable variables **cannot be exported**. Only compile-time known values can be exported from modules.
+
 ## Naming Convention
 
 2 spaces for indentation.
