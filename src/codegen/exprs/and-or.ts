@@ -1,4 +1,9 @@
-import { exprIsFunctionCall, type Expr, type FnCallExpr } from "../../expr";
+import {
+  exprIsFunctionCall,
+  ExprTag,
+  type Expr,
+  type FnCallExpr,
+} from "../../expr";
 import { isBooleanValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getDeferredDropTargetAtomName, type CodeGenContext } from "../utils";
@@ -52,10 +57,26 @@ function collectCreatedVarNamesFromExpr(expr: Expr, result: Set<string>): void {
     if (expr.$?.variableName) {
       result.add(expr.$.variableName);
     }
-    for (const arg of expr.args) {
-      collectCreatedVarNamesFromExpr(arg, result);
+
+    // For nested &&/||, only collect from the first (unconditional) arg.
+    // Subsequent args are inside conditional branches and their drops are
+    // handled by the inner &&/||'s own emitDropsForConditionalBranch.
+    const func = expr.func;
+    const isNestedShortCircuit =
+      func.tag === ExprTag.Atom &&
+      (func.token.value === "&&" || func.token.value === "||");
+
+    if (isNestedShortCircuit) {
+      if (expr.args.length > 0) {
+        collectCreatedVarNamesFromExpr(expr.args[0]!, result);
+      }
+      // Skip args[1..] — they are inside conditional branches of the inner &&/||
+    } else {
+      for (const arg of expr.args) {
+        collectCreatedVarNamesFromExpr(arg, result);
+      }
     }
-    if (expr.func) {
+    if (expr.func && !isNestedShortCircuit) {
       collectCreatedVarNamesFromExpr(expr.func, result);
     }
   }

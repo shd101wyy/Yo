@@ -856,9 +856,18 @@ export function generateOtherFunctionCall(
                 cTypeString = getTypeString(returnType ?? exprType, context);
               }
 
-              context.emitter.emitLine(
-                `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
-              );
+              // Guard against duplicate temp variable declarations.
+              // This can happen when the same sub-expression is traversed
+              // multiple times (e.g., begin block dup handling).
+              const funcCtx = context as FunctionGenerationContext;
+              if (!funcCtx.declaredTempVars)
+                funcCtx.declaredTempVars = new Set();
+              if (!funcCtx.declaredTempVars.has(tempVar)) {
+                funcCtx.declaredTempVars.add(tempVar);
+                context.emitter.emitLine(
+                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
+                );
+              }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
               // Handle deferred drop expressions if they exist
@@ -1016,9 +1025,15 @@ export function generateOtherFunctionCall(
                   ? returnType // Use function's return type for correct state machine
                   : (exprType ?? returnType); // Otherwise use expr type or fallback to return type
 
-              context.emitter.emitLine(
-                `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${argsList});`
-              );
+              const funcCtx2 = context as FunctionGenerationContext;
+              if (!funcCtx2.declaredTempVars)
+                funcCtx2.declaredTempVars = new Set();
+              if (!funcCtx2.declaredTempVars.has(tempVar)) {
+                funcCtx2.declaredTempVars.add(tempVar);
+                context.emitter.emitLine(
+                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${argsList});`
+                );
+              }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
               // Handle deferred drop expressions if they exist

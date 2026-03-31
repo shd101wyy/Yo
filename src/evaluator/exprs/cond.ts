@@ -1,4 +1,8 @@
-import { type Environment } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
@@ -38,6 +42,29 @@ import {
 import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
+import { isTempVariableName } from "../../utils";
+
+/**
+ * Consume the temp variable that evaluateBeginExpression attached to a cond
+ * case body.  The cond creates its own result variable, so the case-body temp
+ * var is never emitted in C.  If left unconsumed it causes a phantom drop.
+ */
+function consumeCaseBodyTempVar(
+  evaluatedBody: Expr,
+  env: Environment
+): Environment {
+  const varName = evaluatedBody.$?.variableName;
+  if (!varName) return env;
+  if (!isTempVariableName(env.modulePath, varName)) return env;
+  const vars = getVariablesFromEnv(env, varName);
+  if (vars.length === 0) return env;
+  const v = vars[vars.length - 1]!;
+  if (v.consumedAtToken) return env;
+  return updateExistingVariable(env, v, {
+    ...v,
+    consumedAtToken: evaluatedBody.token,
+  });
+}
 
 export function evaluateCond({
   expr,
@@ -306,6 +333,17 @@ export function evaluateCond({
         },
         variablesToAdd: [],
       });
+
+      // Consume the case body temp var so it doesn't cause phantom drops.
+      // evaluateBeginExpression creates a temp var in the parent frame;
+      // the cond will create its own result var, so the body temp var is unused.
+      if (evaluatedCaseBodyExpr.$) {
+        const consumed = consumeCaseBodyTempVar(
+          evaluatedCaseBodyExpr,
+          evaluatedCaseBodyExpr.$.env
+        );
+        evaluatedCaseBodyExpr.$.env = consumed;
+      }
 
       if (hasAnyControlFlow(evaluatedCaseBodyExpr.$?.controlFlow)) {
         controlFlows.push(evaluatedCaseBodyExpr.$!.controlFlow!);

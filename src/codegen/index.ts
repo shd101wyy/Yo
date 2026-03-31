@@ -188,8 +188,7 @@ export class CodeGenerator {
 
     const isLibrary = !!(options.staticLibrary || options.shared);
     const isWasm = isTargetWasm(targetInfo);
-    const requestedAllocator =
-      options.allocator ?? (isWasm ? "libc" : "mimalloc");
+    const requestedAllocator = options.allocator ?? "libc";
     const effectiveAllocator =
       requestedAllocator === "mimalloc" &&
       !isWasm &&

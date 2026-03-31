@@ -108,7 +108,7 @@ export class CodeGeneratorC {
       debugAsyncAwait: options.debugAsyncAwait ?? false,
       targetInfo: getCurrentTarget(),
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
-      allocator: options.allocator ?? "mimalloc",
+      allocator: options.allocator ?? "libc",
       isLibrary: options.isLibrary ?? false,
       currentModuleId: options.isLibrary
         ? generateModuleId(modulePath)

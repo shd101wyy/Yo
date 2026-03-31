@@ -1590,7 +1590,6 @@ ${exprToString(expr)}`);
 
   // Create a new temp variable
   const tempVariableName = generateNewTempVariableName(modulePath);
-
   // Add temp variable to the environment at the nearest begin block frame.
   // This ensures temp variables are tracked at the begin block level and get
   // dropped when the begin block ends, not when a nested function call frame is popped.
@@ -1717,12 +1716,20 @@ export function mergeAndCheckEnvs(
           );
           if (allExtraAreTemps) {
             for (const extraVar of extraVars) {
-              frameVariables.push(extraVar);
+              // Adopted temp variables from match/cond branches must NOT be
+              // marked as owning RC values.  Only one branch runs at runtime,
+              // and each branch already handles drops for its own locals.
+              // Marking them as owning would cause a phantom drop in the
+              // parent scope for a variable that was never declared in C.
+              frameVariables.push({
+                ...extraVar,
+                isOwningTheRcValue: false,
+              });
               matrix[0]!.push({
                 consumedAtToken: undefined,
                 initializedAtToken: extraVar.initializedAtToken,
                 type: extraVar.type,
-                isOwningTheRcValue: extraVar.isOwningTheRcValue ?? false,
+                isOwningTheRcValue: false,
               });
             }
             // Update the env frame with the adopted temp variables
