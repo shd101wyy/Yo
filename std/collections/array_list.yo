@@ -492,6 +492,17 @@ impl(forall(T : Type), ArrayList(T),
   ),
 
   /**
+    * Get a pointer to element at index without bounds checking or copying.
+    * Caller must ensure index < len. The pointer is valid until the list is modified.
+    */
+  get_ptr : (fn(self: Self, index: usize) -> *(T))(
+    match(self._ptr,
+      .None => panic("ArrayList.get_ptr: no ptr"),
+      .Some(_ptr) => (_ptr &+ index)
+    )
+  ),
+
+  /**
     * Set element at index without bounds checking.
     * Caller must ensure index < len.
     */

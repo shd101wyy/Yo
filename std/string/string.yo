@@ -292,55 +292,47 @@ impl(String,
    */
   substring : (fn(self: Self, start: usize, end: usize) -> Self)({
     total_bytes := self._bytes.len();
-    new_bytes := ArrayList(u8).new();
-    
-    char_index := usize(0);
-    byte_index := usize(0);
-    
-    while (byte_index < total_bytes),
-          (byte_index = (byte_index + usize(1))),
-    {
-      byte_opt := self._bytes.get(byte_index);
-      match(byte_opt,
-        .Some(byte) => {
-          is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-          cond(
-            is_start => {
-              cond(
-                (char_index >= end) => break,
-                ((char_index >= start) && (char_index < end)) => {
-                  new_bytes.push(byte);
-                  byte_len := cond(
-                    (byte < u8(0x80)) => usize(1),
-                    ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
-                    ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
-                    ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
-                    true => usize(1)
-                  );
-                  k := usize(1);
-                  while ((k < byte_len)),
-                        (k = (k + usize(1))),
-                  {
-                    next_byte_opt := self._bytes.get((byte_index + k));
-                    match(next_byte_opt,
-                      .Some(next_byte) => { new_bytes.push(next_byte); },
-                      .None => ()
-                    );
-                  };
-                  byte_index = ((byte_index + byte_len) - usize(1));
-                },
-                true => ()
-              );
-              char_index = (char_index + usize(1));
-            },
-            true => ()
-          );
-        },
-        .None => ()
+
+    if((start >= end), {
+      return Self(_bytes: ArrayList(u8).new());
+    });
+
+    // Find byte offset for char index `start` and `end`
+    (char_index : usize) = usize(0);
+    (byte_index : usize) = usize(0);
+    (start_byte : usize) = total_bytes;
+    (end_byte : usize) = total_bytes;
+
+    while (byte_index < total_bytes), {
+      if((char_index == start), { start_byte = byte_index; });
+      if((char_index == end), {
+        end_byte = byte_index;
+        break;
+      });
+      (b : u8) = self._bytes.get_unchecked(byte_index);
+      (byte_len : usize) = cond(
+        (b < u8(0x80)) => usize(1),
+        (b < u8(0xE0)) => usize(2),
+        (b < u8(0xF0)) => usize(3),
+        true => usize(4)
       );
+      byte_index = (byte_index + byte_len);
+      char_index = (char_index + usize(1));
     };
-    
-    return Self(_bytes: new_bytes);
+    if((char_index == start), { start_byte = byte_index; });
+    if((char_index == end), { end_byte = byte_index; });
+
+    if((start_byte >= end_byte), {
+      return Self(_bytes: ArrayList(u8).new());
+    });
+
+    (count : usize) = (end_byte - start_byte);
+    new_bytes := ArrayList(u8).with_capacity(count);
+    match(self._bytes.ptr(),
+      .Some(src_p) => new_bytes.extend_from_ptr((src_p &+ start_byte), count),
+      .None => ()
+    );
+    Self(_bytes: new_bytes)
   }),
 
   /**
@@ -1101,69 +1093,38 @@ impl(String,
    */
   trim : (fn(self: Self) -> Self)({
     total_bytes := self._bytes.len();
-    
-    cond(
-      (total_bytes == usize(0)) => {
-        return new();
-      },
-      true => ()
-    );
-    
+
+    if((total_bytes == usize(0)), {
+      return new();
+    });
+
     // Find start index (skip leading whitespace)
-    start_idx := usize(0);
-    while ((start_idx < total_bytes)),
-          (start_idx = (start_idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(start_idx);
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
+    (start_idx : usize) = usize(0);
+    while (start_idx < total_bytes), {
+      (b : u8) = self._bytes.get_unchecked(start_idx);
+      if(!(Self._is_whitespace_byte(b)), { break; });
+      start_idx = (start_idx + usize(1));
     };
-    
+
     // Find end index (skip trailing whitespace)
-    end_idx := total_bytes;
-    while ((end_idx > start_idx)),
-          (end_idx = (end_idx - usize(1))),
-    {
-      byte_opt := self._bytes.get((end_idx - usize(1)));
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
+    (end_idx : usize) = total_bytes;
+    while (end_idx > start_idx), {
+      (b : u8) = self._bytes.get_unchecked((end_idx - usize(1)));
+      if(!(Self._is_whitespace_byte(b)), { break; });
+      end_idx = (end_idx - usize(1));
     };
-    
-    cond(
-      (start_idx >= end_idx) => {
-        return new();
-      },
-      true => ()
+
+    if((start_idx >= end_idx), {
+      return new();
+    });
+
+    (count : usize) = (end_idx - start_idx);
+    new_bytes := ArrayList(u8).with_capacity(count);
+    match(self._bytes.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr((p &+ start_idx), count),
+      .None => ()
     );
-    
-    new_bytes := ArrayList(u8).with_capacity((end_idx - start_idx));
-    i := start_idx;
-    while ((i < end_idx)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => ()
-      );
-    };
-    return Self(_bytes: new_bytes);
+    Self(_bytes: new_bytes)
   }),
 
   /**
