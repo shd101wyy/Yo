@@ -28,6 +28,14 @@ impl(String,
   ),
 
   /**
+   * Create a new empty string with pre-allocated capacity for the given number of bytes.
+   * The string starts empty but can hold `capacity` bytes without reallocating.
+   */
+  with_capacity : (fn(capacity: usize) -> Self)(
+    Self(_bytes: ArrayList(u8).with_capacity(capacity))
+  ),
+
+  /**
    * Create a string from raw bytes (assumes valid UTF-8)
    * No validation is performed - the caller must ensure bytes are valid UTF-8
    */
@@ -284,6 +292,29 @@ impl(String,
       );
     });
   }),
+
+  // Append a str (byte slice) to this String in-place without creating an intermediate String
+  push_str : (fn(self: *(Self), s: str) -> unit)({
+    (slen : usize) = s.len();
+    if((slen > usize(0)), {
+      self.*._bytes.extend_from_ptr(s.ptr(), slen);
+    });
+  }),
+
+  // Append a single byte to this String in-place
+  push_byte : (fn(self: *(Self), b: u8) -> unit)({
+    self.*._bytes.push(b);
+  }),
+
+  // Ensure the internal buffer has capacity for at least `additional` more bytes
+  reserve : (fn(self: *(Self), additional: usize) -> unit)({
+    self.*._bytes.ensure_total_capacity((self.*._bytes.len() + additional));
+  }),
+
+  // Get the number of bytes in the string (not Unicode characters)
+  bytes_len : (fn(self: Self) -> usize)(
+    self._bytes.len()
+  ),
 
   /**
    * Extract a substring from start to end character indices (like JavaScript substring)
