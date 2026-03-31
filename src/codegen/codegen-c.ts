@@ -28,6 +28,8 @@ import {
   generateAllFunctions,
   generateClosureDisposeFunctions,
   generateMainWrapper,
+  emitModuleLevelVariableDeclarations,
+  generateLibraryInitFunction,
   generateSpecializedFunctions,
   preRegisterEffectfulFunctions,
 } from "./functions/generation";
@@ -206,11 +208,18 @@ static Slice_uint8_t_u42_ __yo_args;
     // This must happen after all regular functions are generated to avoid nesting
     generateDeferredAsyncBlocks(context);
 
+    // Emit module-level mutable variable declarations for BOTH binary and library builds.
+    // Libraries need the static declarations even though they don't have main().
+    const moduleLevelVars = emitModuleLevelVariableDeclarations(context);
+
     // Generate main wrapper after deferred async blocks
     // since async main returns a Future type defined in deferred blocks
     // Skip in library mode — libraries don't have a main() entry point
     if (!options.isLibrary) {
       generateMainWrapper(context);
+    } else {
+      // For library builds, generate __yo_module_init() to initialize module-level vars
+      generateLibraryInitFunction(context, moduleLevelVars);
     }
 
     // Generate closure dispose functions after async blocks
