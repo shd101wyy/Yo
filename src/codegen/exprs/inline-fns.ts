@@ -174,6 +174,10 @@ export function generateYoInlineFunctionCall(
   else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
     return `(${args[0]!}.length)`;
   }
+  // __yo_slice_ptr - access the data pointer of a slice fat pointer
+  else if (BuiltinFunctions.__yo_slice_ptr.includes(functionName)) {
+    return `(${args[0]!}.data)`;
+  }
   // __yo_slice_new - create a slice fat pointer from a pointer and length
   else if (
     BuiltinFunctions.__yo_slice_new.includes(functionName) &&

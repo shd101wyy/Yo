@@ -730,6 +730,7 @@ export const BuiltinFunctions = {
   // Slice related functions
   __yo_slice_len: ["__yo_slice_len"],
   __yo_slice_new: ["__yo_slice_new"],
+  __yo_slice_ptr: ["__yo_slice_ptr"],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
