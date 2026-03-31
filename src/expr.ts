@@ -1504,6 +1504,29 @@ function exprToPrettyString(
   return exprToCompactString(expr);
 }
 
+/**
+ * Consume the temp variable that evaluateBeginExpression attached to a
+ * match/cond case body.  The match/cond creates its own result variable, so
+ * the case-body temp var is never emitted in C.  If left unconsumed it causes
+ * a phantom drop.
+ */
+export function consumeCaseBodyTempVar(
+  evaluatedBody: Expr,
+  env: Environment
+): Environment {
+  const varName = evaluatedBody.$?.variableName;
+  if (!varName) return env;
+  if (!isTempVariableName(env.modulePath, varName)) return env;
+  const vars = getVariablesFromEnv(env, varName);
+  if (vars.length === 0) return env;
+  const v = vars[vars.length - 1]!;
+  if (v.consumedAtToken) return env;
+  return updateExistingVariable(env, v, {
+    ...v,
+    consumedAtToken: evaluatedBody.token,
+  });
+}
+
 export function attachTempVariableToExpr(
   expr: Expr,
   isOwningTheRcValue: boolean,

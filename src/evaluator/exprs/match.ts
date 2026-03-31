@@ -1,15 +1,14 @@
 import {
   addVariableToEnv,
   type Environment,
-  getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
-  updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  consumeCaseBodyTempVar,
   type ControlFlowFlags,
   type Expr,
   exprIsAtom,
@@ -57,29 +56,6 @@ import {
 import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
-import { isTempVariableName } from "../../utils";
-
-/**
- * Consume the temp variable that evaluateBeginExpression attached to a match
- * case body.  The match creates its own result variable, so the case-body temp
- * var is never emitted in C.  If left unconsumed it causes a phantom drop.
- */
-function consumeCaseBodyTempVar(
-  evaluatedBody: Expr,
-  env: Environment
-): Environment {
-  const varName = evaluatedBody.$?.variableName;
-  if (!varName) return env;
-  if (!isTempVariableName(env.modulePath, varName)) return env;
-  const vars = getVariablesFromEnv(env, varName);
-  if (vars.length === 0) return env;
-  const v = vars[vars.length - 1]!;
-  if (v.consumedAtToken) return env;
-  return updateExistingVariable(env, v, {
-    ...v,
-    consumedAtToken: evaluatedBody.token,
-  });
-}
 
 /**
  * Helper function to check if an expression is an or-pattern (using `|`)

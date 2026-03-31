@@ -1019,3 +1019,51 @@ test "ArrayList iter - mutate through pointer", {
   assert((list.get(usize(1)).unwrap() == i32(4)), "second element should be doubled");
   assert((list.get(usize(2)).unwrap() == i32(6)), "third element should be doubled");
 };
+
+test "Test ArrayList.with_capacity", {
+  list := ArrayList(i32).with_capacity(usize(100));
+  assert((list.len() == usize(0)), "with_capacity should start empty");
+  list.push(i32(42));
+  assert((list.len() == usize(1)), "should have 1 element after push");
+  assert((list.get_ptr(usize(0)).* == i32(42)), "element should be 42");
+};
+
+test "Test ArrayList.ensure_total_capacity", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.ensure_total_capacity(usize(100));
+  assert((list.len() == usize(1)), "ensure_total_capacity should not change length");
+  assert((list.get_ptr(usize(0)).* == i32(1)), "element should be preserved");
+
+  // Can push more without reallocation issues
+  i := i32(0);
+  while (i < i32(50)), (i = (i + i32(1))), {
+    list.push(i);
+  };
+  assert((list.len() == usize(51)), "should have 51 elements");
+};
+
+test "Test ArrayList.get_ptr", {
+  list := ArrayList(i32).new();
+  list.push(i32(100));
+  list.push(i32(200));
+  list.push(i32(300));
+
+  ptr := list.get_ptr(usize(1));
+  assert((ptr.* == i32(200)), "get_ptr should return pointer to element");
+
+  // Modify through pointer
+  ptr.* = i32(999);
+  assert((list.get_ptr(usize(1)).* == i32(999)), "modification through ptr should work");
+};
+
+test "Test ArrayList.extend_from_ptr", {
+  list := ArrayList(u8).new();
+  list.push(u8(1));
+  list.push(u8(2));
+  // extend_from_ptr is tested indirectly through String.push_str
+  // which uses it internally. Direct use tested via String operations.
+  assert((list.len() == usize(2)), "should have 2 elements");
+  assert((list.get_ptr(usize(0)).* == u8(1)), "first should be 1");
+  assert((list.get_ptr(usize(1)).* == u8(2)), "last should be 2");
+};

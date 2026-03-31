@@ -1,4 +1,6 @@
 open import "std/libc/stdio";
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
 
 Point :: struct(x : i32, y : i32);
 Wrapper :: struct(v : Box(i32));
@@ -154,4 +156,90 @@ test "Test Rc with Iso", {
       .None => assert(true)
     );
   };
+};
+
+// --- Phantom drop regression tests ---
+// These test that match/cond inside function arguments don't cause phantom drops
+// of undeclared temp variables (fixed in consumeCaseBodyTempVar).
+
+test "Test match inside function arg - no phantom drop", {
+  Color :: enum(Red, Green, Blue);
+  color_name :: (fn(c: Color) -> String)(
+    match(c,
+      .Red => `red`,
+      .Green => `green`,
+      .Blue => `blue`
+    )
+  );
+  result := color_name(.Red);
+  assert((result == `red`), "match inside fn arg should work");
+  result2 := color_name(.Blue);
+  assert((result2 == `blue`), "match inside fn arg should work for Blue");
+};
+
+test "Test cond inside function arg - no phantom drop", {
+  classify :: (fn(x: i32) -> String)(
+    cond(
+      (x > i32(0)) => `positive`,
+      (x < i32(0)) => `negative`,
+      true => `zero`
+    )
+  );
+  result := classify(i32(5));
+  assert((result == `positive`), "cond inside fn arg should work");
+  result2 := classify(i32(0));
+  assert((result2 == `zero`), "cond inside fn arg should work for zero");
+};
+
+test "Test match returning RC object - no phantom drop", {
+  Tag :: enum(A, B);
+  make_string :: (fn(t: Tag) -> String)(
+    match(t,
+      .A => `alpha`,
+      .B => `beta`
+    )
+  );
+  s1 := make_string(.A);
+  s2 := make_string(.B);
+  assert((s1 == `alpha`), "match returning RC String A");
+  assert((s2 == `beta`), "match returning RC String B");
+};
+
+test "Test chained method calls - no duplicate var", {
+  // Regression test: chained method calls on ArrayList should not
+  // cause duplicate temp variable declarations in generated C.
+  list := ArrayList(i32).new();
+  list.push(i32(10));
+  list.push(i32(20));
+  list.push(i32(30));
+
+  // Chained get_ptr access (the pattern that triggered the duplicate var bug)
+  val := list.get_ptr(usize(1)).*;
+  assert((val == i32(20)), "chained get_ptr should work");
+
+  val2 := list.get_ptr(usize(0)).*;
+  assert((val2 == i32(10)), "chained get_ptr should work at index 0");
+};
+
+test "Test nested && with RC temps - no phantom drop", {
+  // Regression test: nested && should not emit drops for temp vars
+  // declared inside inner conditional branches
+  make_str :: (fn(s : str) -> String)(String.from(s));
+
+  a := make_str("hello");
+  b := make_str("world");
+  c := make_str("test");
+
+  // Nested &&: inner && creates temp vars that outer && must not drop
+  result := (((a.len() > usize(0)) && (b.len() > usize(0))) && (c.len() > usize(0)));
+  assert(result, "nested && should work with RC temps");
+
+  // Nested || inside &&
+  result2 := ((a.len() > usize(0)) && ((b.len() > usize(0)) || (c.len() > usize(0))));
+  assert(result2, "nested || inside && should work with RC temps");
+
+  // Triple nesting
+  result3 := (((a.len() > usize(0)) && (b.len() > usize(0))) && ((c.len() > usize(0)) || (make_str("x").len() > usize(0))));
+  assert(result3, "triple nested && || should work with RC temps");
+  ();
 };
