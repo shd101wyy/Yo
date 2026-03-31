@@ -26,6 +26,7 @@ mkShell rec {
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
     liburing
     valgrind
+    musl
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc
