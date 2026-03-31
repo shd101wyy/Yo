@@ -175,6 +175,24 @@ Generic functions must be compile-time known to enable monomorphization. Conside
 comptime(${variableName}) : ${typeToString(userDefinedType)}`,
     });
   }
+  // Error on mutable runtime variables inside impl blocks.
+  if (
+    !isCompileTimeOnly &&
+    !context.isEvaluatingFunctionBodyOrAsyncBlock &&
+    context.isInsideImplBlock
+  ) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Mutable runtime variable "${variableName}" is not allowed inside an impl block.
+Use \`::\` for compile-time definitions inside impl.`,
+    });
+  }
+
+  // Mark as module-level if we're NOT inside a function body — these become
+  // C file-scope static variables accessible from all module functions.
+  const isModuleLevel =
+    !isCompileTimeOnly && !context.isEvaluatingFunctionBodyOrAsyncBlock;
+
   // Add the variable to the env
   // console.log("(5) addVariableToEnv");
   const { env: nextEnv } = addVariableToEnv({
@@ -192,6 +210,7 @@ comptime(${variableName}) : ${typeToString(userDefinedType)}`,
       isReassignable: true,
       isOwningTheRcValue: typeContainsRcType(userDefinedType),
       isImplicit,
+      isModuleLevel,
     },
   });
   env = nextEnv;

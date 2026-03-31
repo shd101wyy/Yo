@@ -355,16 +355,67 @@ export function evaluateAnonymousModuleBeginExprs({
         if (evaluatedExpr.$?.env) {
           env = evaluatedExpr.$?.env;
         }
-        // Collect module-level `:=` initialization expressions for codegen.
+        // Collect module-level initialization expressions for codegen.
         // These will be emitted as file-scope static variables.
+        // Handles both:
+        //   x := i32(12);        — `:=` initialization
+        //   (x : i32) = i32(12); — binding + `=` initialization
+        if (exprIsFunctionCall(evaluatedExpr)) {
+          if (exprIsFunctionCallOf(evaluatedExpr, ":=", 2)) {
+            const initLhs = evaluatedExpr.args[0]!;
+            // Only collect if the LHS is an atom (simple variable) and has a runtime type
+            if (exprIsAtom(initLhs) && initLhs.$?.type && !initLhs.$.value) {
+              moduleLevelInitExprs.push(evaluatedExpr);
+            }
+          } else if (exprIsFunctionCallOf(evaluatedExpr, "=", 2)) {
+            // For (x : i32) = val; the LHS is a `:` binding expression.
+            // Check if the variable being assigned is module-level.
+            const assignLhs = evaluatedExpr.args[0]!;
+            let varName: string | undefined;
+            if (exprIsAtom(assignLhs)) {
+              varName = assignLhs.token.value;
+            } else if (
+              exprIsFunctionCall(assignLhs) &&
+              exprIsFunctionCallOf(assignLhs, ":", 2)
+            ) {
+              const bindingLhs = assignLhs.args[0]!;
+              if (exprIsAtom(bindingLhs)) {
+                varName = bindingLhs.token.value;
+              }
+            }
+            if (varName) {
+              const variables = getVariablesFromEnv(env, varName);
+              const variable =
+                variables.length > 0
+                  ? variables[variables.length - 1]
+                  : undefined;
+              if (variable?.isModuleLevel) {
+                moduleLevelInitExprs.push(evaluatedExpr);
+              }
+            }
+          }
+        }
+        // Error on standalone runtime variable binding at module scope (e.g., `a : i32;`)
+        // without initialization. Only `:=` or `(a : i32) = value;` are supported.
         if (
           exprIsFunctionCall(evaluatedExpr) &&
-          exprIsFunctionCallOf(evaluatedExpr, ":=", 2)
+          exprIsFunctionCallOf(evaluatedExpr, ":", 2)
         ) {
-          const initLhs = evaluatedExpr.args[0]!;
-          // Only collect if the LHS is an atom (simple variable) and has a runtime type
-          if (exprIsAtom(initLhs) && initLhs.$?.type && !initLhs.$.value) {
-            moduleLevelInitExprs.push(evaluatedExpr);
+          const bindingLhs = evaluatedExpr.args[0]!;
+          if (exprIsAtom(bindingLhs) && bindingLhs.$?.env) {
+            const varName = bindingLhs.token.value;
+            const variables = getVariablesFromEnv(env, varName);
+            const variable =
+              variables.length > 0
+                ? variables[variables.length - 1]
+                : undefined;
+            if (variable?.isModuleLevel) {
+              throw formatErrorMessage({
+                token: bindingLhs.token,
+                errorMessage: `Uninitialized runtime variable "${varName}" at module scope.
+Use \`${varName} := value;\` or \`(${varName} : ${evaluatedExpr.args[1]?.token.value ?? "Type"}) = value;\` instead.`,
+              });
+            }
           }
         }
       }

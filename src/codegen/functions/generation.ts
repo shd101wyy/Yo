@@ -435,11 +435,27 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
         if (!exprIsFunctionCall(initExpr) || initExpr.args.length < 2) continue;
         const lhs = initExpr.args[0]!;
         const rhs = initExpr.args[1]!;
-        if (!exprIsAtom(lhs) || !lhs.$?.type) continue;
 
-        const varName = lhs.$?.variableName ?? lhs.token.value;
-        const cVarName = getVariableNameForCodegen(varName, lhs.$.env);
-        const cTypeStr = getTypeString(lhs.$.type, context);
+        // Resolve the variable name and type from LHS.
+        // For `:=`: LHS is an atom (the variable name).
+        // For `=` with binding: LHS is a `:` call where the first arg is the atom.
+        let varAtom: Expr | undefined;
+        if (exprIsAtom(lhs) && lhs.$?.type) {
+          varAtom = lhs;
+        } else if (
+          exprIsFunctionCall(lhs) &&
+          exprIsFunctionCallOf(lhs, ":", 2)
+        ) {
+          const bindingLhs = lhs.args[0]!;
+          if (exprIsAtom(bindingLhs) && bindingLhs.$?.type) {
+            varAtom = bindingLhs;
+          }
+        }
+        if (!varAtom || !varAtom.$?.type) continue;
+
+        const varName = varAtom.$?.variableName ?? varAtom.token.value;
+        const cVarName = getVariableNameForCodegen(varName, varAtom.$.env);
+        const cTypeStr = getTypeString(varAtom.$.type, context);
 
         // Emit file-scope static declaration (no initializer)
         emitter.emitDeclarationLine(

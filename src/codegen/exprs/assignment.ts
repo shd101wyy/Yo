@@ -41,6 +41,20 @@ export function generateAssignment(
     isInitialization = true;
     lhs = lhs.args[0]!; // Get the actual variable being assigned
   }
+
+  // Module-level mutable variables are handled in generateMainWrapper.
+  // Skip them here to avoid duplicate declarations.
+  if (isInitialization && exprIsAtom(lhs) && lhs.$?.env) {
+    const varName = lhs.token.value;
+    const variables = getVariablesFromEnv(lhs.$.env, varName);
+    if (
+      variables.length > 0 &&
+      variables[variables.length - 1]!.isModuleLevel
+    ) {
+      return "";
+    }
+  }
+
   if (
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)

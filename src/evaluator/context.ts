@@ -81,6 +81,12 @@ export interface EvaluatorContext {
     | TestBlockEvaluationContext;
 
   /**
+   * Whether we are currently evaluating an impl block body.
+   * Used to prevent mutable runtime variables (:=) inside impl blocks.
+   */
+  isInsideImplBlock?: boolean;
+
+  /**
    * For closures and async blocks, track variables captured from outer scopes.
    * Maps variable name to usage information (frame level, usage type, token).
    * This is populated during evaluation when isEvaluatingFunctionBodyOrAsyncBlock is set.
