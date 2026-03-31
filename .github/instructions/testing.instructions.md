@@ -12,7 +12,8 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## C codegen tests
 
-- Run specific test: `./yo-cli test ./tests/XXX.test.yo` (add `-v` for verbose)
+- Run specific test: `./yo-cli test ./tests/XXX.test.yo --parallel 1` (add `-v` for verbose)
+- **Always use `--parallel 1`** when running a single test file — this shows results sequentially and avoids hangs with large test files.
 - **Never run the full test suite** (`./yo-cli test` without a file). Always run targeted test files instead.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors

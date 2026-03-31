@@ -139,14 +139,17 @@ export class BuildRegistry {
   }
 
   registerExecutable(config: Omit<BuildArtifact, "kind">): void {
+    this.checkDuplicateArtifactName(config.name);
     this.artifacts.push({ kind: "executable", ...config });
   }
 
   registerStaticLibrary(config: Omit<BuildArtifact, "kind">): void {
+    this.checkDuplicateArtifactName(config.name);
     this.artifacts.push({ kind: "static_library", ...config });
   }
 
   registerSharedLibrary(config: Omit<BuildArtifact, "kind">): void {
+    this.checkDuplicateArtifactName(config.name);
     this.artifacts.push({ kind: "shared_library", ...config });
   }
 
@@ -264,6 +267,16 @@ export class BuildRegistry {
   /** Find a named step */
   findStep(name: string): BuildStep | undefined {
     return this.steps.find((s) => s.name === name);
+  }
+
+  /** Throw if an artifact with the given name already exists */
+  private checkDuplicateArtifactName(name: string): void {
+    const existing = this.artifacts.find((a) => a.name === name);
+    if (existing) {
+      throw new Error(
+        `Build error: Artifact "${name}" already registered as ${existing.kind}. Use a unique name for each artifact.`
+      );
+    }
   }
 
   /** Find a dependency by name */

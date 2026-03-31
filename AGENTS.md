@@ -90,11 +90,11 @@ bun test src/tests/fixme.test.ts --timeout 10000
 # Build system tests
 bun test src/tests/build-system.test.ts --timeout 10000
 
-# C codegen tests — specific file
-./yo-cli test ./tests/algebraic_effects.test.yo --bail -v
+# C codegen tests — specific file (always use --parallel 1 for single files)
+./yo-cli test ./tests/algebraic_effects.test.yo --bail -v --parallel 1
 
 # C codegen tests — specific test by name
-./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape"
+./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape" --parallel 1
 
 # All integration tests — NEVER run this. It takes over an hour. Always run targeted test files instead.
 # ./yo-cli test
