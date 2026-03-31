@@ -1,5 +1,6 @@
 { ArrayList } :: import "../collections/array_list.yo";
 { rune } :: import "./rune.yo";
+{ memcpy, memcmp, strlen } :: import "../libc/string.yo";
 
 StringError :: enum(
   InvalidUtf8,
@@ -40,17 +41,12 @@ impl(String,
    * Example: String.from(slice) where slice is str
    */
   from : (fn(slice: str) -> Self)({
-    // Create a new ArrayList and copy bytes from the slice
-    bytes := ArrayList(u8).with_capacity(slice.len());
-    
-    i := usize(0);
-    while ((i < slice.len())),
-          (i = (i + usize(1))),
-    {
-      byte := slice.bytes(i);
-      bytes.push(byte);
-    };
-    
+    slen := slice.len();
+    bytes := ArrayList(u8).with_capacity(slen);
+    cond(
+      (slen == usize(0)) => (),
+      true => bytes.extend_from_ptr(slice.ptr(), slen)
+    );
     return Self(_bytes: bytes);
   }),
 
@@ -62,49 +58,20 @@ impl(String,
    * Note: We manually search for the null terminator by iterating
    */
   from_cstr : (fn(cstr: *(u8)) -> Result(Self, StringError))({
-    // Create a new ArrayList to store the bytes
-    bytes := ArrayList(u8).new();
-    
-    // Iterate through the C string until we find the null terminator
-    i := usize(0);
-    // FIXME: This is causing infinite loop during compile-time evaluation.
-    //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
-    while {f := true; f}, (i = (i + usize(1))), {
-      // Access byte at index i using pointer arithmetic/
-      byte_ptr := (cstr &+ i);
-      byte := byte_ptr.*;
-      
-      // Stop when we find the null terminator
-      cond(
-        (byte == u8(0)) => break,
-        true => bytes.push(byte)
-      );
-    };
-      
+    len := strlen((*(char))(cstr));
+    bytes := ArrayList(u8).with_capacity(len);
+    bytes.extend_from_ptr(cstr, len);
     return .Ok(Self(_bytes: bytes));
   }),
 
   to_cstr : (fn(self: Self) -> ArrayList(u8))({
     bytes_len := self._bytes.len();
-    bytes_with_null := ArrayList(u8).with_capacity(bytes_len + usize(1));
-    
-    // Copy existing bytes
-    i := usize(0);
-    while (i < bytes_len),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => {
-          bytes_with_null.push(byte);
-        },
-        .None => ()
-      );
-    };
-    
-    // Add null terminator
+    bytes_with_null := ArrayList(u8).with_capacity((bytes_len + usize(1)));
+    match(self._bytes.ptr(),
+      .Some(src) => bytes_with_null.extend_from_ptr(src, bytes_len),
+      .None => ()
+    );
     bytes_with_null.push(u8(0));
-    
     return bytes_with_null;
   }),
 
@@ -292,31 +259,30 @@ impl(String,
     other_len := other._bytes.len();
     new_bytes := ArrayList(u8).with_capacity((self_len + other_len));
     
-    // Copy bytes from self
-    i := usize(0);
-    while ((i < self_len)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => { panic("String.concat: failed to get byte from self"); }
-      );
-    };
+    // Bulk copy bytes from self
+    match(self._bytes.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr(p, self_len),
+      .None => ()
+    );
     
-    // Copy bytes from other
-    j := usize(0);
-    while ((j < other_len)),
-          (j = (j + usize(1))),
-    {
-      byte_opt := other._bytes.get(j);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => { panic("String.concat: failed to get byte from other"); }
-      );
-    };
+    // Bulk copy bytes from other
+    match(other._bytes.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr(p, other_len),
+      .None => ()
+    );
     
     return Self(_bytes: new_bytes);
+  }),
+
+  // Append another String to this String in-place (mutates self)
+  push_string : (fn(self: *(Self), other: Self) -> unit)({
+    (olen : usize) = other._bytes.len();
+    if((olen > usize(0)), {
+      match(other._bytes.ptr(),
+        .Some(p) => self.*._bytes.extend_from_ptr(p, olen),
+        .None => ()
+      );
+    });
   }),
 
   /**
@@ -1313,43 +1279,23 @@ impl(String, Add(String, String)(
 
 impl(String, Eq(String)(
   (==) : (fn(self: Self, other: Self) -> bool)({
-    // First compare lengths
     self_len := self._bytes.len();
     other_len := other._bytes.len();
     
     cond(
-      (self_len != other_len) => {
-        return false;
-      },
-      true => ()
-    );
-    
-    // Compare each byte
-    i := usize(0);
-    while ((i < self_len)),
-          (i = (i + usize(1))),
-    {
-      self_byte_opt := self._bytes.get(i);
-      other_byte_opt := other._bytes.get(i);
-      
-      match(self_byte_opt,
-        .Some(self_byte) =>
-          match(other_byte_opt,
-            .Some(other_byte) => {
-              cond(
-                (self_byte != other_byte) => {
-                  return false;
-                },
-                true => ()
-              );
-            },
-            .None => return false
-          ),
-        .None => return false
-      );
-    };
-    
-    return true;
+      (self_len != other_len) => false,
+      (self_len == usize(0)) => true,
+      true =>
+        match(self._bytes.ptr(),
+          .Some(self_ptr) =>
+            match(other._bytes.ptr(),
+              .Some(other_ptr) =>
+                (memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len) == int(0)),
+              .None => false
+            ),
+          .None => false
+        )
+    )
   }),
   (!=) : (fn(self: Self, other: Self) -> bool)({
     return !(Self.(==)(self, other));
