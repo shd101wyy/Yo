@@ -105,7 +105,7 @@ yo --version                     Show version number
         .option("t", {
           alias: "target",
           describe:
-            "Target triple for cross-compilation (e.g. x86_64-linux-gnu, aarch64-macos). Defaults to host.",
+            "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable. Defaults to host.",
           type: "string",
           demandOption: false,
         })
@@ -281,8 +281,7 @@ yo --version                     Show version number
 
       // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
       const isEmcc = cCompiler === "emcc";
-      const targetTriple =
-        targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
+      const targetTriple = targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
 
       const absolutePath = `file://` + fs.realpathSync(file);
       const targetInfo = targetTriple
@@ -354,7 +353,7 @@ yo --version                     Show version number
         })
         .option("target", {
           describe:
-            "Target triple for cross-compilation (e.g., 'wasm-emscripten', 'wasm-wasi'). Auto-selects emcc for WASM targets.",
+            "Target triple (e.g., 'wasm-emscripten', 'wasm-wasi', 'x86_64-linux-musl'). Must match host architecture; WASM targets are always cross-compilable.",
           type: "string",
         })
         .option("verbose", {
@@ -565,7 +564,7 @@ yo --version                     Show version number
         .option("t", {
           alias: "target",
           describe:
-            "Target triple for cross-compilation (e.g. x86_64-linux-gnu, aarch64-macos).",
+            "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable.",
           type: "string",
         })
         .option("sysroot", {

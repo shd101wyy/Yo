@@ -268,7 +268,7 @@ export class CodeGenerator {
             );
           }
 
-          // Add cross-compilation flags (skip for emcc)
+          // Add cross-compilation flags (skip for emcc).
           const host = hostTarget();
           if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
             const triple = clangTriple(targetInfo);
@@ -524,13 +524,10 @@ export class CodeGenerator {
           console.log("Using libc allocator");
         }
 
-        // Add liburing on Linux for async I/O (skip for WASM)
-        if (
-          !isWasm &&
-          !isMSVC &&
-          isTargetLinux(targetInfo) &&
-          isLiburingAvailable()
-        ) {
+        // Add liburing on Linux for async I/O. Since only native targets are
+        // supported (not cross-compilation), whatever liburing is installed on
+        // the host is the correct one to link against.
+        if (!isWasm && !isMSVC && isTargetLinux(targetInfo) && isLiburingAvailable()) {
           compileArgs.splice(-2, 0, "-luring");
           console.log("Using system liburing for async I/O");
         } else if (isTargetLinux(targetInfo) && !isMSVC) {
@@ -579,13 +576,25 @@ export class CodeGenerator {
           }
         }
 
-        // Cross-compilation: add --target= and --sysroot= for clang/gcc
-        // Skip for emcc — it handles its own target internally
+        // Cross-compilation: add --target= for clang when the target differs
+        // from the host. Skip for emcc — it handles its own target internally.
+        //
+        // NOTE: True cross-compilation (different arch or OS) is NOT supported.
+        // Only WASM and native targets are supported.
         const host = hostTarget();
         if (!isMSVC && !isEmcc && targetInfo.triple !== host.triple) {
+          const sameArchOs =
+            targetInfo.arch === host.arch && targetInfo.os === host.os;
+          if (!sameArchOs) {
+            console.warn(
+              `⚠️  Cross-compilation to a different architecture or OS is not supported.\n` +
+                `   Host: ${host.triple}  →  Target: ${targetInfo.triple}\n` +
+                `   Only native targets and WASM are supported.`
+            );
+          }
+
           const triple = clangTriple(targetInfo);
           compileArgs.splice(isMSVC ? -1 : -2, 0, `--target=${triple}`);
-          console.log(`Cross-compiling for target: ${triple}`);
           if (options.sysroot) {
             compileArgs.splice(-2, 0, `--sysroot=${options.sysroot}`);
           }

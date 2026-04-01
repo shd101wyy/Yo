@@ -54,6 +54,11 @@ wasm32-emscripten        (WebAssembly, Emscripten)
 wasm32-wasi              (WebAssembly, standalone WASI)
 ```
 
+> **Note:** Only native targets and WASM are supported. Cross-compilation to a
+> different architecture or OS is not supported — the target must match the host
+> machine's architecture and OS. musl targets are only supported on native musl
+> systems (e.g. Alpine Linux); liburing works normally on such systems.
+
 ### 1.2 Supported Architectures
 
 | Arch      | Pointer Size | Notes                        |
@@ -79,7 +84,7 @@ wasm32-wasi              (WebAssembly, standalone WASI)
 | ABI    | Notes                                  |
 | ------ | -------------------------------------- |
 | `gnu`  | glibc (Linux default)                  |
-| `musl` | Static linking friendly (Linux)        |
+| `musl` | musl libc (native musl systems)        |
 | `msvc` | Windows MSVC CRT                       |
 | `wasm` | WebAssembly (WASI default)             |
 | `none` | macOS (no ABI suffix needed for clang) |

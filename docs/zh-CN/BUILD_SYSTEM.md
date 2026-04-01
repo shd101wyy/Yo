@@ -168,16 +168,17 @@ test_step.depend_on(tests);
 
 `CompilationTarget` 为支持的目标三元组提供了符号名称。推荐使用这些常量，而不是硬编码目标字符串：
 
-| 值                                      | 目标三元组            | 说明                      |
-| --------------------------------------- | --------------------- | ------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64（glibc）     |
-| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64（静态 musl） |
-| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64               |
-| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon       |
-| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel               |
-| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64            |
-| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`   | WebAssembly（Emscripten） |
-| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly（独立 WASI）  |
+| 值                                      | 目标三元组             | 说明                          |
+| --------------------------------------- | ---------------------- | ----------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`     | Linux x86-64（glibc）         |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`    | Linux x86-64（musl，原生）    |
+| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`    | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Linux_Musl`  | `aarch64-linux-musl`   | Linux ARM64（musl，原生）     |
+| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`        | macOS Apple Silicon           |
+| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`         | macOS Intel                   |
+| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc`  | Windows x86-64                |
+| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`    | WebAssembly（Emscripten）     |
+| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`          | WebAssembly（独立 WASI）      |
 
 宿主目标也可通过 `build.target_host` 获取。
 
@@ -540,7 +541,13 @@ yo build -Dstrip       # 等同于 -Dstrip=true
 
 ## 交叉编译
 
-Yo 通过目标三元组支持交叉编译。可以在 `build.yo` 中或命令行上指定目标：
+> **注意：** 真正的交叉编译（目标 CPU 架构或操作系统与宿主机不同）**不受支持**。
+> 目标必须与宿主机的架构和操作系统相匹配。唯一的例外是 **WebAssembly（WASM）**，
+> 可以通过 `emcc` 在任意宿主机上编译。
+>
+> musl 目标（`x86_64-linux-musl`）仅在 musl 原生系统（如 Alpine Linux）上受支持。
+
+Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令行上指定目标：
 
 ### 在 `build.yo` 中
 
@@ -569,23 +576,21 @@ build.executable({
 ```bash
 # 为所有产物覆盖目标
 yo build --target wasm-emscripten
-
-# 使用 zig 作为 C 编译器进行交叉编译
-yo build --cc zig --target aarch64-linux-gnu
 ```
 
 ### 支持的目标
 
-| 目标三元组            | 说明                      |
-| --------------------- | ------------------------- |
-| `x86_64-linux-gnu`    | Linux x86-64（glibc）     |
-| `x86_64-linux-musl`   | Linux x86-64（静态 musl） |
-| `aarch64-linux-gnu`   | Linux ARM64               |
-| `aarch64-macos`       | macOS Apple Silicon       |
-| `x86_64-macos`        | macOS Intel               |
-| `x86_64-windows-msvc` | Windows x86-64            |
-| `wasm32-emscripten`   | WebAssembly（Emscripten） |
-| `wasm32-wasi`         | WebAssembly（独立 WASI）  |
+| 目标三元组             | 说明                          |
+| ---------------------- | ----------------------------- |
+| `x86_64-linux-gnu`     | Linux x86-64（glibc）         |
+| `x86_64-linux-musl`    | Linux x86-64（musl，原生）    |
+| `aarch64-linux-gnu`    | Linux ARM64                   |
+| `aarch64-linux-musl`   | Linux ARM64（musl，原生）     |
+| `aarch64-macos`        | macOS Apple Silicon           |
+| `x86_64-macos`         | macOS Intel                   |
+| `x86_64-windows-msvc`  | Windows x86-64                |
+| `wasm32-emscripten`    | WebAssembly（Emscripten）     |
+| `wasm32-wasi`          | WebAssembly（独立 WASI）      |
 
 缩写别名：`wasm-emscripten` → `wasm32-emscripten`，`wasm-wasi` → `wasm32-wasi`。
 

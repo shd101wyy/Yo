@@ -171,8 +171,9 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | Value                                   | Target Triple         | Notes                         |
 | --------------------------------------- | --------------------- | ----------------------------- |
 | `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
-| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (musl, native)   |
 | `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Linux_Musl`  | `aarch64-linux-musl`  | Linux ARM64 (musl, native)    |
 | `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon           |
 | `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                   |
 | `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64                |
@@ -540,7 +541,15 @@ Run `yo build --help` to see all available project-specific options alongside st
 
 ## Cross-Compilation
 
-Yo supports cross-compilation via target triples. Specify the target in `build.yo` or on the command line:
+> **Note:** True cross-compilation (targeting a different CPU architecture or OS
+> than the host machine) is **not supported**. The target must match the host's
+> architecture and OS. The only exception is **WebAssembly** (WASM), which can
+> always be targeted from any host via `emcc`.
+>
+> musl targets (`x86_64-linux-musl`) are only supported when running natively
+> on a musl-based system (e.g. Alpine Linux).
+
+Yo supports targeting WASM via target triples. Specify the target in `build.yo` or on the command line:
 
 ### In `build.yo`
 
@@ -569,23 +578,21 @@ build.executable({
 ```bash
 # Override target for all artifacts
 yo build --target wasm-emscripten
-
-# Use zig as the C compiler for cross-compilation
-yo build --cc zig --target aarch64-linux-gnu
 ```
 
 ### Supported Targets
 
-| Target Triple         | Notes                         |
-| --------------------- | ----------------------------- |
-| `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
-| `x86_64-linux-musl`   | Linux x86-64 (static musl)    |
-| `aarch64-linux-gnu`   | Linux ARM64                   |
-| `aarch64-macos`       | macOS Apple Silicon           |
-| `x86_64-macos`        | macOS Intel                   |
-| `x86_64-windows-msvc` | Windows x86-64                |
-| `wasm32-emscripten`   | WebAssembly (Emscripten)      |
-| `wasm32-wasi`         | WebAssembly (standalone WASI) |
+| Target Triple          | Notes                         |
+| ---------------------- | ----------------------------- |
+| `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
+| `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
+| `aarch64-linux-gnu`    | Linux ARM64                   |
+| `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
+| `aarch64-macos`        | macOS Apple Silicon           |
+| `x86_64-macos`         | macOS Intel                   |
+| `x86_64-windows-msvc`  | Windows x86-64                |
+| `wasm32-emscripten`    | WebAssembly (Emscripten)      |
+| `wasm32-wasi`          | WebAssembly (standalone WASI) |
 
 Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
 
