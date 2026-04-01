@@ -22,21 +22,18 @@ NfaThread :: object(
 impl(NfaThread,
   new : (fn(pc : usize, n_slots : usize) -> Self)({
     s := ArrayList(usize).with_capacity(n_slots);
-    i := usize(0);
-    while (i < n_slots), (i = (i + usize(1))), {
-      // usize.MAX signals "unset"
-      s.push(usize.MAX);
-    };
+    // usize.MAX = 0xFF..FF, so memset with 0xFF fills each byte
+    s.resize_with_byte(n_slots, int(255));
     Self(pc: pc, slots: s)
   }),
 
   // Clone a thread with a new PC
   fork : (fn(self : Self, new_pc : usize) -> Self)({
     new_slots := ArrayList(usize).with_capacity(self.slots.len());
-    i := usize(0);
-    while (i < self.slots.len()), (i = (i + usize(1))), {
-      new_slots.push(self.slots.get(i).unwrap());
-    };
+    match(self.slots.ptr(),
+      .Some(src) => new_slots.extend_from_ptr(src, self.slots.len()),
+      .None => ()
+    );
     Self(pc: new_pc, slots: new_slots)
   })
 );
@@ -233,14 +230,15 @@ impl(NfaVm,
       true => ()
     );
 
-    is_seen := seen.*.get(thread.pc).unwrap();
+    // Already checked bounds above: thread.pc < instructions.len()
+    is_seen := seen.*.get_unchecked(thread.pc);
     cond(
       is_seen => { return (); },
       true => ()
     );
-    seen.*.set(thread.pc, true);
+    seen.*.set_unchecked(thread.pc, true);
 
-    instr := self._program.instructions.get(thread.pc).unwrap();
+    instr := self._program.instructions.get_unchecked(thread.pc);
 
     match(instr.kind,
       .Split => {
@@ -326,10 +324,7 @@ impl(NfaVm,
     sub_next := ArrayList(NfaThread).new();
 
     sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
-    si := usize(0);
-    while (si < self._program.instructions.len()), (si = (si + usize(1))), {
-      sub_seen.push(false);
-    };
+    sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
 
     initial := NfaThread.new(sub_start_pc, self._n_slots);
     self._add_thread(&(sub_current), initial, start_byte, &(sub_seen));
@@ -376,10 +371,7 @@ impl(NfaVm,
       sub_blen := decoded.byte_len;
 
       // Clear seen
-      sj := usize(0);
-      while (sj < sub_seen.len()), (sj = (sj + usize(1))), {
-        sub_seen.set(sj, false);
-      };
+      sub_seen.fill_with_byte(int(0));
 
       // Process consuming instructions
       st2 := usize(0);
@@ -446,11 +438,9 @@ impl(NfaVm,
 
     seen := ArrayList(bool).with_capacity(self._program.instructions.len());
     next_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
-    i := usize(0);
-    while (i < self._program.instructions.len()), (i = (i + usize(1))), {
-      seen.push(false);
-      next_seen.push(false);
-    };
+    // Fill with false (0x00) using memset
+    seen.resize_with_byte(self._program.instructions.len(), int(0));
+    next_seen.resize_with_byte(self._program.instructions.len(), int(0));
 
     initial := NfaThread.new(usize(0), self._n_slots);
     self._add_thread(&(current), initial, start_byte, &(seen));
@@ -474,12 +464,9 @@ impl(NfaVm,
         true => ()
       );
 
-      // Clear seen flags for this generation
-      j := usize(0);
-      while (j < seen.len()), (j = (j + usize(1))), {
-        seen.set(j, false);
-        next_seen.set(j, false);
-      };
+      // Clear seen flags for this generation using memset
+      seen.fill_with_byte(int(0));
+      next_seen.fill_with_byte(int(0));
 
       // Process deferred threads targeting this byte_pos
       new_deferred := ArrayList(DeferredThread).new();

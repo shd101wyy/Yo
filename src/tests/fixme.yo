@@ -1,25 +1,31 @@
-open import "std/libc/stdio";
+open import "std/fmt";
 
-c_include "<stdbool.h>",
-  test_fn :
-    fn() -> bool
-;
+Node :: object(value: i32, next: Option(Self));
 
-check :: (fn(x: i32) -> bool)((x > i32(0)));
+traverse :: (fn(head: Option(Node)) -> i32)({
+  (count : i32) = i32(0);
+  (current_opt : Option(Node)) = head;
 
-// Wrapper around test_fn with a Yo body
-test_fn_yo :: (fn() -> bool)({
-  result := test_fn();
-  return result;
+  while runtime(true), {
+    match(current_opt,
+      .None => { return count; },
+      .Some(current) => {
+        count = (count + i32(1));
+        current_opt = current.next;
+      }
+    );
+  };
+  count
 });
 
 main :: (fn() -> unit)({
-  // Test 1: yo function - should work
-  a := not(check(i32(5)));
-  // Test 2: c_include function - broken
-  b := not(test_fn());
-  // Test 3: yo wrapper around c_include function
-  c := not(test_fn_yo());
-  printf("a=%d b=%d c=%d\n", a, b, c);
+  (n3 : Node) = Node(i32(3), .None);
+  (n2 : Node) = Node(i32(2), .Some(n3));
+  (n1 : Node) = Node(i32(1), .Some(n2));
+
+  (result : i32) = traverse(.Some(n1));
+  assert((result == i32(3)), "should count 3 nodes");
+  println(`traverse count: ${result}`);
 });
+
 export main;

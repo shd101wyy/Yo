@@ -52,7 +52,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
-- 受 Zig 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
+- 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
 - **C** 语言互操作。
 - 等等。
 
@@ -256,11 +256,12 @@ export main;
 
 ### 示例项目
 
-| 项目                                                                                                    | 描述                                                                                         |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                     | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量 |
-| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [在线演示](http://shd101wyy.github.io/tetris_yo) | 使用 raylib_yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                       |
-| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                 | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                       |
+| 项目                                                                                                    | 描述                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                     | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量                                              |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [在线演示](http://shd101wyy.github.io/tetris_yo) | 使用 raylib_yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                                                                    |
+| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                 | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                                                                    |
+| [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)                                           | 将流行的 JavaScript markdown 解析器 [markdown-it](https://github.com/markdown-it/markdown-it) 直接移植到 Yo，展示了字符串处理能力和性能。 |
 
 ## 贡献
 

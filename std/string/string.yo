@@ -1,5 +1,6 @@
 { ArrayList } :: import "../collections/array_list.yo";
 { rune } :: import "./rune.yo";
+{ memcpy, memcmp, strlen } :: import "../libc/string.yo";
 
 StringError :: enum(
   InvalidUtf8,
@@ -12,18 +13,30 @@ StringError :: enum(
  * Similar to JavaScript String, Python str, and Rust String.
  * Strings are immutable - all operations return new strings.
  * 
- * Internal storage uses ArrayList(u8) for UTF-8 bytes.
+ * Internal storage uses Option(ArrayList(u8)) for UTF-8 bytes.
+ * An empty string is represented as .None (zero allocation).
  */
 String :: newtype(
-  _bytes: ArrayList(u8)
+  _bytes: Option(ArrayList(u8))
 );
 
 impl(String,
   /**
-   * Create a new empty string
+   * Create a new empty string (zero allocation)
    */
   new : (fn() -> Self)(
-    Self(_bytes: ArrayList(u8).new())
+    Self(_bytes: .None)
+  ),
+
+  /**
+   * Create a new empty string with pre-allocated capacity for the given number of bytes.
+   * The string starts empty but can hold `capacity` bytes without reallocating.
+   */
+  with_capacity : (fn(capacity: usize) -> Self)(
+    cond(
+      (capacity == usize(0)) => Self(_bytes: .None),
+      true => Self(_bytes: .Some(ArrayList(u8).with_capacity(capacity)))
+    )
   ),
 
   /**
@@ -31,7 +44,10 @@ impl(String,
    * No validation is performed - the caller must ensure bytes are valid UTF-8
    */
   from_bytes : (fn(bytes: ArrayList(u8)) -> Self)(
-    Self(_bytes: bytes)
+    cond(
+      (bytes.len() == usize(0)) => Self(_bytes: .None),
+      true => Self(_bytes: .Some(bytes))
+    )
   ),
 
   /**
@@ -40,18 +56,13 @@ impl(String,
    * Example: String.from(slice) where slice is str
    */
   from : (fn(slice: str) -> Self)({
-    // Create a new ArrayList and copy bytes from the slice
-    bytes := ArrayList(u8).with_capacity(slice.len());
-    
-    i := usize(0);
-    while ((i < slice.len())),
-          (i = (i + usize(1))),
-    {
-      byte := slice.bytes(i);
-      bytes.push(byte);
-    };
-    
-    return Self(_bytes: bytes);
+    slen := slice.len();
+    if((slen == usize(0)), {
+      return Self(_bytes: .None);
+    });
+    bytes := ArrayList(u8).with_capacity(slen);
+    bytes.extend_from_ptr(slice.ptr(), slen);
+    return Self(_bytes: .Some(bytes));
   }),
 
   /**
@@ -62,49 +73,29 @@ impl(String,
    * Note: We manually search for the null terminator by iterating
    */
   from_cstr : (fn(cstr: *(u8)) -> Result(Self, StringError))({
-    // Create a new ArrayList to store the bytes
-    bytes := ArrayList(u8).new();
-    
-    // Iterate through the C string until we find the null terminator
-    i := usize(0);
-    // FIXME: This is causing infinite loop during compile-time evaluation.
-    //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
-    while {f := true; f}, (i = (i + usize(1))), {
-      // Access byte at index i using pointer arithmetic/
-      byte_ptr := (cstr &+ i);
-      byte := byte_ptr.*;
-      
-      // Stop when we find the null terminator
-      cond(
-        (byte == u8(0)) => break,
-        true => bytes.push(byte)
-      );
-    };
-      
-    return .Ok(Self(_bytes: bytes));
+    len := strlen((*(char))(cstr));
+    if((len == usize(0)), {
+      return .Ok(Self(_bytes: .None));
+    });
+    bytes := ArrayList(u8).with_capacity(len);
+    bytes.extend_from_ptr(cstr, len);
+    return .Ok(Self(_bytes: .Some(bytes)));
   }),
 
   to_cstr : (fn(self: Self) -> ArrayList(u8))({
-    bytes_len := self._bytes.len();
-    bytes_with_null := ArrayList(u8).with_capacity(bytes_len + usize(1));
-    
-    // Copy existing bytes
-    i := usize(0);
-    while (i < bytes_len),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => {
-          bytes_with_null.push(byte);
-        },
+    (bytes_len : usize) = match(self._bytes,
+      .Some(b) => b.len(),
+      .None => usize(0)
+    );
+    bytes_with_null := ArrayList(u8).with_capacity((bytes_len + usize(1)));
+    match(self._bytes,
+      .Some(b) => match(b.ptr(),
+        .Some(src) => bytes_with_null.extend_from_ptr(src, bytes_len),
         .None => ()
-      );
-    };
-    
-    // Add null terminator
+      ),
+      .None => ()
+    );
     bytes_with_null.push(u8(0));
-    
     return bytes_with_null;
   }),
 
@@ -113,44 +104,55 @@ impl(String,
    * For "你好世界", this returns 4
    */
   len : (fn(self: Self) -> usize)({
-    count := usize(0);
-    byte_index := usize(0);
-    total_bytes := self._bytes.len();
-    
-    while ((byte_index < total_bytes)),
-          (byte_index = (byte_index + usize(1))),
-    {
-      byte_opt := self._bytes.get(byte_index);
-      match(byte_opt,
-        .Some(byte) => {
-          // Count UTF-8 character start bytes (not continuation bytes)
-          // Continuation bytes have pattern 10xxxxxx (0x80-0xBF)
-          cond(
-            ((byte < u8(0x80)) || (byte >= u8(0xC0))) => {
-              count = (count + usize(1));
+    (inner : Option(ArrayList(u8))) = self._bytes;
+    match(inner,
+      .None => { return usize(0); },
+      .Some(al) => {
+        count := usize(0);
+        byte_index := usize(0);
+        total_bytes := al.len();
+        
+        while ((byte_index < total_bytes)),
+              (byte_index = (byte_index + usize(1))),
+        {
+          byte_opt := al.get(byte_index);
+          match(byte_opt,
+            .Some(byte) => {
+              cond(
+                ((byte < u8(0x80)) || (byte >= u8(0xC0))) => {
+                  count = (count + usize(1));
+                },
+                true => ()
+              );
             },
-            true => ()
+            .None => ()
           );
-        },
-        .None => ()
-      );
-    };
-    
-    return count;
+        };
+        
+        return count;
+      }
+    )
   }),
 
   /**
    * Check if the string is empty
    */
   is_empty : (fn(self: Self) -> bool)(
-    (self._bytes.len() == usize(0))
+    match(self._bytes,
+      .None => true,
+      .Some(al) => (al.len() == usize(0))
+    )
   ),
 
   /**
    * Get a reference to the internal byte array
+   * Returns an empty ArrayList if the string is empty
    */
   as_bytes : (fn(self: Self) -> ArrayList(u8))(
-    self._bytes
+    match(self._bytes,
+      .None => ArrayList(u8).new(),
+      .Some(al) => al
+    )
   ),
 
   // as_bytes : (fn(self: Self) -> ArrayList(u8))({
@@ -162,9 +164,12 @@ impl(String,
    * Returns a fat pointer (pointer + length) without copying
    */
   as_str : (fn(self: Self) -> str)(
-    match(self._bytes._ptr,
-      .Some(p) => str.from_raw_parts(p, self._bytes._length),
-      .None => str.from_raw_parts(*(u8)(""), usize(0))
+    match(self._bytes,
+      .None => str.from_raw_parts(*(u8)(""), usize(0)),
+      .Some(al) => match(al._ptr,
+        .Some(p) => str.from_raw_parts(p, al._length),
+        .None => str.from_raw_parts(*(u8)(""), usize(0))
+      )
     )
   ),
 
@@ -173,70 +178,70 @@ impl(String,
    * Internal helper method
    */
   _decode_rune_at : (fn(self: Self, byte_index: usize) -> Option(rune))({
-    first_byte_opt := self._bytes.get(byte_index);
-    match(first_byte_opt,
-      .Some(first_byte) => {
-        // Determine how many bytes this UTF-8 character uses
-        (res : Option(rune)) = cond(
-          // 1-byte character: 0xxxxxxx (ASCII)
-          (first_byte < u8(0x80)) => {
-            codepoint := u32(first_byte);
-            rune.from_u32(codepoint)
-          },
-          // 2-byte character: 110xxxxx 10xxxxxx
-          ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => {
-            second_opt := self._bytes.get((byte_index + usize(1)));
-            match(second_opt,
-              .Some(second) => {
-                codepoint := (((u32(first_byte) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
+    (al : Option(ArrayList(u8))) = self._bytes;
+    match(al,
+      .None => { return .None; },
+      .Some(bytes) => {
+        first_byte_opt := bytes.get(byte_index);
+        match(first_byte_opt,
+          .Some(first_byte) => {
+            (res : Option(rune)) = cond(
+              (first_byte < u8(0x80)) => {
+                codepoint := u32(first_byte);
                 rune.from_u32(codepoint)
               },
-              .None => .None
-            )
-          },
-          // 3-byte character: 1110xxxx 10xxxxxx 10xxxxxx
-          ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => {
-            second_opt := self._bytes.get((byte_index + usize(1)));
-            third_opt := self._bytes.get((byte_index + usize(2)));
-            match(second_opt,
-              .Some(second) =>
-                match(third_opt,
-                  .Some(third) => {
-                    codepoint := ((((u32(first_byte) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
+              ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => {
+                second_opt := bytes.get((byte_index + usize(1)));
+                match(second_opt,
+                  .Some(second) => {
+                    codepoint := (((u32(first_byte) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
                     rune.from_u32(codepoint)
                   },
                   .None => .None
-                ),
-              .None => .None
-            )
-          },
-          // 4-byte character: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-          ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => {
-            second_opt := self._bytes.get((byte_index + usize(1)));
-            third_opt := self._bytes.get((byte_index + usize(2)));
-            fourth_opt := self._bytes.get((byte_index + usize(3)));
-            match(second_opt,
-              .Some(second) =>
-                match(third_opt,
-                  .Some(third) =>
-                    match(fourth_opt,
-                      .Some(fourth) => {
-                        codepoint := (((((u32(first_byte) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
+                )
+              },
+              ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => {
+                second_opt := bytes.get((byte_index + usize(1)));
+                third_opt := bytes.get((byte_index + usize(2)));
+                match(second_opt,
+                  .Some(second) =>
+                    match(third_opt,
+                      .Some(third) => {
+                        codepoint := ((((u32(first_byte) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
                         rune.from_u32(codepoint)
                       },
                       .None => .None
                     ),
                   .None => .None
-                ),
-              .None => .None
-            )
+                )
+              },
+              ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => {
+                second_opt := bytes.get((byte_index + usize(1)));
+                third_opt := bytes.get((byte_index + usize(2)));
+                fourth_opt := bytes.get((byte_index + usize(3)));
+                match(second_opt,
+                  .Some(second) =>
+                    match(third_opt,
+                      .Some(third) =>
+                        match(fourth_opt,
+                          .Some(fourth) => {
+                            codepoint := (((((u32(first_byte) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
+                            rune.from_u32(codepoint)
+                          },
+                          .None => .None
+                        ),
+                      .None => .None
+                    ),
+                  .None => .None
+                )
+              },
+              true => .None
+            );
+            return res;
           },
-          // Invalid UTF-8 start byte
-          true => .None
-        );
-        return res;
-      },
-      .None => .None
+          .None => .None
+        )
+      }
     )
   }),
 
@@ -246,78 +251,143 @@ impl(String,
    * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
    */
   at : (fn(self: Self, index: usize) -> Option(rune))({
-    char_count := usize(0);
-    byte_index := usize(0);
-    total_bytes := self._bytes.len();
-    
-    // Find the byte position of the character at the given index
-    while ((byte_index < total_bytes)),
-          (byte_index = (byte_index + usize(1))),
-    {
-      byte_opt := self._bytes.get(byte_index);
-      match(byte_opt,
-        .Some(byte) => {
-          // Check if this is a UTF-8 character start byte
-          is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-          cond(
-            is_start => {
-              // Found a character start byte
+    match(self._bytes,
+      .None => { return .None; },
+      .Some(al) => {
+        char_count := usize(0);
+        byte_index := usize(0);
+        total_bytes := al.len();
+        
+        while ((byte_index < total_bytes)),
+              (byte_index = (byte_index + usize(1))),
+        {
+          byte_opt := al.get(byte_index);
+          match(byte_opt,
+            .Some(byte) => {
+              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
               cond(
-                (char_count == index) => {
-                  // This is the character we want, decode it
-                  return Self._decode_rune_at(self, byte_index);
+                is_start => {
+                  cond(
+                    (char_count == index) => {
+                      return Self._decode_rune_at(self, byte_index);
+                    },
+                    true => {
+                      char_count = (char_count + usize(1));
+                    }
+                  );
                 },
-                true => {
-                  // Not the right character yet, keep counting
-                  char_count = (char_count + usize(1));
-                }
+                true => ()
               );
             },
-            true => ()
+            .None => ()
           );
-        },
-        .None => ()
-      );
-    };
-    
-    // Index out of bounds
-    return .None;
+        };
+        
+        return .None;
+      }
+    )
   }),
 
   /**
    * Concatenate two strings (like JavaScript +)
    */
   concat : (fn(self: Self, other: Self) -> Self)({
-    self_len := self._bytes.len();
-    other_len := other._bytes.len();
+    (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+    if(((self_len == usize(0)) && (other_len == usize(0))), {
+      return Self(_bytes: .None);
+    });
     new_bytes := ArrayList(u8).with_capacity((self_len + other_len));
     
-    // Copy bytes from self
-    i := usize(0);
-    while ((i < self_len)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => { panic("String.concat: failed to get byte from self"); }
-      );
-    };
+    match(self._bytes,
+      .Some(b) => match(b.ptr(),
+        .Some(p) => new_bytes.extend_from_ptr(p, self_len),
+        .None => ()
+      ),
+      .None => ()
+    );
     
-    // Copy bytes from other
-    j := usize(0);
-    while ((j < other_len)),
-          (j = (j + usize(1))),
-    {
-      byte_opt := other._bytes.get(j);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => { panic("String.concat: failed to get byte from other"); }
-      );
-    };
+    match(other._bytes,
+      .Some(b) => match(b.ptr(),
+        .Some(p) => new_bytes.extend_from_ptr(p, other_len),
+        .None => ()
+      ),
+      .None => ()
+    );
     
-    return Self(_bytes: new_bytes);
+    return Self(_bytes: .Some(new_bytes));
   }),
+
+  // Append another String to this String in-place (mutates self)
+  push_string : (fn(self: *(Self), other: Self) -> unit)({
+    (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+    if((olen > usize(0)), {
+      match(other._bytes,
+        .Some(ob) => match(ob.ptr(),
+          .Some(p) => {
+            match(self.*._bytes,
+              .None => {
+                (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(olen);
+                new_al.extend_from_ptr(p, olen);
+                self.*._bytes = .Some(new_al);
+              },
+              .Some(al) => {
+                al.extend_from_ptr(p, olen);
+              }
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+  }),
+
+  push_str : (fn(self: *(Self), s: str) -> unit)({
+    (slen : usize) = s.len();
+    if((slen > usize(0)), {
+      match(self.*._bytes,
+        .None => {
+          (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(slen);
+          new_al.extend_from_ptr(s.ptr(), slen);
+          self.*._bytes = .Some(new_al);
+        },
+        .Some(al) => {
+          al.extend_from_ptr(s.ptr(), slen);
+        }
+      );
+    });
+  }),
+
+  push_byte : (fn(self: *(Self), b: u8) -> unit)({
+    match(self.*._bytes,
+      .None => {
+        (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(usize(8));
+        new_al.push(b);
+        self.*._bytes = .Some(new_al);
+      },
+      .Some(al) => {
+        al.push(b);
+      }
+    );
+  }),
+
+  reserve : (fn(self: *(Self), additional: usize) -> unit)({
+    match(self.*._bytes,
+      .None => {
+        self.*._bytes = .Some(ArrayList(u8).with_capacity(additional));
+      },
+      .Some(al) => {
+        (current_len : usize) = al.len();
+        al.ensure_total_capacity((current_len + additional));
+      }
+    );
+  }),
+
+  // Get the number of bytes in the string (not Unicode characters)
+  bytes_len : (fn(self: Self) -> usize)(
+    match(self._bytes, .Some(b) => b.len(), .None => usize(0))
+  ),
 
   /**
    * Extract a substring from start to end character indices (like JavaScript substring)
@@ -325,56 +395,52 @@ impl(String,
    * If end is greater than length, it will substring to the end of the string
    */
   substring : (fn(self: Self, start: usize, end: usize) -> Self)({
-    total_bytes := self._bytes.len();
-    new_bytes := ArrayList(u8).new();
-    
-    char_index := usize(0);
-    byte_index := usize(0);
-    
-    while (byte_index < total_bytes),
-          (byte_index = (byte_index + usize(1))),
-    {
-      byte_opt := self._bytes.get(byte_index);
-      match(byte_opt,
-        .Some(byte) => {
-          is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-          cond(
-            is_start => {
-              cond(
-                (char_index >= end) => break,
-                ((char_index >= start) && (char_index < end)) => {
-                  new_bytes.push(byte);
-                  byte_len := cond(
-                    (byte < u8(0x80)) => usize(1),
-                    ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
-                    ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
-                    ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
-                    true => usize(1)
-                  );
-                  k := usize(1);
-                  while ((k < byte_len)),
-                        (k = (k + usize(1))),
-                  {
-                    next_byte_opt := self._bytes.get((byte_index + k));
-                    match(next_byte_opt,
-                      .Some(next_byte) => { new_bytes.push(next_byte); },
-                      .None => ()
-                    );
-                  };
-                  byte_index = ((byte_index + byte_len) - usize(1));
-                },
-                true => ()
-              );
-              char_index = (char_index + usize(1));
-            },
-            true => ()
+    match(self._bytes,
+      .None => { return Self(_bytes: .None); },
+      .Some(al) => {
+        total_bytes := al.len();
+
+        if((start >= end), {
+          return Self(_bytes: .None);
+        });
+
+        (char_index : usize) = usize(0);
+        (byte_index : usize) = usize(0);
+        (start_byte : usize) = total_bytes;
+        (end_byte : usize) = total_bytes;
+
+        while (byte_index < total_bytes), {
+          if((char_index == start), { start_byte = byte_index; });
+          if((char_index == end), {
+            end_byte = byte_index;
+            break;
+          });
+          (b : u8) = al.get_unchecked(byte_index);
+          (byte_len : usize) = cond(
+            (b < u8(0x80)) => usize(1),
+            (b < u8(0xE0)) => usize(2),
+            (b < u8(0xF0)) => usize(3),
+            true => usize(4)
           );
-        },
-        .None => ()
-      );
-    };
-    
-    return Self(_bytes: new_bytes);
+          byte_index = (byte_index + byte_len);
+          char_index = (char_index + usize(1));
+        };
+        if((char_index == start), { start_byte = byte_index; });
+        if((char_index == end), { end_byte = byte_index; });
+
+        if((start_byte >= end_byte), {
+          return Self(_bytes: .None);
+        });
+
+        (count : usize) = (end_byte - start_byte);
+        new_bytes := ArrayList(u8).with_capacity(count);
+        match(al.ptr(),
+          .Some(src_p) => new_bytes.extend_from_ptr((src_p &+ start_byte), count),
+          .None => ()
+        );
+        Self(_bytes: .Some(new_bytes))
+      }
+    )
   }),
 
   /**
@@ -386,92 +452,97 @@ impl(String,
     cond(
       substr.is_empty() => .Some(from_index),
       true => {
-        self_bytes := self._bytes.len();
-        sub_bytes := substr._bytes.len();
+        (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+        (sub_bytes : usize) = match(substr._bytes, .Some(b) => b.len(), .None => usize(0));
         
         cond(
           (sub_bytes > self_bytes) => .None,
-          true => {
-            char_index := usize(0);
-            byte_index := usize(0);
-            
-            // Skip to from_index character position
-            while (((byte_index < self_bytes) && (char_index < from_index))),
-                  (byte_index = (byte_index + usize(1))),
-            {
-              first_byte_opt := self._bytes.get(byte_index);
-              match(first_byte_opt,
-                .Some(first_byte) => {
-                  is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
-                  cond(
-                    is_start => {
-                      char_index = (char_index + usize(1));
+          true => match(self._bytes,
+            .None => .None,
+            .Some(self_al) => match(substr._bytes,
+              .None => .None,
+              .Some(sub_al) => {
+                char_index := usize(0);
+                byte_index := usize(0);
+                
+                while (((byte_index < self_bytes) && (char_index < from_index))),
+                      (byte_index = (byte_index + usize(1))),
+                {
+                  first_byte_opt := self_al.get(byte_index);
+                  match(first_byte_opt,
+                    .Some(first_byte) => {
+                      is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                      cond(
+                        is_start => {
+                          char_index = (char_index + usize(1));
+                        },
+                        true => ()
+                      );
                     },
-                    true => ()
+                    .None => ()
                   );
-                },
-                .None => ()
-              );
-            };
-            
-            while ((byte_index <= (self_bytes - sub_bytes))),
-                  (byte_index = (byte_index + usize(1))),
-            {
-              matches := true;
-              j := usize(0);
-              while ((j < sub_bytes)),
-                    (j = (j + usize(1))),
-              {
-                self_byte_opt := self._bytes.get((byte_index + j));
-                sub_byte_opt := substr._bytes.get(j);
-                match(self_byte_opt,
-                  .Some(self_byte) =>
-                    match(sub_byte_opt,
-                      .Some(sub_byte) => {
-                        cond(
-                          (self_byte != sub_byte) => {
+                };
+                
+                while ((byte_index <= (self_bytes - sub_bytes))),
+                      (byte_index = (byte_index + usize(1))),
+                {
+                  matches := true;
+                  j := usize(0);
+                  while ((j < sub_bytes)),
+                        (j = (j + usize(1))),
+                  {
+                    self_byte_opt := self_al.get((byte_index + j));
+                    sub_byte_opt := sub_al.get(j);
+                    match(self_byte_opt,
+                      .Some(self_byte) =>
+                        match(sub_byte_opt,
+                          .Some(sub_byte) => {
+                            cond(
+                              (self_byte != sub_byte) => {
+                                matches = false;
+                                break;
+                              },
+                              true => ()
+                            );
+                          },
+                          .None => {
                             matches = false;
                             break;
-                          },
-                          true => ()
-                        );
-                      },
+                          }
+                        ),
                       .None => {
                         matches = false;
                         break;
                       }
-                    ),
-                  .None => {
-                    matches = false;
-                    break;
-                  }
-                );
-              };
-              
-              cond(
-                matches => {
-                  return .Some(char_index);
-                },
-                true => ()
-              );
-              
-              first_byte_opt := self._bytes.get(byte_index);
-              match(first_byte_opt,
-                .Some(first_byte) => {
-                  is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                    );
+                  };
+                  
                   cond(
-                    is_start => {
-                      char_index = (char_index + usize(1));
+                    matches => {
+                      return .Some(char_index);
                     },
                     true => ()
                   );
-                },
-                .None => ()
-              );
-            };
-            
-            return .None;
-          }
+                  
+                  first_byte_opt := self_al.get(byte_index);
+                  match(first_byte_opt,
+                    .Some(first_byte) => {
+                      is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                      cond(
+                        is_start => {
+                          char_index = (char_index + usize(1));
+                        },
+                        true => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                };
+                
+                return .None;
+              }
+            )
+          )
         )
       }
     )
@@ -510,75 +581,93 @@ impl(String,
         result.push(new());
         return result;
       },
-      true => {
-        self_bytes := self._bytes.len();
-        sep_bytes := separator._bytes.len();
-        
-        current_bytes := ArrayList(u8).new();
-        byte_index := usize(0);
-        
-        while ((byte_index < self_bytes)),
-              (byte_index = (byte_index + usize(1))),
-        {
-          matches := true;
-          cond(
-            ((byte_index + sep_bytes) <= self_bytes) => {
-              j := usize(0);
-              while ((j < sep_bytes)),
-                    (j = (j + usize(1))),
-              {
-                self_byte_opt := self._bytes.get((byte_index + j));
-                sep_byte_opt := separator._bytes.get(j);
-                match(self_byte_opt,
-                  .Some(self_byte) =>
-                    match(sep_byte_opt,
-                      .Some(sep_byte) => {
-                        cond(
-                          (self_byte != sep_byte) => {
+      true => match(self._bytes,
+        .None => {
+          result.push(new());
+          return result;
+        },
+        .Some(self_al) => match(separator._bytes,
+          .None => {
+            result.push(self);
+            return result;
+          },
+          .Some(sep_al) => {
+            self_bytes := self_al.len();
+            sep_bytes := sep_al.len();
+            
+            current_bytes := ArrayList(u8).new();
+            byte_index := usize(0);
+            
+            while ((byte_index < self_bytes)),
+                  (byte_index = (byte_index + usize(1))),
+            {
+              matches := true;
+              cond(
+                ((byte_index + sep_bytes) <= self_bytes) => {
+                  j := usize(0);
+                  while ((j < sep_bytes)),
+                        (j = (j + usize(1))),
+                  {
+                    self_byte_opt := self_al.get((byte_index + j));
+                    sep_byte_opt := sep_al.get(j);
+                    match(self_byte_opt,
+                      .Some(self_byte) =>
+                        match(sep_byte_opt,
+                          .Some(sep_byte) => {
+                            cond(
+                              (self_byte != sep_byte) => {
+                                matches = false;
+                                break;
+                              },
+                              true => ()
+                            );
+                          },
+                          .None => {
                             matches = false;
                             break;
-                          },
-                          true => ()
-                        );
-                      },
+                          }
+                        ),
                       .None => {
                         matches = false;
                         break;
                       }
-                    ),
-                  .None => {
-                    matches = false;
-                    break;
-                  }
-                );
-              };
-            },
-            true => {
-              matches = false;
-            }
-          );
-          
-          cond(
-            matches => {
-              result.push(Self(_bytes: current_bytes));
-              current_bytes = ArrayList(u8).new();
-              byte_index = ((byte_index + sep_bytes) - usize(1));
-            },
-            true => {
-              byte_opt := self._bytes.get(byte_index);
-              match(byte_opt,
-                .Some(byte) => {
-                  current_bytes.push(byte);
+                    );
+                  };
                 },
-                .None => ()
+                true => {
+                  matches = false;
+                }
               );
-            }
-          );
-        };
-        
-        result.push(Self(_bytes: current_bytes));
-        return result;
-      }
+              
+              cond(
+                matches => {
+                  cond(
+                    (current_bytes.len() == usize(0)) => result.push(Self(_bytes: .None)),
+                    true => result.push(Self(_bytes: .Some(current_bytes)))
+                  );
+                  current_bytes = ArrayList(u8).new();
+                  byte_index = ((byte_index + sep_bytes) - usize(1));
+                },
+                true => {
+                  byte_opt := self_al.get(byte_index);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      current_bytes.push(byte);
+                    },
+                    .None => ()
+                  );
+                }
+              );
+            };
+            
+            cond(
+              (current_bytes.len() == usize(0)) => result.push(Self(_bytes: .None)),
+              true => result.push(Self(_bytes: .Some(current_bytes)))
+            );
+            return result;
+          }
+        )
+      )
     )
   }),
 
@@ -590,110 +679,113 @@ impl(String,
   last_index_of : (fn(self: Self, substr: Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
-      true => {
-        self_bytes := self._bytes.len();
-        sub_bytes := substr._bytes.len();
-        
-        cond(
-          (sub_bytes > self_bytes) => .None,
-          true => {
-            // Build a mapping of byte_index -> char_index for character start bytes
-            char_positions := ArrayList(usize).new();
-            byte_positions := ArrayList(usize).new();
+      true => match(self._bytes,
+        .None => .None,
+        .Some(self_al) => match(substr._bytes,
+          .None => .None,
+          .Some(sub_al) => {
+            self_bytes := self_al.len();
+            sub_bytes := sub_al.len();
             
-            byte_idx := usize(0);
-            char_idx := usize(0);
-            while ((byte_idx < self_bytes)),
-                  (byte_idx = (byte_idx + usize(1))),
-            {
-              byte_opt := self._bytes.get(byte_idx);
-              match(byte_opt,
-                .Some(byte) => {
-                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-                  cond(
-                    is_start => {
-                      char_positions.push(char_idx);
-                      byte_positions.push(byte_idx);
-                      char_idx = (char_idx + usize(1));
-                    },
-                    true => ()
-                  );
-                },
-                .None => ()
-              );
-            };
-            
-            // Determine max_char_index based on from_index
-            max_char_index := cond(
-              (from_index >= char_idx) => char_idx,
-              true => (from_index + usize(1))
-            );
-            
-            // Search backwards from the end
-            (last_match : Option(usize)) = .None;
-            i := usize(0);
-            while ((i < char_positions.len())),
-                  (i = (i + usize(1))),
-            {
-              char_pos_opt := char_positions.get(i);
-              byte_pos_opt := byte_positions.get(i);
-              match(char_pos_opt,
-                .Some(char_pos) =>
-                  match(byte_pos_opt,
-                    .Some(byte_pos) => {
+            cond(
+              (sub_bytes > self_bytes) => .None,
+              true => {
+                char_positions := ArrayList(usize).new();
+                byte_positions := ArrayList(usize).new();
+                
+                byte_idx := usize(0);
+                char_idx := usize(0);
+                while ((byte_idx < self_bytes)),
+                      (byte_idx = (byte_idx + usize(1))),
+                {
+                  byte_opt := self_al.get(byte_idx);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
                       cond(
-                        (char_pos >= max_char_index) => break,
-                        ((byte_pos + sub_bytes) <= self_bytes) => {
-                          matches := true;
-                          j := usize(0);
-                          while ((j < sub_bytes)),
-                                (j = (j + usize(1))),
-                          {
-                            self_byte_opt := self._bytes.get((byte_pos + j));
-                            sub_byte_opt := substr._bytes.get(j);
-                            match(self_byte_opt,
-                              .Some(self_byte) =>
-                                match(sub_byte_opt,
-                                  .Some(sub_byte) => {
-                                    cond(
-                                      (self_byte != sub_byte) => {
-                                        matches = false;
-                                        break;
-                                      },
-                                      true => ()
-                                    );
-                                  },
-                                  .None => {
-                                    matches = false;
-                                    break;
-                                  }
-                                ),
-                              .None => {
-                                matches = false;
-                                break;
-                              }
-                            );
-                          };
-                          cond(
-                            matches => {
-                              last_match = .Some(char_pos);
-                            },
-                            true => ()
-                          );
+                        is_start => {
+                          char_positions.push(char_idx);
+                          byte_positions.push(byte_idx);
+                          char_idx = (char_idx + usize(1));
                         },
                         true => ()
                       );
                     },
                     .None => ()
-                  ),
-                .None => ()
-              );
-            };
-            
-            return last_match;
+                  );
+                };
+                
+                max_char_index := cond(
+                  (from_index >= char_idx) => char_idx,
+                  true => (from_index + usize(1))
+                );
+                
+                (last_match : Option(usize)) = .None;
+                i := usize(0);
+                while ((i < char_positions.len())),
+                      (i = (i + usize(1))),
+                {
+                  char_pos_opt := char_positions.get(i);
+                  byte_pos_opt := byte_positions.get(i);
+                  match(char_pos_opt,
+                    .Some(char_pos) =>
+                      match(byte_pos_opt,
+                        .Some(byte_pos) => {
+                          cond(
+                            (char_pos >= max_char_index) => break,
+                            ((byte_pos + sub_bytes) <= self_bytes) => {
+                              matches := true;
+                              j := usize(0);
+                              while ((j < sub_bytes)),
+                                    (j = (j + usize(1))),
+                              {
+                                self_byte_opt := self_al.get((byte_pos + j));
+                                sub_byte_opt := sub_al.get(j);
+                                match(self_byte_opt,
+                                  .Some(self_byte) =>
+                                    match(sub_byte_opt,
+                                      .Some(sub_byte) => {
+                                        cond(
+                                          (self_byte != sub_byte) => {
+                                            matches = false;
+                                            break;
+                                          },
+                                          true => ()
+                                        );
+                                      },
+                                      .None => {
+                                        matches = false;
+                                        break;
+                                      }
+                                    ),
+                                  .None => {
+                                    matches = false;
+                                    break;
+                                  }
+                                );
+                              };
+                              cond(
+                                matches => {
+                                  last_match = .Some(char_pos);
+                                },
+                                true => ()
+                              );
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => ()
+                      ),
+                    .None => ()
+                  );
+                };
+                
+                return last_match;
+              }
+            )
           }
         )
-      }
+      )
     )
   ),
 
@@ -702,83 +794,84 @@ impl(String,
    * position: The character index to start checking from (default 0)
    */
   starts_with : (fn(self: Self, prefix: Self, (position : usize) ?= 0) -> bool)({
-    prefix_bytes := prefix._bytes.len();
-    self_bytes := self._bytes.len();
+    (prefix_bytes : usize) = match(prefix._bytes, .Some(b) => b.len(), .None => usize(0));
+    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
 
     cond(
       (prefix_bytes == usize(0)) => true,
-      true => {
-        // Find the byte index corresponding to the position-th character
-        char_index := usize(0);
-        byte_index := usize(0);
-        
-        // Skip to the position-th character
-        while (((byte_index < self_bytes) && (char_index < position))),
-              (byte_index = (byte_index + usize(1))),
-        {
-          byte_opt := self._bytes.get(byte_index);
-          match(byte_opt,
-            .Some(byte) => {
-              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-              cond(
-                is_start => {
-                  // Determine byte length of this UTF-8 character
-                  byte_len := cond(
-                    (byte < u8(0x80)) => usize(1),
-                    ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
-                    ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
-                    ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
-                    true => usize(1)
-                  );
-                  byte_index = ((byte_index + byte_len) - usize(1));
-                  char_index = (char_index + usize(1));
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        };
-        
-        // Check if we have enough bytes left for the prefix
-        cond(
-          ((byte_index + prefix_bytes) > self_bytes) => false,
-          true => {
-            // Compare bytes starting at byte_index
-            i := usize(0);
-            matches := true;
-            while ((i < prefix_bytes)),
-                  (i = (i + usize(1))),
+      true => match(self._bytes,
+        .None => false,
+        .Some(self_al) => match(prefix._bytes,
+          .None => true,
+          .Some(prefix_al) => {
+            char_index := usize(0);
+            byte_index := usize(0);
+            
+            while (((byte_index < self_bytes) && (char_index < position))),
+                  (byte_index = (byte_index + usize(1))),
             {
-              self_byte_opt := self._bytes.get((byte_index + i));
-              prefix_byte_opt := prefix._bytes.get(i);
-              match(self_byte_opt,
-                .Some(self_byte) =>
-                  match(prefix_byte_opt,
-                    .Some(prefix_byte) => {
-                      cond(
-                        (self_byte != prefix_byte) => {
+              byte_opt := self_al.get(byte_index);
+              match(byte_opt,
+                .Some(byte) => {
+                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                  cond(
+                    is_start => {
+                      byte_len := cond(
+                        (byte < u8(0x80)) => usize(1),
+                        ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
+                        ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
+                        ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
+                        true => usize(1)
+                      );
+                      byte_index = ((byte_index + byte_len) - usize(1));
+                      char_index = (char_index + usize(1));
+                    },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
+            
+            cond(
+              ((byte_index + prefix_bytes) > self_bytes) => false,
+              true => {
+                i := usize(0);
+                matches := true;
+                while ((i < prefix_bytes)),
+                      (i = (i + usize(1))),
+                {
+                  self_byte_opt := self_al.get((byte_index + i));
+                  prefix_byte_opt := prefix_al.get(i);
+                  match(self_byte_opt,
+                    .Some(self_byte) =>
+                      match(prefix_byte_opt,
+                        .Some(prefix_byte) => {
+                          cond(
+                            (self_byte != prefix_byte) => {
+                              matches = false;
+                              break;
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => {
                           matches = false;
                           break;
-                        },
-                        true => ()
-                      );
-                    },
+                        }
+                      ),
                     .None => {
                       matches = false;
                       break;
                     }
-                  ),
-                .None => {
-                  matches = false;
-                  break;
-                }
-              );
-            };
-            return matches;
+                  );
+                };
+                return matches;
+              }
+            )
           }
         )
-      }
+      )
     )
   }),
 
@@ -787,91 +880,93 @@ impl(String,
    * end_position: The character length to consider (default is string length)
    */
   ends_with : (fn(self: Self, suffix: Self, (end_position : usize) ?= usize.MAX) -> bool)({
-    suffix_bytes := suffix._bytes.len();
-    self_bytes := self._bytes.len();
+    (suffix_bytes : usize) = match(suffix._bytes, .Some(b) => b.len(), .None => usize(0));
+    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
 
     cond(
       (suffix_bytes == usize(0)) => true,
-      true => {
-        // Determine the effective end position in characters
-        string_char_len := self.len();
-        effective_end := cond(
-          (end_position == usize.MAX) => string_char_len,
-          (end_position > string_char_len) => string_char_len,
-          true => end_position
-        );
-        
-        // Find the byte index corresponding to effective_end character position
-        char_index := usize(0);
-        byte_index := usize(0);
-        end_byte_index := self_bytes;
-        
-        while ((byte_index < self_bytes)),
-              (byte_index = (byte_index + usize(1))),
-        {
-          byte_opt := self._bytes.get(byte_index);
-          match(byte_opt,
-            .Some(byte) => {
-              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
-              cond(
-                is_start => {
-                  cond(
-                    (char_index == effective_end) => {
-                      end_byte_index = byte_index;
-                      break;
-                    },
-                    true => {
-                      char_index = (char_index + usize(1));
-                    }
-                  );
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        };
-        
-        // Check if suffix fits within the effective range
-        cond(
-          (suffix_bytes > end_byte_index) => false,
-          true => {
-            // Compare bytes: check if bytes before end_byte_index end with suffix
-            offset := (end_byte_index - suffix_bytes);
-            i := usize(0);
-            matches := true;
-            while ((i < suffix_bytes)),
-                  (i = (i + usize(1))),
+      true => match(self._bytes,
+        .None => false,
+        .Some(self_al) => match(suffix._bytes,
+          .None => true,
+          .Some(suffix_al) => {
+            string_char_len := self.len();
+            effective_end := cond(
+              (end_position == usize.MAX) => string_char_len,
+              (end_position > string_char_len) => string_char_len,
+              true => end_position
+            );
+            
+            char_index := usize(0);
+            byte_index := usize(0);
+            end_byte_index := self_bytes;
+            
+            while ((byte_index < self_bytes)),
+                  (byte_index = (byte_index + usize(1))),
             {
-              self_byte_opt := self._bytes.get((offset + i));
-              suffix_byte_opt := suffix._bytes.get(i);
-              match(self_byte_opt,
-                .Some(self_byte) =>
-                  match(suffix_byte_opt,
-                    .Some(suffix_byte) => {
+              byte_opt := self_al.get(byte_index);
+              match(byte_opt,
+                .Some(byte) => {
+                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                  cond(
+                    is_start => {
                       cond(
-                        (self_byte != suffix_byte) => {
-                          matches = false;
+                        (char_index == effective_end) => {
+                          end_byte_index = byte_index;
                           break;
                         },
-                        true => ()
+                        true => {
+                          char_index = (char_index + usize(1));
+                        }
                       );
                     },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
+            
+            cond(
+              (suffix_bytes > end_byte_index) => false,
+              true => {
+                offset := (end_byte_index - suffix_bytes);
+                i := usize(0);
+                matches := true;
+                while ((i < suffix_bytes)),
+                      (i = (i + usize(1))),
+                {
+                  self_byte_opt := self_al.get((offset + i));
+                  suffix_byte_opt := suffix_al.get(i);
+                  match(self_byte_opt,
+                    .Some(self_byte) =>
+                      match(suffix_byte_opt,
+                        .Some(suffix_byte) => {
+                          cond(
+                            (self_byte != suffix_byte) => {
+                              matches = false;
+                              break;
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => {
+                          matches = false;
+                          break;
+                        }
+                      ),
                     .None => {
                       matches = false;
                       break;
                     }
-                  ),
-                .None => {
-                  matches = false;
-                  break;
-                }
-              );
-            };
-            return matches;
+                  );
+                };
+                return matches;
+              }
+            )
           }
         )
-      }
+      )
     )
   }),
 
@@ -881,132 +976,29 @@ impl(String,
   replace : (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
     cond(
       search_value.is_empty() => {
-        // If search is empty, prepend new_value
         return new_value.concat(self);
       },
-      true => {
-        self_bytes := self._bytes.len();
-        search_bytes := search_value._bytes.len();
-        
-        // Find first occurrence at byte level
-        byte_index := usize(0);
-        (found_at : Option(usize)) = .None;
-        
-        while ((byte_index <= (self_bytes - search_bytes))),
-              (byte_index = (byte_index + usize(1))),
-        {
-          matches := true;
-          j := usize(0);
-          while ((j < search_bytes)),
-                (j = (j + usize(1))),
-          {
-            self_byte_opt := self._bytes.get((byte_index + j));
-            search_byte_opt := search_value._bytes.get(j);
-            match(self_byte_opt,
-              .Some(self_byte) =>
-                match(search_byte_opt,
-                  .Some(search_byte) => {
-                    cond(
-                      (self_byte != search_byte) => {
-                        matches = false;
-                        break;
-                      },
-                      true => ()
-                    );
-                  },
-                  .None => {
-                    matches = false;
-                    break;
-                  }
-                ),
-              .None => {
-                matches = false;
-                break;
-              }
-            );
-          };
-          
-          cond(
-            matches => {
-              found_at = .Some(byte_index);
-              break;
-            },
-            true => ()
-          );
-        };
-        
-        match(found_at,
-          .Some(pos) => {
-            new_bytes := ArrayList(u8).with_capacity(((self_bytes - search_bytes) + new_value._bytes.len()));
+      true => match(self._bytes,
+        .None => self,
+        .Some(self_al) => match(search_value._bytes,
+          .None => self,
+          .Some(search_al) => {
+            self_bytes := self_al.len();
+            search_bytes := search_al.len();
             
-            // Copy bytes before match
-            i := usize(0);
-            while ((i < pos)),
-                  (i = (i + usize(1))),
+            byte_index := usize(0);
+            (found_at : Option(usize)) = .None;
+            
+            while ((byte_index <= (self_bytes - search_bytes))),
+                  (byte_index = (byte_index + usize(1))),
             {
-              byte_opt := self._bytes.get(i);
-              match(byte_opt,
-                .Some(byte) => { new_bytes.push(byte); },
-                .None => ()
-              );
-            };
-            
-            // Copy replacement bytes
-            k := usize(0);
-            while ((k < new_value._bytes.len())),
-                  (k = (k + usize(1))),
-            {
-              byte_opt := new_value._bytes.get(k);
-              match(byte_opt,
-                .Some(byte) => { new_bytes.push(byte); },
-                .None => ()
-              );
-            };
-            
-            // Copy bytes after match
-            m := (pos + search_bytes);
-            while ((m < self_bytes)),
-                  (m = (m + usize(1))),
-            {
-              byte_opt := self._bytes.get(m);
-              match(byte_opt,
-                .Some(byte) => { new_bytes.push(byte); },
-                .None => ()
-              );
-            };
-            
-            return Self(_bytes: new_bytes);
-          },
-          .None => self
-        )
-      }
-    )
-  ),
-
-  /**
-   * Replace all occurrences of search_value with new_value (like JavaScript replaceAll)
-   */
-  replace_all : (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
-    cond(
-      search_value.is_empty() => self,
-      true => {
-        self_bytes := self._bytes.len();
-        search_bytes := search_value._bytes.len();
-        new_bytes := ArrayList(u8).new();
-        
-        byte_index := usize(0);
-        while ((byte_index < self_bytes)),
-              (byte_index = (byte_index + usize(1))),
-        {
-          matches := true;
-          cond(
-            ((byte_index + search_bytes) <= self_bytes) => {
+              matches := true;
               j := usize(0);
               while ((j < search_bytes)),
                     (j = (j + usize(1))),
               {
-                self_byte_opt := self._bytes.get((byte_index + j));
-                search_byte_opt := search_value._bytes.get(j);
+                self_byte_opt := self_al.get((byte_index + j));
+                search_byte_opt := search_al.get(j);
                 match(self_byte_opt,
                   .Some(self_byte) =>
                     match(search_byte_opt,
@@ -1030,39 +1022,141 @@ impl(String,
                   }
                 );
               };
-            },
-            true => {
-              matches = false;
-            }
-          );
-          
-          cond(
-            matches => {
-              // Copy replacement bytes
-              k := usize(0);
-              while ((k < new_value._bytes.len())),
-                    (k = (k + usize(1))),
-              {
-                byte_opt := new_value._bytes.get(k);
-                match(byte_opt,
-                  .Some(byte) => { new_bytes.push(byte); },
+              
+              cond(
+                matches => {
+                  found_at = .Some(byte_index);
+                  break;
+                },
+                true => ()
+              );
+            };
+            
+            match(found_at,
+              .Some(pos) => {
+                (nv_bytes : usize) = match(new_value._bytes, .Some(b) => b.len(), .None => usize(0));
+                new_bytes := ArrayList(u8).with_capacity(((self_bytes - search_bytes) + nv_bytes));
+                
+                match(self_al.ptr(),
+                  .Some(p) => {
+                    if((pos > usize(0)), {
+                      new_bytes.extend_from_ptr(p, pos);
+                    });
+                  },
                   .None => ()
                 );
-              };
-              byte_index = ((byte_index + search_bytes) - usize(1));
-            },
-            true => {
-              byte_opt := self._bytes.get(byte_index);
-              match(byte_opt,
-                .Some(byte) => { new_bytes.push(byte); },
-                .None => ()
+                
+                match(new_value._bytes,
+                  .Some(nv_al) => match(nv_al.ptr(),
+                    .Some(p) => new_bytes.extend_from_ptr(p, nv_bytes),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                
+                (after_pos : usize) = (pos + search_bytes);
+                if((after_pos < self_bytes), {
+                  match(self_al.ptr(),
+                    .Some(p) => new_bytes.extend_from_ptr((p &+ after_pos), (self_bytes - after_pos)),
+                    .None => ()
+                  );
+                });
+                
+                return Self(_bytes: .Some(new_bytes));
+              },
+              .None => self
+            )
+          }
+        )
+      )
+    )
+  ),
+
+  /**
+   * Replace all occurrences of search_value with new_value (like JavaScript replaceAll)
+   */
+  replace_all : (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
+    cond(
+      search_value.is_empty() => self,
+      true => match(self._bytes,
+        .None => self,
+        .Some(self_al) => match(search_value._bytes,
+          .None => self,
+          .Some(search_al) => {
+            self_bytes := self_al.len();
+            search_bytes := search_al.len();
+            new_bytes := ArrayList(u8).new();
+            
+            byte_index := usize(0);
+            while ((byte_index < self_bytes)),
+                  (byte_index = (byte_index + usize(1))),
+            {
+              matches := true;
+              cond(
+                ((byte_index + search_bytes) <= self_bytes) => {
+                  j := usize(0);
+                  while ((j < search_bytes)),
+                        (j = (j + usize(1))),
+                  {
+                    self_byte_opt := self_al.get((byte_index + j));
+                    search_byte_opt := search_al.get(j);
+                    match(self_byte_opt,
+                      .Some(self_byte) =>
+                        match(search_byte_opt,
+                          .Some(search_byte) => {
+                            cond(
+                              (self_byte != search_byte) => {
+                                matches = false;
+                                break;
+                              },
+                              true => ()
+                            );
+                          },
+                          .None => {
+                            matches = false;
+                            break;
+                          }
+                        ),
+                      .None => {
+                        matches = false;
+                        break;
+                      }
+                    );
+                  };
+                },
+                true => {
+                  matches = false;
+                }
               );
-            }
-          );
-        };
-        
-        return Self(_bytes: new_bytes);
-      }
+              
+              cond(
+                matches => {
+                  match(new_value._bytes,
+                    .Some(nv_al) => match(nv_al.ptr(),
+                      .Some(p) => new_bytes.extend_from_ptr(p, nv_al.len()),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                  byte_index = ((byte_index + search_bytes) - usize(1));
+                },
+                true => {
+                  byte_opt := self_al.get(byte_index);
+                  match(byte_opt,
+                    .Some(byte) => { new_bytes.push(byte); },
+                    .None => ()
+                  );
+                }
+              );
+            };
+            
+            cond(
+              (new_bytes.len() == usize(0)) => Self(_bytes: .None),
+              true => Self(_bytes: .Some(new_bytes))
+            )
+          }
+        )
+      )
     )
   ),
 
@@ -1070,57 +1164,67 @@ impl(String,
    * Convert ASCII lowercase letters to uppercase (like JavaScript toUpperCase)
    * Note: Only handles ASCII a-z, not full Unicode case mapping
    */
-  to_uppercase : (fn(self: Self) -> Self)({
-    new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
-    
-    i := usize(0);
-    while ((i < self._bytes.len())),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => {
-          // ASCII lowercase a-z is 0x61-0x7A, uppercase A-Z is 0x41-0x5A
-          new_byte := cond(
-            ((byte >= u8(0x61)) && (byte <= u8(0x7A))) => (byte - u8(0x20)),
-            true => byte
+  to_uppercase : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        (total : usize) = al.len();
+        new_bytes := ArrayList(u8).with_capacity(total);
+        
+        i := usize(0);
+        while ((i < total)),
+              (i = (i + usize(1))),
+        {
+          byte_opt := al.get(i);
+          match(byte_opt,
+            .Some(byte) => {
+              new_byte := cond(
+                ((byte >= u8(0x61)) && (byte <= u8(0x7A))) => (byte - u8(0x20)),
+                true => byte
+              );
+              new_bytes.push(new_byte);
+            },
+            .None => ()
           );
-          new_bytes.push(new_byte);
-        },
-        .None => ()
-      );
-    };
-    
-    return Self(_bytes: new_bytes);
-  }),
+        };
+        
+        Self(_bytes: .Some(new_bytes))
+      }
+    )
+  ),
 
   /**
    * Convert ASCII uppercase letters to lowercase (like JavaScript toLowerCase)
    * Note: Only handles ASCII A-Z, not full Unicode case mapping
    */
-  to_lowercase : (fn(self: Self) -> Self)({
-    new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
-    
-    i := usize(0);
-    while ((i < self._bytes.len())),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => {
-          // ASCII uppercase A-Z is 0x41-0x5A, lowercase a-z is 0x61-0x7A
-          new_byte := cond(
-            ((byte >= u8(0x41)) && (byte <= u8(0x5A))) => (byte + u8(0x20)),
-            true => byte
+  to_lowercase : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        (total : usize) = al.len();
+        new_bytes := ArrayList(u8).with_capacity(total);
+        
+        i := usize(0);
+        while ((i < total)),
+              (i = (i + usize(1))),
+        {
+          byte_opt := al.get(i);
+          match(byte_opt,
+            .Some(byte) => {
+              new_byte := cond(
+                ((byte >= u8(0x41)) && (byte <= u8(0x5A))) => (byte + u8(0x20)),
+                true => byte
+              );
+              new_bytes.push(new_byte);
+            },
+            .None => ()
           );
-          new_bytes.push(new_byte);
-        },
-        .None => ()
-      );
-    };
-    
-    return Self(_bytes: new_bytes);
-  }),
+        };
+        
+        Self(_bytes: .Some(new_bytes))
+      }
+    )
+  ),
 
   /**
    * Helper to check if a byte is ASCII whitespace
@@ -1133,176 +1237,137 @@ impl(String,
   /**
    * Remove whitespace from both ends of the string (like JavaScript trim)
    */
-  trim : (fn(self: Self) -> Self)({
-    total_bytes := self._bytes.len();
-    
-    cond(
-      (total_bytes == usize(0)) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    // Find start index (skip leading whitespace)
-    start_idx := usize(0);
-    while ((start_idx < total_bytes)),
-          (start_idx = (start_idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(start_idx);
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
-    };
-    
-    // Find end index (skip trailing whitespace)
-    end_idx := total_bytes;
-    while ((end_idx > start_idx)),
-          (end_idx = (end_idx - usize(1))),
-    {
-      byte_opt := self._bytes.get((end_idx - usize(1)));
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
-    };
-    
-    cond(
-      (start_idx >= end_idx) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    new_bytes := ArrayList(u8).with_capacity((end_idx - start_idx));
-    i := start_idx;
-    while ((i < end_idx)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => ()
-      );
-    };
-    return Self(_bytes: new_bytes);
-  }),
+  trim : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        total_bytes := al.len();
+
+        if((total_bytes == usize(0)), {
+          return Self(_bytes: .None);
+        });
+
+        (start_idx : usize) = usize(0);
+        while (start_idx < total_bytes), {
+          (b : u8) = al.get_unchecked(start_idx);
+          if(!(Self._is_whitespace_byte(b)), { break; });
+          start_idx = (start_idx + usize(1));
+        };
+
+        (end_idx : usize) = total_bytes;
+        while (end_idx > start_idx), {
+          (b : u8) = al.get_unchecked((end_idx - usize(1)));
+          if(!(Self._is_whitespace_byte(b)), { break; });
+          end_idx = (end_idx - usize(1));
+        };
+
+        if((start_idx >= end_idx), {
+          return Self(_bytes: .None);
+        });
+
+        (count : usize) = (end_idx - start_idx);
+        new_bytes := ArrayList(u8).with_capacity(count);
+        match(al.ptr(),
+          .Some(p) => new_bytes.extend_from_ptr((p &+ start_idx), count),
+          .None => ()
+        );
+        Self(_bytes: .Some(new_bytes))
+      }
+    )
+  ),
 
   /**
    * Remove whitespace from the start of the string (like JavaScript trimStart)
    */
-  trim_start : (fn(self: Self) -> Self)({
-    total_bytes := self._bytes.len();
-    
-    cond(
-      (total_bytes == usize(0)) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    // Find start index (skip leading whitespace)
-    start_idx := usize(0);
-    while ((start_idx < total_bytes)),
-          (start_idx = (start_idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(start_idx);
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
-    };
-    
-    cond(
-      (start_idx >= total_bytes) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    new_bytes := ArrayList(u8).with_capacity((total_bytes - start_idx));
-    i := start_idx;
-    while ((i < total_bytes)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => ()
-      );
-    };
-    return Self(_bytes: new_bytes);
-  }),
+  trim_start : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        total_bytes := al.len();
+        
+        cond(
+          (total_bytes == usize(0)) => Self(_bytes: .None),
+          true => {
+            start_idx := usize(0);
+            while ((start_idx < total_bytes)),
+                  (start_idx = (start_idx + usize(1))),
+            {
+              byte_opt := al.get(start_idx);
+              match(byte_opt,
+                .Some(byte) => {
+                  is_ws := Self._is_whitespace_byte(byte);
+                  cond(
+                    (!(is_ws)) => break,
+                    true => ()
+                  );
+                },
+                .None => break
+              );
+            };
+            
+            cond(
+              (start_idx >= total_bytes) => Self(_bytes: .None),
+              true => {
+                (count : usize) = (total_bytes - start_idx);
+                new_bytes := ArrayList(u8).with_capacity(count);
+                match(al.ptr(),
+                  .Some(p) => new_bytes.extend_from_ptr((p &+ start_idx), count),
+                  .None => ()
+                );
+                Self(_bytes: .Some(new_bytes))
+              }
+            )
+          }
+        )
+      }
+    )
+  ),
 
   /**
    * Remove whitespace from the end of the string (like JavaScript trimEnd)
    */
-  trim_end : (fn(self: Self) -> Self)({
-    total_bytes := self._bytes.len();
-    
-    cond(
-      (total_bytes == usize(0)) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    // Find end index (skip trailing whitespace)
-    end_idx := total_bytes;
-    while ((end_idx > usize(0))),
-          (end_idx = (end_idx - usize(1))),
-    {
-      byte_opt := self._bytes.get((end_idx - usize(1)));
-      match(byte_opt,
-        .Some(byte) => {
-          is_ws := Self._is_whitespace_byte(byte);
-          cond(
-            (!(is_ws)) => break,
-            true => ()
-          );
-        },
-        .None => break
-      );
-    };
-    
-    cond(
-      (end_idx == usize(0)) => {
-        return new();
-      },
-      true => ()
-    );
-    
-    new_bytes := ArrayList(u8).with_capacity(end_idx);
-    i := usize(0);
-    while ((i < end_idx)),
-          (i = (i + usize(1))),
-    {
-      byte_opt := self._bytes.get(i);
-      match(byte_opt,
-        .Some(byte) => { new_bytes.push(byte); },
-        .None => ()
-      );
-    };
-    return Self(_bytes: new_bytes);
-  })
+  trim_end : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        total_bytes := al.len();
+        
+        cond(
+          (total_bytes == usize(0)) => Self(_bytes: .None),
+          true => {
+            end_idx := total_bytes;
+            while ((end_idx > usize(0))),
+                  (end_idx = (end_idx - usize(1))),
+            {
+              byte_opt := al.get((end_idx - usize(1)));
+              match(byte_opt,
+                .Some(byte) => {
+                  is_ws := Self._is_whitespace_byte(byte);
+                  cond(
+                    (!(is_ws)) => break,
+                    true => ()
+                  );
+                },
+                .None => break
+              );
+            };
+            
+            cond(
+              (end_idx == usize(0)) => Self(_bytes: .None),
+              true => {
+                new_bytes := ArrayList(u8).with_capacity(end_idx);
+                match(al.ptr(),
+                  .Some(p) => new_bytes.extend_from_ptr(p, end_idx),
+                  .None => ()
+                );
+                Self(_bytes: .Some(new_bytes))
+              }
+            )
+          }
+        )
+      }
+    )
+  )
 );
 
 impl(String, Add(String, String)(
@@ -1313,43 +1378,31 @@ impl(String, Add(String, String)(
 
 impl(String, Eq(String)(
   (==) : (fn(self: Self, other: Self) -> bool)({
-    // First compare lengths
-    self_len := self._bytes.len();
-    other_len := other._bytes.len();
+    (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     
     cond(
-      (self_len != other_len) => {
-        return false;
-      },
-      true => ()
-    );
-    
-    // Compare each byte
-    i := usize(0);
-    while ((i < self_len)),
-          (i = (i + usize(1))),
-    {
-      self_byte_opt := self._bytes.get(i);
-      other_byte_opt := other._bytes.get(i);
-      
-      match(self_byte_opt,
-        .Some(self_byte) =>
-          match(other_byte_opt,
-            .Some(other_byte) => {
-              cond(
-                (self_byte != other_byte) => {
-                  return false;
-                },
-                true => ()
-              );
-            },
-            .None => return false
-          ),
-        .None => return false
-      );
-    };
-    
-    return true;
+      (self_len != other_len) => false,
+      (self_len == usize(0)) => true,
+      true =>
+        match(self._bytes,
+          .Some(self_al) =>
+            match(other._bytes,
+              .Some(other_al) =>
+                match(self_al.ptr(),
+                  .Some(self_ptr) =>
+                    match(other_al.ptr(),
+                      .Some(other_ptr) =>
+                        (memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len) == int(0)),
+                      .None => false
+                    ),
+                  .None => false
+                ),
+              .None => false
+            ),
+          .None => false
+        )
+    )
   }),
   (!=) : (fn(self: Self, other: Self) -> bool)({
     return !(Self.(==)(self, other));
@@ -1358,21 +1411,25 @@ impl(String, Eq(String)(
 
 impl(String, Hash(
   (hash): (fn(self: *(Self)) -> u64)({
-    // FNV-1a hash over the bytes
     h := u64(14695981039346656037);
-    i := usize(0);
-    len := self.*._bytes.len();
-    while ((i < len)),
-          (i = (i + usize(1))),
-    {
-      match(self.*._bytes.get(i),
-        .Some(b) => {
-          h = (h ^ u64(b));
-          h = (h * u64(1099511628211));
-        },
-        .None => ()
-      );
-    };
+    match(self.*._bytes,
+      .None => (),
+      .Some(al) => {
+        i := usize(0);
+        len := al.len();
+        while ((i < len)),
+              (i = (i + usize(1))),
+        {
+          match(al.get(i),
+            .Some(b) => {
+              h = (h ^ u64(b));
+              h = (h * u64(1099511628211));
+            },
+            .None => ()
+          );
+        };
+      }
+    );
     h
   })
 ));
@@ -1391,27 +1448,29 @@ StringChars :: struct(
 impl(StringChars, Iterator(
   Item : rune,
   next : (fn(self : *(Self)) -> Option(rune))(
-    cond(
-      (self._byte_index >= self._string._bytes.len()) => .None,
-      true => {
-        first_byte_opt := self._string._bytes.get(self._byte_index);
-        match(first_byte_opt,
-          .Some(first_byte) => {
-            // Determine byte length of this UTF-8 character
-            (byte_len : usize) = cond(
-              (first_byte < u8(0x80)) => usize(1),
-              ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => usize(2),
-              ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => usize(3),
-              ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => usize(4),
-              true => usize(1)
-            );
-            r := self._string._decode_rune_at(self._byte_index);
-            self._byte_index = (self._byte_index + byte_len);
-            r
-          },
-          .None => .None
-        )
-      }
+    match(self._string._bytes,
+      .None => .None,
+      .Some(al) => cond(
+        (self._byte_index >= al.len()) => .None,
+        true => {
+          first_byte_opt := al.get(self._byte_index);
+          match(first_byte_opt,
+            .Some(first_byte) => {
+              (byte_len : usize) = cond(
+                (first_byte < u8(0x80)) => usize(1),
+                ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => usize(2),
+                ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => usize(3),
+                ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => usize(4),
+                true => usize(1)
+              );
+              r := self._string._decode_rune_at(self._byte_index);
+              self._byte_index = (self._byte_index + byte_len);
+              r
+            },
+            .None => .None
+          )
+        }
+      )
     )
   )
 ));
@@ -1428,13 +1487,16 @@ StringBytes :: struct(
 impl(StringBytes, Iterator(
   Item : u8,
   next : (fn(self : *(Self)) -> Option(u8))(
-    cond(
-      (self._index >= self._string._bytes.len()) => .None,
-      true => {
-        byte_opt := self._string._bytes.get(self._index);
-        self._index = (self._index + usize(1));
-        byte_opt
-      }
+    match(self._string._bytes,
+      .None => .None,
+      .Some(al) => cond(
+        (self._index >= al.len()) => .None,
+        true => {
+          byte_opt := al.get(self._index);
+          self._index = (self._index + usize(1));
+          byte_opt
+        }
+      )
     )
   )
 ));
@@ -1476,363 +1538,352 @@ impl(String,
    * Parse the string as a signed 32-bit integer.
    * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow).
    */
-  parse_i32 : (fn(self: Self) -> Option(i32))({
-    total_bytes := self._bytes.len();
-    cond(
-      (total_bytes == usize(0)) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    idx := usize(0);
-
-    // Check for sign
-    is_negative := false;
-    first_byte_opt := self._bytes.get(usize(0));
-    match(first_byte_opt,
-      .Some(first_byte) => {
+  parse_i32 : (fn(self: Self) -> Option(i32))(
+    match(self._bytes,
+      .None => .None,
+      .Some(al) => {
+        total_bytes := al.len();
         cond(
-          (first_byte == u8(45)) => {
-            is_negative = true;
-            idx = usize(1);
-          },
-          (first_byte == u8(43)) => {
-            idx = usize(1);
-          },
-          true => ()
-        );
-      },
-      .None => {
-        return .None;
+          (total_bytes == usize(0)) => .None,
+          true => {
+            idx := usize(0);
+            is_negative := false;
+            first_byte_opt := al.get(usize(0));
+            match(first_byte_opt,
+              .Some(first_byte) => {
+                cond(
+                  (first_byte == u8(45)) => {
+                    is_negative = true;
+                    idx = usize(1);
+                  },
+                  (first_byte == u8(43)) => {
+                    idx = usize(1);
+                  },
+                  true => ()
+                );
+              },
+              .None => {
+                return .None;
+              }
+            );
+
+            cond(
+              (idx >= total_bytes) => .None,
+              true => {
+                result := i64(0);
+                has_digit := false;
+
+                while ((idx < total_bytes)),
+                      (idx = (idx + usize(1))),
+                {
+                  byte_opt := al.get(idx);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      cond(
+                        Self._is_digit_byte(byte) => {
+                          digit := i64((byte - u8(48)));
+                          result = ((result * i64(10)) + digit);
+                          has_digit = true;
+                        },
+                        true => {
+                          return .None;
+                        }
+                      );
+                    },
+                    .None => {
+                      return .None;
+                    }
+                  );
+                };
+
+                cond(
+                  (!(has_digit)) => .None,
+                  true => {
+                    final_val := cond(
+                      is_negative => (i64(0) - result),
+                      true => result
+                    );
+                    cond(
+                      ((final_val < i64(-2147483648)) || (final_val > i64(2147483647))) => .None,
+                      true => .Some(i32(final_val))
+                    )
+                  }
+                )
+              }
+            )
+          }
+        )
       }
-    );
-
-    // Must have at least one digit after sign
-    cond(
-      (idx >= total_bytes) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    result := i64(0);
-    has_digit := false;
-
-    while ((idx < total_bytes)),
-          (idx = (idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(idx);
-      match(byte_opt,
-        .Some(byte) => {
-          cond(
-            Self._is_digit_byte(byte) => {
-              digit := i64((byte - u8(48)));
-              result = ((result * i64(10)) + digit);
-              has_digit = true;
-            },
-            true => {
-              return .None;
-            }
-          );
-        },
-        .None => {
-          return .None;
-        }
-      );
-    };
-
-    cond(
-      (!(has_digit)) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    final_val := cond(
-      is_negative => (i64(0) - result),
-      true => result
-    );
-
-    // Check i32 range: -2147483648 to 2147483647
-    cond(
-      ((final_val < i64(-2147483648)) || (final_val > i64(2147483647))) => .None,
-      true => .Some(i32(final_val))
     )
-  }),
+  ),
 
   /**
    * Parse the string as a signed 64-bit integer.
    * Returns .Some(value) on success, .None on failure.
    * Note: does not detect i64 overflow during accumulation.
    */
-  parse_i64 : (fn(self: Self) -> Option(i64))({
-    total_bytes := self._bytes.len();
-    cond(
-      (total_bytes == usize(0)) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    idx := usize(0);
-
-    is_negative := false;
-    first_byte_opt := self._bytes.get(usize(0));
-    match(first_byte_opt,
-      .Some(first_byte) => {
+  parse_i64 : (fn(self: Self) -> Option(i64))(
+    match(self._bytes,
+      .None => .None,
+      .Some(al) => {
+        total_bytes := al.len();
         cond(
-          (first_byte == u8(45)) => {
-            is_negative = true;
-            idx = usize(1);
-          },
-          (first_byte == u8(43)) => {
-            idx = usize(1);
-          },
-          true => ()
-        );
-      },
-      .None => {
-        return .None;
-      }
-    );
+          (total_bytes == usize(0)) => .None,
+          true => {
+            idx := usize(0);
+            is_negative := false;
+            first_byte_opt := al.get(usize(0));
+            match(first_byte_opt,
+              .Some(first_byte) => {
+                cond(
+                  (first_byte == u8(45)) => {
+                    is_negative = true;
+                    idx = usize(1);
+                  },
+                  (first_byte == u8(43)) => {
+                    idx = usize(1);
+                  },
+                  true => ()
+                );
+              },
+              .None => {
+                return .None;
+              }
+            );
 
-    cond(
-      (idx >= total_bytes) => {
-        return .None;
-      },
-      true => ()
-    );
+            cond(
+              (idx >= total_bytes) => .None,
+              true => {
+                result := i64(0);
+                has_digit := false;
 
-    result := i64(0);
-    has_digit := false;
+                while ((idx < total_bytes)),
+                      (idx = (idx + usize(1))),
+                {
+                  byte_opt := al.get(idx);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      cond(
+                        Self._is_digit_byte(byte) => {
+                          digit := i64((byte - u8(48)));
+                          result = ((result * i64(10)) + digit);
+                          has_digit = true;
+                        },
+                        true => {
+                          return .None;
+                        }
+                      );
+                    },
+                    .None => {
+                      return .None;
+                    }
+                  );
+                };
 
-    while ((idx < total_bytes)),
-          (idx = (idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(idx);
-      match(byte_opt,
-        .Some(byte) => {
-          cond(
-            Self._is_digit_byte(byte) => {
-              digit := i64((byte - u8(48)));
-              result = ((result * i64(10)) + digit);
-              has_digit = true;
-            },
-            true => {
-              return .None;
-            }
-          );
-        },
-        .None => {
-          return .None;
-        }
-      );
-    };
-
-    cond(
-      (!(has_digit)) => .None,
-      true => {
-        final_val := cond(
-          is_negative => (i64(0) - result),
-          true => result
-        );
-        return .Some(final_val);
+                cond(
+                  (!(has_digit)) => .None,
+                  true => {
+                    final_val := cond(
+                      is_negative => (i64(0) - result),
+                      true => result
+                    );
+                    return .Some(final_val);
+                  }
+                )
+              }
+            )
+          }
+        )
       }
     )
-  }),
+  ),
 
   /**
    * Parse the string as an unsigned 32-bit integer.
    * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow, negative sign).
    */
-  parse_u32 : (fn(self: Self) -> Option(u32))({
-    total_bytes := self._bytes.len();
-    cond(
-      (total_bytes == usize(0)) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    idx := usize(0);
-
-    // Optional '+' sign, but '-' is invalid for unsigned
-    first_byte_opt := self._bytes.get(usize(0));
-    match(first_byte_opt,
-      .Some(first_byte) => {
+  parse_u32 : (fn(self: Self) -> Option(u32))(
+    match(self._bytes,
+      .None => .None,
+      .Some(al) => {
+        total_bytes := al.len();
         cond(
-          (first_byte == u8(45)) => {
-            return .None;
-          },
-          (first_byte == u8(43)) => {
-            idx = usize(1);
-          },
-          true => ()
-        );
-      },
-      .None => {
-        return .None;
-      }
-    );
-
-    cond(
-      (idx >= total_bytes) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    result := u64(0);
-    has_digit := false;
-
-    while ((idx < total_bytes)),
-          (idx = (idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(idx);
-      match(byte_opt,
-        .Some(byte) => {
-          cond(
-            Self._is_digit_byte(byte) => {
-              digit := u64((byte - u8(48)));
-              result = ((result * u64(10)) + digit);
-              has_digit = true;
-            },
-            true => {
-              return .None;
-            }
-          );
-        },
-        .None => {
-          return .None;
-        }
-      );
-    };
-
-    cond(
-      (!(has_digit)) => .None,
-      true => {
-        // Check u32 range: 0 to 4294967295
-        cond(
-          (result > u64(4294967295)) => {
-            return .None;
-          },
+          (total_bytes == usize(0)) => .None,
           true => {
-            return .Some(u32(result));
+            idx := usize(0);
+            first_byte_opt := al.get(usize(0));
+            match(first_byte_opt,
+              .Some(first_byte) => {
+                cond(
+                  (first_byte == u8(45)) => {
+                    return .None;
+                  },
+                  (first_byte == u8(43)) => {
+                    idx = usize(1);
+                  },
+                  true => ()
+                );
+              },
+              .None => {
+                return .None;
+              }
+            );
+
+            cond(
+              (idx >= total_bytes) => .None,
+              true => {
+                result := u64(0);
+                has_digit := false;
+
+                while ((idx < total_bytes)),
+                      (idx = (idx + usize(1))),
+                {
+                  byte_opt := al.get(idx);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      cond(
+                        Self._is_digit_byte(byte) => {
+                          digit := u64((byte - u8(48)));
+                          result = ((result * u64(10)) + digit);
+                          has_digit = true;
+                        },
+                        true => {
+                          return .None;
+                        }
+                      );
+                    },
+                    .None => {
+                      return .None;
+                    }
+                  );
+                };
+
+                cond(
+                  (!(has_digit)) => .None,
+                  true => cond(
+                    (result > u64(4294967295)) => .None,
+                    true => .Some(u32(result))
+                  )
+                )
+              }
+            )
           }
-        );
+        )
       }
     )
-  }),
+  ),
 
   /**
    * Parse the string as an unsigned 64-bit integer.
    * Returns .Some(value) on success, .None on failure.
    * Note: does not detect u64 overflow during accumulation.
    */
-  parse_u64 : (fn(self: Self) -> Option(u64))({
-    total_bytes := self._bytes.len();
-    cond(
-      (total_bytes == usize(0)) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    idx := usize(0);
-
-    first_byte_opt := self._bytes.get(usize(0));
-    match(first_byte_opt,
-      .Some(first_byte) => {
+  parse_u64 : (fn(self: Self) -> Option(u64))(
+    match(self._bytes,
+      .None => .None,
+      .Some(al) => {
+        total_bytes := al.len();
         cond(
-          (first_byte == u8(45)) => {
-            return .None;
-          },
-          (first_byte == u8(43)) => {
-            idx = usize(1);
-          },
-          true => ()
-        );
-      },
-      .None => {
-        return .None;
+          (total_bytes == usize(0)) => .None,
+          true => {
+            idx := usize(0);
+            first_byte_opt := al.get(usize(0));
+            match(first_byte_opt,
+              .Some(first_byte) => {
+                cond(
+                  (first_byte == u8(45)) => {
+                    return .None;
+                  },
+                  (first_byte == u8(43)) => {
+                    idx = usize(1);
+                  },
+                  true => ()
+                );
+              },
+              .None => {
+                return .None;
+              }
+            );
+
+            cond(
+              (idx >= total_bytes) => .None,
+              true => {
+                result := u64(0);
+                has_digit := false;
+
+                while ((idx < total_bytes)),
+                      (idx = (idx + usize(1))),
+                {
+                  byte_opt := al.get(idx);
+                  match(byte_opt,
+                    .Some(byte) => {
+                      cond(
+                        Self._is_digit_byte(byte) => {
+                          digit := u64((byte - u8(48)));
+                          result = ((result * u64(10)) + digit);
+                          has_digit = true;
+                        },
+                        true => {
+                          return .None;
+                        }
+                      );
+                    },
+                    .None => {
+                      return .None;
+                    }
+                  );
+                };
+
+                cond(
+                  (!(has_digit)) => .None,
+                  true => .Some(result)
+                )
+              }
+            )
+          }
+        )
       }
-    );
-
-    cond(
-      (idx >= total_bytes) => {
-        return .None;
-      },
-      true => ()
-    );
-
-    result := u64(0);
-    has_digit := false;
-
-    while ((idx < total_bytes)),
-          (idx = (idx + usize(1))),
-    {
-      byte_opt := self._bytes.get(idx);
-      match(byte_opt,
-        .Some(byte) => {
-          cond(
-            Self._is_digit_byte(byte) => {
-              digit := u64((byte - u8(48)));
-              result = ((result * u64(10)) + digit);
-              has_digit = true;
-            },
-            true => {
-              return .None;
-            }
-          );
-        },
-        .None => {
-          return .None;
-        }
-      );
-    };
-
-    cond(
-      (!(has_digit)) => .None,
-      true => .Some(result)
     )
-  }),
+  ),
 
   /**
    * Parse the string as a boolean.
    * Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
    */
-  parse_bool : (fn(self: Self) -> Option(bool))({
-    total_bytes := self._bytes.len();
-    // "true" = 4 bytes: 116(t), 114(r), 117(u), 101(e)
-    // "false" = 5 bytes: 102(f), 97(a), 108(l), 115(s), 101(e)
-    cond(
-      (total_bytes == usize(4)) => {
-        b0 := self._bytes.get(usize(0)).unwrap_or(u8(0));
-        b1 := self._bytes.get(usize(1)).unwrap_or(u8(0));
-        b2 := self._bytes.get(usize(2)).unwrap_or(u8(0));
-        b3 := self._bytes.get(usize(3)).unwrap_or(u8(0));
+  parse_bool : (fn(self: Self) -> Option(bool))(
+    match(self._bytes,
+      .None => .None,
+      .Some(al) => {
+        total_bytes := al.len();
         cond(
-          ((b0 == u8(116)) && ((b1 == u8(114)) && ((b2 == u8(117)) && (b3 == u8(101))))) =>
-            .Some(true),
+          (total_bytes == usize(4)) => {
+            b0 := al.get(usize(0)).unwrap_or(u8(0));
+            b1 := al.get(usize(1)).unwrap_or(u8(0));
+            b2 := al.get(usize(2)).unwrap_or(u8(0));
+            b3 := al.get(usize(3)).unwrap_or(u8(0));
+            cond(
+              ((b0 == u8(116)) && ((b1 == u8(114)) && ((b2 == u8(117)) && (b3 == u8(101))))) =>
+                .Some(true),
+              true => .None
+            )
+          },
+          (total_bytes == usize(5)) => {
+            b0 := al.get(usize(0)).unwrap_or(u8(0));
+            b1 := al.get(usize(1)).unwrap_or(u8(0));
+            b2 := al.get(usize(2)).unwrap_or(u8(0));
+            b3 := al.get(usize(3)).unwrap_or(u8(0));
+            b4 := al.get(usize(4)).unwrap_or(u8(0));
+            cond(
+              ((b0 == u8(102)) && ((b1 == u8(97)) && ((b2 == u8(108)) && ((b3 == u8(115)) && (b4 == u8(101)))))) =>
+                .Some(false),
+              true => .None
+            )
+          },
           true => .None
         )
-      },
-      (total_bytes == usize(5)) => {
-        b0 := self._bytes.get(usize(0)).unwrap_or(u8(0));
-        b1 := self._bytes.get(usize(1)).unwrap_or(u8(0));
-        b2 := self._bytes.get(usize(2)).unwrap_or(u8(0));
-        b3 := self._bytes.get(usize(3)).unwrap_or(u8(0));
-        b4 := self._bytes.get(usize(4)).unwrap_or(u8(0));
-        cond(
-          ((b0 == u8(102)) && ((b1 == u8(97)) && ((b2 == u8(108)) && ((b3 == u8(115)) && (b4 == u8(101)))))) =>
-            .Some(false),
-          true => .None
-        )
-      },
-      true => .None
+      }
     )
-  })
+  )
 );
 
 export

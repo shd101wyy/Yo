@@ -8,6 +8,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  consumeCaseBodyTempVar,
   type ControlFlowFlags,
   type Expr,
   exprIsAtom,
@@ -452,6 +453,10 @@ export function evaluateMatch({
         env: poppedEnv,
       };
 
+      // Consume the case body's temp variable so it won't generate a phantom drop
+      caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
+      evaluatedBody.$.env = caseEnv;
+
       if (
         context.expectedType &&
         !areTypesCompatible(context.expectedType, {
@@ -889,6 +894,10 @@ export function evaluateMatch({
         env: poppedEnv,
       };
 
+      // Consume the case body's temp variable so it won't generate a phantom drop
+      caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
+      evaluatedBody.$.env = caseEnv;
+
       // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // to force codegen to generate all statements
       // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
@@ -1325,6 +1334,10 @@ function evaluatePrimitiveMatch({
         env: poppedEnv,
       };
 
+      // Consume the case body's temp variable so it won't generate a phantom drop
+      caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
+      evaluatedBody.$.env = caseEnv;
+
       if (
         context.expectedType &&
         !areTypesCompatible(context.expectedType, {
@@ -1556,6 +1569,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       ...evaluatedBody.$,
       env: poppedEnv,
     };
+
+    // Consume the case body's temp variable so it won't generate a phantom drop
+    caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
+    evaluatedBody.$.env = caseEnv;
 
     if (
       context.expectedType &&

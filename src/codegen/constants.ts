@@ -43,6 +43,7 @@ export const BuiltinYoInlineFunctions = [
   // Slice operations
   ...BuiltinFunctions.__yo_slice_len, // __yo_slice_len
   ...BuiltinFunctions.__yo_slice_new, // __yo_slice_new
+  ...BuiltinFunctions.__yo_slice_ptr, // __yo_slice_ptr
 
   // Type casting
   ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)

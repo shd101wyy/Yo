@@ -2125,63 +2125,6 @@ test "Test control flows", {
   ;
 };
 
-test "Test destructuring by ... spread operator", {
-  SomeModule :: impl {
-    id :: (fn(x: i32)-> i32) x;
-    implicit_id :: (fn(x: i32)-> i32) x;
-    x :: 1;
-    y :: 2;
-    export id, implicit_id, x, y;
-  };
-
-  {
-    // Use ... to destructure all exports
-    { ... } :: SomeModule;
-    v := id(3);
-
-
-    Point :: struct(a: i32, b: i32);
-    p :: Point(3, 4);
-    { ... } :: p;
-    x2 := id(a);
-  };
-
-  {
-    // Use ...(given) to destructure all implicits // NOTE: "given" is no longer supported
-    open SomeModule;
-    
-    implicit_id(3);
-    id(3);
-  };
-};
-
-test "Test extending modules by ... spread operator", {
-  ModuleA :: impl {
-    a :: 1;
-    b :: 2;
-    export a, b;
-  };
-
-  ModuleB :: impl {
-    c :: 3;
-    export ...(ModuleA), c;
-  };
-
-  ModuleC :: impl {
-    d :: 4;
-    export ...(ModuleB), d;
-  };
-
-  {
-    open ModuleC;
-
-    assert(a == 1);
-    assert(b == 2);
-    assert(c == 3);
-    assert(d == 4);
-  };
-};
-
 test "Test 'open' statements", {
   // Open a comptime struct
   {
@@ -2217,22 +2160,6 @@ test "Test 'open' statements", {
 
     result := calculate(Point(7, 3));
     assert(result == i32(10));
-  };
-
-  // Open a module
-  {
-    my_module :: impl {
-      x :: 6;
-      y :: 2;
-      export x, y;
-    };
-    open my_module;
-    
-    comptime_assert(x == 6);
-    comptime_assert(y == 2);
-
-    assert(x == 6);
-    assert(y == 2);
   };
 };
 

@@ -2123,6 +2123,7 @@ export function evaluateModuleValue({
         ...context,
         expectedType: undefined,
         SelfType: context.SelfType,
+        isInsideImplBlock: true,
       },
     });
     env = nextEnv;

@@ -226,12 +226,19 @@ export function tryToImplementFunctionByFunctionType({
         expectedParam.label !== functionType.parameters[i]!.label
     );
 
+  // Determine whether module-level runtime variables should be preserved.
+  // At module scope (not inside a function body), all `:=` variables are
+  // module-level globals and must remain accessible from module functions.
+  // Only strip runtime variables when defining a non-closure function inside
+  // another function body, where outer runtime vars would be captures.
+  const isAtModuleLevel = !context.isEvaluatingFunctionBodyOrAsyncBlock;
+
   let env = pushEnvFrame(
-    // For closures, we keep the full caller environment to enable variable capturing
-    // For regular functions, we only keep top-level frame and compile-time variables
     isInClosureContext
       ? callerEnv
-      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv)
+      : isAtModuleLevel
+        ? callerEnv
+        : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv)
   );
 
   // If we need parameter aliasing, manually add parameters with aliases

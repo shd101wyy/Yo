@@ -462,6 +462,303 @@ function removeDupCallsFromExpr(
   }
 }
 
+/**
+ * Optimize "loop traversal" borrow chains.
+ *
+ * Pattern detected (linked-list traversal):
+ * ```
+ * (x : T) = param;          // initial assignment with dup (borrowing from parameter)
+ * while runtime(true), {
+ *   match(x,
+ *     .Some(binding) => {
+ *       x = binding.field;  // reassignment with dup + old-value drop
+ *     },
+ *     .None => { return ...; }
+ *   );
+ * };
+ * ```
+ *
+ * In this pattern, x's value is always kept alive by the parameter's ownership of
+ * the data structure (e.g., linked list). Each node is owned by its parent, and the
+ * entire structure is kept alive through the parameter. Therefore x can safely borrow
+ * without incrementing/decrementing reference counts.
+ *
+ * The optimization removes:
+ * 1. Initial dup (from x's initial assignment RHS)
+ * 2. Per-iteration dup (from x's reassignment RHS inside while body)
+ * 3. Per-iteration old-value save and drop (the temp variable for old x)
+ * 4. Scope-exit drop of x (mark as consumed)
+ * 5. Before-return drops of x in match branches (handled by marking as consumed)
+ *
+ * Returns the set of variable names that were optimized, so the caller can
+ * exclude them from variablesNeedingDrop.
+ */
+function optimizeLoopTraversalBorrowChain(
+  beginBlockExpr: FnCallExpr,
+  env: Environment
+): { optimizedVarNames: Set<string>; env: Environment } {
+  const optimizedVarNames = new Set<string>();
+  const args = beginBlockExpr.args;
+
+  for (let whileIdx = 0; whileIdx < args.length; whileIdx++) {
+    const whileExpr = args[whileIdx]!;
+
+    // Find while loops
+    if (
+      !exprIsFunctionCall(whileExpr) ||
+      !exprIsFunctionCallOf(whileExpr, BuiltinKeywords.while)
+    ) {
+      continue;
+    }
+
+    // Get while body (last argument)
+    const whileBody = whileExpr.args[whileExpr.args.length - 1];
+    if (
+      !whileBody ||
+      !exprIsFunctionCall(whileBody) ||
+      !exprIsFunctionCallOf(whileBody, BuiltinKeywords.begin)
+    ) {
+      continue;
+    }
+
+    // Find match expressions in while body
+    for (const bodyChild of whileBody.args) {
+      if (
+        !exprIsFunctionCall(bodyChild) ||
+        !exprIsFunctionCallOf(bodyChild, BuiltinKeywords.match)
+      ) {
+        continue;
+      }
+
+      // The scrutinee is the first argument of match
+      const scrutinee = bodyChild.args[0];
+      if (!scrutinee || !exprIsAtom(scrutinee)) {
+        continue;
+      }
+      const varName = scrutinee.token.value;
+
+      // Look through match branches for a reassignment of varName
+      let reassignmentRhsExpr: Expr | undefined;
+      let reassignmentAssignExpr: FnCallExpr | undefined;
+      let branchBeginBlock: FnCallExpr | undefined;
+
+      for (let branchIdx = 1; branchIdx < bodyChild.args.length; branchIdx++) {
+        const branch = bodyChild.args[branchIdx]!;
+        // branch is =>(pattern, body)
+        if (
+          !exprIsFunctionCall(branch) ||
+          !exprIsFunctionCallOf(branch, "=>", 2)
+        ) {
+          continue;
+        }
+
+        const branchBody = branch.args[1]!;
+        // Check if the body is a begin block
+        if (
+          !exprIsFunctionCall(branchBody) ||
+          !exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
+        ) {
+          continue;
+        }
+
+        // Look for assignment expressions that reassign varName
+        for (const stmt of branchBody.args) {
+          if (exprIsFunctionCall(stmt) && exprIsFunctionCallOf(stmt, "=", 2)) {
+            const lhs = stmt.args[0]!;
+            if (exprIsAtom(lhs) && lhs.token.value === varName) {
+              // Found: varName = something
+              reassignmentRhsExpr = stmt.args[1]!;
+              reassignmentAssignExpr = stmt;
+              branchBeginBlock = branchBody;
+              break;
+            }
+          }
+        }
+        if (reassignmentRhsExpr) break;
+      }
+
+      // Must have found a reassignment inside the while-loop match
+      if (
+        !reassignmentRhsExpr ||
+        !reassignmentAssignExpr ||
+        !branchBeginBlock
+      ) {
+        continue;
+      }
+
+      // Check that the reassignment RHS has a deferred dup (meaning it's an RC type)
+      if (
+        !reassignmentRhsExpr.$?.deferredDupExpressions ||
+        reassignmentRhsExpr.$.deferredDupExpressions.length === 0
+      ) {
+        continue;
+      }
+
+      // Find varName's initial assignment BEFORE the while loop
+      let initialAssignRhsExpr: Expr | undefined;
+      for (let i = 0; i < whileIdx; i++) {
+        const stmt = args[i]!;
+        if (exprIsFunctionCall(stmt) && exprIsFunctionCallOf(stmt, "=", 2)) {
+          const lhs = stmt.args[0]!;
+          // Check for simple atom assignment or destructuring like (x : T) = rhs
+          if (exprIsAtom(lhs) && lhs.token.value === varName) {
+            initialAssignRhsExpr = stmt.args[1]!;
+            break;
+          }
+          // Check for typed assignment: (x : T) which is a function call
+          if (
+            exprIsFunctionCall(lhs) &&
+            lhs.args.length > 0 &&
+            exprIsAtom(lhs.args[0]!) &&
+            lhs.args[0]!.token.value === varName
+          ) {
+            initialAssignRhsExpr = stmt.args[1]!;
+            break;
+          }
+        }
+      }
+
+      if (!initialAssignRhsExpr) {
+        continue;
+      }
+
+      // Check that the initial value comes from a borrowed source (parameter)
+      // A parameter has isOwningTheRcValue: false
+      const rhsVarName = initialAssignRhsExpr.$?.variableName;
+      if (!rhsVarName || !initialAssignRhsExpr.$?.env) {
+        continue;
+      }
+      const rhsVars = getVariablesFromEnv(
+        initialAssignRhsExpr.$.env,
+        rhsVarName
+      );
+      if (rhsVars.length === 0) {
+        continue;
+      }
+      const rhsVar = rhsVars[rhsVars.length - 1]!;
+      // The source must be borrowed (e.g., a parameter). If it's owning, the
+      // lifetime isn't guaranteed by an external owner and we can't safely borrow.
+      if (rhsVar.isOwningTheRcValue) {
+        continue;
+      }
+
+      // Check that the initial assignment has a deferred dup
+      if (
+        !initialAssignRhsExpr.$?.deferredDupExpressions ||
+        initialAssignRhsExpr.$.deferredDupExpressions.length === 0
+      ) {
+        continue;
+      }
+
+      // Safety check: verify varName is not returned or stored elsewhere
+      // (it can be used in match as scrutinee and reassigned, but not escaped)
+      // We check all children of the begin block EXCEPT:
+      // - The initial assignment (whileIdx and before)
+      // - The while loop (contains the expected uses)
+      // - The final expression (return value of begin block — if it references varName, unsafe)
+      let varEscapes = false;
+      for (let i = whileIdx + 1; i < args.length; i++) {
+        if (exprReferencesVariable(args[i]!, varName)) {
+          varEscapes = true;
+          break;
+        }
+      }
+      if (varEscapes) {
+        continue;
+      }
+
+      // All checks passed — perform the optimization
+
+      // 1. Remove initial dup
+      initialAssignRhsExpr.$.deferredDupExpressions = undefined;
+
+      // 2. Remove reassignment dup
+      reassignmentRhsExpr.$.deferredDupExpressions = undefined;
+
+      // 3. Remove old-value save and drop
+      // The assignment expression's $.variableName is the temp for saving old value
+      const oldValueTempName = reassignmentAssignExpr.$?.variableName;
+      if (oldValueTempName && branchBeginBlock.$?.deferredDropExpressions) {
+        // Remove the drop expression for the old-value temp from the branch begin block
+        branchBeginBlock.$.deferredDropExpressions =
+          branchBeginBlock.$.deferredDropExpressions.filter((dropExpr) => {
+            // Match drop expressions that target the old-value temp variable
+            const targetName = getDropTargetName(dropExpr);
+            return targetName !== oldValueTempName;
+          });
+        if (branchBeginBlock.$.deferredDropExpressions.length === 0) {
+          branchBeginBlock.$.deferredDropExpressions = undefined;
+        }
+      }
+      // Clear the save-old-value temp from the assignment expression
+      if (reassignmentAssignExpr.$) {
+        reassignmentAssignExpr.$.variableName = undefined;
+      }
+
+      // 4. Mark variable as consumed (scope-exit drop and before-return drops)
+      const finalVars = getVariablesFromEnv(env, varName);
+      if (finalVars.length > 0) {
+        const finalVar = finalVars[finalVars.length - 1]!;
+        env = updateExistingVariable(env, finalVar, {
+          ...finalVar,
+          consumedAtToken: finalVar.token,
+        });
+      }
+
+      optimizedVarNames.add(varName);
+    }
+  }
+
+  return { optimizedVarNames, env };
+}
+
+/**
+ * Get the target variable name of a drop expression.
+ * A drop expression is either `(varName.___drop)()` or `___drop(varName)`.
+ */
+function getDropTargetName(dropExpr: Expr): string | undefined {
+  // Check: (varName.___drop)()
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    dropExpr.args.length === 0 &&
+    exprIsFunctionCall(dropExpr.func) &&
+    exprIsFunctionCallOf(dropExpr.func, ".", 2) &&
+    exprIsAtom(dropExpr.func.args[1]!) &&
+    dropExpr.func.args[1]!.token.value === BuiltinFunctions.___drop[0] &&
+    exprIsAtom(dropExpr.func.args[0]!)
+  ) {
+    return dropExpr.func.args[0]!.token.value;
+  }
+
+  // Check: ___drop(varName)
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    exprIsFunctionCallOf(dropExpr, BuiltinFunctions.___drop) &&
+    dropExpr.args.length >= 1 &&
+    exprIsAtom(dropExpr.args[0]!)
+  ) {
+    return dropExpr.args[0]!.token.value;
+  }
+  return undefined;
+}
+
+/**
+ * Check if an expression tree references a variable by name.
+ * Used for escape analysis.
+ */
+function exprReferencesVariable(expr: Expr, varName: string): boolean {
+  if (exprIsAtom(expr) && expr.token.value === varName) {
+    return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    if (exprReferencesVariable(expr.func, varName)) return true;
+    for (const arg of expr.args) {
+      if (exprReferencesVariable(arg, varName)) return true;
+    }
+  }
+  return false;
+}
+
 export function evaluateBeginExpression({
   expr,
   env,
@@ -1126,6 +1423,22 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         ...variablesNeedingDrop,
         ...parametersNeedingDrop,
       ];
+    }
+
+    // Loop traversal borrow chain optimization:
+    // Detect linked-list traversal patterns where a variable is initialized from a
+    // parameter and reassigned inside a while-match loop from a field of itself.
+    // These variables can safely borrow (no dup/drop needed) because the underlying
+    // data structure is kept alive by the parameter.
+    if (exprIsFunctionCall(expr)) {
+      const loopOpt = optimizeLoopTraversalBorrowChain(expr, env);
+      if (loopOpt.optimizedVarNames.size > 0) {
+        env = loopOpt.env;
+        // Remove optimized variables from variablesNeedingDrop
+        variablesNeedingDrop = variablesNeedingDrop.filter(
+          (v) => !loopOpt.optimizedVarNames.has(v.name)
+        );
+      }
     }
 
     // Optimization: Collect all dup calls using the existing infrastructure

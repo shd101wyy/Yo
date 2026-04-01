@@ -376,6 +376,41 @@ while runtime(true), {
 - Each iteration: `___dup(current.next)` + `___drop(old current_opt)`
 - End: `___drop(current_opt)` cleans up
 
-**Cost:** 2 RC operations per iteration (dup + drop)
+**Cost (before optimization):** 2 RC operations per iteration (dup + drop) + 1 initial dup + 1 final drop = 2N + 2 total for N iterations.
 
-This is conservative but correct. Phase 2 optimization can eliminate these operations.
+#### Loop Traversal Borrow Chain Optimization
+
+The compiler now detects this traversal pattern and eliminates **all** RC operations (2N + 2 → 0). The key insight: every node accessed through the traversal variable is kept alive by the parameter's ownership of the entire data structure. The net RC effect across all iterations is zero for every node, so removing all dup/drop operations is safe.
+
+**Pattern detection criteria:**
+
+1. A variable is initialized from a parameter (or field of a parameter) that does not own the RC value (`isOwningTheRcValue: false`)
+2. Inside a `while`-`match` loop, the variable is the match scrutinee
+3. In one match branch, the variable is reassigned from a field of the match binding (traversal step)
+4. The variable does not escape the loop scope (no references after the loop except the begin block return value)
+
+**What gets removed:**
+
+- Initial `___dup` on the parameter expression
+- Per-iteration `___dup` on the reassignment RHS
+- Per-iteration `___drop` of the old value (save + drop pair)
+- Scope-exit `___drop` at end of begin block
+- Before-return `___drop` in early-exit branches
+
+**Optimized output (0 RC operations):**
+
+```c
+void traverse(Node* head) {
+    // current_opt = head (no dup)
+    while (1) {
+        if (current_opt.tag == None) {
+            return;  // no drop
+        }
+        Node* current = current_opt.Some;
+        current_opt = current->next;  // no dup, no drop of old
+    }
+    // no scope-exit drop
+}
+```
+
+This optimization is implemented in `optimizeLoopTraversalBorrowChain` in `src/evaluator/exprs/begin.ts`.

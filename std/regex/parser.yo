@@ -189,6 +189,27 @@ impl(RegexParser,
     r
   }),
 
+  // Parse \xHH hex escape — reads exactly 2 hex digits and returns the codepoint.
+  _parse_hex_byte : (fn(self : Self) -> Option(u32))({
+    if(((self._pos + usize(2)) > self._bytes.len()), { return .None; });
+    (h1 : u8) = self._bytes.get(self._pos).unwrap();
+    (h2 : u8) = self._bytes.get((self._pos + usize(1))).unwrap();
+    (v1 : i32) = cond(
+      ((h1 >= u8(48)) && (h1 <= u8(57))) => (i32(h1) - i32(48)),
+      ((h1 >= u8(65)) && (h1 <= u8(70))) => ((i32(h1) - i32(65)) + i32(10)),
+      ((h1 >= u8(97)) && (h1 <= u8(102))) => ((i32(h1) - i32(97)) + i32(10)),
+      true => { return .None; }
+    );
+    (v2 : i32) = cond(
+      ((h2 >= u8(48)) && (h2 <= u8(57))) => (i32(h2) - i32(48)),
+      ((h2 >= u8(65)) && (h2 <= u8(70))) => ((i32(h2) - i32(65)) + i32(10)),
+      ((h2 >= u8(97)) && (h2 <= u8(102))) => ((i32(h2) - i32(97)) + i32(10)),
+      true => { return .None; }
+    );
+    self._pos = (self._pos + usize(2));
+    .Some(u32(((v1 << i32(4)) | v2)))
+  }),
+
   _parse_class_escape : (fn(self : Self) -> Result(ArrayList(CharRange), String))({
     b := self._advance();
     match(b,
@@ -219,6 +240,14 @@ impl(RegexParser,
             r.push(CharRange(low: u32(33), high: u32(0x10FFFF)));
             .Ok(r)
           },
+          (ch == u8(120)) => {
+            r := ArrayList(CharRange).new();
+            match(self._parse_hex_byte(),
+              .Some(v) => r.push(CharRange(low: v, high: v)),
+              .None => r.push(CharRange(low: u32(ch), high: u32(ch)))
+            );
+            .Ok(r)
+          },
           true => {
             r := ArrayList(CharRange).new();
             codepoint := self._escape_char_codepoint(ch);
@@ -245,6 +274,31 @@ impl(RegexParser,
             cond(
               (end_first == u8(93)) => {
                 ranges.push(CharRange(low: low, high: low));
+              },
+              (end_first == u8(92)) => {
+                // High end is an escape sequence (e.g. \x20, \0, \n)
+                self._pos = (self._pos + usize(1));
+                self._pos = (self._pos + usize(1));
+                esc := self._parse_class_escape();
+                match(esc,
+                  .Ok(esc_ranges) => {
+                    if(((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high)), {
+                      (high : u32) = esc_ranges.get(usize(0)).unwrap().low;
+                      ranges.push(CharRange(low: low, high: high));
+                    }, {
+                      // Multi-range escape like \d can't be range endpoint; treat dash as literal
+                      ranges.push(CharRange(low: low, high: low));
+                      ranges.push(CharRange(low: u32(45), high: u32(45)));
+                      j := usize(0);
+                      while (j < esc_ranges.len()), (j = (j + usize(1))), {
+                        ranges.push(esc_ranges.get(j).unwrap());
+                      };
+                    });
+                  },
+                  .Err(_e) => {
+                    ranges.push(CharRange(low: low, high: low));
+                  }
+                );
               },
               true => {
                 // Consume dash
@@ -284,10 +338,16 @@ impl(RegexParser,
         esc := self._parse_class_escape();
         match(esc,
           .Ok(esc_ranges) => {
-            j := usize(0);
-            while (j < esc_ranges.len()), (j = (j + usize(1))), {
-              ranges.push(esc_ranges.get(j).unwrap());
-            };
+            // If escape produced a single codepoint, check for range (e.g. \0-\x20)
+            if(((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high)), {
+              (low : u32) = esc_ranges.get(usize(0)).unwrap().low;
+              self._try_parse_char_range(ranges, low);
+            }, {
+              j := usize(0);
+              while (j < esc_ranges.len()), (j = (j + usize(1))), {
+                ranges.push(esc_ranges.get(j).unwrap());
+              };
+            });
           },
           .Err(e) => { return .Err(e); }
         );
@@ -452,6 +512,11 @@ impl(RegexParser,
           (ch == u8(112)) => self._parse_unicode_property(false),
           // Negated unicode property \P{Name}
           (ch == u8(80)) => self._parse_unicode_property(true),
+          // Hex escape \xHH
+          (ch == u8(120)) => match(self._parse_hex_byte(),
+            .Some(v) => .Ok(RegexNode.literal(v)),
+            .None => .Ok(RegexNode.literal(u32(ch)))
+          ),
           true => .Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
         ),
       .None => .Err(`Unexpected end of pattern after backslash`)

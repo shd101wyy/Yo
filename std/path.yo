@@ -67,7 +67,7 @@ impl(Path,
     // Check if path is absolute
     // Unix: starts with '/'
     // Windows: starts with drive letter like 'C:' or UNC path '\\'
-    bytes := normalized._bytes;
+    bytes := normalized.as_bytes();
     cond(
       (bytes.len() > usize(0)) => {
         first_byte := bytes.get(usize(0));
@@ -128,7 +128,7 @@ impl(Path,
             true => {
               // Check if it's "." (current directory)
               is_dot := ((part.len() == usize(1)) && {
-                byte_opt := part._bytes.get(usize(0));
+                byte_opt := part.as_bytes().get(usize(0));
                 match(byte_opt,
                   .Some(b) => (b == u8(46)),
                   .None => false
@@ -137,8 +137,8 @@ impl(Path,
               
               // Check if it's ".." (parent directory)
               is_dotdot := ((part.len() == usize(2)) && {
-                b0_opt := part._bytes.get(usize(0));
-                b1_opt := part._bytes.get(usize(1));
+                b0_opt := part.as_bytes().get(usize(0));
+                b1_opt := part.as_bytes().get(usize(1));
                 match(b0_opt,
                   .Some(b0) => match(b1_opt,
                     .Some(b1) => ((b0 == u8(46)) && (b1 == u8(46))),
@@ -605,8 +605,8 @@ impl(Path, ToString(
             // Check if it's a drive letter like "C:"
             cond(
               (first_seg.len() == usize(2)) => {
-                b0_opt := first_seg._bytes.get(usize(0));
-                b1_opt := first_seg._bytes.get(usize(1));
+                b0_opt := first_seg.as_bytes().get(usize(0));
+                b1_opt := first_seg.as_bytes().get(usize(1));
                 match(b0_opt,
                   .Some(b0) => match(b1_opt,
                     .Some(b1) => {

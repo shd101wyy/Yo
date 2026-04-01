@@ -2412,3 +2412,63 @@ test "String into_iter - empty string", {
   };
   assert((count == usize(0)), "empty string should yield no runes");
 };
+
+
+test "Test String.with_capacity", {
+  s := String.with_capacity(usize(100));
+  assert((s.len() == usize(0)), "with_capacity should start empty");
+  assert((s.bytes_len() == usize(0)), "with_capacity bytes_len should be 0");
+};
+
+test "Test String.push_str", {
+  s := String.new();
+  s.push_str("hello");
+  s.push_str(" ");
+  s.push_str("world");
+  assert((s == `hello world`), "push_str should append correctly");
+  assert((s.bytes_len() == usize(11)), "bytes_len should be 11");
+};
+
+test "Test String.push_string", {
+  s := String.new();
+  s.push_string(`hello`);
+  s.push_string(` `);
+  s.push_string(`world`);
+  assert((s == `hello world`), "push_string should append correctly");
+};
+
+test "Test String.push_byte", {
+  s := String.new();
+  s.push_byte(u8(65)); // 'A'
+  s.push_byte(u8(66)); // 'B'
+  s.push_byte(u8(67)); // 'C'
+  assert((s == `ABC`), "push_byte should append bytes");
+  assert((s.bytes_len() == usize(3)), "bytes_len should be 3");
+};
+
+test "Test String.reserve", {
+  s := String.from("hi");
+  s.reserve(usize(100));
+  assert((s == `hi`), "reserve should not change content");
+  assert((s.bytes_len() == usize(2)), "bytes_len should still be 2 after reserve");
+};
+
+test "Test String.bytes_len", {
+  s := String.from("café");
+  assert((s.bytes_len() == usize(5)), "bytes_len of 'café' should be 5 (UTF-8)");
+
+  ascii := String.from("hello");
+  assert((ascii.bytes_len() == usize(5)), "bytes_len of ASCII should equal len");
+};
+
+test "Test String.substring", {
+  s := String.from("hello world");
+  sub := s.substring(usize(0), usize(5));
+  assert((sub == `hello`), "substring(0,5) should be 'hello'");
+
+  sub2 := s.substring(usize(6), usize(11));
+  assert((sub2 == `world`), "substring(6,11) should be 'world'");
+
+  empty := s.substring(usize(3), usize(3));
+  assert((empty == ``), "substring with equal start/end should be empty");
+};

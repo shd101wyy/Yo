@@ -3,6 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  consumeCaseBodyTempVar,
   type ControlFlowFlags,
   type Expr,
   exprIsAtom,
@@ -306,6 +307,17 @@ export function evaluateCond({
         },
         variablesToAdd: [],
       });
+
+      // Consume the case body temp var so it doesn't cause phantom drops.
+      // evaluateBeginExpression creates a temp var in the parent frame;
+      // the cond will create its own result var, so the body temp var is unused.
+      if (evaluatedCaseBodyExpr.$) {
+        const consumed = consumeCaseBodyTempVar(
+          evaluatedCaseBodyExpr,
+          evaluatedCaseBodyExpr.$.env
+        );
+        evaluatedCaseBodyExpr.$.env = consumed;
+      }
 
       if (hasAnyControlFlow(evaluatedCaseBodyExpr.$?.controlFlow)) {
         controlFlows.push(evaluatedCaseBodyExpr.$!.controlFlow!);

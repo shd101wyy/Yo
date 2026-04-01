@@ -171,6 +171,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Used to prevent the enclosing begin block from double-emitting drops for variables
   // that are only conditionally created inside || or && if-chains.
   shortCircuitHandledDropVarNames?: Set<string>;
+  // Temp variable names that have already been declared in the C output.
+  // Prevents duplicate declarations when the same sub-expression is traversed
+  // multiple times (e.g., begin block dup handling re-generating the last expr).
+  declaredTempVars?: Set<string>;
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before escape returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];

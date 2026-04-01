@@ -6,6 +6,7 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   hasAnyControlFlow,
@@ -370,6 +371,90 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
  * This ensures all async tasks complete before the program exits
  * REQUIREMENT: main function must return unit (void)
  */
+/**
+ * Emit module-level mutable variable declarations (static vars at file scope).
+ * This must run for BOTH binary and library builds so that the C symbols exist.
+ * Returns the list of vars for initialization (only used by generateMainWrapper).
+ */
+export function emitModuleLevelVariableDeclarations(
+  context: FunctionGenerationContext
+): Array<{ cVarName: string; cTypeStr: string; rhs: Expr }> {
+  const emitter = context.emitter;
+  const moduleLevelVars: Array<{
+    cVarName: string;
+    cTypeStr: string;
+    rhs: Expr;
+  }> = [];
+
+  if (
+    !context.moduleLevelInitExprs ||
+    context.moduleLevelInitExprs.length === 0
+  ) {
+    return moduleLevelVars;
+  }
+
+  for (const initExpr of context.moduleLevelInitExprs) {
+    if (!exprIsFunctionCall(initExpr) || initExpr.args.length < 2) continue;
+    const lhs = initExpr.args[0]!;
+    const rhs = initExpr.args[1]!;
+
+    // Resolve the variable name and type from LHS.
+    // For `:=`: LHS is an atom (the variable name).
+    // For `=` with binding: LHS is a `:` call where the first arg is the atom.
+    let varAtom: Expr | undefined;
+    if (exprIsAtom(lhs) && lhs.$?.type) {
+      varAtom = lhs;
+    } else if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
+      const bindingLhs = lhs.args[0]!;
+      if (exprIsAtom(bindingLhs) && bindingLhs.$?.type) {
+        varAtom = bindingLhs;
+      }
+    }
+    if (!varAtom || !varAtom.$?.type) continue;
+
+    const varName = varAtom.$?.variableName ?? varAtom.token.value;
+    const cVarName = getVariableNameForCodegen(varName, varAtom.$.env);
+    const cTypeStr = getTypeString(varAtom.$.type, context);
+
+    // Emit file-scope static declaration (no initializer)
+    emitter.emitDeclarationLine(
+      `static ${cTypeStr} ${cVarName}; // module-level mutable variable`
+    );
+
+    moduleLevelVars.push({ cVarName, cTypeStr, rhs });
+  }
+
+  return moduleLevelVars;
+}
+
+/**
+ * Generate a `__yo_module_init()` function for library builds.
+ * This initializes module-level mutable variables when the library is loaded.
+ * Must be called by the library consumer before using any library functions
+ * that depend on module-level mutable state.
+ */
+export function generateLibraryInitFunction(
+  context: FunctionGenerationContext,
+  moduleLevelVars: Array<{ cVarName: string; cTypeStr: string; rhs: Expr }>
+): void {
+  if (moduleLevelVars.length === 0) return;
+
+  const emitter = context.emitter;
+
+  emitter.emitLine(`
+// Library initialization - call before using library functions
+void __yo_module_init(void) {`);
+
+  emitter.emitLine(`  // Initialize module-level mutable variables`);
+  for (const { cVarName, rhs } of moduleLevelVars) {
+    const rhsCode = generateExpr(rhs, "  ", context);
+    emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+  }
+
+  emitter.emitLine(`}
+`);
+}
+
 export function generateMainWrapper(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
@@ -419,6 +504,46 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   __yo_async_wait_all();`
       : "";
 
+    // Collect module-level mutable variable declarations (static vars at file scope)
+    // The declarations have already been emitted by emitModuleLevelVariableDeclarations().
+    // Here we just need the list for generating initialization code inside main().
+    const moduleLevelVars: Array<{
+      cVarName: string;
+      cTypeStr: string;
+      rhs: Expr;
+    }> = [];
+    if (
+      context.moduleLevelInitExprs &&
+      context.moduleLevelInitExprs.length > 0
+    ) {
+      for (const initExpr of context.moduleLevelInitExprs) {
+        if (!exprIsFunctionCall(initExpr) || initExpr.args.length < 2) continue;
+        const lhs = initExpr.args[0]!;
+        const rhs = initExpr.args[1]!;
+
+        let varAtom: Expr | undefined;
+        if (exprIsAtom(lhs) && lhs.$?.type) {
+          varAtom = lhs;
+        } else if (
+          exprIsFunctionCall(lhs) &&
+          exprIsFunctionCallOf(lhs, ":", 2)
+        ) {
+          const bindingLhs = lhs.args[0]!;
+          if (exprIsAtom(bindingLhs) && bindingLhs.$?.type) {
+            varAtom = bindingLhs;
+          }
+        }
+        if (!varAtom || !varAtom.$?.type) continue;
+
+        const varName = varAtom.$?.variableName ?? varAtom.token.value;
+        const cVarName = getVariableNameForCodegen(varName, varAtom.$.env);
+        const cTypeStr = getTypeString(varAtom.$.type, context);
+
+        moduleLevelVars.push({ cVarName, cTypeStr, rhs });
+      }
+    }
+
+    // Emit main() header
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -426,8 +551,19 @@ int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
-  ${asyncInit}
-  // Call sync main
+  ${asyncInit}`);
+
+    // Generate module-level init code INSIDE main() so temp vars and function calls
+    // are valid C (not file-scope initializers).
+    if (moduleLevelVars.length > 0) {
+      emitter.emitLine(`  // Initialize module-level mutable variables`);
+      for (const { cVarName, rhs } of moduleLevelVars) {
+        const rhsCode = generateExpr(rhs, "  ", context);
+        emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+      }
+    }
+
+    emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}
   return 0;

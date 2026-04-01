@@ -96,6 +96,8 @@ extern "Yo",
     fn(forall(T: Type), slice: Slice(T)) -> usize,
   __yo_slice_new :
     fn(forall(T: Type), ptr: *(T), length: usize) -> Slice(T),
+  __yo_slice_ptr :
+    fn(forall(T: Type), slice: Slice(T)) -> *(T),
 
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
@@ -3196,6 +3198,9 @@ impl(forall(T : Type), Slice(T),
   ),
   len : (fn(self : Self) -> usize)(
     __yo_slice_len(self)
+  ),
+  ptr : (fn(self : Self) -> *(T))(
+    __yo_slice_ptr(self)
   )
 );
 
@@ -3209,6 +3214,9 @@ impl(str,
   ),
   len : (fn(self : Self) -> usize)(
     __yo_slice_len(self.bytes)
+  ),
+  ptr : (fn(self : Self) -> *(u8))(
+    __yo_slice_ptr(self.bytes)
   )
 );
 

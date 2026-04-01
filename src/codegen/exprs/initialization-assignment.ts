@@ -170,6 +170,14 @@ export function generateInitializationAssignment(
       ) {
         return "";
       }
+      // Module-level mutable variables are handled in generateMainWrapper.
+      // Skip them here to avoid duplicate declarations.
+      if (
+        variables.length > 0 &&
+        variables[variables.length - 1]!.isModuleLevel
+      ) {
+        return "";
+      }
     }
 
     // To check if a variable is in the state machine, we need to:

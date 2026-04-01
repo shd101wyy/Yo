@@ -1330,6 +1330,13 @@ export function generateAsyncBlockResumeFunction(
             `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
           );
 
+          // Clear declaredTempVars so re-generated condition/step expressions
+          // can re-declare their temp variables (they're in a new C scope).
+          const previousDeclaredTempVars = (
+            context as FunctionGenerationContext
+          ).declaredTempVars;
+          (context as FunctionGenerationContext).declaredTempVars = undefined;
+
           // Generate step expression (3-arg while form) before condition re-evaluation
           if (whileLoopData.stepExpr) {
             const previousInStateMachineForStep = context.inAsyncStateMachine;
@@ -1415,6 +1422,10 @@ export function generateAsyncBlockResumeFunction(
           context.inAsyncStateMachine = previousInStateMachineForCond;
           context.stateMachineVariables = previousStateMachineVariablesForCond;
           context.variableIdRemapping = previousVariableIdRemappingForCond;
+
+          // Restore declaredTempVars
+          (context as FunctionGenerationContext).declaredTempVars =
+            previousDeclaredTempVars;
 
           emitter.emitLine(`        if (!(${condCode})) {`);
           emitter.emitLine(
@@ -1736,6 +1747,13 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Re-evaluate outer while condition
+            // Clear declaredTempVars so re-generated condition/step expressions
+            // can re-declare their temp variables (they're in a new C scope).
+            const prevDeclaredTempVarsOuter = (
+              context as FunctionGenerationContext
+            ).declaredTempVars;
+            (context as FunctionGenerationContext).declaredTempVars = undefined;
+
             // Generate outer while step expression first (3-arg while form)
             if (outerWhile.stepExpr) {
               const prevInSMStep = context.inAsyncStateMachine;
@@ -1819,6 +1837,10 @@ export function generateAsyncBlockResumeFunction(
               );
               emitter.emitLine(`        }`);
             }
+
+            // Restore declaredTempVars
+            (context as FunctionGenerationContext).declaredTempVars =
+              prevDeclaredTempVarsOuter;
 
             emitter.emitLine(`      }`);
             emitter.emitLine(``);

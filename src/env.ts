@@ -203,6 +203,13 @@ export interface Variable {
    * and injected at io.spawn/io.await time via using(...).
    */
   isEffectParam?: boolean;
+
+  /**
+   * Whether this variable is a module-level mutable variable (`:=` at module scope).
+   * Module-level mutable variables are emitted as C file-scope static variables
+   * rather than function-local variables, so they can be accessed by all module functions.
+   */
+  isModuleLevel?: boolean;
 }
 
 export type WhereClauseConstraints = {
@@ -2092,6 +2099,9 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     if (variable.consumedAtToken) return false;
     if (!variable.isOwningTheRcValue) return false;
     if (!typeContainsRcType(variable.type)) return false;
+    // Module-level mutable variables have program lifetime.
+    // They are emitted as C file-scope statics and never need dropping.
+    if (variable.isModuleLevel) return false;
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.

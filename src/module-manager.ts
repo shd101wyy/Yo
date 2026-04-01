@@ -12,6 +12,7 @@ import Evaluator, {
   clearImplsFromModule,
 } from "./evaluator/index";
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
+import type { Expr } from "./expr";
 import type { ModuleValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
@@ -366,12 +367,26 @@ export class ModuleManager {
       throw new Error(`Module data not found for ${modulePath}`);
     }
 
+    // Collect module-level init exprs from ALL loaded modules (not just the main one)
+    // This is needed because imported modules may also have module-level mutable variables
+    const allModuleLevelInitExprs: Expr[] = [];
+    for (const [, modData] of this.modules) {
+      const mv = modData.moduleValue;
+      if (mv.moduleLevelInitExprs && mv.moduleLevelInitExprs.length > 0) {
+        allModuleLevelInitExprs.push(...mv.moduleLevelInitExprs);
+      }
+    }
+
     this.codeGenratorC.compileModule(modulePath, moduleValue, {
       debugGc,
       debugParallelism,
       debugAsyncAwait,
       allocator,
       isLibrary,
+      allModuleLevelInitExprs:
+        allModuleLevelInitExprs.length > 0
+          ? allModuleLevelInitExprs
+          : undefined,
     });
     if (emitC) {
       console.log(this.codeGenratorC.print());

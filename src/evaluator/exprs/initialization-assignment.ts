@@ -387,6 +387,26 @@ ${exprToString(rhs)}`,
         : actualLhs.token.value;
 
     // Create new variable
+    // Error on mutable runtime variables inside impl blocks.
+    // impl bodies should only contain :: (compile-time) definitions.
+    if (
+      !effectiveIsCompileTimeOnly &&
+      !context.isEvaluatingFunctionBodyOrAsyncBlock &&
+      context.isInsideImplBlock
+    ) {
+      throw formatErrorMessage({
+        token: actualLhs.token,
+        errorMessage: `Mutable runtime variable "${varName}" is not allowed inside an impl block.
+Use \`::\` for compile-time definitions inside impl.`,
+      });
+    }
+
+    // Mark as module-level if we're NOT inside a function body — these become
+    // C file-scope static variables accessible from all module functions.
+    const isModuleLevel =
+      !effectiveIsCompileTimeOnly &&
+      !context.isEvaluatingFunctionBodyOrAsyncBlock;
+
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -404,6 +424,7 @@ ${exprToString(rhs)}`,
         isOwningTheSameRcValueAs,
         isReassignable: !isImplicit,
         isImplicit,
+        isModuleLevel,
       },
     });
     env = nextEnv;

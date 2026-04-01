@@ -8,6 +8,8 @@
  * compatible with clang's `--target=` flag.
  */
 
+import * as fs from "fs";
+
 // ── Supported architectures ───────────────────────────────────────────
 
 export type Arch = "x86_64" | "aarch64" | "x86" | "arm" | "wasm32";
@@ -108,10 +110,29 @@ export function detectHost(): HostInfo {
 
 // ── Default ABI for a given OS ────────────────────────────────────────
 
+/**
+ * Detect whether the host Linux system uses musl libc.
+ * Checks for the musl dynamic linker in /lib, which is present on
+ * musl-based systems (Alpine Linux, etc.) but absent on glibc systems.
+ */
+function detectLinuxAbi(): "gnu" | "musl" {
+  if (process.platform !== "linux") return "gnu";
+  try {
+    const libDir = "/lib";
+    const entries = fs.readdirSync(libDir);
+    if (entries.some((e) => e.startsWith("ld-musl-"))) {
+      return "musl";
+    }
+  } catch {
+    // /lib not readable — assume glibc
+  }
+  return "gnu";
+}
+
 function defaultAbi(os: Os): Abi | undefined {
   switch (os) {
     case "linux":
-      return "gnu";
+      return detectLinuxAbi();
     case "windows":
       return "msvc";
     case "wasi":
@@ -345,6 +366,10 @@ export function isTargetEmscripten(target: TargetInfo): boolean {
 
 export function isTargetStandaloneWasi(target: TargetInfo): boolean {
   return target.os === "wasi";
+}
+
+export function isTargetMusl(target: TargetInfo): boolean {
+  return target.abi === "musl";
 }
 
 export function isTargetPosix(target: TargetInfo): boolean {

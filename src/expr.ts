@@ -730,6 +730,7 @@ export const BuiltinFunctions = {
   // Slice related functions
   __yo_slice_len: ["__yo_slice_len"],
   __yo_slice_new: ["__yo_slice_new"],
+  __yo_slice_ptr: ["__yo_slice_ptr"],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
@@ -1503,6 +1504,29 @@ function exprToPrettyString(
   return exprToCompactString(expr);
 }
 
+/**
+ * Consume the temp variable that evaluateBeginExpression attached to a
+ * match/cond case body.  The match/cond creates its own result variable, so
+ * the case-body temp var is never emitted in C.  If left unconsumed it causes
+ * a phantom drop.
+ */
+export function consumeCaseBodyTempVar(
+  evaluatedBody: Expr,
+  env: Environment
+): Environment {
+  const varName = evaluatedBody.$?.variableName;
+  if (!varName) return env;
+  if (!isTempVariableName(env.modulePath, varName)) return env;
+  const vars = getVariablesFromEnv(env, varName);
+  if (vars.length === 0) return env;
+  const v = vars[vars.length - 1]!;
+  if (v.consumedAtToken) return env;
+  return updateExistingVariable(env, v, {
+    ...v,
+    consumedAtToken: evaluatedBody.token,
+  });
+}
+
 export function attachTempVariableToExpr(
   expr: Expr,
   isOwningTheRcValue: boolean,
@@ -1589,7 +1613,6 @@ ${exprToString(expr)}`);
 
   // Create a new temp variable
   const tempVariableName = generateNewTempVariableName(modulePath);
-
   // Add temp variable to the environment at the nearest begin block frame.
   // This ensures temp variables are tracked at the begin block level and get
   // dropped when the begin block ends, not when a nested function call frame is popped.
@@ -1716,12 +1739,20 @@ export function mergeAndCheckEnvs(
           );
           if (allExtraAreTemps) {
             for (const extraVar of extraVars) {
-              frameVariables.push(extraVar);
+              // Adopted temp variables from match/cond branches must NOT be
+              // marked as owning RC values.  Only one branch runs at runtime,
+              // and each branch already handles drops for its own locals.
+              // Marking them as owning would cause a phantom drop in the
+              // parent scope for a variable that was never declared in C.
+              frameVariables.push({
+                ...extraVar,
+                isOwningTheRcValue: false,
+              });
               matrix[0]!.push({
                 consumedAtToken: undefined,
                 initializedAtToken: extraVar.initializedAtToken,
                 type: extraVar.type,
-                isOwningTheRcValue: extraVar.isOwningTheRcValue ?? false,
+                isOwningTheRcValue: false,
               });
             }
             // Update the env frame with the adopted temp variables
