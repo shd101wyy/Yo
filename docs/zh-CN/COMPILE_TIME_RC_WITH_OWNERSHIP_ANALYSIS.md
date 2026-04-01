@@ -376,6 +376,41 @@ while runtime(true), {
 - 每次迭代：`___dup(current.next)` + `___drop(旧 current_opt)`
 - 结束：`___drop(current_opt)` 清理
 
-**开销：** 每次迭代 2 次 RC 操作（dup + drop）
+**开销（优化前）：** 每次迭代 2 次 RC 操作（dup + drop）+ 1 次初始 dup + 1 次最终 drop = N 次迭代共 2N + 2 次操作。
 
-这种方式较为保守，但保证正确。第二阶段优化可以消除这些操作。
+#### 循环遍历借用链优化
+
+编译器现在能检测此遍历模式并消除**所有** RC 操作（2N + 2 → 0）。核心洞察：通过遍历变量访问的每个节点都由参数对整个数据结构的所有权保持存活。所有迭代中每个节点的净 RC 效果为零，因此移除所有 dup/drop 操作是安全的。
+
+**模式检测条件：**
+
+1. 变量从不拥有 RC 值的参数（或参数字段）初始化（`isOwningTheRcValue: false`）
+2. 在 `while`-`match` 循环中，该变量是 match 的被匹配值
+3. 在某个 match 分支中，变量被重新赋值为 match 绑定的字段（遍历步骤）
+4. 变量不会逃逸循环作用域（循环后无引用，除了 begin 块返回值）
+
+**被移除的操作：**
+
+- 参数表达式上的初始 `___dup`
+- 每次迭代重新赋值右侧的 `___dup`
+- 每次迭代旧值的 `___drop`（保存 + drop 对）
+- begin 块结束时的作用域退出 `___drop`
+- 提前返回分支中的 `___drop`
+
+**优化后输出（0 次 RC 操作）：**
+
+```c
+void traverse(Node* head) {
+    // current_opt = head（无 dup）
+    while (1) {
+        if (current_opt.tag == None) {
+            return;  // 无 drop
+        }
+        Node* current = current_opt.Some;
+        current_opt = current->next;  // 无 dup，无旧值 drop
+    }
+    // 无作用域退出 drop
+}
+```
+
+此优化实现在 `src/evaluator/exprs/begin.ts` 中的 `optimizeLoopTraversalBorrowChain` 函数。
