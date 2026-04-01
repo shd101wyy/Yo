@@ -256,11 +256,12 @@ export main;
 
 ### Example Projects
 
-| Project                                                                                                    | Description                                                                                              |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                        | Comprehensive [raylib](https://www.raylib.com/) bindings — 35 struct types, 535 functions, 227 constants |
-| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [Online Demo](http://shd101wyy.github.io/tetris_yo) | Classic Tetris game built with raylib_yo, demonstrating Yo's build system and C interop                  |
-| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                    | Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing & routing         |
+| Project                                                                                                    | Description                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                        | Comprehensive [raylib](https://www.raylib.com/) bindings — 35 struct types, 535 functions, 227 constants                                                           |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [Online Demo](http://shd101wyy.github.io/tetris_yo) | Classic Tetris game built with raylib_yo, demonstrating Yo's build system and C interop                                                                            |
+| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                    | Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing & routing                                                                   |
+| [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)                                              | Diect port of the popular JavaScript markdown parser [markdown-it](https://github.com/markdown-it/markdown-it) to Yo, showcasing string processing and performance |
 
 ## Contributing
 

@@ -256,11 +256,12 @@ export main;
 
 ### 示例项目
 
-| 项目                                                                                                    | 描述                                                                                         |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                     | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量 |
-| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [在线演示](http://shd101wyy.github.io/tetris_yo) | 使用 raylib_yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                       |
-| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                 | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                       |
+| 项目                                                                                                    | 描述                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [raylib_yo](https://github.com/shd101wyy/raylib_yo)                                                     | 全面的 [raylib](https://www.raylib.com/) bindings —— 35 个结构体类型、535 个函数、227 个常量                                              |
+| [tetris_yo](https://github.com/shd101wyy/tetris_yo) \| [在线演示](http://shd101wyy.github.io/tetris_yo) | 使用 raylib_yo 构建的经典俄罗斯方块游戏，展示 Yo 的构建系统和 C 互操作                                                                    |
+| [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                 | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                                                                    |
+| [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)                                           | 将流行的 JavaScript markdown 解析器 [markdown-it](https://github.com/markdown-it/markdown-it) 直接移植到 Yo，展示了字符串处理能力和性能。 |
 
 ## 贡献
 
