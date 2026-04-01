@@ -490,9 +490,14 @@ typedef struct __yo_io_future_t {
       for (const variant of type.variants) {
         if (variant.fields) {
           for (const field of variant.fields) {
+            // Resolve SomeType to concrete type if possible
+            let fieldType = field.type;
+            if (isSomeType(fieldType) && fieldType.resolvedConcreteType) {
+              fieldType = fieldType.resolvedConcreteType;
+            }
             // Enums by value need to be defined first
-            if (isEnumType(field.type)) {
-              const depCName = getTypeString(field.type, context);
+            if (isEnumType(fieldType)) {
+              const depCName = getTypeString(fieldType, context);
               const depTypeId = cNameToTypeId.get(depCName);
               if (
                 depTypeId &&
@@ -503,8 +508,8 @@ typedef struct __yo_io_future_t {
               }
             }
             // Newtypes (value types) need to be defined first
-            else if (isStructType(field.type) && field.type.isNewtype) {
-              const depCName = getTypeString(field.type, context);
+            else if (isStructType(fieldType) && fieldType.isNewtype) {
+              const depCName = getTypeString(fieldType, context);
               const depTypeId = cNameToTypeId.get(depCName);
               if (
                 depTypeId &&
@@ -515,8 +520,8 @@ typedef struct __yo_io_future_t {
               }
             }
             // Tuples used by value need to be defined first
-            else if (isTupleType(field.type)) {
-              const depCName = getTypeString(field.type, context);
+            else if (isTupleType(fieldType)) {
+              const depCName = getTypeString(fieldType, context);
               const depTypeId = cNameToTypeId.get(depCName);
               if (
                 depTypeId &&
@@ -528,11 +533,11 @@ typedef struct __yo_io_future_t {
             }
             // Value structs (non-object, non-newtype) used by value need to be defined first
             else if (
-              isStructType(field.type) &&
-              !field.type.isReferenceSemantics &&
-              !field.type.isNewtype
+              isStructType(fieldType) &&
+              !fieldType.isReferenceSemantics &&
+              !fieldType.isNewtype
             ) {
-              const depCName = getTypeString(field.type, context);
+              const depCName = getTypeString(fieldType, context);
               const depTypeId = cNameToTypeId.get(depCName);
               if (
                 depTypeId &&
@@ -550,9 +555,14 @@ typedef struct __yo_io_future_t {
     } else if (kind === "tuple" && isTupleType(type)) {
       // Check if tuple contains other tuples, structs, or enums by value
       for (const field of type.fields) {
+        // Resolve SomeType to concrete type if possible
+        let fieldType = field.type;
+        if (isSomeType(fieldType) && fieldType.resolvedConcreteType) {
+          fieldType = fieldType.resolvedConcreteType;
+        }
         // Nested tuples need to be defined first
-        if (isTupleType(field.type)) {
-          const depCName = getTypeString(field.type, context);
+        if (isTupleType(fieldType)) {
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&
@@ -563,8 +573,20 @@ typedef struct __yo_io_future_t {
           }
         }
         // Enums by value need to be defined first
-        else if (isEnumType(field.type)) {
-          const depCName = getTypeString(field.type, context);
+        else if (isEnumType(fieldType)) {
+          const depCName = getTypeString(fieldType, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Newtypes (value types) need to be defined first
+        else if (isStructType(fieldType) && fieldType.isNewtype) {
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&
@@ -576,11 +598,11 @@ typedef struct __yo_io_future_t {
         }
         // Value structs (non-object, non-newtype) need to be defined first
         else if (
-          isStructType(field.type) &&
-          !field.type.isReferenceSemantics &&
-          !field.type.isNewtype
+          isStructType(fieldType) &&
+          !fieldType.isReferenceSemantics &&
+          !fieldType.isNewtype
         ) {
-          const depCName = getTypeString(field.type, context);
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&
