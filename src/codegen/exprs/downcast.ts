@@ -16,6 +16,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
+import { getDupFunctionForType } from "./drop-dup";
 
 /**
  * Generate code for `downcast(dyn_value, T)`.
@@ -108,28 +109,37 @@ export function generateDowncast(
 
   if (wasBoxed) {
     // For boxed types: extract the value from the box.
-    // If the inner value is reference-counted (object type or newtype wrapping
-    // an object), we must dup it. Otherwise (simple enums, value structs) just
-    // copy the value.
+    // The box still owns its copy, so we must dup the extracted value.
     //
-    // Newtypes are typedef'd to their underlying type in C, so a newtype
-    // wrapping an object (e.g., String = newtype(ArrayList(u8))) IS a pointer
-    // and needs __yo_incr_rc even though isReferenceSemantics is false on the
-    // newtype itself.
-    let needsRcDup = isObjectType(targetType);
-    if (!needsRcDup) {
-      // Recursively unwrap newtypes to check if the underlying type is an object
+    // For object types (direct pointers), __yo_incr_rc suffices.
+    // For newtypes wrapping objects (e.g., String = newtype(Option(ArrayList(u8)))),
+    // we need the type's ___dup function to properly increment inner RC references.
+    // For simple value types (plain enums, value structs), a memcpy is fine.
+    const extractExpr = `((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}`;
+
+    // Check if the type has a ___dup function (handles newtypes, enums with RC fields, etc.)
+    const dupFnCName = getDupFunctionForType(targetType, context);
+
+    if (isObjectType(targetType)) {
+      // Direct object pointer — use __yo_incr_rc
+      castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${extractExpr}))`;
+    } else if (dupFnCName) {
+      // Type has a dup function (e.g., String, enums containing RC fields)
+      castExpr = `${dupFnCName}((${targetTypeCName})${extractExpr})`;
+    } else {
+      // Fallback: check newtypes wrapping objects
+      let needsRcDup = false;
       let unwrapped = targetType;
       while (isNewtypeType(unwrapped) && unwrapped.fields.length === 1) {
         unwrapped = unwrapped.fields[0]!.type;
       }
       needsRcDup = isObjectType(unwrapped);
-    }
 
-    if (needsRcDup) {
-      castExpr = `((${targetTypeCName})__yo_incr_rc((void*)((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}))`;
-    } else {
-      castExpr = `((${targetTypeCName})((${boxTypeCName}*)${dynCode}.data)->${boxFieldName})`;
+      if (needsRcDup) {
+        castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${extractExpr}))`;
+      } else {
+        castExpr = `((${targetTypeCName})${extractExpr})`;
+      }
     }
   } else {
     castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${dynCode}.data))`;
