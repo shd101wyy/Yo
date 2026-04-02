@@ -195,6 +195,52 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 
+## Operator traits use associated type Output
+
+All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot) use `Output` as an **associated type** in the trait body — the same pattern as the `Index` trait. The `Output` is NOT a function parameter.
+
+Binary operator traits take `Rhs` as a type parameter:
+```rust
+Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
+```
+
+Unary operator traits (Negate, BitNot) are parameterless:
+```rust
+Negate :: trait(
+  Output : Type,
+  (neg): (fn(self: Self) -> Self.Output)
+);
+```
+
+Comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`:
+```rust
+ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (+) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
+  )
+);
+```
+
+Impls must provide `Output : Type` explicitly:
+```rust
+impl(i32, Add(i32)(
+  Output : i32,
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
+));
+
+impl(i32, Negate(
+  Output : i32,
+  (neg): ((self) -> __yo_op_neg(self))
+));
+```
+
 ## Higher-Kinded Types (HKT)
 
 Yo supports HKT by using **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime functions — HKT lets you abstract over them.

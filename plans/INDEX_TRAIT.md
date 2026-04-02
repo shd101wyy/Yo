@@ -76,7 +76,8 @@ The old `arr(:)` and `arr(0:5)` colon syntax is removed.
 
 #### Operator Trait Definitions
 
-`..` and `..=` are defined inside traits (like `Add` defines `(+)`):
+`..` and `..=` are defined inside traits (like `Add` defines `(+)`).
+All operator traits (Add, Sub, etc.) use `Output` as an **associated type**, not a function parameter — same pattern as Index.
 
 ```rust
 // Trait for the `..` range operator
@@ -289,9 +290,9 @@ T* index(ArrayList_T* self, size_t idx) {
 - Migrated all tests and std library code from `:` to `..`/`..=` syntax.
 - Native Array/Slice still uses built-in indexing (not Index trait) to avoid recursion issues.
 
-### Phase 5: Remove built-in array indexing — DEFERRED
+### Phase 5: Remove built-in array indexing ✅
 
-Deferred due to recursion problem: Array/Slice are built-in types. An `impl(Array(T,N), Index(usize)(...))` body would need to access `self.*(idx)` which goes through call dispatch → Index dispatch → infinite recursion. Arrays keep built-in handling.
+Resolved via compiler builtins approach: Array/Slice Index impls use `__yo_array_index` / `__yo_slice_index` builtins that directly access elements, bypassing Index dispatch recursion. The legacy `tryToCallArrayWithArguments` function was deleted and all array/slice indexing is now unified through the Index trait.
 
 ### Phase 6: Clean up ArrayList ✅
 

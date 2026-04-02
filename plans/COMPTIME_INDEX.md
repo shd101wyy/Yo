@@ -149,9 +149,11 @@ The builtins:
 - `ComptimeRangeInclusiveOp` defined right after `RangeInclusiveOp`
 - `impl(usize, ComptimeRangeOp(...))` and `impl(usize, ComptimeRangeInclusiveOp(...))` added
 
-### Phase 2: Add builtins for Array/Slice indexing
+### Phase 2: Add builtins for Array/Slice indexing ✅ (done)
 
-6 builtins total:
+12 builtins total (6 runtime + 6 comptime):
+
+Runtime builtins:
 
 1. `__yo_array_index(self: *(Array(T,N)), idx: usize) -> *(T)`
 2. `__yo_slice_index(self: *(Slice(T)), idx: usize) -> *(T)`
@@ -160,57 +162,38 @@ The builtins:
 5. `__yo_slice_index_range(self: *(Slice(T)), range: Range(usize)) -> *(Slice(T))`
 6. `__yo_slice_index_range_inclusive(self: *(Slice(T)), range: RangeInclusive(usize)) -> *(Slice(T))`
 
-Files to modify:
+Comptime builtins (evaluator-only, no codegen): 7. `__yo_comptime_array_index(comptime self, comptime idx) -> comptime(*(T))` 8. `__yo_comptime_slice_index(comptime self, comptime idx) -> comptime(*(T))` 9. `__yo_comptime_array_index_range`, `__yo_comptime_array_index_range_inclusive` 10. `__yo_comptime_slice_index_range`, `__yo_comptime_slice_index_range_inclusive`
 
-- Evaluator: Add builtin handling (check where other builtins like `__yo_comptime_usize_add` are handled)
-- Codegen: Add C emission for each builtin
+Comptime string builtins: 11. `__yo_comptime_string_index(comptime self, comptime idx) -> comptime(*(comptime_string))` 12. `__yo_comptime_string_index_range`, `__yo_comptime_string_index_range_inclusive`
 
-### Phase 3: Add Index impls for Array and Slice in prelude.yo
+### Phase 3: Add Index/ComptimeIndex impls for Array, Slice, comptime_string ✅ (done)
 
 - `Array(T, N)`: Index(usize), Index(Range(usize)), Index(RangeInclusive(usize))
 - `Slice(T)`: Index(usize), Index(Range(usize)), Index(RangeInclusive(usize))
-- `Array(T, N)` + `where(T <: Comptime)`: ComptimeIndex(usize)
+- `Array(T, N)` + `where(T <: Comptime)`: ComptimeIndex(usize), ComptimeIndex(Range(usize)), ComptimeIndex(RangeInclusive(usize))
+- `Slice(T)` + `where(T <: Comptime)`: ComptimeIndex(usize), ComptimeIndex(Range(usize)), ComptimeIndex(RangeInclusive(usize))
+- `comptime_string`: ComptimeIndex(comptime_int), ComptimeIndex(Range(comptime_int)), ComptimeIndex(RangeInclusive(comptime_int))
 
-### Phase 4: Update evaluator dispatch
+### Phase 4: Delete tryToCallArrayWithArguments ✅ (done)
 
-1. Update `index-trait.ts` to also find `ComptimeIndex` methods
-2. When both Index and ComptimeIndex match, prefer ComptimeIndex for comptime args
-3. Incrementally remove element/range handling from `tryToCallArrayWithArguments` — keep it as fallback initially, remove once tests pass
+1. Removed `tryToCallArrayWithArguments` and the `kind: "array"` result path
+2. All array/slice indexing now goes through Index/ComptimeIndex trait dispatch
+3. Comptime builtins handle compile-time evaluation, runtime builtins handle codegen
 
-### Phase 5: Update codegen
+### Phase 5: Cleanup & Docs ✅ (done)
 
-1. Move array/slice range slicing C emission from `other-fn-call.ts` to builtin codegen handler
-2. Ensure `generateIndexTraitCall` handles range slicing through Index uniformly
-3. Range output uses C11 compound literal for `*(Slice(T))`: `&(Slice_T){...}`
+1. Updated instruction files for Index trait and slow tests
+2. Updated COMPTIME_INDEX.md and INDEX_TRAIT.md
 
-### Phase 6: Lvalue assignment via Index
+### Phase 6: Operator Trait Associated Type Migration ✅ (done)
 
-Support `arr(i) = val` syntax as sugar for `&(arr(i)).* = val`:
+Migrated all operator traits to use `Output` as an associated type (like Index), not a function parameter:
 
-1. Detect Index expression on LHS of `=` (via `isLhsOfAssignment` context flag)
-2. Skip auto-deref, write through the pointer returned by Index
-3. Codegen: emit `*index_fn(&container, idx) = val`
-4. Works for all Index impls (Array, Slice, ArrayList, HashMap, etc.)
-
-### Phase 7: Tests
-
-Add/update tests in `tests/index.test.yo`:
-
-- Array element indexing: `arr(usize(0))` → value
-- Array range slicing: `arr(usize(0)..usize(2))` → Slice
-- Array range-inclusive: `arr(usize(0)..=usize(2))` → Slice
-- Slice element indexing: `sl(usize(0))` → value
-- Slice range slicing: same patterns
-- Mutation: `&(arr(usize(0))).* = val`
-- ComptimeIndex: `comptime_assert((arr(usize(0)) == i32(10)), "...")`
-- Comptime range: `r :: (usize(1)..usize(5)); comptime_assert((r.start == usize(1)), "...")`
-
-### Phase 7: Cleanup & Docs
-
-1. Remove redundant code from `tryToCallArrayWithArguments` and codegen
-2. Update `plans/INDEX_TRAIT.md` Phase 5 status
-3. Update `docs/en-US/INDEX_TRAIT.md` and `docs/zh-CN/INDEX_TRAIT.md`
-4. Update copilot instruction/rule files
+- 26 trait definitions updated (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot + Comptime variants)
+- ~380 impls updated with explicit `Output : Type`
+- Negate/BitNot became parameterless traits
+- Fixed ComptimeIndex to constrain `Self.Output <: Comptime`
+- All comptime variants now constrain `Self.Output <: Comptime`
 
 ## Notes
 
