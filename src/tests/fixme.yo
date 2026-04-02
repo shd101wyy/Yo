@@ -1,13 +1,36 @@
 open import "std/fmt";
-open import "std/string";
+
+get_element :: (fn(arr: [i32; 3], idx: usize) -> i32)(
+  arr(idx)
+);
+
+sum_slice :: (fn(sl: Slice(i32)) -> i32)({
+  result := i32(0);
+  i := usize(0);
+  while (i < sl.len()), (i = (i + usize(1))), {
+    result = (result + sl(i));
+  };
+  result
+});
 
 main :: (fn() -> unit)({
-  (s : String) = `Hello`;
+  arr := [i32; 3](i32(10), i32(20), i32(30));
 
-  assert((s(usize(0)) == u8(72)), "s(0) should be 'H' (72)");
-  assert((s(usize(1)) == u8(101)), "s(1) should be 'e' (101)");
-  assert((s(usize(4)) == u8(111)), "s(4) should be 'o' (111)");
+  // Test runtime array indexing through function parameter
+  (v0 : i32) = get_element(arr, usize(0));
+  assert((v0 == i32(10)), "get_element(0) should be 10");
+  (v2 : i32) = get_element(arr, usize(2));
+  assert((v2 == i32(30)), "get_element(2) should be 30");
 
-  println(`String Index works!`);
+  // Test runtime slice indexing
+  (sl : Slice(i32)) = arr(usize(0)..usize(3));
+  (s : i32) = sum_slice(sl);
+  assert((s == i32(60)), "sum should be 60");
+
+  // Test lvalue assignment on runtime array
+  arr(usize(1)) = i32(99);
+  assert((arr(usize(1)) == i32(99)), "arr(1) should be 99");
+
+  println(`All tests pass!`);
 });
 export main;

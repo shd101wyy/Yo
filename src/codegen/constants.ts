@@ -59,6 +59,14 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_maybe_uninit_as_ptr,
   ...BuiltinFunctions.__yo_maybe_uninit_assume_init,
 
+  // Array/Slice indexing
+  ...BuiltinFunctions.__yo_array_index,
+  ...BuiltinFunctions.__yo_slice_index,
+  ...BuiltinFunctions.__yo_array_index_range,
+  ...BuiltinFunctions.__yo_array_index_range_inclusive,
+  ...BuiltinFunctions.__yo_slice_index_range,
+  ...BuiltinFunctions.__yo_slice_index_range_inclusive,
+
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self

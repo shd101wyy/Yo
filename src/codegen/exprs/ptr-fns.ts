@@ -1,4 +1,5 @@
 import {
+  BuiltinFunctions,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -15,6 +16,7 @@ import {
 import {
   type CodeGenContext,
   getTypeString,
+  isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
@@ -130,14 +132,28 @@ export function generateAddressOf(
   ) {
     const methodValue = arg.$.indexMethodValue;
     if (isFunctionValue(methodValue)) {
+      const calleeExpr = arg.func!;
+      const calleeCode = generateExpr(calleeExpr, indent, context);
+      const indexArg = arg.args[0];
+      const indexCode = indexArg
+        ? generateExpr(indexArg, indent, context)
+        : "0";
+
+      // Inline builtin body if possible
+      const inlineOp =
+        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(methodValue);
+      if (inlineOp) {
+        if (
+          BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
+          BuiltinFunctions.__yo_slice_index.includes(inlineOp)
+        ) {
+          return `(&((&${calleeCode})->data[${indexCode}]))`;
+        }
+      }
+
+      // Fallback to function call
       const cFuncName = context.functions[methodValue.funcId]?.cName;
       if (cFuncName) {
-        const calleeExpr = arg.func!;
-        const calleeCode = generateExpr(calleeExpr, indent, context);
-        const indexArg = arg.args[0];
-        const indexCode = indexArg
-          ? generateExpr(indexArg, indent, context)
-          : "0";
         return `${cFuncName}(&${calleeCode}, ${indexCode})`;
       }
     }

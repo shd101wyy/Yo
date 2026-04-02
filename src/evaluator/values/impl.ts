@@ -336,6 +336,30 @@ function extractTraitTypeArgsFromImplExpr({
       }
     }
 
+    // Also extract associated type field expressions from the impl body.
+    // For Index(usize)(Output : T, index : ...), the impl body args are
+    // traitExpr.args = [Output : T, index : ...]. We extract labeled
+    // non-function fields (associated types like Output) so they can be
+    // re-evaluated with concrete substitutions alongside the trait's
+    // function parameter args.
+    if (traitFunctionParamNames) {
+      for (const arg of traitExpr.args) {
+        if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+          const labelExpr = arg.args[0]!;
+          const valueExpr = arg.args[1]!;
+
+          if (exprIsAtom(labelExpr)) {
+            const label = labelExpr.token.value;
+            const field = traitType.fields.find((f) => f.label === label);
+            if (field && !isFunctionType(field.type)) {
+              traitTypeArgExprs.push(cloneExpr(valueExpr));
+              traitFunctionParamNames.push(label);
+            }
+          }
+        }
+      }
+    }
+
     return { traitTypeArgExprs, traitFunctionParamNames };
   }
 

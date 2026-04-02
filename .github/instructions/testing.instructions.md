@@ -62,6 +62,14 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 - Format check: `bun run format`
 - Fix lint/format issues before committing.
 
+## Slow test files
+
+Some test files contain hundreds of tests and take a very long time to compile and run:
+- `tests/string/string.test.yo` — 246 tests, ~8 minutes
+- Other large test files may take several minutes
+
+When running these, use longer timeouts and expect extended wait times. For quick iteration, use `--test-name-pattern` to run individual tests instead of the entire file.
+
 ## WASM testing
 
 - Run a test on Emscripten: `./yo-cli test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)

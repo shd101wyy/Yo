@@ -1382,8 +1382,47 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             // slice
             isSliceType(functionToCall.type)
           ) {
+            const functionToCallValue = functionToCall.value;
+            const hasComptimeValue =
+              isArrayValue(functionToCallValue) ||
+              isSliceValue(functionToCallValue);
+
+            // For runtime arrays/slices, route through Index trait dispatch.
+            // This unifies all indexing under the Index trait.
+            // Keep the built-in path for comptime arrays/slices (provides
+            // bounds checking, value extraction, arrayElementRef for mutation).
+            if (
+              !hasComptimeValue &&
+              hasIndexImpl({
+                concreteType: functionToCall.type,
+                argExprs: argsToUse,
+                callerEnv: env,
+                _context: context,
+              })
+            ) {
+              try {
+                const result = tryToCallWithIndexTrait({
+                  expr,
+                  valueType: functionToCall.type,
+                  argExprs: argsToUse,
+                  callerEnv: env,
+                  context: { ...context },
+                });
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "index",
+                    result,
+                  },
+                };
+              } catch {
+                // Index dispatch failed (e.g., generic Slice(T) where T is
+                // a type parameter). Fall through to the built-in path.
+              }
+            }
+
+            // Built-in array/slice path: comptime evaluation or fallback
             try {
-              const functionToCallValue = functionToCall.value;
               const arrayValue = isArrayValue(functionToCallValue)
                 ? functionToCallValue
                 : undefined;

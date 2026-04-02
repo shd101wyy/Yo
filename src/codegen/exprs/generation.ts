@@ -29,6 +29,7 @@ import {
   isEffectsRowType,
   isFunctionType,
   isModuleType,
+  isPtrType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
@@ -47,6 +48,7 @@ import {
   type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
+  isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import {
@@ -161,11 +163,6 @@ function generateIndexTraitCall(
     return `/* Error: Index trait method value missing */`;
   }
 
-  const cFuncName = context.functions[methodValue.funcId]?.cName;
-  if (!cFuncName) {
-    return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
-  }
-
   // Generate &callee (address-of the receiver)
   const calleeExpr = expr.func!;
   const calleeCode = generateExpr(calleeExpr, indent, context);
@@ -174,8 +171,61 @@ function generateIndexTraitCall(
   const indexArg = expr.args[0];
   const indexCode = indexArg ? generateExpr(indexArg, indent, context) : "0";
 
-  // Call the index method: index_fn(&callee, index_arg)
-  const callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+  // Determine the call code: inline builtin body or call the specialized function
+  let callCode: string;
+  const inlineOp =
+    isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(methodValue);
+  if (inlineOp) {
+    // Inline the builtin expansion directly at the call site.
+    // This avoids generating a standalone C function for the specialized method.
+    // Element index: __yo_array_index / __yo_slice_index → &(self->data[idx])
+    if (
+      BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
+      BuiltinFunctions.__yo_slice_index.includes(inlineOp)
+    ) {
+      callCode = `(&((&${calleeCode})->data[${indexCode}]))`;
+    }
+    // Range index: produce compound literal *(Slice(T))
+    else if (
+      (BuiltinFunctions.__yo_array_index_range.includes(inlineOp) ||
+        BuiltinFunctions.__yo_slice_index_range.includes(inlineOp)) &&
+      expr.$?.indexTraitPtrType &&
+      isPtrType(expr.$.indexTraitPtrType)
+    ) {
+      const sliceCType = getTypeString(
+        expr.$.indexTraitPtrType.childType,
+        context
+      );
+      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start })`;
+    }
+    // Range inclusive index
+    else if (
+      (BuiltinFunctions.__yo_array_index_range_inclusive.includes(inlineOp) ||
+        BuiltinFunctions.__yo_slice_index_range_inclusive.includes(inlineOp)) &&
+      expr.$?.indexTraitPtrType &&
+      isPtrType(expr.$.indexTraitPtrType)
+    ) {
+      const sliceCType = getTypeString(
+        expr.$.indexTraitPtrType.childType,
+        context
+      );
+      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start + 1 })`;
+    } else {
+      // Fallback: call the function by name
+      const cFuncName = context.functions[methodValue.funcId]?.cName;
+      if (!cFuncName) {
+        return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
+      }
+      callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+    }
+  } else {
+    // Non-inline method: call the specialized function by name
+    const cFuncName = context.functions[methodValue.funcId]?.cName;
+    if (!cFuncName) {
+      return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
+    }
+    callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+  }
 
   // Deref unless this is an &(value(i)) expression
   if (expr.$?.isIndexTraitAddressOf) {

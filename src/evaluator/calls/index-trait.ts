@@ -3,7 +3,12 @@ import { formatErrorMessage } from "../../error";
 import { type Expr, exprToString, type FnCallExpr } from "../../expr";
 import type { FunctionType, TraitType, Type } from "../../types/definitions";
 import { areTypesCompatible } from "../../types/compatibility";
-import { isFunctionType, isPtrType } from "../../types/guards";
+import {
+  isArrayType,
+  isFunctionType,
+  isPtrType,
+  isSliceType,
+} from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import type { Value } from "../../value";
 import {
@@ -234,8 +239,19 @@ export function hasIndexImpl({
     return false;
   }
 
-  // Check if there are any "index" methods at all
-  const methods = findAllIndexMethods({ concreteType, env: callerEnv });
+  // Fast path: Array and Slice always have Index impls (defined in prelude)
+  if (isArrayType(concreteType) || isSliceType(concreteType)) {
+    return true;
+  }
 
-  return methods.length > 0;
+  // Check if there are any "index" methods at all.
+  // Wrap in try/catch because findMethodsFromGenericImpls may fail during
+  // specialization (e.g., Self.Output resolution fails for built-in types
+  // whose Index impl hasn't been attached yet).
+  try {
+    const methods = findAllIndexMethods({ concreteType, env: callerEnv });
+    return methods.length > 0;
+  } catch {
+    return false;
+  }
 }

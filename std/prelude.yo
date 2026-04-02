@@ -99,6 +99,12 @@ extern "Yo",
   __yo_slice_ptr :
     fn(forall(T: Type), slice: Slice(T)) -> *(T),
 
+  // array/slice indexing builtins (used by Index trait impls)
+  __yo_array_index :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: usize) -> *(T),
+  __yo_slice_index :
+    fn(forall(T: Type), self: *(Slice(T)), idx: usize) -> *(T),
+
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
   __yo_c_macro_value : (fn(comptime(name) : comptime_string) -> comptime(comptime_string)),
@@ -188,6 +194,15 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 export Index;
 
+ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(comptime(self): *(Self), comptime(idx): Idx) -> comptime(*(Self.Output))),
+    where(Self <: Comptime)
+  )
+);
+export ComptimeIndex;
+
 /// === Range Types ===
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
@@ -209,6 +224,30 @@ RangeInclusiveOp :: trait(
   (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
 );
 export RangeInclusiveOp;
+
+// array/slice range indexing builtins (declared after Range/RangeInclusive types)
+extern "Yo",
+  __yo_array_index_range :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: Range(usize)) -> *(Slice(T)),
+  __yo_array_index_range_inclusive :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: RangeInclusive(usize)) -> *(Slice(T)),
+  __yo_slice_index_range :
+    fn(forall(T: Type), self: *(Slice(T)), idx: Range(usize)) -> *(Slice(T)),
+  __yo_slice_index_range_inclusive :
+    fn(forall(T: Type), self: *(Slice(T)), idx: RangeInclusive(usize)) -> *(Slice(T))
+;
+
+ComptimeRangeOp :: trait(
+  (..) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(Range(Self))),
+  where(Self <: Comptime)
+);
+export ComptimeRangeOp;
+
+ComptimeRangeInclusiveOp :: trait(
+  (..=) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(RangeInclusive(Self))),
+  where(Self <: Comptime)
+);
+export ComptimeRangeInclusiveOp;
 
 /// === Arithmetic ===
 Add :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
@@ -2497,6 +2536,12 @@ impl(usize, RangeOp(
 impl(usize, RangeInclusiveOp(
   (..=): ((start, end) -> RangeInclusive(usize)(start: start, end: end))
 ));
+impl(usize, ComptimeRangeOp(
+  (..): ((start, end) -> Range(usize)(start: start, end: end))
+));
+impl(usize, ComptimeRangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(usize)(start: start, end: end))
+));
 impl(usize, ComptimeAdd(usize)(
   (+) : ((lhs, rhs) ->
     __yo_comptime_usize_add(lhs, rhs)
@@ -3225,6 +3270,28 @@ impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U),
   })
 );
 
+/// Array Index impls
+impl(forall(T : Type, N : usize), Array(T, N), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    __yo_array_index(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), Array(T, N), Index(Range(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
+    __yo_array_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), Array(T, N), Index(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
+    __yo_array_index_range_inclusive(self, idx)
+  )
+));
+
 /// Slice
 impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
@@ -3248,6 +3315,28 @@ impl(forall(T : Type), Slice(T),
     __yo_slice_ptr(self)
   )
 );
+
+/// Slice Index impls
+impl(forall(T : Type), Slice(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    __yo_slice_index(self, idx)
+  )
+));
+
+impl(forall(T : Type), Slice(T), Index(Range(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
+    __yo_slice_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type), Slice(T), Index(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
+    __yo_slice_index_range_inclusive(self, idx)
+  )
+));
 
 /// str
 str :: newtype(

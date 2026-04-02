@@ -1,4 +1,5 @@
 import type { Environment } from "../../env";
+import { getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
@@ -531,6 +532,32 @@ export function evaluatePropertyAccess({
           };
           propertyExpr.$ = expr.$;
           return expr;
+        }
+
+        // During generic impl specialization, the associated type (e.g., Output)
+        // may already be bound in the env. Check there first, because
+        // findAssociatedTypeFromGenericImpls is ambiguous when multiple impls
+        // of the same trait exist with different associated types (e.g.,
+        // Index(usize) with Output=T vs Index(Range(usize)) with Output=Slice(T)).
+        if (
+          (context as unknown as Record<string, unknown>)
+            .isEvaluatingGenericImplSpecialization
+        ) {
+          const vars = getVariablesFromEnv(env, propertyName);
+          if (vars.length > 0) {
+            const v = vars[vars.length - 1]!;
+            if (v.value && v.value.length > 0 && isTypeValue(v.value[0])) {
+              expr.$ = {
+                env,
+                type: v.value[0].type,
+                value: v.value[0],
+                pathCollection: [],
+                isAccessingProperty: true,
+              };
+              propertyExpr.$ = expr.$;
+              return expr;
+            }
+          }
         }
 
         // Check for associated types from generic impls (e.g., Self.Item from Iterator(T))

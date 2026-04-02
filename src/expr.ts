@@ -753,6 +753,14 @@ export const BuiltinFunctions = {
   __yo_slice_new: ["__yo_slice_new"],
   __yo_slice_ptr: ["__yo_slice_ptr"],
 
+  // Array/Slice indexing builtins (used by Index trait impls)
+  __yo_array_index: ["__yo_array_index"],
+  __yo_slice_index: ["__yo_slice_index"],
+  __yo_array_index_range: ["__yo_array_index_range"],
+  __yo_array_index_range_inclusive: ["__yo_array_index_range_inclusive"],
+  __yo_slice_index_range: ["__yo_slice_index_range"],
+  __yo_slice_index_range_inclusive: ["__yo_slice_index_range_inclusive"],
+
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
