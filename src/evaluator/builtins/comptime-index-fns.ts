@@ -7,8 +7,14 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { Token } from "../../token";
-import { createSliceType } from "../../types/creators";
-import type { ArrayType, SliceType } from "../../types/definitions";
+import { createPtrType, createSliceType } from "../../types/creators";
+import type {
+  ArrayType,
+  PtrType,
+  SliceType,
+  Type,
+} from "../../types/definitions";
+import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
 import {
   createComptimeStringValue,
   createSliceValue,
@@ -172,7 +178,9 @@ function evaluateComptimeElementIndex({
   }
 
   // Self is not a known comptime value (e.g., during generic impl evaluation)
-  const fallbackType = evaluatedSelf.$.type;
+  // Compute correct return type: element type for element indexing
+  const selfType = evaluatedSelf.$.type;
+  const fallbackType = computeElementReturnType(selfType);
   expr.$ = {
     env,
     type: fallbackType,
@@ -180,6 +188,30 @@ function evaluateComptimeElementIndex({
     pathCollection: [],
   };
   return expr;
+}
+
+/**
+ * Compute the correct return type for element indexing.
+ * For *(Array(T, N)) or *(Slice(T)), returns *(T) (element pointer).
+ * Falls back to the input type if it can't be determined.
+ */
+function computeElementReturnType(selfType: Type): Type {
+  if (isPtrType(selfType)) {
+    const pointee = (selfType as PtrType).childType;
+    if (isArrayType(pointee)) {
+      return createPtrType((pointee as ArrayType).childType);
+    }
+    if (isSliceType(pointee)) {
+      return createPtrType((pointee as SliceType).childType);
+    }
+  }
+  if (isArrayType(selfType)) {
+    return createPtrType((selfType as ArrayType).childType);
+  }
+  if (isSliceType(selfType)) {
+    return createPtrType((selfType as SliceType).childType);
+  }
+  return selfType;
 }
 
 /**
@@ -236,11 +268,19 @@ function evaluateComptimeRangeIndex({
   const selfValue = evaluatedSelf.$.value;
   const rangeValue = evaluatedIdx.$.value;
 
-  if (!rangeValue || !isStructValue(rangeValue)) {
-    throw formatErrorMessage({
-      token: idxExpr.token,
-      errorMessage: `Expected comptime Range value for comptime range index`,
-    });
+  // Range value is not a known comptime struct (e.g., runtime range, or
+  // UnknownValue during generic impl specialization) — return fallback
+  // The return type for range indexing is always *(Slice(childType))
+  if (!rangeValue || isUnknownValue(rangeValue) || !isStructValue(rangeValue)) {
+    const selfType = evaluatedSelf.$.type;
+    const fallbackType = computeRangeReturnType(selfType);
+    expr.$ = {
+      env,
+      type: fallbackType,
+      value: undefined,
+      pathCollection: [],
+    };
+    return expr;
   }
 
   const indices = extractRangeIndices(rangeValue, isInclusive);
@@ -324,7 +364,9 @@ function evaluateComptimeRangeIndex({
   }
 
   // Self is not a known comptime value (e.g., during generic impl evaluation)
-  const fallbackType = evaluatedSelf.$.type;
+  // For range indexing, return *(Slice(childType))
+  const selfType = evaluatedSelf.$.type;
+  const fallbackType = computeRangeReturnType(selfType);
   expr.$ = {
     env,
     type: fallbackType,
@@ -332,6 +374,35 @@ function evaluateComptimeRangeIndex({
     pathCollection: [],
   };
   return expr;
+}
+
+/**
+ * Compute the correct return type for range indexing.
+ * For *(Array(T, N)) or *(Slice(T)), returns *(Slice(T)).
+ * Falls back to the input type if it can't be determined.
+ */
+function computeRangeReturnType(selfType: Type): Type {
+  // Self is a pointer to array or slice: *(Array(T,N)) or *(Slice(T))
+  if (isPtrType(selfType)) {
+    const pointee = (selfType as PtrType).childType;
+    if (isArrayType(pointee)) {
+      const elementType = (pointee as ArrayType).childType;
+      return createPtrType(createSliceType(elementType));
+    }
+    if (isSliceType(pointee)) {
+      // Slice range index returns same slice type
+      return selfType;
+    }
+  }
+  // Array or slice directly (without pointer wrapper)
+  if (isArrayType(selfType)) {
+    const elementType = (selfType as ArrayType).childType;
+    return createPtrType(createSliceType(elementType));
+  }
+  if (isSliceType(selfType)) {
+    return createPtrType(selfType);
+  }
+  return selfType;
 }
 
 /**
@@ -401,11 +472,19 @@ function evaluateComptimeStringIndex({
   if (!isRange) {
     // Single character index
     const idxValue = evaluatedIdx.$.value;
-    if (!idxValue || !isComptimeIntValue(idxValue)) {
-      throw formatErrorMessage({
-        token: idxExpr.token,
-        errorMessage: `Expected comptime_int index for comptime string index`,
-      });
+    if (
+      !idxValue ||
+      isUnknownValue(idxValue) ||
+      !isComptimeIntValue(idxValue)
+    ) {
+      // Runtime or unknown index — return placeholder
+      expr.$ = {
+        env,
+        type: resultType,
+        value: undefined,
+        pathCollection: [],
+      };
+      return expr;
     }
 
     const index = extractIndex(idxValue.value);
@@ -427,11 +506,15 @@ function evaluateComptimeStringIndex({
 
   // Range index
   const rangeValue = evaluatedIdx.$.value;
-  if (!rangeValue || !isStructValue(rangeValue)) {
-    throw formatErrorMessage({
-      token: idxExpr.token,
-      errorMessage: `Expected comptime Range value for comptime string range index`,
-    });
+  if (!rangeValue || isUnknownValue(rangeValue) || !isStructValue(rangeValue)) {
+    // Runtime or unknown range value — return placeholder
+    expr.$ = {
+      env,
+      type: resultType,
+      value: undefined,
+      pathCollection: [],
+    };
+    return expr;
   }
 
   const indices = extractRangeIndices(rangeValue, isInclusive);

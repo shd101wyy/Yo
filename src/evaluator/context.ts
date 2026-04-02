@@ -309,42 +309,6 @@ export interface TraitSpecializationResult {
   callerEnv: Environment;
 }
 
-export interface ArrayCallResult {
-  /**
-   * The value by index from the array value.
-   */
-  value: Value | undefined;
-
-  /**
-   * The index used to access the array, if it's compile-time known.
-   */
-  index?: number;
-
-  /**
-   * For compile-time arrays, this stores a reference to the ArrayValue and index.
-   * This allows taking the address of an array element: p :: &(arr(0))
-   */
-  arrayElementRef?: {
-    arrayValue: ArrayValue;
-    index: number;
-  };
-
-  /**
-   * Type of the return value.
-   * It might be the childType of the array or slice:
-   * - arr(3)
-   *
-   * Or it might be a slice type if the user calls a slice method:
-   * - arr(3:5)
-   */
-  type: Type;
-
-  /**
-   * The caller environment.
-   */
-  callerEnv: Environment;
-}
-
 export interface MacroFunctionCallResult {
   calleeEnv: Environment;
   callerEnv: Environment;
@@ -380,8 +344,9 @@ export interface IndexCallResult {
 
   /**
    * The specialized function type of the index method.
+   * May be undefined for comptime array/slice element access.
    */
-  indexMethodType: FunctionType;
+  indexMethodType: FunctionType | undefined;
 
   /**
    * The specialized function value of the index method (may be undefined for runtime dispatch).
@@ -392,6 +357,22 @@ export interface IndexCallResult {
    * The caller environment after evaluating the argument.
    */
   callerEnv: Environment;
+
+  /**
+   * The compile-time index, if known. Used for building pathCollection
+   * to support array element assignment (arr(0) = val).
+   */
+  index?: number;
+
+  /**
+   * For compile-time arrays, stores a reference to the ArrayValue and index.
+   * Used by assignment.ts for compile-time array mutation and by ptr-fns.ts
+   * for &(arr(0)) pointer creation.
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
 }
 
 export interface FunctionToCall {
@@ -470,15 +451,6 @@ export interface FunctionToCall {
          */
         kind: "trait-specialization";
         result: TraitSpecializationResult;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   tryToCallArrayWithArguments
-         */
-        kind: "array";
-        result: ArrayCallResult;
       }
     | {
         /**
@@ -565,15 +537,6 @@ export function getTraitTypeCallResult(
 ): TraitTypeCallResult {
   if (functionToCall.result.kind !== "trait-type") {
     throw new Error("Expected trait type call result");
-  }
-  return functionToCall.result.result;
-}
-
-export function getArrayCallResult(
-  functionToCall: FunctionToCall
-): ArrayCallResult {
-  if (functionToCall.result.kind !== "array") {
-    throw new Error("Expected array call result");
   }
   return functionToCall.result.result;
 }
