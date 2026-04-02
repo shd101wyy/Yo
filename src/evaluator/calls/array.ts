@@ -2,8 +2,6 @@ import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   type Expr,
-  exprIsAtom,
-  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -58,214 +56,171 @@ export function tryToCallArrayWithArguments({
   }
 
   // getting the slice
-  // - arr(:)
-  // - arr(0:arr.length)
+  // - arr(start..end)     — exclusive range slicing
+  // - arr(start..=end)    — inclusive range slicing
   if (
-    (exprIsAtom(expr.args[0]!) && exprIsAtomOf(expr.args[0]!, ":")) ||
-    (exprIsFunctionCall(expr.args[0]!) &&
-      exprIsFunctionCallOf(expr.args[0]!, ":"))
+    exprIsFunctionCall(expr.args[0]!) &&
+    (exprIsFunctionCallOf(expr.args[0]!, "..") ||
+      exprIsFunctionCallOf(expr.args[0]!, "..="))
   ) {
+    const isInclusive = exprIsFunctionCallOf(expr.args[0]!, "..=");
     const sliceType = createSliceType(arrayType.childType);
+    const startExpr = expr.args[0]!.args[0]!;
+    const endExpr = expr.args[0]!.args[1]!;
 
-    if (exprIsAtom(expr.args[0]!)) {
-      // arr(:) - full slice
-      if (arrayValue) {
-        // Compile-time slice from array - create SliceValue referencing the full array
-        const newSliceValue = createSliceValue(
-          sliceType,
-          [arrayValue],
-          0,
-          arrayValue.elements.length
-        );
-        return {
-          value: newSliceValue,
-          type: sliceType,
-          callerEnv,
-        };
-      } else if (sliceValue) {
-        // Compile-time slice from slice - keep the same source array reference
-        // s(:) on a slice returns the full slice
-        return {
-          value: sliceValue,
-          type: sliceType,
-          callerEnv,
-        };
-      }
-      return {
-        value: undefined,
-        type: sliceType,
-        callerEnv,
-      };
-    } else {
-      const startExpr = expr.args[0]!.args[0]!;
-      const endExpr = expr.args[0]!.args[1]!;
-
-      // Evaluate the start and end expressions
-      const evaluatedStartExpr = evaluateExpression({
-        expr: startExpr,
-        env: callerEnv,
-        context: {
-          ...context,
-          expectedType: { type: createUsizeType(), env: callerEnv },
-        },
+    // Evaluate the start and end expressions
+    const evaluatedStartExpr = evaluateExpression({
+      expr: startExpr,
+      env: callerEnv,
+      context: {
+        ...context,
+        expectedType: { type: createUsizeType(), env: callerEnv },
+      },
+    });
+    if (!evaluatedStartExpr.$) {
+      throw formatErrorMessage({
+        token: startExpr.token,
+        errorMessage: `Failed to evaluate start expression:\n${exprToString(startExpr)}`,
       });
-      if (!evaluatedStartExpr.$) {
+    }
+    callerEnv = evaluatedStartExpr.$.env;
+
+    const startType = evaluatedStartExpr.$.type;
+    if (
+      !areTypesCompatible(
+        { type: createUsizeType(), env: callerEnv },
+        { type: startType, env: callerEnv }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: startExpr.token,
+        errorMessage: `Expected usize for slice start index, got:\n${typeToString(startType)}`,
+      });
+    }
+
+    const evaluatedEndExpr = evaluateExpression({
+      expr: endExpr,
+      env: callerEnv,
+      context: {
+        ...context,
+        expectedType: { type: createUsizeType(), env: callerEnv },
+      },
+    });
+    if (!evaluatedEndExpr.$) {
+      throw formatErrorMessage({
+        token: endExpr.token,
+        errorMessage: `Failed to evaluate end expression:\n${exprToString(endExpr)}`,
+      });
+    }
+    callerEnv = evaluatedEndExpr.$.env;
+
+    const endType = evaluatedEndExpr.$.type;
+    if (
+      !areTypesCompatible(
+        { type: createUsizeType(), env: callerEnv },
+        { type: endType, env: callerEnv }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: endExpr.token,
+        errorMessage: `Expected usize for slice end index, got:\n${typeToString(endType)}`,
+      });
+    }
+
+    // Check if we can create a compile-time slice from an array
+    if (
+      arrayValue &&
+      isNumberValue(evaluatedStartExpr.$.value) &&
+      isNumberValue(evaluatedEndExpr.$.value)
+    ) {
+      const startValue = evaluatedStartExpr.$.value.value;
+      const endValue = evaluatedEndExpr.$.value.value;
+      const startIndex =
+        typeof startValue === "bigint" ? Number(startValue) : startValue;
+      // For ..= (inclusive), add 1 to get exclusive end
+      const endIndex =
+        (typeof endValue === "bigint" ? Number(endValue) : endValue) +
+        (isInclusive ? 1 : 0);
+
+      // Bounds checking
+      if (startIndex < 0 || startIndex > arrayValue.elements.length) {
         throw formatErrorMessage({
           token: startExpr.token,
-          errorMessage: `Failed to evaluate start expression:\n${exprToString(startExpr)}`,
+          errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
         });
       }
-      callerEnv = evaluatedStartExpr.$.env;
-
-      /// Expect the start expression to be usize
-      const startType = evaluatedStartExpr.$.type;
-      if (
-        !areTypesCompatible(
-          {
-            type: createUsizeType(),
-            env: callerEnv,
-          },
-          {
-            type: startType,
-            env: callerEnv,
-          }
-        )
-      ) {
-        throw formatErrorMessage({
-          token: startExpr.token,
-          errorMessage: `Expected usize for array start index, got:\n${typeToString(startType)}`,
-        });
-      }
-
-      const evaluatedEndExpr = evaluateExpression({
-        expr: endExpr,
-        env: callerEnv,
-        context: {
-          ...context,
-          expectedType: { type: createUsizeType(), env: callerEnv },
-        },
-      });
-      if (!evaluatedEndExpr.$) {
+      if (endIndex < startIndex || endIndex > arrayValue.elements.length) {
         throw formatErrorMessage({
           token: endExpr.token,
-          errorMessage: `Failed to evaluate end expression:\n${exprToString(endExpr)}`,
-        });
-      }
-      callerEnv = evaluatedEndExpr.$.env;
-
-      /// Expect the end expression to be usize
-      const endType = evaluatedEndExpr.$.type;
-      if (
-        !areTypesCompatible(
-          {
-            type: createUsizeType(),
-            env: callerEnv,
-          },
-          {
-            type: endType,
-            env: callerEnv,
-          }
-        )
-      ) {
-        throw formatErrorMessage({
-          token: endExpr.token,
-          errorMessage: `Expected usize for array end index, got:\n${typeToString(endType)}`,
+          errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
         });
       }
 
-      // Check if we can create a compile-time slice from an array
-      if (
-        arrayValue &&
-        isNumberValue(evaluatedStartExpr.$.value) &&
-        isNumberValue(evaluatedEndExpr.$.value)
-      ) {
-        const startValue = evaluatedStartExpr.$.value.value;
-        const endValue = evaluatedEndExpr.$.value.value;
-        const startIndex =
-          typeof startValue === "bigint" ? Number(startValue) : startValue;
-        const endIndex =
-          typeof endValue === "bigint" ? Number(endValue) : endValue;
-
-        // Bounds checking
-        if (startIndex < 0 || startIndex > arrayValue.elements.length) {
-          throw formatErrorMessage({
-            token: startExpr.token,
-            errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
-          });
-        }
-        if (endIndex < startIndex || endIndex > arrayValue.elements.length) {
-          throw formatErrorMessage({
-            token: endExpr.token,
-            errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
-          });
-        }
-
-        const newSliceValue = createSliceValue(
-          sliceType,
-          [arrayValue],
-          startIndex,
-          endIndex
-        );
-        return {
-          value: newSliceValue,
-          type: sliceType,
-          callerEnv,
-        };
-      }
-
-      // Check if we can create a compile-time slice from another slice
-      if (
-        sliceValue &&
-        isNumberValue(evaluatedStartExpr.$.value) &&
-        isNumberValue(evaluatedEndExpr.$.value)
-      ) {
-        const startValue = evaluatedStartExpr.$.value.value;
-        const endValue = evaluatedEndExpr.$.value.value;
-        const relativeStart =
-          typeof startValue === "bigint" ? Number(startValue) : startValue;
-        const relativeEnd =
-          typeof endValue === "bigint" ? Number(endValue) : endValue;
-
-        // Calculate absolute indices into the source array
-        const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
-
-        // Bounds checking for slice-of-slice
-        if (relativeStart < 0 || relativeStart > sliceLength) {
-          throw formatErrorMessage({
-            token: startExpr.token,
-            errorMessage: `Slice start index out of bounds: ${relativeStart}. Expected index in range [0, ${sliceLength}].`,
-          });
-        }
-        if (relativeEnd < relativeStart || relativeEnd > sliceLength) {
-          throw formatErrorMessage({
-            token: endExpr.token,
-            errorMessage: `Slice end index out of bounds: ${relativeEnd}. Expected index in range [${relativeStart}, ${sliceLength}].`,
-          });
-        }
-
-        // Create new slice with adjusted absolute indices, but same source array
-        const absoluteStart = sliceValue.startIndex + relativeStart;
-        const absoluteEnd = sliceValue.startIndex + relativeEnd;
-
-        const newSliceValue = createSliceValue(
-          sliceType,
-          sliceValue.sourceArray, // Keep the same source array reference
-          absoluteStart,
-          absoluteEnd
-        );
-        return {
-          value: newSliceValue,
-          type: sliceType,
-          callerEnv,
-        };
-      }
-
+      const newSliceValue = createSliceValue(
+        sliceType,
+        [arrayValue],
+        startIndex,
+        endIndex
+      );
       return {
-        value: undefined,
+        value: newSliceValue,
         type: sliceType,
         callerEnv,
       };
     }
+
+    // Check if we can create a compile-time slice from another slice
+    if (
+      sliceValue &&
+      isNumberValue(evaluatedStartExpr.$.value) &&
+      isNumberValue(evaluatedEndExpr.$.value)
+    ) {
+      const startValue = evaluatedStartExpr.$.value.value;
+      const endValue = evaluatedEndExpr.$.value.value;
+      const relativeStart =
+        typeof startValue === "bigint" ? Number(startValue) : startValue;
+      // For ..= (inclusive), add 1 to get exclusive end
+      const relativeEnd =
+        (typeof endValue === "bigint" ? Number(endValue) : endValue) +
+        (isInclusive ? 1 : 0);
+
+      const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
+
+      // Bounds checking for slice-of-slice
+      if (relativeStart < 0 || relativeStart > sliceLength) {
+        throw formatErrorMessage({
+          token: startExpr.token,
+          errorMessage: `Slice start index out of bounds: ${relativeStart}. Expected index in range [0, ${sliceLength}].`,
+        });
+      }
+      if (relativeEnd < relativeStart || relativeEnd > sliceLength) {
+        throw formatErrorMessage({
+          token: endExpr.token,
+          errorMessage: `Slice end index out of bounds: ${relativeEnd}. Expected index in range [${relativeStart}, ${sliceLength}].`,
+        });
+      }
+
+      const absoluteStart = sliceValue.startIndex + relativeStart;
+      const absoluteEnd = sliceValue.startIndex + relativeEnd;
+
+      const newSliceValue = createSliceValue(
+        sliceType,
+        sliceValue.sourceArray,
+        absoluteStart,
+        absoluteEnd
+      );
+      return {
+        value: newSliceValue,
+        type: sliceType,
+        callerEnv,
+      };
+    }
+
+    return {
+      value: undefined,
+      type: sliceType,
+      callerEnv,
+    };
   } else {
     // Evaluate the first argument
     const argExpr = argExprs[0]!;

@@ -244,6 +244,20 @@ export function findFunctionCallsInExpr(
     }
   }
 
+  // Collect Index trait method from expr.$.indexMethodValue.
+  // Index trait dispatch stores the specialized method function on the expression
+  // metadata, which the normal traversal doesn't visit.
+  if (expr.$?.indexMethodValue && isFunctionValue(expr.$.indexMethodValue)) {
+    const indexFuncValue = expr.$.indexMethodValue;
+    if (!context.functions[indexFuncValue.funcId]) {
+      context.functions[indexFuncValue.funcId] = {
+        value: indexFuncValue,
+        cName: sanitizeForCIdentifier(indexFuncValue.funcId),
+      };
+      findFunctionCallsInExpr(indexFuncValue.body, context);
+    }
+  }
+
   // Check for dyn() calls to collect impls
   if (
     exprIsFunctionCall(expr) &&

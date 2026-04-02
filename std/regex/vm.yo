@@ -240,14 +240,14 @@ impl(NfaVm,
     );
 
     // Already checked bounds above: thread.pc < instructions.len()
-    is_seen := seen.*.get_unchecked(thread.pc);
+    is_seen := (seen.*)(thread.pc);
     cond(
       is_seen => { return (); },
       true => ()
     );
-    seen.*.set_unchecked(thread.pc, true);
+    &((seen.*)(thread.pc)).* = true;
 
-    instr := self._program.instructions.get_unchecked(thread.pc);
+    instr := self._program.instructions(thread.pc);
 
     match(instr.kind,
       .Split => {
@@ -263,7 +263,7 @@ impl(NfaVm,
       .Save => {
         cond(
           (instr.slot < thread.slots.len()) => {
-            thread.slots.set(instr.slot, byte_pos);
+            &(thread.slots(instr.slot)).* = byte_pos;
           },
           true => ()
         );

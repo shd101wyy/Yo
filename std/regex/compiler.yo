@@ -183,14 +183,14 @@ impl(NfaCompiler,
         right := node.children.get(usize(1)).unwrap();
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
-        self._program.instructions.set(split_pc, Instr.split_instr(left_start, usize(0)));
+        &(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
         recur(self, left);
         jump_pc := self._emit(Instr.jump_instr(usize(0)));
         right_start := self._current_pc();
-        self._program.instructions.set(split_pc, Instr.split_instr(left_start, right_start));
+        &(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
         recur(self, right);
         end_pc := self._current_pc();
-        self._program.instructions.set(jump_pc, Instr.jump_instr(end_pc));
+        &(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
       .Quantifier => {
         child := node.children.get(usize(0)).unwrap();
@@ -217,10 +217,10 @@ impl(NfaCompiler,
             l3 := self._current_pc();
             cond(
               greedy => {
-                self._program.instructions.set(split_pc, Instr.split_instr(l2, l3));
+                &(self._program.instructions(split_pc)).* = Instr.split_instr(l2, l3);
               },
               true => {
-                self._program.instructions.set(split_pc, Instr.split_instr(l3, l2));
+                &(self._program.instructions(split_pc)).* = Instr.split_instr(l3, l2);
               }
             );
           },
@@ -230,10 +230,10 @@ impl(NfaCompiler,
             l2 := self._current_pc();
             cond(
               greedy => {
-                self._program.instructions.set(split_pc, Instr.split_instr(last_body_start, l2));
+                &(self._program.instructions(split_pc)).* = Instr.split_instr(last_body_start, l2);
               },
               true => {
-                self._program.instructions.set(split_pc, Instr.split_instr(l2, last_body_start));
+                &(self._program.instructions(split_pc)).* = Instr.split_instr(l2, last_body_start);
               }
             );
           },
@@ -248,10 +248,10 @@ impl(NfaCompiler,
               after := self._current_pc();
               cond(
                 greedy => {
-                  self._program.instructions.set(split_pc, Instr.split_instr(body_start, after));
+                  &(self._program.instructions(split_pc)).* = Instr.split_instr(body_start, after);
                 },
                 true => {
-                  self._program.instructions.set(split_pc, Instr.split_instr(after, body_start));
+                  &(self._program.instructions(split_pc)).* = Instr.split_instr(after, body_start);
                 }
               );
             };
@@ -282,7 +282,7 @@ impl(NfaCompiler,
         recur(self, child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
-        self._program.instructions.set(la_pc, Instr.lookahead_instr(sub_start, sub_end, positive));
+        &(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
       },
       .Lookbehind => {
         child := node.children.get(usize(0)).unwrap();
@@ -292,7 +292,7 @@ impl(NfaCompiler,
         recur(self, child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
-        self._program.instructions.set(lb_pc, Instr.lookbehind_instr(sub_start, sub_end, positive));
+        &(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);
       }
     );
   })

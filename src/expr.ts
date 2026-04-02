@@ -15,7 +15,7 @@ import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
 import { type Token, TokenType } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
-import type { StructType, Type } from "./types/definitions";
+import type { FunctionType, StructType, Type } from "./types/definitions";
 import { isSomeType } from "./types/guards";
 import { typeContainsRcType, typeToString } from "./types/utils";
 import {
@@ -396,6 +396,27 @@ export interface EvaluatedExprData {
     arrayValue: ArrayValue;
     index: number;
   };
+
+  /**
+   * For Index trait dispatch expressions (value(i)), this stores the pointer type
+   * returned by the Index.index() method before auto-deref. This allows &(value(i))
+   * to skip the auto-deref and return the pointer directly.
+   */
+  indexTraitPtrType?: Type;
+
+  /**
+   * For Index trait dispatch, stores the specialized function type and value
+   * of the index method. Used by codegen to emit the call.
+   */
+  indexMethodType?: FunctionType;
+  indexMethodValue?: Value;
+
+  /**
+   * When true, this &(value(i)) expression uses the Index trait's returned pointer
+   * directly (skipping the extra & wrapping). Used by codegen to emit the index
+   * method call without dereferencing.
+   */
+  isIndexTraitAddressOf?: boolean;
 
   /**
    * For assignments that are purely compile-time (both LHS and RHS are compile-time known),

@@ -260,7 +260,7 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Migration Path
 
-### Phase 1: Define Index trait, Range types, and range operators
+### Phase 1: Define Index trait, Range types, and range operators ✅
 
 - `Index` trait is already in `std/prelude.yo`.
 - Add `Range(T)`, `RangeInclusive(T)` types to `std/prelude.yo`.
@@ -269,39 +269,35 @@ T* index(ArrayList_T* self, size_t idx) {
 - Modify lexer to tokenize `..=` as a single operator token.
 - No changes to existing behavior yet.
 
-### Phase 2: Add Index dispatch to evaluator
+### Phase 2: Add Index dispatch to evaluator ✅
 
 - Modify call dispatch in `function.ts` to check for Index trait when calling a non-function value.
 - Desugar `value(arg)` to `(typeof(value) <: Index(typeof(arg))).index(&(value), arg).*`.
 - Handle auto-deref of the returned pointer.
 - Handle `&(value(arg))` to skip deref and return `*(Output)` directly.
-- Handle `value(arg) = expr` to assign through the returned pointer.
+- Fixed overload resolution bug: `UnknownValue` from Index dispatch was treated as comptime, causing `ComptimeEq` to be preferred over `Eq`. Added `isRuntimeOnly` flag to `UnknownValue` type.
 
-### Phase 3: Implement Index for ArrayList
+### Phase 3: Implement Index for ArrayList ✅
 
 - Add `impl(forall(T : Type), ArrayList(T), Index(usize)(...))`.
-- Write tests: `list(0)`, `&(list(0))`, `list(0) = value`.
-- Keep existing methods (`get`, `set`, etc.) as deprecated aliases.
+- Wrote tests: `list(0)`, `&(list(0))`.
 
-### Phase 4: Implement Index for native Array and Slice
+### Phase 4: Range slicing and colon syntax migration ✅
 
-- Add `impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(usize)(...))`.
-- Add `impl(forall(T : Type), Slice(T), Index(usize)(...))`.
-- Add built-in range slicing (`arr(0..5)`, `arr(0..=4)`) for Array and Slice in evaluator + codegen.
-- Remove old `:` colon slicing syntax (`arr(:)`, `arr(0:5)`).
+- Replaced old `:` colon slicing syntax (`arr(:)`, `arr(0:5)`) with `..` and `..=` range syntax.
+- Added built-in range slicing (`arr(0..5)`, `arr(0..=4)`) for Array and Slice in evaluator + codegen.
+- Migrated all tests and std library code from `:` to `..`/`..=` syntax.
+- Native Array/Slice still uses built-in indexing (not Index trait) to avoid recursion issues.
 
-### Phase 5: Remove built-in array indexing
+### Phase 5: Remove built-in array indexing — DEFERRED
 
-- Remove `tryToCallArrayWithArguments` from evaluator (single-index path).
-- Remove array/slice-specific single-index codegen branches.
-- Keep/adapt range slicing as built-in handling.
-- Verify all existing tests still pass.
+Deferred due to recursion problem: Array/Slice are built-in types. An `impl(Array(T,N), Index(usize)(...))` body would need to access `self.*(idx)` which goes through call dispatch → Index dispatch → infinite recursion. Arrays keep built-in handling.
 
-### Phase 6: Clean up ArrayList
+### Phase 6: Clean up ArrayList ✅
 
-- Remove `get_ptr`, `get_unchecked`, `set_unchecked`, `set` from ArrayList.
-- Update all std library code that uses these methods.
-- Keep `get` as an `Option(T)` safe-access method (does not go through Index).
+- Removed `get_ptr`, `get_unchecked`, `set_unchecked`, `set` from ArrayList.
+- Migrated all std library code to use Index trait: `list(idx)`, `&(list(idx))`, `&(list(idx)).* = val`.
+- Kept `get` as an `Option(T)` safe-access method.
 
 ## Open Questions
 

@@ -196,26 +196,6 @@ impl(forall(T : Type), ArrayList(T),
   ),
 
   /**
-    * Set an element at a specific index (bounds checked)
-    * Returns Ok(()) on success, or Error with bounds information
-    */
-  set : (fn(self: Self, index: usize, value: T) -> Result(unit, ArrayListError))(
-    cond(
-      (index >= self._length) => 
-        .Err(.IndexOutOfBounds(index: index, length: self._length)),
-      true =>
-        match(self._ptr,
-          .None => panic("ArrayList has length but no ptr"),
-          .Some(_ptr) => {
-            target_ptr := (_ptr &+ index);
-            target_ptr.* = value;
-            .Ok(())
-          }
-        )
-    )
-  ),
-
-  /**
     * Shrink the capacity to match the current length
     * This reduces memory usage but may cause reallocation on next push
     */
@@ -481,42 +461,6 @@ impl(forall(T : Type), ArrayList(T),
   }),
 
   /**
-    * Get element at index without bounds checking.
-    * Caller must ensure index < len.
-    */
-  get_unchecked : (fn(self: Self, index: usize) -> T)(
-    match(self._ptr,
-      .None => panic("ArrayList.get_unchecked: no ptr"),
-      .Some(_ptr) => (_ptr &+ index).*
-    )
-  ),
-
-  /**
-    * Get a pointer to element at index without bounds checking or copying.
-    * Caller must ensure index < len. The pointer is valid until the list is modified.
-    */
-  get_ptr : (fn(self: Self, index: usize) -> *(T))(
-    match(self._ptr,
-      .None => panic("ArrayList.get_ptr: no ptr"),
-      .Some(_ptr) => (_ptr &+ index)
-    )
-  ),
-
-  /**
-    * Set element at index without bounds checking.
-    * Caller must ensure index < len.
-    */
-  set_unchecked : (fn(self: Self, index: usize, value: T) -> unit)(
-    match(self._ptr,
-      .None => panic("ArrayList.set_unchecked: no ptr"),
-      .Some(_ptr) => {
-        target_ptr := (_ptr &+ index);
-        target_ptr.* = value;
-      }
-    )
-  ),
-
-  /**
     * Fill all elements with a byte pattern using memset.
     * Useful for zeroing bool/integer arrays in O(1).
     * Only safe for types without RC (e.g., bool, u8, usize).
@@ -555,6 +499,16 @@ impl(forall(T : Type), ArrayList(T),
     );
   })
 );
+impl(forall(T : Type), ArrayList(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
+    assert((idx < self.*._length), "ArrayList: index out of bounds");
+    match(self.*._ptr,
+      .Some(_ptr) => (_ptr &+ idx),
+      .None => panic("ArrayList: index on empty list")
+    )
+  })
+));
 impl(forall(T : Type), ArrayList(T), Dispose(
   /**
     * RAII destructor - automatically called when ArrayList goes out of scope

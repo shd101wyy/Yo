@@ -1,31 +1,20 @@
 open import "std/fmt";
-
-Node :: object(value: i32, next: Option(Self));
-
-traverse :: (fn(head: Option(Node)) -> i32)({
-  (count : i32) = i32(0);
-  (current_opt : Option(Node)) = head;
-
-  while runtime(true), {
-    match(current_opt,
-      .None => { return count; },
-      .Some(current) => {
-        count = (count + i32(1));
-        current_opt = current.next;
-      }
-    );
-  };
-  count
-});
+open import "std/collections/array_list";
 
 main :: (fn() -> unit)({
-  (n3 : Node) = Node(i32(3), .None);
-  (n2 : Node) = Node(i32(2), .Some(n3));
-  (n1 : Node) = Node(i32(1), .Some(n2));
+  // Test mutation through Index trait on ArrayList
+  (list : ArrayList(i32)) = ArrayList(i32).new();
+  list.push(i32(10));
+  list.push(i32(20));
+  list.push(i32(30));
 
-  (result : i32) = traverse(.Some(n1));
-  assert((result == i32(3)), "should count 3 nodes");
-  println(`traverse count: ${result}`);
+  // Read through Index
+  assert((list(usize(0)) == i32(10)), "list(0) should be 10");
+
+  // Write through Index: &(list(idx)).* = val
+  &(list(usize(1))).* = i32(999);
+  assert((list(usize(1)) == i32(999)), "list(1) should be 999 after mutation");
+
+  println(`mutation through Index works!`);
 });
-
 export main;

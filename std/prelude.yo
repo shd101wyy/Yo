@@ -188,6 +188,28 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 export Index;
 
+/// === Range Types ===
+Range :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(start : T, end : T)
+);
+export Range;
+
+RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(start : T, end : T)
+);
+export RangeInclusive;
+
+/// === Range Operator Traits ===
+RangeOp :: trait(
+  (..) : (fn(start: Self, end: Self) -> Range(Self))
+);
+export RangeOp;
+
+RangeInclusiveOp :: trait(
+  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
+);
+export RangeInclusiveOp;
+
 /// === Arithmetic ===
 Add :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
@@ -2469,6 +2491,12 @@ impl(usize, Hash(
 impl(usize, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
+impl(usize, RangeOp(
+  (..): ((start, end) -> Range(usize)(start: start, end: end))
+));
+impl(usize, RangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(usize)(start: start, end: end))
+));
 impl(usize, ComptimeAdd(usize)(
   (+) : ((lhs, rhs) ->
     __yo_comptime_usize_add(lhs, rhs)
@@ -3201,6 +3229,14 @@ impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U),
 impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
+
+impl(forall(T : Type), Range(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), Range(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), Range(T), Runtime());
+
+impl(forall(T : Type), RangeInclusive(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), RangeInclusive(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), RangeInclusive(T), Runtime());
 impl(forall(T : Type), Slice(T),
   from_raw_parts : (fn(ptr : *(T), length : usize) -> Self)(
     __yo_slice_new(ptr, length)

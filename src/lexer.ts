@@ -39,6 +39,11 @@ export function tokenize(input: string, modulePath: string): Token[] {
         operator += input[j];
         j = j + 1;
       }
+      // Special case: `..=` is a single operator token (inclusive range)
+      if (operator === ".." && input[j] === "=") {
+        operator += input[j];
+        j = j + 1;
+      }
     } else {
       // Handle other operators (excluding dots)
       while (charIsOperator(input[j]!) && input[j] !== ".") {

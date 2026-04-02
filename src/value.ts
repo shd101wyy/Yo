@@ -181,6 +181,13 @@ export type UnknownValue = {
    * The name of the variable holding this unknown value.
    */
   variableName?: string;
+  /**
+   * When true, this UnknownValue represents a runtime computation result
+   * (e.g., from Index trait dispatch) that cannot be used for compile-time
+   * evaluation. When false/undefined, it's a compile-time placeholder
+   * (e.g., from CTFE analysis) that CAN be used for comptime functions.
+   */
+  isRuntimeOnly?: boolean;
 };
 
 /**

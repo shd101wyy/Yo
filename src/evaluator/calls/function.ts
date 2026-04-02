@@ -73,6 +73,7 @@ import {
   isSliceValue,
   isTupleValue,
   isTypeValue,
+  isUnknownValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -83,6 +84,7 @@ import {
   type FunctionCallResult,
   type FunctionToCall,
   getArrayCallResult,
+  getIndexCallResult,
   getModuleTypeCallResult,
   getTraitTypeCallResult,
   getTypeCallResult,
@@ -98,6 +100,7 @@ import { tryToImplementClosureByFnModuleType } from "./closure-type";
 import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-type";
 import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
+import { hasIndexImpl, tryToCallWithIndexTrait } from "./index-trait";
 import { evaluateIsoValueCall } from "./iso";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
 import {
@@ -1602,6 +1605,41 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 },
               };
             }
+          }
+          // Index trait dispatch: value(arg) where value's type implements Index
+          else if (
+            !isTypeValue(value) &&
+            hasIndexImpl({
+              concreteType: functionToCall.type,
+              argExprs: argsToUse,
+              callerEnv: env,
+              _context: context,
+            })
+          ) {
+            try {
+              const result = tryToCallWithIndexTrait({
+                expr,
+                valueType: functionToCall.type,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "index",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error as Error | YoError,
+                },
+              };
+            }
           } else {
             return {
               ...functionToCall,
@@ -1626,13 +1664,28 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
   // If yes, then we use that function.
   // Comptime function call has higher priority than normal function call.
   // So this way we eagerly evaluate the function call that can be done at the compile-time.
+  //
+  // EXCEPTION: When any arg is a runtime-only UnknownValue (e.g., from Index trait
+  // dispatch), exclude comptime function candidates. These values represent runtime
+  // computations that cannot be evaluated at compile time. Regular UnknownValues
+  // (from CTFE analysis) are compile-time placeholders and should still prefer comptime.
+  const hasRuntimeUnknownArg = args.some(
+    (arg) =>
+      arg.$?.value && isUnknownValue(arg.$.value) && arg.$.value.isRuntimeOnly
+  );
   const comptimeFunctionCalls = functionsWithMatchingTypes.filter(
     (functionToCall) =>
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
   );
 
-  if (comptimeFunctionCalls.length === 1) {
+  if (hasRuntimeUnknownArg && comptimeFunctionCalls.length > 0) {
+    // Exclude comptime functions — args contain runtime UnknownValues that
+    // cannot be evaluated at compile time
+    functionsWithMatchingTypes = functionsWithMatchingTypes.filter(
+      (f) => !comptimeFunctionCalls.includes(f)
+    );
+  } else if (comptimeFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptimeFunctionCalls;
   }
 
@@ -2493,6 +2546,44 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       isArcType(functionToCallValue.value)
     ) {
       // This should already be evaluated by evaluateArcValueCall
+      return expr;
+    }
+    // Index trait dispatch: value(arg) via Index trait
+    else if (functionToCall.result.kind === "index") {
+      const {
+        value,
+        type,
+        ptrType,
+        indexMethodType,
+        indexMethodValue,
+        callerEnv,
+      } = getIndexCallResult(functionToCall);
+
+      expr.$ = {
+        env: callerEnv,
+        type: type,
+        value: value,
+        originType: func.$?.originType ?? functionToCall.type,
+        pathCollection: func.$?.pathCollection ?? [],
+        sourceVariable: func.$?.sourceVariable,
+        // Mark as Index trait call so &(value(i)) can skip the auto-deref
+        indexTraitPtrType: ptrType,
+        indexMethodType: indexMethodType,
+        indexMethodValue: indexMethodValue,
+        isAccessingProperty: true,
+      };
+
+      // Attach necessary info to the func
+      func.$ = {
+        env,
+        type: functionToCall.type,
+        value: functionToCall.value,
+        pathCollection: func.$?.pathCollection ?? [],
+        isAccessingProperty: true,
+      };
+
+      attachTempVariableToExpr(expr, false);
+
       return expr;
     }
     // array & slice

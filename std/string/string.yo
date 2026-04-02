@@ -415,7 +415,7 @@ impl(String,
             end_byte = byte_index;
             break;
           });
-          (b : u8) = al.get_unchecked(byte_index);
+          (b : u8) = al(byte_index);
           (byte_len : usize) = cond(
             (b < u8(0x80)) => usize(1),
             (b < u8(0xE0)) => usize(2),
@@ -1249,14 +1249,14 @@ impl(String,
 
         (start_idx : usize) = usize(0);
         while (start_idx < total_bytes), {
-          (b : u8) = al.get_unchecked(start_idx);
+          (b : u8) = al(start_idx);
           if(!(Self._is_whitespace_byte(b)), { break; });
           start_idx = (start_idx + usize(1));
         };
 
         (end_idx : usize) = total_bytes;
         while (end_idx > start_idx), {
-          (b : u8) = al.get_unchecked((end_idx - usize(1)));
+          (b : u8) = al((end_idx - usize(1)));
           if(!(Self._is_whitespace_byte(b)), { break; });
           end_idx = (end_idx - usize(1));
         };

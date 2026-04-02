@@ -86,7 +86,7 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
     cond(
       r.found => {
         entry := self._entries.get(r.idx).unwrap();
-        self._entries.set(r.idx, BTreeEntry(K, V)(key: entry.key, value: v));
+        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key: entry.key, value: v);
       },
       true => {
         // Append new entry then bubble left to sorted position
@@ -95,8 +95,8 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
         while (pos > r.idx), (pos = (pos - usize(1))), {
           curr := self._entries.get(pos).unwrap();
           prev := self._entries.get((pos - usize(1))).unwrap();
-          self._entries.set(pos, prev);
-          self._entries.set((pos - usize(1)), curr);
+          &(self._entries(pos)).* = prev;
+          &(self._entries((pos - usize(1)))).* = curr;
         };
       }
     );

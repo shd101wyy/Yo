@@ -143,6 +143,44 @@ function expandFutureEffects(
 }
 
 /**
+ * Generate C code for Index trait dispatch: value(i) → *index_fn(&value, i)
+ * The index method returns a pointer, and we auto-deref it unless
+ * this is wrapped in &() (isIndexTraitAddressOf).
+ */
+function generateIndexTraitCall(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const methodValue = expr.$?.indexMethodValue;
+  if (!methodValue || !isFunctionValue(methodValue)) {
+    return `/* Error: Index trait method value missing */`;
+  }
+
+  const cFuncName = context.functions[methodValue.funcId]?.cName;
+  if (!cFuncName) {
+    return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
+  }
+
+  // Generate &callee (address-of the receiver)
+  const calleeExpr = expr.func!;
+  const calleeCode = generateExpr(calleeExpr, indent, context);
+
+  // Generate the index argument
+  const indexArg = expr.args[0];
+  const indexCode = indexArg ? generateExpr(indexArg, indent, context) : "0";
+
+  // Call the index method: index_fn(&callee, index_arg)
+  const callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+
+  // Deref unless this is an &(value(i)) expression
+  if (expr.$?.isIndexTraitAddressOf) {
+    return callCode;
+  }
+  return `(*${callCode})`;
+}
+
+/**
  * Generate effect injection code for io.spawn/io.await call sites.
  * Injects function-typed effect handler values from using(...) args
  * into the future's capture struct fields before cold-starting.
@@ -1018,6 +1056,10 @@ function generateFuncCall(
   // open for runtime struct
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
     return generateOpen(expr, indent, context);
+  }
+  // Index trait dispatch: value(i) → *index_fn(&value, i)
+  else if (expr.$?.indexTraitPtrType && expr.$?.indexMethodType) {
+    return generateIndexTraitCall(expr, indent, context);
   }
   // other function call
   else {

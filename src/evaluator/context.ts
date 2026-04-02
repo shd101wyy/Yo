@@ -361,6 +361,39 @@ export interface PointerTypeCallResult {
   env: Environment;
 }
 
+export interface IndexCallResult {
+  /**
+   * The auto-dereferenced value (Output type, not *(Output)).
+   */
+  value: Value | undefined;
+
+  /**
+   * The auto-dereferenced type (Output).
+   */
+  type: Type;
+
+  /**
+   * The pointer type returned by index() before auto-deref: *(Output).
+   * Used for &(value(i)) to skip the auto-deref.
+   */
+  ptrType: Type;
+
+  /**
+   * The specialized function type of the index method.
+   */
+  indexMethodType: FunctionType;
+
+  /**
+   * The specialized function value of the index method (may be undefined for runtime dispatch).
+   */
+  indexMethodValue: Value | undefined;
+
+  /**
+   * The caller environment after evaluating the argument.
+   */
+  callerEnv: Environment;
+}
+
 export interface FunctionToCall {
   type: Type;
   /**
@@ -484,6 +517,17 @@ export interface FunctionToCall {
         result: FnCallExpr;
       }
     | {
+        /**
+         * This is the result from calling:
+         *
+         *   tryToCallWithIndexTrait
+         *
+         * Dispatches value(arg) via the Index trait.
+         */
+        kind: "index";
+        result: IndexCallResult;
+      }
+    | {
         kind: "error";
         error: Error | YoError;
       };
@@ -530,6 +574,15 @@ export function getArrayCallResult(
 ): ArrayCallResult {
   if (functionToCall.result.kind !== "array") {
     throw new Error("Expected array call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getIndexCallResult(
+  functionToCall: FunctionToCall
+): IndexCallResult {
+  if (functionToCall.result.kind !== "index") {
+    throw new Error("Expected index call result");
   }
   return functionToCall.result.result;
 }

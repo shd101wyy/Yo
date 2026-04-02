@@ -141,33 +141,26 @@ test "ArrayList.get returns None for empty list", {
 
 // ===== Set Tests =====
 
-test "ArrayList.set updates element at valid index", {
+test "ArrayList index set updates element at valid index", {
   list := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   
-  result := list.set(usize(1), i32(99));
-  assert(result.is_ok());
+  &(list(usize(1))).* = i32(99);
   
   updated := list.get(usize(1));
   assert(updated.unwrap() == i32(99));
 };
 
-test "ArrayList.set returns error for out of bounds index", {
-  list := ArrayList(i32).new();
-  list.push(i32(10));
-  
-  result := list.set(usize(5), i32(99));
-  assert(result.is_err());
-};
+// OOB set test removed — Index trait panics on OOB instead of returning Result
 
-test "ArrayList.set preserves other elements", {
+test "ArrayList index set preserves other elements", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
   
-  list.set(usize(1), i32(200));
+  &(list(usize(1))).* = i32(200);
   
   assert(list.get(usize(0)).unwrap() == i32(1));
   assert(list.get(usize(1)).unwrap() == i32(200));
@@ -557,7 +550,7 @@ test "ArrayList operations on list with single element", {
   list.push(i32(42));
   
   assert(list.get(usize(0)).unwrap() == i32(42));
-  assert(list.set(usize(0), i32(99)).is_ok());
+  &(list(usize(0))).* = i32(99);
   assert(list.get(usize(0)).unwrap() == i32(99));
   
   popped := list.pop();
@@ -649,8 +642,7 @@ test "ArrayList.set with Box replaces and cleans up old value", {
   list.push(Box(i32)(20));
   
   old_box := Box(i32)(99);
-  result := list.set(usize(1), old_box);
-  assert(result.is_ok());
+  &(list(usize(1))).* = old_box;
   
   // Old value (20) should be dropped, new value (99) should be in place
   assert(list.get(usize(1)).unwrap().(*) == i32(99));
@@ -851,8 +843,7 @@ test "ArrayList of String - set replaces and drops old value", {
   list.push(String.from("old_value"));
   list.push(String.from("keep_me"));
 
-  result := list.set(usize(0), String.from("new_value"));
-  assert(result.is_ok());
+  &(list(usize(0))).* = String.from("new_value");
 
   assert((list.get(usize(0)).unwrap() == String.from("new_value")));
   assert((list.get(usize(1)).unwrap() == String.from("keep_me")));
@@ -1025,7 +1016,7 @@ test "Test ArrayList.with_capacity", {
   assert((list.len() == usize(0)), "with_capacity should start empty");
   list.push(i32(42));
   assert((list.len() == usize(1)), "should have 1 element after push");
-  assert((list.get_ptr(usize(0)).* == i32(42)), "element should be 42");
+  assert((list(usize(0)) == i32(42)), "element should be 42");
 };
 
 test "Test ArrayList.ensure_total_capacity", {
@@ -1033,7 +1024,7 @@ test "Test ArrayList.ensure_total_capacity", {
   list.push(i32(1));
   list.ensure_total_capacity(usize(100));
   assert((list.len() == usize(1)), "ensure_total_capacity should not change length");
-  assert((list.get_ptr(usize(0)).* == i32(1)), "element should be preserved");
+  assert((list(usize(0)) == i32(1)), "element should be preserved");
 
   // Can push more without reallocation issues
   i := i32(0);
@@ -1043,18 +1034,18 @@ test "Test ArrayList.ensure_total_capacity", {
   assert((list.len() == usize(51)), "should have 51 elements");
 };
 
-test "Test ArrayList.get_ptr", {
+test "Test ArrayList index pointer access", {
   list := ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
 
-  ptr := list.get_ptr(usize(1));
-  assert((ptr.* == i32(200)), "get_ptr should return pointer to element");
+  ptr := &(list(usize(1)));
+  assert((ptr.* == i32(200)), "index pointer should return pointer to element");
 
   // Modify through pointer
   ptr.* = i32(999);
-  assert((list.get_ptr(usize(1)).* == i32(999)), "modification through ptr should work");
+  assert((list(usize(1)) == i32(999)), "modification through ptr should work");
 };
 
 test "Test ArrayList.extend_from_ptr", {
@@ -1064,6 +1055,6 @@ test "Test ArrayList.extend_from_ptr", {
   // extend_from_ptr is tested indirectly through String.push_str
   // which uses it internally. Direct use tested via String operations.
   assert((list.len() == usize(2)), "should have 2 elements");
-  assert((list.get_ptr(usize(0)).* == u8(1)), "first should be 1");
-  assert((list.get_ptr(usize(1)).* == u8(2)), "last should be 2");
+  assert((list(usize(0)) == u8(1)), "first should be 1");
+  assert((list(usize(1)) == u8(2)), "last should be 2");
 };

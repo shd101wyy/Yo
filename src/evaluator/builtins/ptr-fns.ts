@@ -102,6 +102,22 @@ export function evaluateAddressCall({
 
     const pointerType = createPtrType(argType);
 
+    // Check if this is &(value(i)) where value(i) was dispatched via Index trait.
+    // The Index.index() method returns *(Output), which was auto-dereferenced to Output.
+    // For &(value(i)), we skip the auto-deref and return the *(Output) pointer directly.
+    const indexTraitPtrType = evaluatedArgExpr.$.indexTraitPtrType;
+    if (indexTraitPtrType) {
+      expr.$ = {
+        env,
+        type: indexTraitPtrType,
+        value: undefined, // pointer is only available at runtime
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+        isIndexTraitAddressOf: true,
+      };
+      attachTempVariableToExpr(expr, false);
+      return expr;
+    }
+
     // Check if we can create a compile-time pointer
     // This requires the source expression to have a sourceVariable with a value array
     // OR an arrayElementRef for array element access like &(arr(0))

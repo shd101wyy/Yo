@@ -59,8 +59,8 @@ impl(forall(T : Type), PriorityQueue(T),
       parent_val := self._data.get(parent).unwrap();
       cond(
         (child_val < parent_val) => {
-          self._data.set(i, parent_val);
-          self._data.set(parent, child_val);
+          &(self._data(i)).* = parent_val;
+          &(self._data(parent)).* = child_val;
           i = parent;
         },
         true => {
@@ -78,7 +78,7 @@ impl(forall(T : Type), PriorityQueue(T),
       true => {
         top  := self._data.get(usize(0)).unwrap();
         last := self._data.get((n - usize(1))).unwrap();
-        self._data.set(usize(0), last);
+        &(self._data(usize(0))).* = last;
         self._data.pop();
         // Sift down
         i := usize(0);
@@ -106,8 +106,8 @@ impl(forall(T : Type), PriorityQueue(T),
             true => {
               a := self._data.get(i).unwrap();
               b := self._data.get(smallest).unwrap();
-              self._data.set(i, b);
-              self._data.set(smallest, a);
+              &(self._data(i)).* = b;
+              &(self._data(smallest)).* = a;
               i = smallest;
             }
           );
