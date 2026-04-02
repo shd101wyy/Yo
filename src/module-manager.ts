@@ -59,6 +59,12 @@ export class ModuleManager {
    */
   private dependents: Map<string, Set<string>> = new Map();
 
+  /**
+   * Track modules currently being evaluated (for circular dependency detection).
+   * Maps module path to its placeholder ModuleValue being populated.
+   */
+  private loadingModules: Map<string, ModuleValue> = new Map();
+
   public stdPath: string;
   private codeGenratorC: CodeGeneratorC;
   private allowPartialModule: boolean;
@@ -231,6 +237,7 @@ export class ModuleManager {
     this.modules.clear();
     this.dependencies.clear();
     this.dependents.clear();
+    this.loadingModules.clear();
 
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
@@ -265,6 +272,17 @@ export class ModuleManager {
       };
     }
 
+    // Check if this module is currently being evaluated (circular import).
+    // Return the partially-populated ModuleValue so the importing module
+    // can access fields that have already been exported.
+    const loadingModule = this.loadingModules.get(modulePath);
+    if (loadingModule) {
+      return {
+        moduleValue: loadingModule,
+        moduleError: undefined,
+      };
+    }
+
     // console.log(`[ModuleManager] Loading module: ${modulePath}`);
     // console.log(`[ModuleManager] Stack trace:`, new Error().stack);
 
@@ -284,7 +302,14 @@ export class ModuleManager {
       },
       inputString,
       allowPartialModule: this.allowPartialModule,
+      registerPartialModule: (mv: ModuleValue) => {
+        this.loadingModules.set(modulePath, mv);
+      },
     });
+
+    // Module evaluation complete — remove from loading set
+    this.loadingModules.delete(modulePath);
+
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
     this.modules.set(modulePath, { moduleValue, moduleError, evaluator });

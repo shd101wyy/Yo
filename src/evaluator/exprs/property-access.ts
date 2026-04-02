@@ -898,6 +898,18 @@ export function evaluatePropertyAccess({
           );
           if (moduleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
+              // Check if this module is still being evaluated (circular import).
+              // If so, the field might exist but hasn't been exported yet.
+              if (
+                objectExprValue &&
+                isModuleValue(objectExprValue) &&
+                objectExprValue.isLoading
+              ) {
+                throw formatErrorMessage({
+                  token: propertyExpr.token,
+                  errorMessage: `Field "${label}" is not yet available from this module. In a circular import, only fields exported before the import of the current module are accessible. Reorder your exports or break the cycle.`,
+                });
+              }
               throw formatErrorMessage({
                 token: propertyExpr.token,
                 errorMessage: `Module field "${label}" not found in module type`,

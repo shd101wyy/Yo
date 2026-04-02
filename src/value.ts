@@ -114,6 +114,11 @@ export type ModuleValue = {
    * These are collected during module evaluation for use by codegen.
    */
   moduleLevelInitExprs?: Expr[];
+  /**
+   * True while the module is still being evaluated (used for circular import detection).
+   * When a field is not found on a loading module, a specific error is shown.
+   */
+  isLoading?: boolean;
 };
 
 export type TraitValue = {

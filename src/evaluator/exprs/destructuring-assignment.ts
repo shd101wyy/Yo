@@ -83,6 +83,13 @@ export function handleMemberDestructuring({
 
   // Check if we have enough fields
   if (lhsFields.length > rhsFields.length) {
+    // Check if the RHS is a module that is still being evaluated (circular import).
+    if (rhsValue && isModuleValue(rhsValue) && rhsValue.isLoading) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Cannot destructure from a module that is still being evaluated (circular import). The requested fields are not yet available. Reorder your exports or break the cycle.`,
+      });
+    }
     throw formatErrorMessage({
       token: lhs.token,
       errorMessage: `Too many fields in destructuring pattern. Expected at most ${rhsFields.length}, got ${lhsFields.length}`,
@@ -221,6 +228,12 @@ export function handleMemberDestructuring({
       );
 
       if (matchingMemberIndex === -1) {
+        if (rhsValue && isModuleValue(rhsValue) && rhsValue.isLoading) {
+          throw formatErrorMessage({
+            token: lhsField.token,
+            errorMessage: `Field "${label}" is not yet available — the module is still being evaluated (circular import). Reorder your exports so "${label}" is exported before the circular import occurs.`,
+          });
+        }
         throw formatErrorMessage({
           token: lhsField.token,
           errorMessage: `Label "${label}" being destructured not found.`,
