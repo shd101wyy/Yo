@@ -44,15 +44,6 @@ VmMatch :: struct(
   slots   : ArrayList(usize)
 );
 
-// The NFA virtual machine
-NfaVm :: object(
-  _program   : NfaProgram,
-  _flags     : RegexFlags,
-  _input     : String,
-  _bytes     : ArrayList(u8),
-  _n_slots   : usize
-);
-
 // Helper struct for decoded characters
 DecodedChar :: struct(
   codepoint : u32,
@@ -65,16 +56,34 @@ DeferredThread :: struct(
   thread : NfaThread
 );
 
+// The NFA virtual machine
+NfaVm :: object(
+  _program   : NfaProgram,
+  _flags     : RegexFlags,
+  _input     : String,
+  _bytes     : ArrayList(u8),
+  _n_slots   : usize,
+  _seen      : ArrayList(bool),
+  _next_seen : ArrayList(bool)
+);
+
 // Block 1: Constructor and leaf helpers (no method dependencies)
 impl(NfaVm,
   new : (fn(program : NfaProgram, flags : RegexFlags, input : String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
+    n_instr := program.instructions.len();
+    seen := ArrayList(bool).with_capacity(n_instr);
+    seen.resize_with_byte(n_instr, int(0));
+    next_seen := ArrayList(bool).with_capacity(n_instr);
+    next_seen.resize_with_byte(n_instr, int(0));
     Self(
       _program: program,
       _flags: flags,
       _input: input,
       _bytes: input.as_bytes(),
-      _n_slots: n_slots
+      _n_slots: n_slots,
+      _seen: seen,
+      _next_seen: next_seen
     )
   }),
 
@@ -420,8 +429,11 @@ impl(NfaVm,
         );
       };
 
+      // Swap sub_current/sub_next and clear for reuse
+      tmp_sub := sub_current;
       sub_current = sub_next;
-      sub_next = ArrayList(NfaThread).new();
+      sub_next = tmp_sub;
+      sub_next.clear();
       sub_pos = (sub_pos + sub_blen);
     };
 
@@ -432,15 +444,16 @@ impl(NfaVm,
 // Block 5: exec_at (depends on Block 1+2+3+4)
 impl(NfaVm,
   exec_at : (fn(self : Self, start_byte : usize) -> VmMatch)({
+    // Reuse pre-allocated seen buffers from the VM
     current := ArrayList(NfaThread).new();
     next := ArrayList(NfaThread).new();
+    seen := self._seen;
+    next_seen := self._next_seen;
     deferred := ArrayList(DeferredThread).new();
 
-    seen := ArrayList(bool).with_capacity(self._program.instructions.len());
-    next_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
-    // Fill with false (0x00) using memset
-    seen.resize_with_byte(self._program.instructions.len(), int(0));
-    next_seen.resize_with_byte(self._program.instructions.len(), int(0));
+    // Clear for this execution
+    seen.fill_with_byte(int(0));
+    next_seen.fill_with_byte(int(0));
 
     initial := NfaThread.new(usize(0), self._n_slots);
     self._add_thread(&(current), initial, start_byte, &(seen));
@@ -701,8 +714,11 @@ impl(NfaVm,
         );
       };
 
+      // Swap current/next and clear for reuse
+      tmp_c := current;
       current = next;
-      next = ArrayList(NfaThread).new();
+      next = tmp_c;
+      next.clear();
 
       cond(
         at_end => { break; },
@@ -711,6 +727,10 @@ impl(NfaVm,
         }
       );
     };
+
+    // Store seen buffers back for reuse in next exec_at call
+    self._seen = seen;
+    self._next_seen = next_seen;
 
     best_match
   })

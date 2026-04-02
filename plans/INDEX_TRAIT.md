@@ -4,7 +4,7 @@
 
 Yo currently uses two different mechanisms for element access:
 
-- **Native Array/Slice**: `arr(0)` works via built-in function call dispatch in the evaluator and codegen. Supports `&(arr(0))` for pointer access and `arr(0:5)` for slicing.
+- **Native Array/Slice**: `arr(0)` works via built-in function call dispatch in the evaluator and codegen. Supports `&(arr(0))` for pointer access and `arr(0:5)` / `arr(:)` for slicing (to be replaced by `arr(0..5)` / `arr(..)`).
 - **ArrayList and user types**: Must use explicit methods like `.get(index)`, `.get_ptr(index)`, `.set(index, value)`, `.get_unchecked(index)`.
 
 This inconsistency means:
@@ -19,7 +19,7 @@ This inconsistency means:
 - `arr(0)` returns the element value (auto-deref from pointer).
 - `&(arr(0))` returns a pointer to the element.
 - `arr(0) = value` works through the returned pointer (no separate `IndexMut`).
-- Unify slicing (`arr(0:5)`, `arr(:)`) under `Index(Range(usize))`.
+- Unify slicing syntax to use `..` and `..=` (replacing `:`), handled via built-in functions.
 - Fully migrate native Array and Slice types from built-in handling to the Index trait.
 - Eliminate redundant ArrayList methods (`get_ptr`, `get_unchecked`, `set_unchecked`).
 
@@ -46,13 +46,42 @@ Key design decisions:
 
 ### Desugaring Rules
 
-| Yo Syntax    | Desugars To                                                                 | Result Type |
-| ------------ | --------------------------------------------------------------------------- | ----------- |
-| `arr(i)`     | `Index(typeof(i)).index(&arr, i).*`                                         | `Output`    |
-| `&(arr(i))`  | `Index(typeof(i)).index(&arr, i)`                                           | `*(Output)` |
-| `arr(i) = v` | `Index(typeof(i)).index(&arr, i).* = v`                                     | `unit`      |
-| `arr(0:5)`   | `Index(Range(usize)).index(&arr, Range(usize)(start: 0, end: 5)).*`         | `Slice(T)`  |
-| `arr(:)`     | `Index(Range(usize)).index(&arr, Range(usize)(start: 0, end: arr.len())).*` | `Slice(T)`  |
+| Yo Syntax    | Desugars To                                                | Result Type |
+| ------------ | ---------------------------------------------------------- | ----------- |
+| `arr(i)`     | `(typeof(arr) <: Index(typeof(i))).index(&(arr), i).*`     | `Output`    |
+| `&(arr(i))`  | `(typeof(arr) <: Index(typeof(i))).index(&(arr), i)`       | `*(Output)` |
+| `arr(i) = v` | `(typeof(arr) <: Index(typeof(i))).index(&(arr), i).* = v` | `unit`      |
+
+Note: Parentheses around `&(arr)` are required — `&arr, i` would be parsed as `&(arr, i)` in Yo.
+
+### Range Syntax
+
+Use `..` and `..=` for ranges (like Rust), **not** `:`:
+
+| Syntax       | Meaning                             |
+| ------------ | ----------------------------------- |
+| `arr(0..5)`  | Slice from index 0 to 5 (exclusive) |
+| `arr(0..=4)` | Slice from index 0 to 4 (inclusive) |
+| `arr(..)`    | Full slice (all elements)           |
+
+Range-based slicing uses built-in functions handled in the evaluator (for comptime values) and C codegen, not through the Index trait. See "Range-Based Slicing" section below.
+
+#### Lexer Considerations
+
+The lexer (`src/lexer.ts`, lines 27-57) has a special rule: dot `.` only combines with other dots to form multi-character operators. So:
+
+- `..` → already lexed as a single `TokenType.Operator` token with value `".."` ✅
+- `...` → already lexed as `TokenType.Operator` with value `"..."` (used for spread)
+- `..=` → currently lexed as **two tokens**: `..` (Operator) + `=` (Operator), because the dot loop stops at non-dot characters
+
+**Action needed**: Either:
+
+1. Modify the lexer to recognize `..=` as a single operator token (add a special case after the dot loop to check if next char is `=`), or
+2. Handle `..=` in the parser by combining the `..` and `=` tokens when they appear consecutively
+
+Option 1 is cleaner. After the dot accumulation loop, check if the result is `".."` and the next char is `=`, then consume the `=` to produce `"..="`.
+
+Range types (`Range(T)`, `RangeInclusive(T)`, `RangeFull`) are defined in `std/prelude.yo`.
 
 ### ArrayList Implementation
 
@@ -110,44 +139,31 @@ impl(forall(T : Type), Slice(T), Index(usize)(
 
 ### Range-Based Slicing
 
-First, define a Range type (if not already present):
+Range-based slicing (`arr(0..5)`, `arr(..)`) is handled via **built-in functions** in the evaluator (for comptime constant folding) and C codegen, not through the Index trait.
+
+The `..` and `..=` operators are parsed by the lexer/parser. When `arr(0..5)` is encountered:
+
+- The evaluator recognizes the `..` expression as a range argument
+- For comptime-known arrays, it performs bounds checking and creates a `SliceValue`
+- For runtime, it emits the corresponding C code
+
+This avoids the pointer-to-temporary problem that would arise from `Index(Range(usize))` returning `*(Slice(T))` — a Slice is a new value, not a field of the container.
+
+Types to define in `std/prelude.yo`:
 
 ```rust
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
-```
 
-Then implement `Index(Range(usize))` for slicing:
-
-```rust
-impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(Range(usize))(
-  Output : Slice(T),
-  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))({
-    // bounds check and create slice
-    assert(((idx.start <= idx.end) && (idx.end <= usize(N))), "slice out of bounds");
-    // return pointer to a stack-local Slice value
-    // (codegen needs special handling here — see below)
-  })
-));
-```
-
-**Open question**: Returning `*(Slice(T))` for range indexing is tricky — the Slice is a new value, not a field of the container. Options:
-
-1. Return `Slice(T)` directly for range indexing (different return convention for range Index).
-2. Store the slice in a hidden local and return pointer to it.
-3. Make `Index(Range(usize))` a separate `SliceIndex` trait that returns `Slice(T)` by value.
-
-**Recommended**: Option 3 — define a separate `SliceIndex` trait for range-based slicing that returns by value. The `arr(0:5)` syntax dispatches to `SliceIndex` instead of `Index`. This avoids the pointer-to-temporary problem.
-
-```rust
-SliceIndex :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    slice : (fn(self: *(Self), idx: Idx) -> Self.Output)
-  )
+RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(start : T, end : T)
 );
+
+RangeFull :: struct();
 ```
+
+The `..` operator creates `Range(T)`, `..=` creates `RangeInclusive(T)`, and `..` with no arguments creates `RangeFull`.
 
 ## Call Dispatch Changes
 
@@ -161,10 +177,10 @@ The new dispatch order becomes:
 
 1. Function values → call the function
 2. Type values → constructor call
-3. **Type implements `Index(typeof(arg))`** → dispatch to `Index.index`
-4. **Colon argument + type implements `SliceIndex`** → dispatch to `SliceIndex.slice`
+3. **Type implements `Index(typeof(arg))`** → dispatch to `(typeof(value) <: Index(typeof(arg))).index(&(value), arg)`
+4. **`..` / `..=` range argument** → built-in slicing (evaluator + codegen)
 
-The built-in array/slice handling in `tryToCallArrayWithArguments` is removed and replaced by the trait dispatch.
+The built-in array/slice handling in `tryToCallArrayWithArguments` is removed and replaced by Index trait dispatch (for single-index access) and built-in range handling (for slicing).
 
 ### Evaluator Changes
 
@@ -213,38 +229,38 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Migration Path
 
-### Phase 1: Define Index and SliceIndex traits
+### Phase 1: Define Index trait and Range types
 
-- Add `Index` trait to `std/prelude.yo` (or a new `std/ops/index.yo`).
-- Add `SliceIndex` trait for range-based slicing.
-- Add `Range(T)` type if not already present.
+- `Index` trait is already in `std/prelude.yo`.
+- Add `Range(T)`, `RangeInclusive(T)`, `RangeFull` types to `std/prelude.yo`.
+- Add `..` and `..=` operator parsing to the lexer/parser.
 - No changes to existing behavior yet.
 
-### Phase 2: Implement Index for ArrayList
+### Phase 2: Add Index dispatch to evaluator
 
-- Add `impl(ArrayList(T), Index(usize)(...))`.
-- Add `impl(ArrayList(T), SliceIndex(Range(usize))(...))` if ArrayList supports slicing.
+- Modify call dispatch in `function.ts` to check for Index trait when calling a non-function value.
+- Desugar `value(arg)` to `(typeof(value) <: Index(typeof(arg))).index(&(value), arg).*`.
+- Handle auto-deref of the returned pointer.
+- Handle `&(value(arg))` to skip deref and return `*(Output)` directly.
+- Handle `value(arg) = expr` to assign through the returned pointer.
+
+### Phase 3: Implement Index for ArrayList
+
+- Add `impl(forall(T : Type), ArrayList(T), Index(usize)(...))`.
 - Write tests: `list(0)`, `&(list(0))`, `list(0) = value`.
 - Keep existing methods (`get`, `set`, etc.) as deprecated aliases.
 
-### Phase 3: Add Index dispatch to evaluator
-
-- Modify call dispatch in `function.ts` to check for Index trait when calling a non-function value.
-- Handle auto-deref of the returned pointer.
-- Handle `&(value(arg))` to skip deref.
-- Handle `value(arg) = expr` to assign through pointer.
-
 ### Phase 4: Implement Index for native Array and Slice
 
-- Add `impl(Array(T, N), Index(usize)(...))`.
-- Add `impl(Slice(T), Index(usize)(...))`.
-- Add `impl(Array(T, N), SliceIndex(Range(usize))(...))`.
-- Add `impl(Slice(T), SliceIndex(Range(usize))(...))`.
+- Add `impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(usize)(...))`.
+- Add `impl(forall(T : Type), Slice(T), Index(usize)(...))`.
+- Add built-in range slicing (`arr(0..5)`, `arr(..)`) for Array and Slice in evaluator + codegen.
 
 ### Phase 5: Remove built-in array indexing
 
-- Remove `tryToCallArrayWithArguments` from evaluator.
-- Remove array/slice-specific codegen branches.
+- Remove `tryToCallArrayWithArguments` from evaluator (single-index path).
+- Remove array/slice-specific single-index codegen branches.
+- Keep/adapt range slicing as built-in handling.
 - Verify all existing tests still pass.
 
 ### Phase 6: Clean up ArrayList
@@ -255,7 +271,7 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Open Questions
 
-1. **Bounds checking**: Should `Index.index` panic on out-of-bounds, or should there be a separate safe `get` method returning `Option(T)`? **Recommendation**: Index panics (like Rust), `get` remains for safe access.
+1. **Bounds checking**: `Index.index` panics on out-of-bounds (like Rust). `get` remains as a separate method returning `Option(T)` for safe access.
 
 2. **Compile-time constant folding**: Currently, `arr(0)` on a comptime-known array returns the element at compile time. After migration to Index trait, can we preserve this optimization? **Recommendation**: The evaluator can special-case Index calls on known arrays/values as an optimization pass.
 
@@ -267,9 +283,7 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Trait Location
 
-`Index` and `SliceIndex` should be defined in `std/prelude.yo` since they are fundamental traits used by built-in types (Array, Slice). Alternatively, they could be in a new `std/ops/index.yo` module that the prelude re-exports.
-
-**Recommendation**: Define in `std/prelude.yo` alongside other fundamental traits (`Eq`, `Iterator`, etc.).
+`Index` is already defined in `std/prelude.yo`. `Range(T)`, `RangeInclusive(T)`, and `RangeFull` should also go in `std/prelude.yo` since they are fundamental types used by built-in array/slice operations.
 
 ## Prior Art
 
@@ -284,5 +298,5 @@ T* index(ArrayList_T* self, size_t idx) {
 
 - Yo uses `arr(i)` instead of `arr[i]` — function call syntax, not bracket syntax.
 - No `IndexMut` — Yo's `*(T)` pointers are always mutable.
-- Slicing uses a separate `SliceIndex` trait to avoid pointer-to-temporary issues.
-- The `arr(start:end)` colon syntax maps to `SliceIndex(Range(usize))` dispatch.
+- Range-based slicing (`arr(0..5)`) is handled via built-in functions, not through Index trait, to avoid pointer-to-temporary issues.
+- The `..` and `..=` operators replace the current `:` slicing syntax.
