@@ -229,6 +229,9 @@ export function evaluatePropertyAccess({
           env,
           context,
         });
+        if (objectValue.isRuntimeOnly && isUnknownValue(dereferencedValue)) {
+          dereferencedValue.isRuntimeOnly = true;
+        }
         expr.$ = {
           env,
           type: baseType,
@@ -848,10 +851,17 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(tupleElement.type, {
+              const fieldUnknown = createUnknownValue(tupleElement.type, {
                 env,
                 context,
               });
+              if (
+                objectExprValue.isRuntimeOnly &&
+                isUnknownValue(fieldUnknown)
+              ) {
+                fieldUnknown.isRuntimeOnly = true;
+              }
+              expr.$.value = fieldUnknown;
             } else {
               let values: (Value | undefined)[] = [];
               if (isTupleValue(objectExprValue)) {
@@ -941,10 +951,17 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(moduleField.type, {
+              const fieldUnknown = createUnknownValue(moduleField.type, {
                 env,
                 context,
               });
+              if (
+                objectExprValue.isRuntimeOnly &&
+                isUnknownValue(fieldUnknown)
+              ) {
+                fieldUnknown.isRuntimeOnly = true;
+              }
+              expr.$.value = fieldUnknown;
             } else {
               let values: (Value | undefined)[] = [];
               if (isModuleValue(objectExprValue)) {
