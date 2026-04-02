@@ -19,7 +19,8 @@ This inconsistency means:
 - `arr(0)` returns the element value (auto-deref from pointer).
 - `&(arr(0))` returns a pointer to the element.
 - `arr(0) = value` works through the returned pointer (no separate `IndexMut`).
-- Unify slicing syntax to use `..` and `..=` (replacing `:`), handled via built-in functions.
+- Unify slicing syntax to use `..` and `..=` (replacing `:`), handled via built-in range detection.
+- Remove `arr(:)` and `arr(0:5)` colon syntax — use `arr(0..arr.len())` and `arr(0..5)` instead.
 - Fully migrate native Array and Slice types from built-in handling to the Index trait.
 - Eliminate redundant ArrayList methods (`get_ptr`, `get_unchecked`, `set_unchecked`).
 
@@ -62,9 +63,45 @@ Use `..` and `..=` for ranges (like Rust), **not** `:`:
 | ------------ | ----------------------------------- |
 | `arr(0..5)`  | Slice from index 0 to 5 (exclusive) |
 | `arr(0..=4)` | Slice from index 0 to 4 (inclusive) |
-| `arr(..)`    | Full slice (all elements)           |
 
-Range-based slicing uses built-in functions handled in the evaluator (for comptime values) and C codegen, not through the Index trait. See "Range-Based Slicing" section below.
+**Not supported** (don't fit Yo's syntax well):
+
+- `arr(..)` — standalone range / full slice
+- `arr(1..)` — range from
+- `arr(..3)` — range to
+
+For full slicing, use explicit bounds: `arr(0..arr.len())`.
+
+The old `arr(:)` and `arr(0:5)` colon syntax is removed.
+
+#### Operator Trait Definitions
+
+`..` and `..=` are defined inside traits (like `Add` defines `(+)`):
+
+```rust
+// Trait for the `..` range operator
+RangeOp :: trait(
+  (..) : (fn(start: Self, end: Self) -> Range(Self))
+);
+
+// Trait for the `..=` inclusive range operator
+RangeInclusiveOp :: trait(
+  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
+);
+
+// Implement for usize
+impl(usize, RangeOp(
+  (..) : (fn(start: Self, end: Self) -> Range(Self))(
+    Range(usize)(start: start, end: end)
+  )
+));
+
+impl(usize, RangeInclusiveOp(
+  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))(
+    RangeInclusive(usize)(start: start, end: end)
+  )
+));
+```
 
 #### Lexer Considerations
 
@@ -74,14 +111,9 @@ The lexer (`src/lexer.ts`, lines 27-57) has a special rule: dot `.` only combine
 - `...` → already lexed as `TokenType.Operator` with value `"..."` (used for spread)
 - `..=` → currently lexed as **two tokens**: `..` (Operator) + `=` (Operator), because the dot loop stops at non-dot characters
 
-**Action needed**: Either:
+**Action needed**: Modify the lexer to recognize `..=` as a single operator token. After the dot accumulation loop, check if the result is `".."` and the next char is `=`, then consume the `=` to produce `"..="`.
 
-1. Modify the lexer to recognize `..=` as a single operator token (add a special case after the dot loop to check if next char is `=`), or
-2. Handle `..=` in the parser by combining the `..` and `=` tokens when they appear consecutively
-
-Option 1 is cleaner. After the dot accumulation loop, check if the result is `".."` and the next char is `=`, then consume the `=` to produce `"..="`.
-
-Range types (`Range(T)`, `RangeInclusive(T)`, `RangeFull`) are defined in `std/prelude.yo`.
+Range types (`Range(T)`, `RangeInclusive(T)`) and their operator traits (`RangeOp`, `RangeInclusiveOp`) are defined in `std/prelude.yo`.
 
 ### ArrayList Implementation
 
@@ -139,11 +171,12 @@ impl(forall(T : Type), Slice(T), Index(usize)(
 
 ### Range-Based Slicing
 
-Range-based slicing (`arr(0..5)`, `arr(..)`) is handled via **built-in functions** in the evaluator (for comptime constant folding) and C codegen, not through the Index trait.
+Range-based slicing (`arr(0..5)`, `arr(0..=4)`) is handled via **built-in functions** in the evaluator (for comptime constant folding) and C codegen, not through the Index trait.
 
-The `..` and `..=` operators are parsed by the lexer/parser. When `arr(0..5)` is encountered:
+When `arr(0..5)` is evaluated:
 
-- The evaluator recognizes the `..` expression as a range argument
+- `0..5` evaluates to a `Range(usize)` value via the `RangeOp` trait
+- The evaluator recognizes that the argument to `arr(...)` is a Range value
 - For comptime-known arrays, it performs bounds checking and creates a `SliceValue`
 - For runtime, it emits the corresponding C code
 
@@ -159,11 +192,9 @@ Range :: (fn(comptime(T) : Type) -> comptime(Type))(
 RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
-
-RangeFull :: struct();
 ```
 
-The `..` operator creates `Range(T)`, `..=` creates `RangeInclusive(T)`, and `..` with no arguments creates `RangeFull`.
+The `..` operator creates `Range(T)` via `RangeOp` trait, `..=` creates `RangeInclusive(T)` via `RangeInclusiveOp` trait.
 
 ## Call Dispatch Changes
 
@@ -178,7 +209,7 @@ The new dispatch order becomes:
 1. Function values → call the function
 2. Type values → constructor call
 3. **Type implements `Index(typeof(arg))`** → dispatch to `(typeof(value) <: Index(typeof(arg))).index(&(value), arg)`
-4. **`..` / `..=` range argument** → built-in slicing (evaluator + codegen)
+4. **Argument is a `Range` or `RangeInclusive` value** → built-in slicing (evaluator + codegen)
 
 The built-in array/slice handling in `tryToCallArrayWithArguments` is removed and replaced by Index trait dispatch (for single-index access) and built-in range handling (for slicing).
 
@@ -229,11 +260,13 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Migration Path
 
-### Phase 1: Define Index trait and Range types
+### Phase 1: Define Index trait, Range types, and range operators
 
 - `Index` trait is already in `std/prelude.yo`.
-- Add `Range(T)`, `RangeInclusive(T)`, `RangeFull` types to `std/prelude.yo`.
-- Add `..` and `..=` operator parsing to the lexer/parser.
+- Add `Range(T)`, `RangeInclusive(T)` types to `std/prelude.yo`.
+- Add `RangeOp` and `RangeInclusiveOp` traits to `std/prelude.yo`.
+- Implement `RangeOp` and `RangeInclusiveOp` for `usize`.
+- Modify lexer to tokenize `..=` as a single operator token.
 - No changes to existing behavior yet.
 
 ### Phase 2: Add Index dispatch to evaluator
@@ -254,7 +287,8 @@ T* index(ArrayList_T* self, size_t idx) {
 
 - Add `impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(usize)(...))`.
 - Add `impl(forall(T : Type), Slice(T), Index(usize)(...))`.
-- Add built-in range slicing (`arr(0..5)`, `arr(..)`) for Array and Slice in evaluator + codegen.
+- Add built-in range slicing (`arr(0..5)`, `arr(0..=4)`) for Array and Slice in evaluator + codegen.
+- Remove old `:` colon slicing syntax (`arr(:)`, `arr(0:5)`).
 
 ### Phase 5: Remove built-in array indexing
 
@@ -283,7 +317,7 @@ T* index(ArrayList_T* self, size_t idx) {
 
 ## Trait Location
 
-`Index` is already defined in `std/prelude.yo`. `Range(T)`, `RangeInclusive(T)`, and `RangeFull` should also go in `std/prelude.yo` since they are fundamental types used by built-in array/slice operations.
+`Index` is already defined in `std/prelude.yo`. `Range(T)`, `RangeInclusive(T)`, `RangeOp`, and `RangeInclusiveOp` should also go in `std/prelude.yo` since they are fundamental types/traits used by built-in array/slice operations.
 
 ## Prior Art
 
@@ -299,4 +333,5 @@ T* index(ArrayList_T* self, size_t idx) {
 - Yo uses `arr(i)` instead of `arr[i]` — function call syntax, not bracket syntax.
 - No `IndexMut` — Yo's `*(T)` pointers are always mutable.
 - Range-based slicing (`arr(0..5)`) is handled via built-in functions, not through Index trait, to avoid pointer-to-temporary issues.
-- The `..` and `..=` operators replace the current `:` slicing syntax.
+- `..` and `..=` are defined via traits (`RangeOp`, `RangeInclusiveOp`), like `Add` defines `(+)`.
+- No `RangeFull` (`..`), `RangeFrom` (`1..`), or `RangeTo` (`..3`) — use explicit bounds instead.
