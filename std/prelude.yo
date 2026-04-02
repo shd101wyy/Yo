@@ -237,6 +237,28 @@ extern "Yo",
     fn(forall(T: Type), self: *(Slice(T)), idx: RangeInclusive(usize)) -> *(Slice(T))
 ;
 
+// comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
+extern "Yo",
+  __yo_comptime_array_index :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): usize) -> comptime(*(T))),
+  __yo_comptime_slice_index :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): usize) -> comptime(*(T))),
+  __yo_comptime_array_index_range :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): Range(usize)) -> comptime(*(Slice(T)))),
+  __yo_comptime_array_index_range_inclusive :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): RangeInclusive(usize)) -> comptime(*(Slice(T)))),
+  __yo_comptime_slice_index_range :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): Range(usize)) -> comptime(*(Slice(T)))),
+  __yo_comptime_slice_index_range_inclusive :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): RangeInclusive(usize)) -> comptime(*(Slice(T)))),
+  __yo_comptime_string_index :
+    (fn(comptime(self): comptime_string, comptime(idx): comptime_int) -> comptime(comptime_string)),
+  __yo_comptime_string_index_range :
+    (fn(comptime(self): comptime_string, comptime(idx): Range(comptime_int)) -> comptime(comptime_string)),
+  __yo_comptime_string_index_range_inclusive :
+    (fn(comptime(self): comptime_string, comptime(idx): RangeInclusive(comptime_int)) -> comptime(comptime_string))
+;
+
 ComptimeRangeOp :: trait(
   (..) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(Range(Self))),
   where(Self <: Comptime)
@@ -742,6 +764,12 @@ impl(comptime_int, ComptimeToString(
   (to_comptime_string) : (self ->
     __yo_comptime_int_to_comptime_string(self)
   )
+));
+impl(comptime_int, ComptimeRangeOp(
+  (..): ((start, end) -> Range(comptime_int)(start: start, end: end))
+));
+impl(comptime_int, ComptimeRangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(comptime_int)(start: start, end: end))
 ));
 _comptime_int :: comptime_int;
 export comptime_int : _comptime_int;
@@ -3335,6 +3363,72 @@ impl(forall(T : Type), Slice(T), Index(RangeInclusive(usize))(
   Output : Slice(T),
   index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
     __yo_slice_index_range_inclusive(self, idx)
+  )
+));
+
+/// Array ComptimeIndex impls
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(Range(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): Range(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index_range_inclusive(self, idx)
+  )
+));
+
+/// Slice ComptimeIndex impls
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(Range(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): Range(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index_range_inclusive(self, idx)
+  )
+));
+
+/// comptime_string ComptimeIndex impls
+impl(comptime_string, ComptimeIndex(comptime_int)(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index(self, idx)
+  )
+));
+
+impl(comptime_string, ComptimeIndex(Range(comptime_int))(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index_range(self, idx)
+  )
+));
+
+impl(comptime_string, ComptimeIndex(RangeInclusive(comptime_int))(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index_range_inclusive(self, idx)
   )
 ));
 

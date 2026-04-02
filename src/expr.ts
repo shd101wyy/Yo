@@ -761,6 +761,18 @@ export const BuiltinFunctions = {
   __yo_slice_index_range: ["__yo_slice_index_range"],
   __yo_slice_index_range_inclusive: ["__yo_slice_index_range_inclusive"],
 
+  // Comptime array/slice indexing builtins (used by ComptimeIndex trait impls)
+  __yo_comptime_array_index: ["__yo_comptime_array_index"],
+  __yo_comptime_slice_index: ["__yo_comptime_slice_index"],
+  __yo_comptime_array_index_range: ["__yo_comptime_array_index_range"],
+  __yo_comptime_array_index_range_inclusive: [
+    "__yo_comptime_array_index_range_inclusive",
+  ],
+  __yo_comptime_slice_index_range: ["__yo_comptime_slice_index_range"],
+  __yo_comptime_slice_index_range_inclusive: [
+    "__yo_comptime_slice_index_range_inclusive",
+  ],
+
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
@@ -1109,6 +1121,13 @@ export const BuiltinFunctions = {
   __yo_comptime_string_to_lower: ["__yo_comptime_string_to_lower"],
   // 2-3 args (string, start, optional end)
   __yo_comptime_string_slice: ["__yo_comptime_string_slice"],
+
+  // Comptime string indexing builtins (used by ComptimeIndex trait impls)
+  __yo_comptime_string_index: ["__yo_comptime_string_index"],
+  __yo_comptime_string_index_range: ["__yo_comptime_string_index_range"],
+  __yo_comptime_string_index_range_inclusive: [
+    "__yo_comptime_string_index_range_inclusive",
+  ],
 
   // Type related functions
   __yo_type_to_comptime_string: ["__yo_type_to_comptime_string"],

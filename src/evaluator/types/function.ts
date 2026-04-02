@@ -55,6 +55,7 @@ import { getFunctionParameterToken, typeOfType } from "../../types/hierarchy";
 import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
+  typeContainsSomeType,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
@@ -442,6 +443,7 @@ export function evaluateFunctionParameter({
     }
     if (
       isCompileTimeOnly &&
+      !typeContainsSomeType(parameterType) &&
       typeProhibitsComptimeModifier(parameterType, env)
     ) {
       throw formatErrorMessage({
@@ -2493,6 +2495,7 @@ ${typeToString(returnType)}`,
 
   if (
     isReturnTypeCompileTimeOnly &&
+    !typeContainsSomeType(returnType) &&
     typeProhibitsComptimeModifier(returnType, env)
   ) {
     throw formatErrorMessage({

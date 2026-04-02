@@ -29,6 +29,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import {
   createExprType,
   createFunctionType,
+  createPtrType,
   createTypeApplicationType,
 } from "../../types/creators";
 import type {
@@ -68,12 +69,14 @@ import {
   createTypeValue,
   createUnknownValue,
   isArrayValue,
+  isComptimeStringValue,
   isExprValue,
   isFunctionValue,
   isSliceValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
+  type ComptimeStringValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -103,6 +106,7 @@ import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { hasIndexImpl, tryToCallWithIndexTrait } from "./index-trait";
 import { evaluateIsoValueCall } from "./iso";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
+import { computeComptimeStringIndex } from "../builtins/comptime-index-fns";
 import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
@@ -1633,6 +1637,74 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 result: {
                   kind: "arc-value",
                   result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error as Error | YoError,
+                },
+              };
+            }
+          }
+          // comptime_string indexing: "hello"(0), "hello"(0..3), etc.
+          else if (
+            !isTypeValue(value) &&
+            isComptimeStringType(functionToCall.type) &&
+            isComptimeStringValue(functionToCall.value) &&
+            argsToUse.length === 1
+          ) {
+            try {
+              const argExpr = argsToUse[0]!;
+              const evaluatedArg = evaluateExpression({
+                expr: argExpr,
+                env,
+                context: { ...context, expectedType: undefined },
+              });
+              if (!evaluatedArg.$ || !evaluatedArg.$.value) {
+                throw formatErrorMessage({
+                  token: argExpr.token,
+                  errorMessage: `Failed to evaluate index argument for comptime string indexing`,
+                });
+              }
+              const argType = evaluatedArg.$.type;
+              const argValue = evaluatedArg.$.value;
+              const callerEnv = evaluatedArg.$.env;
+
+              // Determine if this is a range index
+              const isRange =
+                isStructType(argType) &&
+                argType.fields.length === 2 &&
+                argType.fields[0]!.label === "start" &&
+                argType.fields[1]!.label === "end";
+              const isInclusive =
+                isRange && (argType.typeName ?? "").includes("RangeInclusive");
+
+              const resultValue = computeComptimeStringIndex({
+                strValue: (functionToCall.value as ComptimeStringValue).value,
+                argValue,
+                token: argExpr.token,
+                isRange,
+                isInclusive,
+              });
+
+              const resultType = resultValue.type;
+              const ptrResultType = createPtrType(resultType);
+
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "index",
+                  result: {
+                    value: resultValue,
+                    type: resultType,
+                    ptrType: ptrResultType,
+                    indexMethodType: undefined as unknown as FunctionType,
+                    indexMethodValue: undefined,
+                    callerEnv,
+                  },
                 },
               };
             } catch (error) {
