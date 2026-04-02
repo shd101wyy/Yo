@@ -255,3 +255,78 @@ test "Test Index trait on String", {
   assert((s(usize(2)) == u8(108)), "s(2) should be 'l' (108)");
   assert((s(usize(4)) == u8(111)), "s(4) should be 'o' (111)");
 };
+
+// === RC dup correctness tests ===
+// These tests verify that Index trait auto-deref correctly increments
+// the reference count for RC types, preventing use-after-free.
+
+test "Test Index on ArrayList(String) - RC dup on extract", {
+  // Extracting a String from ArrayList via Index must dup the RC.
+  // Without dup: drop(s) frees internal bytes, then drop(list) double-frees.
+  (list : ArrayList(String)) = ArrayList(String).new();
+  list.push(`hello`);
+  list.push(`world`);
+
+  (s : String) = list(usize(0));
+  assert((s == `hello`), "extracted string should be hello");
+  // s is dropped, then list is dropped — both must work without UAF
+};
+
+test "Test Index on ArrayList(String) - RC dup in loop", {
+  // Loop extracting RC elements must dup each one correctly.
+  (list : ArrayList(String)) = ArrayList(String).new();
+  list.push(`alpha`);
+  list.push(`beta`);
+  list.push(`gamma`);
+
+  (i : usize) = usize(0);
+  while (i < list.len()), {
+    (elem : String) = list(i);
+    assert((elem.bytes_len() > usize(0)), "element should not be empty");
+    // elem is dropped at end of iteration; list elements must remain valid
+    i = (i + usize(1));
+  };
+  // list is dropped here — all elements must still be valid
+  assert((list.len() == usize(3)), "list should still have 3 elements");
+};
+
+test "Test Index on ArrayList(String) - RC dup in cond branches", {
+  // Index inside cond branches must produce correct dup.
+  (list : ArrayList(String)) = ArrayList(String).new();
+  list.push(`first`);
+  list.push(`second`);
+
+  (flag : bool) = true;
+  (result : String) = cond(
+    flag => list(usize(0)),
+    true => list(usize(1))
+  );
+  assert((result == `first`), "should pick first element");
+};
+
+test "Test Index on ArrayList(String) - multiple extracts same index", {
+  // Multiple extracts from the same index must each dup.
+  (list : ArrayList(String)) = ArrayList(String).new();
+  list.push(`shared`);
+
+  (a : String) = list(usize(0));
+  (b : String) = list(usize(0));
+  (c : String) = list(usize(0));
+  assert((a == `shared`), "a should be shared");
+  assert((b == `shared`), "b should be shared");
+  assert((c == `shared`), "c should be shared");
+  // All three copies + list element share the same data; all must be dropped safely
+};
+
+test "Test Index on ArrayList(ArrayList(u8)) - nested RC", {
+  // Index on nested RC types must dup the outer container.
+  (outer : ArrayList(ArrayList(u8))) = ArrayList(ArrayList(u8)).new();
+  (inner : ArrayList(u8)) = ArrayList(u8).new();
+  inner.push(u8(42));
+  outer.push(inner);
+
+  (extracted : ArrayList(u8)) = outer(usize(0));
+  assert((extracted.len() == usize(1)), "extracted should have 1 element");
+  assert((extracted(usize(0)) == u8(42)), "extracted[0] should be 42");
+  // extracted and outer both hold references to the same ArrayList(u8)
+};
