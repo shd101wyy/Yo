@@ -1,5 +1,9 @@
 open import "std/fmt";
 open import "std/collections/array_list";
+open import "std/collections/hash_map";
+open import "std/collections/btree_map";
+open import "std/collections/deque";
+open import "std/string";
 
 // === Custom struct for testing Index trait ===
 
@@ -156,4 +160,98 @@ test "Test range slicing preserves data", {
   p.* = i32(999);
   assert((s(usize(0)) == i32(999)), "mutation through pointer should work");
   assert((arr(usize(1)) == i32(999)), "original array should reflect mutation");
+};
+
+// === HashMap Index tests ===
+
+test "Test Index trait on HashMap", {
+  (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  map.set(i32(1), i32(100));
+  map.set(i32(2), i32(200));
+  map.set(i32(3), i32(300));
+
+  // Basic indexing
+  assert((map(i32(1)) == i32(100)), "map(1) should be 100");
+  assert((map(i32(2)) == i32(200)), "map(2) should be 200");
+  assert((map(i32(3)) == i32(300)), "map(3) should be 300");
+};
+
+test "Test Index trait mutation on HashMap", {
+  (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+  map.set(i32(10), i32(42));
+
+  // Mutate through pointer
+  &(map(i32(10))).* = i32(999);
+  assert((map(i32(10)) == i32(999)), "map(10) should be 999 after mutation");
+};
+
+// === BTreeMap Index tests ===
+
+test "Test Index trait on BTreeMap", {
+  (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+  map.set(i32(5), i32(500));
+  map.set(i32(3), i32(300));
+  map.set(i32(7), i32(700));
+
+  assert((map(i32(3)) == i32(300)), "map(3) should be 300");
+  assert((map(i32(5)) == i32(500)), "map(5) should be 500");
+  assert((map(i32(7)) == i32(700)), "map(7) should be 700");
+};
+
+test "Test Index trait mutation on BTreeMap", {
+  (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+
+  &(map(i32(1))).* = i32(77);
+  assert((map(i32(1)) == i32(77)), "map(1) should be 77 after mutation");
+};
+
+// === Deque Index tests ===
+
+test "Test Index trait on Deque", {
+  (d : Deque(i32)) = Deque(i32).new();
+  d.push_back(i32(10));
+  d.push_back(i32(20));
+  d.push_back(i32(30));
+
+  assert((d(usize(0)) == i32(10)), "d(0) should be 10");
+  assert((d(usize(1)) == i32(20)), "d(1) should be 20");
+  assert((d(usize(2)) == i32(30)), "d(2) should be 30");
+};
+
+test "Test Index trait mutation on Deque", {
+  (d : Deque(i32)) = Deque(i32).new();
+  d.push_back(i32(100));
+  d.push_back(i32(200));
+
+  &(d(usize(0))).* = i32(555);
+  assert((d(usize(0)) == i32(555)), "d(0) should be 555 after mutation");
+};
+
+test "Test Index on Deque with ring buffer wrap", {
+  (d : Deque(i32)) = Deque(i32).new();
+  // Push and pop to shift head forward
+  d.push_back(i32(1));
+  d.push_back(i32(2));
+  d.push_back(i32(3));
+  d.pop_front(); // removes 1, head moves
+  d.pop_front(); // removes 2, head moves
+  d.push_back(i32(4));
+  d.push_back(i32(5));
+
+  // Now: [3, 4, 5] with head wrapped
+  assert((d(usize(0)) == i32(3)), "d(0) should be 3");
+  assert((d(usize(1)) == i32(4)), "d(1) should be 4");
+  assert((d(usize(2)) == i32(5)), "d(2) should be 5");
+};
+
+// === String Index tests ===
+
+test "Test Index trait on String", {
+  (s : String) = `Hello`;
+
+  assert((s(usize(0)) == u8(72)), "s(0) should be 'H' (72)");
+  assert((s(usize(1)) == u8(101)), "s(1) should be 'e' (101)");
+  assert((s(usize(2)) == u8(108)), "s(2) should be 'l' (108)");
+  assert((s(usize(4)) == u8(111)), "s(4) should be 'o' (111)");
 };

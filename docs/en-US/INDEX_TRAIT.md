@@ -177,6 +177,64 @@ sum := (arr(usize(0)) + arr(usize(1)));
 assert((sum == i32(30)), "works with +");
 ```
 
+## Standard Library Implementations
+
+The following standard library types implement the `Index` trait:
+
+### ArrayList(T) — `Index(usize)`
+
+```rust
+(list : ArrayList(i32)) = ArrayList(i32).new();
+list.push(i32(42));
+v := list(usize(0));             // 42
+&(list(usize(0))).* = i32(99);  // mutate in place
+```
+
+### HashMap(K, V) — `Index(K)`
+
+```rust
+(map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+map.set(i32(1), i32(100));
+v := map(i32(1));               // 100
+&(map(i32(1))).* = i32(999);   // mutate in place
+// map(i32(99))                 // panics: key not found
+```
+
+Requires `K <: (Eq(K), Hash)`.
+
+### BTreeMap(K, V) — `Index(K)`
+
+```rust
+(map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+map.set(i32(5), i32(500));
+v := map(i32(5));               // 500
+&(map(i32(5))).* = i32(77);   // mutate in place
+// map(i32(99))                 // panics: key not found
+```
+
+Requires `K <: Ord(K)`.
+
+### Deque(T) — `Index(usize)`
+
+```rust
+(d : Deque(i32)) = Deque(i32).new();
+d.push_back(i32(10));
+d.push_back(i32(20));
+v := d(usize(0));               // 10
+&(d(usize(0))).* = i32(555);  // mutate in place
+```
+
+O(1) random access, correctly handles ring buffer wrapping.
+
+### String — `Index(usize)`
+
+```rust
+(s : String) = `Hello`;
+b := s(usize(0));  // u8(72) — byte-level access ('H')
+```
+
+Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator.
+
 ## Error Handling
 
 Out-of-bounds access through the Index trait causes a **panic** at runtime. This is consistent with Rust's behavior. For checked access that returns `Option(T)`, use the `get` method on `ArrayList`:

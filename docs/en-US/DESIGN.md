@@ -3040,6 +3040,14 @@ asm("mov {0}, #42", out(reg, x));
 
 For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md).
 
+## Index Trait
+
+Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via `&(value(index)).* = new_value`.
+
+The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Arrays and slices use built-in indexing with the same syntax, plus range slicing with `..` and `..=`.
+
+For the full design, trait definition, and implementation details, see [INDEX_TRAIT.md](./INDEX_TRAIT.md).
+
 ## In Design
 
 Please check [IN_DESIGN.md](../../plans/IN_DESIGN.md) for features that are still in design phase.

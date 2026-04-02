@@ -177,6 +177,64 @@ sum := (arr(usize(0)) + arr(usize(1)));
 assert((sum == i32(30)), "与 + 配合使用");
 ```
 
+## 标准库实现
+
+以下标准库类型实现了 `Index` 特征：
+
+### ArrayList(T) — `Index(usize)`
+
+```rust
+(list : ArrayList(i32)) = ArrayList(i32).new();
+list.push(i32(42));
+v := list(usize(0));             // 42
+&(list(usize(0))).* = i32(99);  // 原地修改
+```
+
+### HashMap(K, V) — `Index(K)`
+
+```rust
+(map : HashMap(i32, i32)) = HashMap(i32, i32).new();
+map.set(i32(1), i32(100));
+v := map(i32(1));               // 100
+&(map(i32(1))).* = i32(999);   // 原地修改
+// map(i32(99))                 // panic：键不存在
+```
+
+要求 `K <: (Eq(K), Hash)`。
+
+### BTreeMap(K, V) — `Index(K)`
+
+```rust
+(map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
+map.set(i32(5), i32(500));
+v := map(i32(5));               // 500
+&(map(i32(5))).* = i32(77);   // 原地修改
+// map(i32(99))                 // panic：键不存在
+```
+
+要求 `K <: Ord(K)`。
+
+### Deque(T) — `Index(usize)`
+
+```rust
+(d : Deque(i32)) = Deque(i32).new();
+d.push_back(i32(10));
+d.push_back(i32(20));
+v := d(usize(0));               // 10
+&(d(usize(0))).* = i32(555);  // 原地修改
+```
+
+O(1) 随机访问，正确处理环形缓冲区回绕。
+
+### String — `Index(usize)`
+
+```rust
+(s : String) = `Hello`;
+b := s(usize(0));  // u8(72) — 字节级访问（'H'）
+```
+
+返回 `u8` — 对内部 UTF-8 缓冲区的字节级索引。如需字符级访问，请使用 `chars()` 迭代器。
+
 ## 错误处理
 
 通过 Index 特征的越界访问会在运行时导致 **panic**。这与 Rust 的行为一致。如需返回 `Option(T)` 的安全访问，请使用 `ArrayList` 的 `get` 方法：

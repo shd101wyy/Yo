@@ -1886,6 +1886,16 @@ impl(String,
   )
 );
 
+impl(String, Index(usize)(
+  Output : u8,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    match(self.*._bytes,
+      .Some(bytes) => &(bytes(idx)),
+      .None => panic("String: index on empty string")
+    )
+  )
+));
+
 export
   String,
   StringError,
