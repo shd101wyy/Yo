@@ -32,6 +32,9 @@ import type {
 } from "../../types/definitions";
 import {
   isArrayType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isEnumType,
   isSomeType,
   isStructType,
@@ -752,6 +755,22 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
           )}\n${e}`,
         });
       }
+    }
+
+    // Convert compile-time types to runtime types if needed
+    // For example: comptime_string -> str when assigning to a str field
+    // Only convert when the target type is a runtime type (not comptime_int, etc.)
+    if (
+      !isComptimeIntType(expectedType) &&
+      !isComptimeFloatType(expectedType) &&
+      !isComptimeStringType(expectedType)
+    ) {
+      rhsType = convertComptimeTypeToRuntimeType({
+        type: rhsType,
+        expectedType: expectedType,
+        expr: rhs,
+        env,
+      });
     }
 
     // Check if the type matches

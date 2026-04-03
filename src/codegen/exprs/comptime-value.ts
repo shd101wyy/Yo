@@ -1,5 +1,6 @@
 import type { Expr } from "../../expr";
 import {
+  isComptimeStringType,
   isNewtypeType,
   isPtrType,
   isSliceType,
@@ -99,6 +100,24 @@ export function generateComptimeValue(
 
       // Generate slice struct value (fat pointer)
       return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
+    }
+
+    // Fallback: comptime_string in runtime context should become str (Slice(u8)).
+    // This handles cases where convertedRuntimeType was not set on the expression
+    // (e.g., cond branch values, field assignments).
+    // Search the registered types for the str newtype wrapping Slice(u8).
+    if (!targetType || isComptimeStringType(targetType)) {
+      for (const entry of Object.values(context.types)) {
+        if (
+          isNewtypeType(entry.type) &&
+          entry.type.fields.length === 1 &&
+          isSliceType(entry.type.fields[0]!.type)
+        ) {
+          const stringLiteral = JSON.stringify(value.value);
+          const stringLength = Buffer.byteLength(value.value, "utf8");
+          return `(${entry.cName}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
+        }
+      }
     }
 
     // For regular strings, return the C string literal with proper escaping

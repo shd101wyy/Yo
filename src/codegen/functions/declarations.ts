@@ -701,7 +701,7 @@ export function generateSpecializedFunctionDeclarations(
 
     // Emit the function declaration
     context.emitter.emitDeclarationLine(
-      `static ${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
+      `static inline ${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }
