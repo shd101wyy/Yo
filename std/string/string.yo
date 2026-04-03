@@ -384,6 +384,29 @@ impl(String,
     );
   }),
 
+  // Clear the string content but keep the allocated buffer for reuse
+  clear : (fn(self: *(Self)) -> unit)(
+    match(self.*._bytes,
+      .Some(al) => al.clear(),
+      .None => ()
+    )
+  ),
+
+  // Create a deep copy of this string with its own buffer
+  clone : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(al.len());
+        match(al.ptr(),
+          .Some(p) => new_al.extend_from_ptr(p, al.len()),
+          .None => ()
+        );
+        Self(_bytes: .Some(new_al))
+      }
+    )
+  ),
+
   // Get the number of bytes in the string (not Unicode characters)
   bytes_len : (fn(self: Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))

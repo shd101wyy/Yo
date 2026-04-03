@@ -2173,6 +2173,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         const newVariable: Variable = {
           ...frameVariables[j]!,
           id: newVariableId,
+          // Reset compile-time value since the variable was reassigned in a runtime branch;
+          // the actual value is unknown at compile time after the branch merge.
+          value: undefined,
           // Clear ownership tracking since the value may come from different sources
           isOwningTheSameRcValueAs: undefined,
         };

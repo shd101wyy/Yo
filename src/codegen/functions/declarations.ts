@@ -539,10 +539,10 @@ export function generateObjectConstructorDeclarations(
 
   // Generate builtin reference counting functions (static — single C file)
   emitter.emitDeclarationLine(
-    `static void __yo_decr_rc(void* ptr); // Decrement reference count`
+    `static inline void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
-    `static void* __yo_incr_rc(void* ptr); // Increment reference count`
+    `static inline void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
   // Generate GC function declarations

@@ -1291,7 +1291,7 @@ function generateAtomicGCRuntimeFunctions(
 // already accounts for their references via trial deletion.
 static _Thread_local int __yo_gc_collecting = 0;
 
-static void __yo_decr_rc(void* ptr) {
+static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
@@ -1326,7 +1326,7 @@ static void __yo_decr_rc(void* ptr) {
   }
 }
 
-static void* __yo_incr_rc(void* ptr) {
+static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
