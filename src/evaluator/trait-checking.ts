@@ -29,6 +29,7 @@ import {
   isDynType,
   isFnTraitType,
   isFutureTraitType,
+  isPtrType,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
@@ -519,6 +520,76 @@ export function typeImplementsComptime(type: Type, env: Environment): boolean {
     traitType: comptimeTraitType,
     env,
   });
+}
+
+/**
+ * Validate that all SomeTypes within a type have the Comptime constraint.
+ *
+ * Unlike typeImplementsComptime which relies on the generic impl registry
+ * (and may fail due to impl registration order), this function does structural
+ * checking: it walks the type tree and verifies each SomeType has a Comptime
+ * constraint. For compound types like *(T), it checks inner types recursively.
+ *
+ * Use this at trait/function definition time where impls may not be registered yet.
+ *
+ * Returns the first SomeType missing Comptime, or undefined if all are valid.
+ */
+export function findSomeTypeMissingComptimeConstraint(
+  type: Type,
+  env: Environment
+): SomeType | undefined {
+  // For concrete types that are always comptime, no constraint needed
+  const builtin = typeImplementsComptimeBuiltin(type);
+  if (builtin === true) {
+    return undefined;
+  }
+  if (builtin === false) {
+    // Runtime-only type can't be comptime regardless — but this function
+    // is about SomeType constraints. If there's no SomeType involved,
+    // the regular typeProhibitsComptimeModifier check handles this case.
+    return undefined;
+  }
+
+  // SomeType — check if it has Comptime constraint
+  if (isSomeType(type)) {
+    const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+    if (!comptimeTraitType) {
+      return type;
+    }
+
+    // Check requiredTraits
+    for (const entry of type.requiredTraits) {
+      if (entry.traitType.id === comptimeTraitType.id) {
+        return undefined;
+      }
+    }
+
+    // Check where-clause constraints
+    const whereConstraints = getWhereClauseConstraintsForSomeType(env, type);
+    if (whereConstraints) {
+      for (const trait of whereConstraints.requiredTraits) {
+        if (trait.id === comptimeTraitType.id) {
+          return undefined;
+        }
+      }
+    }
+
+    // No Comptime constraint found
+    return type;
+  }
+
+  // Pointer *(T) — T must implement Comptime
+  if (isPtrType(type)) {
+    return findSomeTypeMissingComptimeConstraint(type.childType, env);
+  }
+
+  // For other compound types (arrays, slices, structs, enums), we don't
+  // have a structural rule for determining Comptime — they depend on their
+  // generic impl. At definition time, we can only check that any SomeTypes
+  // directly appearing have the constraint. The generic impl registry
+  // will enforce this at specialization time.
+
+  return undefined;
 }
 
 /**

@@ -3867,3 +3867,25 @@ test "Test comptime bitwise type preservation", {
     assert((result2 == u32(0xFFFFFF00)), "u32 AND with comptime NOT mask");
   };
 };
+
+test "Comptime SomeType constraint validation", {
+  // BAD: Self.Output is not constrained to Comptime, so comptime(*(Self.Output)) is invalid
+  comptime_expect_error(
+    MyBadComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+      trait(
+        Output : Type,
+        index : (fn(comptime(self): *(Self), comptime(idx): Idx) -> comptime(*(Self.Output))),
+        where(Self <: Comptime)
+      )
+    )
+  );
+
+  // GOOD: Self.Output <: Comptime is in the where clause
+  MyGoodComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+    trait(
+      Output : Type,
+      index : (fn(comptime(self): *(Self), comptime(idx): Idx) -> comptime(*(Self.Output))),
+      where(Self <: Comptime, Self.Output <: Comptime)
+    )
+  );
+};
