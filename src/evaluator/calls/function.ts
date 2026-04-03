@@ -2643,7 +2643,11 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
           errorMessage: `Error evaluating struct call.`,
         });
       }
-      const structValue = memberValues.some((memberValue) => !memberValue)
+      const structValue = memberValues.some(
+        (memberValue) =>
+          !memberValue ||
+          (isUnknownValue(memberValue) && memberValue.isRuntimeOnly)
+      )
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
       expr.$.value = isObjectType(structType)
@@ -2695,7 +2699,11 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       } = getTypeCallResult(functionToCall);
       env = callerEnv;
 
-      if (memberValues.every((v) => !!v)) {
+      if (
+        memberValues.every(
+          (v) => !!v && !(isUnknownValue(v) && v.isRuntimeOnly)
+        )
+      ) {
         const enumValue = createEnumValue(
           enumType,
           selectedVariant.name,

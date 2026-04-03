@@ -945,12 +945,16 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     // Fallback: if both LHS and RHS have compile-time values but the specific
     // handlers above didn't fire (e.g. comptime pointer deref with UnknownValue
     // params during function body analysis), mark as compile-time-only.
-    // Exclude cases where LHS is an UnknownValue — it means "type known, value unknown"
-    // and the assignment must still generate runtime code (e.g., Index trait lvalue assignment).
+    // Exclude cases where LHS is a runtime-only UnknownValue — it means the value
+    // comes from runtime-only dispatch (e.g., Index trait lvalue assignment) and
+    // the assignment must still generate runtime code.
     if (
       !isCompileTimeOnlyAssignment &&
       evaluatedLhs.$?.value !== undefined &&
-      !isUnknownValue(evaluatedLhs.$.value) &&
+      !(
+        isUnknownValue(evaluatedLhs.$.value) &&
+        evaluatedLhs.$.value.isRuntimeOnly
+      ) &&
       rhs.$?.value !== undefined
     ) {
       isCompileTimeOnlyAssignment = true;
