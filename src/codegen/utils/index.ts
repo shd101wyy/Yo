@@ -255,6 +255,14 @@ export interface CodeGenContext {
   typeIdStatics?: Map<string, string>;
 
   /**
+   * When true, at least one object type can form RC cycles and needs GC tracking.
+   * When false, GC infrastructure is omitted: __yo_ref_header_t is smaller (no gc_flags,
+   * gc_mark, gc_next, gc_prev, traverse_fn), __yo_decr_rc skips GC checks, and all
+   * GC runtime functions (register, unregister, collect) become no-ops.
+   */
+  needsCycleGC?: boolean;
+
+  /**
    * When true, compiling as a library (no main() wrapper, exported functions use plain names).
    */
   isLibrary?: boolean;

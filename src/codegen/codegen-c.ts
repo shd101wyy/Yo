@@ -4,6 +4,8 @@ import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
+import { isStructType } from "../types/guards";
+import { canTypeFormRcCycle, typeContainsSomeType } from "../types/utils";
 import {
   generateDeferredAsyncBlocks,
   preRegisterAsyncBlockTypes,
@@ -159,6 +161,24 @@ typedef enum {
   __YO_FUTURE_ERROR = 2       // Task failed with error
 } __yo_future_state_t;
 `);
+
+    // Pre-scan: determine if any object type can form RC cycles.
+    // This must be computed before generateTypeDeclarations because it affects
+    // __yo_ref_header_t layout (with or without GC fields).
+    context.needsCycleGC = false;
+    for (const typeId in context.types) {
+      const { type } = context.types[typeId]!;
+      if (
+        isStructType(type) &&
+        type.isReferenceSemantics &&
+        !type.fields.some((field) => typeContainsSomeType(field.type))
+      ) {
+        if (canTypeFormRcCycle(type, new Set(), type.env)) {
+          context.needsCycleGC = true;
+          break;
+        }
+      }
+    }
 
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);

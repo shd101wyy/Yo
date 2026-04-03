@@ -208,6 +208,27 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     );
   }
 
+  // Pre-scan: determine if any object type can form RC cycles.
+  // This gates the cycle-detection GC infrastructure (header fields, GC checks in
+  // __yo_decr_rc, register/unregister/collect functions). When no type needs it,
+  // we emit a smaller __yo_ref_header_t and a faster __yo_decr_rc.
+  if (context.needsCycleGC === undefined) {
+    context.needsCycleGC = false;
+    for (const typeId in context.types) {
+      const { type } = context.types[typeId]!;
+      if (
+        isStructType(type) &&
+        type.isReferenceSemantics &&
+        !type.fields.some((field) => typeContainsSomeType(field.type))
+      ) {
+        if (canTypeFormRcCycle(type, new Set(), type.env)) {
+          context.needsCycleGC = true;
+          break;
+        }
+      }
+    }
+  }
+
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
 
@@ -1282,6 +1303,91 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 function generateAtomicGCRuntimeFunctions(
   context: FunctionGenerationContext
 ): void {
+  if (context.needsCycleGC) {
+    generateFullGCRuntimeFunctions(context);
+  } else {
+    generateLightweightRCFunctions(context);
+  }
+}
+
+/**
+ * Emit lightweight RC functions when no type can form reference cycles.
+ * __yo_decr_rc has no GC checks, and GC functions are no-ops.
+ */
+function generateLightweightRCFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  emitter.emitLine(`// Lightweight reference counting — no cycle detection needed
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (header->ref_count == 1) {
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  } else {
+    header->ref_count--;
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  return ptr;
+}`);
+
+  // Atomic reference counting functions for Iso types (still needed regardless of GC)
+  emitter.emitLine(`
+// Atomic reference counting functions for Iso types (thread-safe)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  return ptr;
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  if (old_count == 1) {
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  }
+}`);
+
+  // Effect escape flag and value buffer (always needed)
+  emitter.emitDeclarationLine(
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection`
+  );
+  emitter.emitDeclarationLine(
+    `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
+  );
+
+  // No-op GC functions so references elsewhere compile
+  emitter.emitLine(`// No-op GC stubs — no types form reference cycles
+static void __yo_gc_register(void* ptr) { (void)ptr; }
+static void __yo_gc_unregister(void* ptr) { (void)ptr; }
+static void __yo_gc_collect() {}
+static size_t __yo_gc_tracked_count() { return 0; }
+static void __yo_gc_init_thread() {}
+static void __yo_cleanup_thread_gc() {}
+static void __yo_init_process_cleanup(void) {}`);
+}
+
+/**
+ * Emit full GC-aware RC functions when at least one type can form reference cycles.
+ * This is the original implementation with cycle detection support.
+ */
+function generateFullGCRuntimeFunctions(
+  context: FunctionGenerationContext
+): void {
   const emitter = context.emitter;
 
   // Generate simple non-atomic __yo_decr_rc and __yo_incr_rc functions
@@ -1865,8 +1971,10 @@ export function generateRefStructConstructorFunctions(
 ): void {
   const emitter = context.emitter;
 
-  // First, generate traversal functions for each object type
-  generateRefStructTraversalFunctions(context);
+  // Only generate traversal functions when cycle GC is needed
+  if (context.needsCycleGC) {
+    generateRefStructTraversalFunctions(context);
+  }
 
   // Generate constructor implementations for each object
   for (const typeId in context.types) {
@@ -1899,11 +2007,12 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(
         `  obj->header.ref_count = 1;  // Start with one reference`
       );
-      emitter.emitLine(`  obj->header.gc_flags = 0;`);
-      emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
-      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
-
+      if (context.needsCycleGC) {
+        emitter.emitLine(`  obj->header.gc_flags = 0;`);
+        emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
+        emitter.emitLine(`  obj->header.gc_next = NULL;`);
+        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+      }
       // Set dispose function pointer to ___dispose, which handles both user cleanup and field dropping.
       // ___dispose will call user's dispose() if it exists, then drop all GC-containing fields.
       const disposeInternalFunctionElement = type.trait.fields.find(
@@ -1930,9 +2039,13 @@ export function generateRefStructConstructorFunctions(
         emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
       }
 
-      // Set traversal function pointer for GC
-      const traversalFunctionName = `__yo_traverse_${cName}`;
-      emitter.emitLine(`  obj->header.traverse_fn = ${traversalFunctionName};`);
+      // Set traversal function pointer for GC (only when cycle detection is needed)
+      if (context.needsCycleGC) {
+        const traversalFunctionName = `__yo_traverse_${cName}`;
+        emitter.emitLine(
+          `  obj->header.traverse_fn = ${traversalFunctionName};`
+        );
+      }
 
       // Initialize fields
       type.fields.forEach((field) => {
@@ -1941,7 +2054,10 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canTypeFormRcCycle(type, new Set(), type.env)) {
+      if (
+        context.needsCycleGC &&
+        canTypeFormRcCycle(type, new Set(), type.env)
+      ) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 

@@ -95,14 +95,18 @@ export function generateDynBoxFunctions(
       `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
     );
     emitter.emitLine(`  box->header.ref_count = 1;`);
-    emitter.emitLine(`  box->header.gc_flags = 0;`);
-    emitter.emitLine(`  box->header.gc_mark = __YO_GC_UNMARKED;`);
-    emitter.emitLine(`  box->header.gc_next = NULL;`);
-    emitter.emitLine(`  box->header.gc_prev = NULL;`);
+    if (context.needsCycleGC) {
+      emitter.emitLine(`  box->header.gc_flags = 0;`);
+      emitter.emitLine(`  box->header.gc_mark = __YO_GC_UNMARKED;`);
+      emitter.emitLine(`  box->header.gc_next = NULL;`);
+      emitter.emitLine(`  box->header.gc_prev = NULL;`);
+    }
     emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
-    emitter.emitLine(
-      `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`
-    );
+    if (context.needsCycleGC) {
+      emitter.emitLine(
+        `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`
+      );
+    }
     emitter.emitLine(`  box->value = value;`);
     emitter.emitLine(`  return box;`);
     emitter.emitLine(`}`);
