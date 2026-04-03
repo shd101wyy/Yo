@@ -800,10 +800,21 @@ export function generateFunction(
 
   // All functions are 'static' (internal linkage) except __yo_user_main and
   // library exports, since everything compiles to a single C file.
+  // RC functions (___drop, ___dup, ___dispose) get __attribute__((always_inline))
+  // to ensure the C compiler inlines them even at -Os.
   const isExported =
     cFunctionName === "__yo_user_main" ||
     context.exportedFunctionLabels?.has(functionValue.funcId);
-  const linkagePrefix = isExported ? "" : "static inline ";
+  const isRcFunction =
+    !isExported &&
+    (cFunctionName.includes("___drop") ||
+      cFunctionName.includes("___dup") ||
+      cFunctionName.includes("___dispose"));
+  const linkagePrefix = isExported
+    ? ""
+    : isRcFunction
+      ? "static inline __attribute__((always_inline)) "
+      : "static inline ";
   emitter.emitLine(`${linkagePrefix}${functionPrototype} {`);
 
   // Set current function name and type for recur support and async handling
