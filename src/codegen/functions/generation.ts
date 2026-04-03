@@ -803,7 +803,7 @@ export function generateFunction(
   const isExported =
     cFunctionName === "__yo_user_main" ||
     context.exportedFunctionLabels?.has(functionValue.funcId);
-  const linkagePrefix = isExported ? "" : "static ";
+  const linkagePrefix = isExported ? "" : "static inline ";
   emitter.emitLine(`${linkagePrefix}${functionPrototype} {`);
 
   // Set current function name and type for recur support and async handling

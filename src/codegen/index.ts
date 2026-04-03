@@ -527,7 +527,12 @@ export class CodeGenerator {
         // Add liburing on Linux for async I/O. Since only native targets are
         // supported (not cross-compilation), whatever liburing is installed on
         // the host is the correct one to link against.
-        if (!isWasm && !isMSVC && isTargetLinux(targetInfo) && isLiburingAvailable()) {
+        if (
+          !isWasm &&
+          !isMSVC &&
+          isTargetLinux(targetInfo) &&
+          isLiburingAvailable()
+        ) {
           compileArgs.splice(-2, 0, "-luring");
           console.log("Using system liburing for async I/O");
         } else if (isTargetLinux(targetInfo) && !isMSVC) {
@@ -730,7 +735,7 @@ function makeNonExportedFunctionsStatic(
       }
 
       // Make this function static
-      result.push("static " + line);
+      result.push("static inline " + line);
       continue;
     }
 

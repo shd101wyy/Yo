@@ -523,7 +523,7 @@ export function generateFunctionDeclaration(
   // Non-extern functions are 'static' (internal linkage) since all Yo code
   // compiles to a single C file. This enables the C compiler to strip unused
   // functions with -O2.
-  const linkagePrefix = isExtern ? "extern " : "static ";
+  const linkagePrefix = isExtern ? "extern " : "static inline ";
   context.emitter.emitDeclarationLine(
     `${linkagePrefix}${functionPrototype}; // ${yoTypeStr}`
   );
