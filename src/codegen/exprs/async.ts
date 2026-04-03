@@ -982,9 +982,24 @@ function generateAsyncBlockConstructor(
     emitter.emitLine(`  sm->header.gc_next = NULL;`);
     emitter.emitLine(`  sm->header.gc_prev = NULL;`);
   }
-  emitter.emitLine(
-    `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
-  );
+  if (context.needsCycleGC) {
+    emitter.emitLine(
+      `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+    );
+  } else {
+    // Type-tag dispatch for async SM
+    if (!context.disposeTypeIds) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
+    let typeId = context.disposeTypeIds.get(disposeFunctionName);
+    if (typeId === undefined) {
+      typeId = context.nextDisposeTypeId!;
+      context.nextDisposeTypeId = typeId + 1;
+      context.disposeTypeIds.set(disposeFunctionName, typeId);
+    }
+    emitter.emitLine(`  sm->header.type_id = ${typeId};`);
+  }
   if (context.needsCycleGC) {
     emitter.emitLine(
       `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`
@@ -1592,9 +1607,24 @@ export function generateIoAsyncSyncCall(
     emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
     emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
   }
-  emitter.emitLine(
-    `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
-  );
+  if (context.needsCycleGC) {
+    emitter.emitLine(
+      `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+    );
+  } else {
+    // Type-tag dispatch for sync_fut_t
+    if (!context.disposeTypeIds) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
+    let typeId = context.disposeTypeIds.get(disposeFunctionName);
+    if (typeId === undefined) {
+      typeId = context.nextDisposeTypeId!;
+      context.nextDisposeTypeId = typeId + 1;
+      context.disposeTypeIds.set(disposeFunctionName, typeId);
+    }
+    emitter.emitLine(`${indent}${resultVar}->header.type_id = ${typeId};`);
+  }
   if (context.needsCycleGC) {
     emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
   }

@@ -1319,13 +1319,20 @@ function generateLightweightRCFunctions(
 ): void {
   const emitter = context.emitter;
 
+  // Forward-declare the dispose dispatch function (defined after all dispose functions)
+  emitter.emitDeclarationLine(
+    `static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch`
+  );
+
   emitter.emitLine(`// Lightweight reference counting — no cycle detection needed
+// Uses type_id dispatch instead of function pointer for dispose
+// (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   if (header->ref_count == 1) {
-    if (header->dispose_fn) {
-      header->dispose_fn(ptr);
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
     }
     __yo_free(ptr);
   } else {
@@ -1355,8 +1362,8 @@ static void __yo_decr_rc_atomic(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
   if (old_count == 1) {
-    if (header->dispose_fn) {
-      header->dispose_fn(ptr);
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
     }
     __yo_free(ptr);
   }
@@ -2031,12 +2038,33 @@ export function generateRefStructConstructorFunctions(
         const disposeFunctionCName =
           context.functions[disposeFunctionValue.funcId]?.cName ||
           disposeFunctionValue.funcId;
-        emitter.emitLine(
-          `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
-        );
+
+        if (context.needsCycleGC) {
+          emitter.emitLine(
+            `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
+          );
+        } else {
+          // Type-tag dispatch: assign a unique ID for this dispose function
+          if (!context.disposeTypeIds) {
+            context.disposeTypeIds = new Map();
+            context.nextDisposeTypeId = 1;
+          }
+          let disposeId = context.disposeTypeIds.get(disposeFunctionCName);
+          if (disposeId === undefined) {
+            disposeId = context.nextDisposeTypeId!;
+            context.nextDisposeTypeId = disposeId + 1;
+            context.disposeTypeIds.set(disposeFunctionCName, disposeId);
+          }
+          emitter.emitLine(`  obj->header.type_id = ${disposeId};`);
+        }
       } else {
-        // Fallback to NULL if no ___dispose function found
-        emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        if (context.needsCycleGC) {
+          // Fallback to NULL if no ___dispose function found
+          emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        } else {
+          // Type ID 0 = no dispose needed
+          emitter.emitLine(`  obj->header.type_id = 0;`);
+        }
       }
 
       // Set traversal function pointer for GC (only when cycle detection is needed)

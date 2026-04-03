@@ -180,6 +180,12 @@ typedef enum {
       }
     }
 
+    // Initialize type-tag dispatch maps (only used when !needsCycleGC)
+    if (!context.needsCycleGC) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
+
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);
 
@@ -251,6 +257,33 @@ static Slice_uint8_t_u42_ __yo_args;
 
     // Sixth pass: Generate the specialized function bodies
     generateSpecializedFunctions(context);
+
+    // Emit type-tag dispose dispatch function (only when using lightweight RC)
+    if (
+      !context.needsCycleGC &&
+      context.disposeTypeIds &&
+      context.disposeTypeIds.size > 0
+    ) {
+      this.emitter
+        .emitLine(`// Type-tag dispatch for dispose — replaces function pointers
+// WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
+static void __yo_dispose_dispatch(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  switch (header->type_id) {`);
+      for (const [disposeFnName, typeId] of context.disposeTypeIds) {
+        this.emitter.emitLine(
+          `    case ${typeId}: ${disposeFnName}(ptr); return;`
+        );
+      }
+      this.emitter.emitLine(`    default: return;
+  }
+}`);
+    } else if (!context.needsCycleGC) {
+      // No dispose functions registered, but we still need the forward-declared stub
+      this.emitter.emitLine(
+        `static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }`
+      );
+    }
 
     // Propagate codegen flags for C compiler invocation
     if (context.needsIntelAsmSyntax) {

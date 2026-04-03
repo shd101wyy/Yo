@@ -101,7 +101,23 @@ export function generateDynBoxFunctions(
       emitter.emitLine(`  box->header.gc_next = NULL;`);
       emitter.emitLine(`  box->header.gc_prev = NULL;`);
     }
-    emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
+    const disposeNameDyn = `__yo_dispose_${boxTypeName}`;
+    if (context.needsCycleGC) {
+      emitter.emitLine(`  box->header.dispose_fn = ${disposeNameDyn};`);
+    } else {
+      // Type-tag dispatch for Dyn box
+      if (!context.disposeTypeIds) {
+        context.disposeTypeIds = new Map();
+        context.nextDisposeTypeId = 1;
+      }
+      let typeId = context.disposeTypeIds.get(disposeNameDyn);
+      if (typeId === undefined) {
+        typeId = context.nextDisposeTypeId!;
+        context.nextDisposeTypeId = typeId + 1;
+        context.disposeTypeIds.set(disposeNameDyn, typeId);
+      }
+      emitter.emitLine(`  box->header.type_id = ${typeId};`);
+    }
     if (context.needsCycleGC) {
       emitter.emitLine(
         `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`

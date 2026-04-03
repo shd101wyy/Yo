@@ -263,6 +263,19 @@ export interface CodeGenContext {
   needsCycleGC?: boolean;
 
   /**
+   * When !needsCycleGC, maps dispose function C names to sequential integer type IDs.
+   * Used to replace indirect dispose_fn calls with a switch-based dispatch table,
+   * which compiles to WASM br_table instead of expensive call_indirect.
+   * Type ID 0 is reserved for "no dispose needed" (NULL dispose_fn).
+   */
+  disposeTypeIds?: Map<string, number>;
+
+  /**
+   * Next available type ID for disposeTypeIds. Starts at 1 (0 = no dispose).
+   */
+  nextDisposeTypeId?: number;
+
+  /**
    * When true, compiling as a library (no main() wrapper, exported functions use plain names).
    */
   isLibrary?: boolean;

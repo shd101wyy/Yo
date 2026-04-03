@@ -220,9 +220,10 @@ struct __yo_thread_gc_state {
   } else {
     context.emitter.emitDeclarationLine(`
 // Lightweight reference counting header — no cycle detection fields
+// Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
 typedef struct __yo_ref_header_t {
   size_t ref_count;
-  void (*dispose_fn)(void*);
+  uint16_t type_id;
 } __yo_ref_header_t;`);
   }
 
@@ -838,17 +839,32 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     // Skip if constructor already generated
     if (createGenerated) continue;
 
+    const isoDisposeName = `__yo_dispose_iso_${isoTypeName}`;
+    let isoDisposeAssignment: string;
+    if (context.needsCycleGC) {
+      isoDisposeAssignment = `  iso->header.dispose_fn = ${isoDisposeName};`;
+    } else {
+      if (!context.disposeTypeIds) {
+        context.disposeTypeIds = new Map();
+        context.nextDisposeTypeId = 1;
+      }
+      let typeId = context.disposeTypeIds.get(isoDisposeName);
+      if (typeId === undefined) {
+        typeId = context.nextDisposeTypeId!;
+        context.nextDisposeTypeId = typeId + 1;
+        context.disposeTypeIds.set(isoDisposeName, typeId);
+      }
+      isoDisposeAssignment = `  iso->header.type_id = ${typeId};`;
+    }
+    const isoGcInit = context.needsCycleGC
+      ? `\n  iso->header.gc_mark = __YO_GC_UNMARKED;\n  iso->header.gc_flags = 0;`
+      : "";
+
     emitter.emitLine(`
 ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
-  iso->header.ref_count = 1;${
-    context.needsCycleGC
-      ? `
-  iso->header.gc_mark = __YO_GC_UNMARKED;
-  iso->header.gc_flags = 0;`
-      : ""
-  }
-  iso->header.dispose_fn = __yo_dispose_iso_${isoTypeName};
+  iso->header.ref_count = 1;${isoGcInit}
+${isoDisposeAssignment}
   atomic_store(&iso->extracted, false);
   iso->value = value;
   return iso;
@@ -1029,17 +1045,32 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
     const { childTypeCName, createGenerated } = arcInfo;
     if (createGenerated) continue;
 
+    const arcDisposeName = `__yo_dispose_arc_${arcTypeName}`;
+    let arcDisposeAssignment: string;
+    if (context.needsCycleGC) {
+      arcDisposeAssignment = `  arc->header.dispose_fn = ${arcDisposeName};`;
+    } else {
+      if (!context.disposeTypeIds) {
+        context.disposeTypeIds = new Map();
+        context.nextDisposeTypeId = 1;
+      }
+      let typeId = context.disposeTypeIds.get(arcDisposeName);
+      if (typeId === undefined) {
+        typeId = context.nextDisposeTypeId!;
+        context.nextDisposeTypeId = typeId + 1;
+        context.disposeTypeIds.set(arcDisposeName, typeId);
+      }
+      arcDisposeAssignment = `  arc->header.type_id = ${typeId};`;
+    }
+    const arcGcInit = context.needsCycleGC
+      ? `\n  arc->header.gc_mark = __YO_GC_UNMARKED;\n  arc->header.gc_flags = 0;`
+      : "";
+
     emitter.emitLine(`
 ${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value) {
   ${arcTypeName} arc = (${arcTypeName})__yo_malloc(sizeof(${arcTypeName}_struct));
-  arc->header.ref_count = 1;${
-    context.needsCycleGC
-      ? `
-  arc->header.gc_mark = __YO_GC_UNMARKED;
-  arc->header.gc_flags = 0;`
-      : ""
-  }
-  arc->header.dispose_fn = __yo_dispose_arc_${arcTypeName};
+  arc->header.ref_count = 1;${arcGcInit}
+${arcDisposeAssignment}
   arc->value = value;
   return arc;
 }`);
