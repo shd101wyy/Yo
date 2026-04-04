@@ -33,12 +33,7 @@ import {
   isSomeType,
   isUnitType,
 } from "../../types/guards";
-import {
-  isFunctionValue,
-  isModuleValue,
-  isUnknownValue,
-  type Value,
-} from "../../value";
+import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
 import { typeContainsRcType } from "../../types/utils";
 import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
@@ -169,11 +164,15 @@ function generateIndexTraitCall(
   const calleeExpr = expr.func!;
   let calleeCode = generateExpr(calleeExpr, indent, context);
 
-  // If the callee is a function call (temporary), we can't take its address directly.
-  // Emit it into a temp variable first so we can reference it by address.
+  // If the callee is a function call returning a temporary (rvalue), we can't
+  // take its address directly. Emit it into a temp variable first.
+  // IMPORTANT: Property access (`.` calls) generates lvalue C code (e.g.,
+  // `self->_buf`), so we must NOT copy those into temps — writes to the temp
+  // would not affect the original struct field.
   if (
     exprIsFunctionCall(calleeExpr) &&
     !exprIsAtom(calleeExpr) &&
+    !exprIsFunctionCallOf(calleeExpr, ".") &&
     calleeExpr.$?.type
   ) {
     // Check if generateExpr already assigned a named variable
@@ -1015,8 +1014,7 @@ function generateFuncCall(
     !isUnitType(expr.$.type) &&
     !hasAnyControlFlow(expr.$?.controlFlow)
   ) {
-    const value: Value = expr.$.value;
-    return generateComptimeValue(value, context, expr);
+    return generateComptimeValue(expr.$.value, context, expr);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {

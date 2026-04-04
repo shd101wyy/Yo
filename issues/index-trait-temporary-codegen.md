@@ -46,6 +46,7 @@ Two issues in the evaluator's index trait call path (`src/evaluator/calls/functi
 - Propagate `func.$.env` back to the local `env` variable after evaluating the inner call (env update at line ~267)
 - Preserve `runtimeArgExprsInOrder`, `deferredDropExpressions`, and `variableName` when overwriting `func.$` in the index trait path
 - Added codegen safety net: `generateIndexTraitCall` emits a temp variable when the callee is a function call expression
+- **Follow-up fix**: The temp variable guard was too broad — `exprIsFunctionCall` matched property access expressions like `self._buf` (which are `.` function calls in the AST). Copying a struct field into a temp means writes go to the copy, not the original. Fixed by excluding `.` property access from the temp creation guard, since property access generates lvalue C code.
 
 ## Status
 
