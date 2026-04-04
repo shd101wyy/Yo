@@ -82,7 +82,7 @@ export function getArtifactOutputFileName(
   }
 
   if (artifact.kind === "executable" && isTargetWasm(effectiveTarget)) {
-    return `${artifact.name}.html`;
+    return `${artifact.name}.js`;
   }
 
   return artifact.name;
@@ -1879,16 +1879,14 @@ async function runExecutable(
     process.exit(1);
   }
 
-  // WASM executables (.html) produce .js alongside — run with node
+  // WASM executables (.js) — run with node
   const parsedTarget = parseTarget(effectiveTarget);
   const isWasm = isTargetWasm(parsedTarget);
 
   const { spawnSync } = await import("child_process");
   let result;
   if (isWasm) {
-    // emcc with .html output generates .js alongside — use the .js for node execution
-    const jsPath = exePath.replace(/\.html$/, ".js");
-    result = spawnSync("node", [jsPath, ...args], {
+    result = spawnSync("node", [exePath, ...args], {
       stdio: "inherit",
       cwd: projectDir,
     });
