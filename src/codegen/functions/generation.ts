@@ -193,7 +193,23 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     generateAsyncRuntime(
       context.emitter,
       context.targetInfo,
-      context.debugAsyncAwait
+      context.debugAsyncAwait,
+      {
+        needsCycleGC: context.needsCycleGC ?? false,
+        registerDisposeTypeId: (disposeFnName: string) => {
+          if (!context.disposeTypeIds) {
+            context.disposeTypeIds = new Map();
+            context.nextDisposeTypeId = 1;
+          }
+          let typeId = context.disposeTypeIds.get(disposeFnName);
+          if (typeId === undefined) {
+            typeId = context.nextDisposeTypeId!;
+            context.nextDisposeTypeId = typeId + 1;
+            context.disposeTypeIds.set(disposeFnName, typeId);
+          }
+          return typeId;
+        },
+      }
     );
   }
 
