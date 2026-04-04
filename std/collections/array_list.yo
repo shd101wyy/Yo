@@ -242,11 +242,13 @@ impl(forall(T : Type), ArrayList(T),
   _free_elements : (fn(self : Self) -> unit)(
     cond(
       Type.contains_rc_type(T) => {
-        i := usize(0);
-        base_ptr := self._ptr.unwrap();
-        while(i < self._length, i = (i + usize(1)), {
-          element_ptr := (base_ptr &+ i);
-          unsafe.drop(element_ptr.*);
+        if((self._length > usize(0)), {
+          i := usize(0);
+          base_ptr := self._ptr.unwrap();
+          while(i < self._length, i = (i + usize(1)), {
+            element_ptr := (base_ptr &+ i);
+            unsafe.drop(element_ptr.*);
+          });
         });
       },
       true => ()
