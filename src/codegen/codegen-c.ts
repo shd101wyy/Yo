@@ -112,9 +112,7 @@ export class CodeGeneratorC {
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
       allocator: options.allocator ?? "libc",
       isLibrary: options.isLibrary ?? false,
-      currentModuleId: options.isLibrary
-        ? generateModuleId(modulePath)
-        : undefined,
+      currentModuleId: generateModuleId(modulePath),
       moduleLevelInitExprs:
         options.allModuleLevelInitExprs ?? moduleValue.moduleLevelInitExprs,
     };

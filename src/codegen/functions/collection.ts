@@ -145,10 +145,28 @@ export function collectRequiredFunctions(
           };
         }
       } else {
-        context.functions[value.funcId] = {
-          value,
-          cName: sanitizeForCIdentifier(value.funcId),
-        };
+        // In executable mode, exported functions from the current module use
+        // plain label names and get external linkage so they can be referenced
+        // by linker flags, FFI, or WASM EXPORTED_FUNCTIONS.
+        const isFromCurrentModule =
+          context.currentModuleId &&
+          value.funcId.startsWith(`fn_${context.currentModuleId}_`);
+        if (isFromCurrentModule) {
+          const plainCName = sanitizeForCIdentifier(label);
+          context.functions[value.funcId] = {
+            value,
+            cName: plainCName,
+          };
+          if (!context.exportedFunctionLabels) {
+            context.exportedFunctionLabels = new Map();
+          }
+          context.exportedFunctionLabels.set(value.funcId, label);
+        } else {
+          context.functions[value.funcId] = {
+            value,
+            cName: sanitizeForCIdentifier(value.funcId),
+          };
+        }
       }
 
       // Recursively collect functions called by this function

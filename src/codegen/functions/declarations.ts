@@ -523,19 +523,29 @@ export function generateFunctionDeclaration(
   // Non-extern functions are 'static' (internal linkage) since all Yo code
   // compiles to a single C file. This enables the C compiler to strip unused
   // functions with -O2.
+  // Exported functions and __yo_user_main keep external linkage.
   // RC functions (___drop, ___dup) get __attribute__((always_inline)) to ensure
   // the C compiler inlines them even at -Os, avoiding unnecessary struct copies
   // in tight loops like ArrayList._free_elements.
+  const isExportedByName =
+    cFunctionName === "__yo_user_main" ||
+    (context.exportedFunctionLabels &&
+      [...context.exportedFunctionLabels.values()].some(
+        (label) => sanitizeForCIdentifier(label) === cFunctionName
+      ));
   const isRcFunction =
     !isExtern &&
+    !isExportedByName &&
     (cFunctionName.includes("___drop") ||
       cFunctionName.includes("___dup") ||
       cFunctionName.includes("___dispose"));
   const linkagePrefix = isExtern
     ? "extern "
-    : isRcFunction
-      ? "static inline __attribute__((always_inline)) "
-      : "static inline ";
+    : isExportedByName
+      ? ""
+      : isRcFunction
+        ? "static inline __attribute__((always_inline)) "
+        : "static inline ";
   context.emitter.emitDeclarationLine(
     `${linkagePrefix}${functionPrototype}; // ${yoTypeStr}`
   );
