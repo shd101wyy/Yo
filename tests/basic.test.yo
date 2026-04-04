@@ -2510,3 +2510,19 @@ test "return in match branch type compatibility", {
   });
   test_fn();
 };
+
+// Test: indexing a function call result directly (temporary)
+test "index function call result", {
+  open import "std/collections/array_list";
+
+  get_list :: (fn() -> ArrayList(u8))({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(10));
+    list.push(u8(20));
+    list.push(u8(30));
+    list
+  });
+  // Index directly into function return value
+  (val : u8) = get_list()(usize(1));
+  assert((val == u8(20)), "index fn call result should be 20");
+};

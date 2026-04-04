@@ -265,6 +265,13 @@ export function evaluateFunctionCall({
       });
       func = functionToCall;
 
+      // Propagate env from inner call evaluation so any temp variables
+      // added (e.g., from evaluating get_list() in get_list()(idx))
+      // are visible for subsequent arg evaluation and scope cleanup.
+      if (func.$?.env) {
+        env = func.$.env;
+      }
+
       // Check if . property access for module method call
       if (!functionToCall.$?.type) {
         if (
@@ -2985,13 +2992,18 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         isAccessingProperty: true,
       };
 
-      // Attach necessary info to the func
+      // Attach necessary info to the func, preserving runtimeArgExprsInOrder
+      // and deferredDropExpressions from the inner function call evaluation
+      // so that the codegen can generate the call properly.
       func.$ = {
         env,
         type: functionToCall.type,
         value: functionToCall.value,
         pathCollection: func.$?.pathCollection ?? [],
         isAccessingProperty: true,
+        runtimeArgExprsInOrder: func.$?.runtimeArgExprsInOrder,
+        deferredDropExpressions: func.$?.deferredDropExpressions,
+        variableName: func.$?.variableName,
       };
 
       attachTempVariableToExpr(expr, false);

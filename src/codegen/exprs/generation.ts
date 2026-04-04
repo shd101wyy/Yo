@@ -121,6 +121,8 @@ import { generateAnonymousTuple } from "./tuple-fn";
 import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
 
+let indexTraitTempCounter = 0;
+
 /**
  * Expand effect row spreads from a FutureTraitType's effects into individual
  * implicit parameters. Each expanded parameter has a `label` matching the
@@ -165,7 +167,29 @@ function generateIndexTraitCall(
 
   // Generate &callee (address-of the receiver)
   const calleeExpr = expr.func!;
-  const calleeCode = generateExpr(calleeExpr, indent, context);
+  let calleeCode = generateExpr(calleeExpr, indent, context);
+
+  // If the callee is a function call (temporary), we can't take its address directly.
+  // Emit it into a temp variable first so we can reference it by address.
+  if (
+    exprIsFunctionCall(calleeExpr) &&
+    !exprIsAtom(calleeExpr) &&
+    calleeExpr.$?.type
+  ) {
+    // Check if generateExpr already assigned a named variable
+    const isAlreadyVariable =
+      calleeExpr.$?.variableName &&
+      calleeCode ===
+        getVariableNameForCodegen(calleeExpr.$.variableName, calleeExpr.$.env);
+    if (!isAlreadyVariable) {
+      const calleeType = getTypeString(calleeExpr.$.type, context);
+      const tempName = `__yo_idx_tmp_${indexTraitTempCounter++}`;
+      context.emitter.emitLine(
+        `${indent}${calleeType} ${tempName} = ${calleeCode};`
+      );
+      calleeCode = tempName;
+    }
+  }
 
   // Generate the index argument
   const indexArg = expr.args[0];

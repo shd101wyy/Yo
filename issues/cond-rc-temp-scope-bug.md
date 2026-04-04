@@ -1,6 +1,6 @@
 # Cond branch RC temporary scope bug
 
-## Status: Open (workaround available)
+## Status: Fixed (verified — the exact reproduction case compiles and runs correctly with ASan)
 
 ## Description
 

@@ -2,25 +2,23 @@ open import "std/fmt";
 open import "std/string";
 open import "std/collections/array_list";
 
-// Test: begin block in cond where last expr is ptr deref of RC type
-test_begin_block_ptr_deref :: (fn() -> unit)({
-  (list : ArrayList(String)) = ArrayList(String).new();
-  list.push(`hello`);
-  list.push(`world`);
-  (idx : i32) = i32(0);
-  (result : String) = cond(
-    (idx >= i32(0)) => {
-      (sp : *(String)) = &(list(usize(idx)));
-      sp.*
-    },
-    true => `fallback`
-  );
-  assert((result == `hello`), "should be hello");
-  println("test_begin_block_ptr_deref passed");
+// Test: indexing a function call result (temporary)
+test_index_temp :: (fn() -> unit)({
+  get_list :: (fn() -> ArrayList(u8))({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(1));
+    list.push(u8(2));
+    list.push(u8(3));
+    list
+  });
+  // Index directly into function return value
+  (ch : u8) = get_list()(usize(1));
+  assert((ch == u8(2)), "should be 2");
+  println("index-temp test passed");
 });
 
 main :: (fn() -> unit)({
-  test_begin_block_ptr_deref();
+  test_index_temp();
 });
 
 export main;
