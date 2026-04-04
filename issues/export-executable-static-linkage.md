@@ -1,6 +1,6 @@
 # Export in executable mode produces static functions
 
-## Status: Fixed
+## Status: Partially Fixed (library mode only)
 
 ## Description
 
@@ -38,8 +38,30 @@ populates `exportedFunctionLabels` (and assigns plain C names) when
 `context.isLibrary` is true (line 124). The `else` branch for executables
 (line 147) uses hashed names and never registers exports.
 
-## Fix
+## Fix History
+
+### Initial fix (commit b69948f9)
 
 In the `else` branch, also assign plain C names and register in
 `exportedFunctionLabels`, matching the library-mode behavior for functions
 from the current module.
+
+### Regression (reverted in executable mode)
+
+The initial fix caused name collisions:
+
+1. **dyn.test.yo**: Multiple trait impls with same method name (e.g., `print` for
+   both `i32` and `bool`) all got the same plain C name → C type conflict.
+2. **index.test.yo**: Impl method `index` from `impl(MyArray, Index(usize)(...))`
+   got plain C name `index` which collides with POSIX `index()` from `<strings.h>`.
+
+The executable-mode plain name assignment was reverted. Only library mode retains
+plain C name assignment (with collision detection). For WASM executables, an
+alternative approach using `__attribute__((export_name("...")))` or explicit
+`-sEXPORTED_FUNCTIONS` flags should be used instead.
+
+Library mode also gained:
+
+- `isTopLevelExport` parameter to prevent trait impl methods from getting plain names
+- Collision detection: before assigning a plain name, check if any existing function
+  already has that name

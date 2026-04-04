@@ -100,11 +100,17 @@ function exprContainsUnknownValue(expr: Expr): boolean {
 }
 
 /**
- * First pass: collect all functions that need to be generated
+ * First pass: collect all functions that need to be generated.
+ *
+ * When isLibrary or executable mode, functions from the current module get
+ * plain C names for external linkage — UNLESS the plain name would collide
+ * with another function (e.g., trait impl methods named `print` for different
+ * types). Collisions fall back to mangled funcId-based names.
  */
 export function collectRequiredFunctions(
   moduleValue: ModuleValue | TraitValue,
-  context: CodeGenContext
+  context: CodeGenContext,
+  isTopLevelExport = true
 ): void {
   // Start with exported functions
   for (let i = 0; i < moduleValue.fields.length; i++) {
@@ -125,19 +131,32 @@ export function collectRequiredFunctions(
         // In library mode, exported functions from the current module use their
         // plain label name so they can be referenced by extern "Yo" in other modules.
         // Functions from other modules (e.g., std library trait impls) keep hashed names.
+        // Skip plain names for trait impl methods (not top-level exports) or
+        // when the plain name would collide with an already-collected function.
         const isFromCurrentModule =
+          isTopLevelExport &&
           context.currentModuleId &&
           value.funcId.startsWith(`fn_${context.currentModuleId}_`);
         if (isFromCurrentModule) {
           const plainCName = sanitizeForCIdentifier(label);
-          context.functions[value.funcId] = {
-            value,
-            cName: plainCName,
-          };
-          if (!context.exportedFunctionLabels) {
-            context.exportedFunctionLabels = new Map();
+          const hasCollision = Object.values(context.functions).some(
+            (f) => f.cName === plainCName
+          );
+          if (!hasCollision) {
+            context.functions[value.funcId] = {
+              value,
+              cName: plainCName,
+            };
+            if (!context.exportedFunctionLabels) {
+              context.exportedFunctionLabels = new Map();
+            }
+            context.exportedFunctionLabels.set(value.funcId, label);
+          } else {
+            context.functions[value.funcId] = {
+              value,
+              cName: sanitizeForCIdentifier(value.funcId),
+            };
           }
-          context.exportedFunctionLabels.set(value.funcId, label);
         } else {
           context.functions[value.funcId] = {
             value,
@@ -145,28 +164,13 @@ export function collectRequiredFunctions(
           };
         }
       } else {
-        // In executable mode, exported functions from the current module use
-        // plain label names and get external linkage so they can be referenced
-        // by linker flags, FFI, or WASM EXPORTED_FUNCTIONS.
-        const isFromCurrentModule =
-          context.currentModuleId &&
-          value.funcId.startsWith(`fn_${context.currentModuleId}_`);
-        if (isFromCurrentModule) {
-          const plainCName = sanitizeForCIdentifier(label);
-          context.functions[value.funcId] = {
-            value,
-            cName: plainCName,
-          };
-          if (!context.exportedFunctionLabels) {
-            context.exportedFunctionLabels = new Map();
-          }
-          context.exportedFunctionLabels.set(value.funcId, label);
-        } else {
-          context.functions[value.funcId] = {
-            value,
-            cName: sanitizeForCIdentifier(value.funcId),
-          };
-        }
+        // Executable mode: use mangled names for all functions.
+        // Plain C names are only used in library mode where external linkage
+        // is needed for cross-module references.
+        context.functions[value.funcId] = {
+          value,
+          cName: sanitizeForCIdentifier(value.funcId),
+        };
       }
 
       // Recursively collect functions called by this function
@@ -580,7 +584,7 @@ export function findFunctionCallsInExpr(
   if (expr.$?.dynCallTraitValues) {
     for (const traitValue of expr.$.dynCallTraitValues) {
       // Recursively collect functions from the dyn() module values
-      collectRequiredFunctions(traitValue, context);
+      collectRequiredFunctions(traitValue, context, false);
     }
   }
 }
