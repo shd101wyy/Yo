@@ -2492,3 +2492,21 @@ test "Test comptime match branch elimination", {
     assert((result == 999), "match on comptime 99 should yield wildcard 999");
   };
 };
+
+// Test: return in match branch should be treated as never type
+test "return in match branch type compatibility", {
+  open import "std/collections/array_list";
+
+  test_fn :: (fn() -> unit)({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(42));
+    // .None branch returns from the function — its type should be never/bottom,
+    // compatible with *(u8) expected type from .Some branch
+    (ptr : *(u8)) = match(list._ptr,
+      .Some(p) => p,
+      .None => { return (); }
+    );
+    assert((ptr.* == u8(42)), "ptr value should be 42");
+  });
+  test_fn();
+};

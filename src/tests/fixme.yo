@@ -1,63 +1,19 @@
 open import "std/fmt";
+open import "std/collections/array_list";
 
-// === Comptime array indexing tests ===
-comptime_arr :: [i32(10), i32(20), i32(30), i32(40)];
-comptime_assert((comptime_arr(usize(0)) == i32(10)), "comptime arr(0) should be 10");
-comptime_assert((comptime_arr(usize(3)) == i32(40)), "comptime arr(3) should be 40");
-
-// === Comptime array range slicing tests ===
-comptime_sl :: comptime_arr(usize(1)..usize(3));
-comptime_assert((comptime_sl(usize(0)) == i32(20)), "comptime slice(0) should be 20");
-comptime_assert((comptime_sl(usize(1)) == i32(30)), "comptime slice(1) should be 30");
-
-// === Comptime array inclusive range slicing tests ===
-comptime_sl2 :: comptime_arr(usize(0)..=usize(2));
-comptime_assert((comptime_sl2(usize(0)) == i32(10)), "comptime inclusive slice(0) should be 10");
-comptime_assert((comptime_sl2(usize(2)) == i32(30)), "comptime inclusive slice(2) should be 30");
-
-// === Comptime string indexing tests ===
-hello :: "Hello World";
-comptime_assert((hello(0) == "H"), "comptime string(0) should be H");
-comptime_assert((hello(4) == "o"), "comptime string(4) should be o");
-
-// === Comptime string range slicing tests ===
-comptime_assert((hello(0..5) == "Hello"), "comptime string(0..5) should be Hello");
-comptime_assert((hello(6..11) == "World"), "comptime string(6..11) should be World");
-
-// === Comptime string inclusive range slicing tests ===
-comptime_assert((hello(0..=4) == "Hello"), "comptime string(0..=4) should be Hello");
-
-get_element :: (fn(arr: [i32; 3], idx: usize) -> i32)(
-  arr(idx)
-);
-
-sum_slice :: (fn(sl: Slice(i32)) -> i32)({
-  result := i32(0);
-  i := usize(0);
-  while (i < sl.len()), (i = (i + usize(1))), {
-    result = (result + sl(i));
-  };
-  result
+test_return_in_match :: (fn() -> unit)({
+  (list : ArrayList(u8)) = ArrayList(u8).new();
+  list.push(u8(42));
+  (ptr : *(u8)) = match(list._ptr,
+    .Some(p) => p,
+    .None => { return (); }
+  );
+  assert((ptr.* == u8(42)), "ptr value should be 42");
+  println("test_return_in_match passed");
 });
 
 main :: (fn() -> unit)({
-  arr := [i32; 3](i32(10), i32(20), i32(30));
-
-  // Test runtime array indexing through function parameter
-  (v0 : i32) = get_element(arr, usize(0));
-  assert((v0 == i32(10)), "get_element(0) should be 10");
-  (v2 : i32) = get_element(arr, usize(2));
-  assert((v2 == i32(30)), "get_element(2) should be 30");
-
-  // Test runtime slice indexing
-  (sl : Slice(i32)) = arr(usize(0)..usize(3));
-  (s : i32) = sum_slice(sl);
-  assert((s == i32(60)), "sum should be 60");
-
-  // Test lvalue assignment on runtime array
-  arr(usize(1)) = i32(99);
-  assert((arr(usize(1)) == i32(99)), "arr(1) should be 99");
-
-  println(`All tests pass!`);
+  test_return_in_match();
 });
+
 export main;
