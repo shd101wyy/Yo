@@ -4,6 +4,8 @@
 
 Three related regressions introduced when routing Array/Slice indexing through the Index trait dispatch (`tryToCallWithIndexTrait`). All three stem from the `UnknownValue` with `isRuntimeOnly` flag that Index trait dispatch creates.
 
+## Status: Fixed (all three bugs)
+
 ## Bug 1: `UnknownValue` leaks into enum/struct constructors
 
 **Symptom:** Generated C code contains `/* skip generating: <comptime u8> */` instead of actual values.

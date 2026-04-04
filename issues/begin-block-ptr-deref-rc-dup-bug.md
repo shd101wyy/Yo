@@ -1,8 +1,24 @@
 # Begin block pointer dereference RC dup codegen bug
 
+## Status: Fixed
+
 ## Summary
 
 When a begin block's last expression is a pointer dereference (`ptr.*`) of an RC type, the generated C code attempts to `__dup` a temporary variable that hasn't been declared yet. The dup is emitted **before** the actual value computation.
+
+## Root cause
+
+In `src/codegen/exprs/cond.ts`, when handling begin blocks inside cond branches, the `generateDeferredDupExpressions()` call was made BEFORE the final expression's value was computed and assigned to its temp variable. The dup call referenced the temp variable name from the evaluator, but that variable hadn't been declared in the C output yet.
+
+## Fix
+
+In both `cond.ts` paths (begin block and non-begin value expressions):
+
+1. First declare and assign the final expression's temp variable with the computed value
+2. Then call `generateDeferredDupExpressions()` which can now reference the declared temp
+3. Use the dup result (not the original expression) as the cond branch value
+
+This matches the existing pattern in `begin.ts` lines 92-110 which already handled this correctly.
 
 ## Reproduction
 

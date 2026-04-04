@@ -9,7 +9,11 @@ import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getTypeString } from "../utils";
+import {
+  type CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+} from "../utils";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -254,34 +258,84 @@ export function generateCondExpression(
               const finalExpr = beginArgs[beginArgs.length - 1]!;
               // Generate deferred dup expressions for the final expression (e.g., returning a borrowed value)
               if (finalExpr.$?.deferredDupExpressions) {
+                // When the final expression has deferred dups (e.g., ptr.* of RC type),
+                // we must first declare and assign the value to a temp variable,
+                // THEN generate the dup call that references that temp variable.
+                if (finalExpr.$?.variableName) {
+                  const savedVariableName = finalExpr.$.variableName;
+                  finalExpr.$.variableName = undefined;
+                  const rawCode = generateExpr(finalExpr, valueIndent, context);
+                  finalExpr.$.variableName = savedVariableName;
+
+                  const argType = getTypeString(finalExpr.$.type!, context);
+                  const argTempVar = getVariableNameForCodegen(
+                    savedVariableName,
+                    finalExpr.$.env
+                  );
+
+                  if (argTempVar !== rawCode) {
+                    context.emitter.emitLine(
+                      `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
+                    );
+                  }
+                }
                 generateDeferredDupExpressions(
                   finalExpr,
                   valueIndent,
                   context as FunctionGenerationContext
                 );
-              }
-              const finalExprCode = generateExpr(
-                finalExpr,
-                valueIndent,
-                context
-              );
-
-              if (finalExprCode) {
-                // Check if this is a control flow statement
-                if (
-                  finalExprCode === "continue" ||
-                  finalExprCode === "break" ||
-                  finalExprCode.startsWith("goto") ||
-                  (exprIsFunctionCall(finalExpr) &&
-                    exprIsFunctionCallOf(finalExpr, BuiltinKeywords.return)) ||
-                  finalExprCode.includes("return")
-                ) {
-                  // For control flow statements, emit them directly without assignment
-                  context.emitter.emitLine(`${valueIndent}${finalExprCode};`);
-                } else if (tempVar && !isUnit) {
-                  context.emitter.emitLine(
-                    `${valueIndent}${tempVar} = ${finalExprCode};`
+                // Use the dup result as the final value
+                const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
+                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+                  const dupResultVar = getVariableNameForCodegen(
+                    dupExpr.$.variableName,
+                    dupExpr.$.env
                   );
+                  if (tempVar && !isUnit) {
+                    context.emitter.emitLine(
+                      `${valueIndent}${tempVar} = ${dupResultVar};`
+                    );
+                  }
+                } else {
+                  // Fallback: generate final expr normally
+                  const finalExprCode = generateExpr(
+                    finalExpr,
+                    valueIndent,
+                    context
+                  );
+                  if (finalExprCode && tempVar && !isUnit) {
+                    context.emitter.emitLine(
+                      `${valueIndent}${tempVar} = ${finalExprCode};`
+                    );
+                  }
+                }
+              } else {
+                const finalExprCode = generateExpr(
+                  finalExpr,
+                  valueIndent,
+                  context
+                );
+
+                if (finalExprCode) {
+                  // Check if this is a control flow statement
+                  if (
+                    finalExprCode === "continue" ||
+                    finalExprCode === "break" ||
+                    finalExprCode.startsWith("goto") ||
+                    (exprIsFunctionCall(finalExpr) &&
+                      exprIsFunctionCallOf(
+                        finalExpr,
+                        BuiltinKeywords.return
+                      )) ||
+                    finalExprCode.includes("return")
+                  ) {
+                    // For control flow statements, emit them directly without assignment
+                    context.emitter.emitLine(`${valueIndent}${finalExprCode};`);
+                  } else if (tempVar && !isUnit) {
+                    context.emitter.emitLine(
+                      `${valueIndent}${tempVar} = ${finalExprCode};`
+                    );
+                  }
                 }
               }
             }
@@ -295,36 +349,79 @@ export function generateCondExpression(
             functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
             functionContext.consumedVarPendingDrops = previousConsumedVarDrops;
           } else {
-            // Generate deferred dup expressions for non-begin value expressions
-            if (value.$?.deferredDupExpressions) {
+            // Non-begin value expression
+            if (
+              value.$?.deferredDupExpressions &&
+              value.$.deferredDupExpressions.length > 0
+            ) {
+              // Declare the temp variable before generating dup
+              if (value.$?.variableName) {
+                const savedVariableName = value.$.variableName;
+                value.$.variableName = undefined;
+                const rawCode = generateExpr(value, valueIndent, context);
+                value.$.variableName = savedVariableName;
+
+                const argType = getTypeString(value.$.type!, context);
+                const argTempVar = getVariableNameForCodegen(
+                  savedVariableName,
+                  value.$.env
+                );
+
+                if (argTempVar !== rawCode) {
+                  context.emitter.emitLine(
+                    `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
+                  );
+                }
+              }
               generateDeferredDupExpressions(
                 value,
                 valueIndent,
                 context as FunctionGenerationContext
               );
-            }
-            // Generate the value expression INSIDE the conditional block
-            const valueCode = generateExpr(value, valueIndent, context);
-
-            // Check if this is a control flow statement or unit expression
-            if (
-              valueCode === "continue" ||
-              valueCode === "break" ||
-              valueCode.startsWith("goto") ||
-              (exprIsFunctionCall(value) &&
-                exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
-              valueCode.includes("return")
-            ) {
-              // For control flow statements, emit them directly without assignment
-              context.emitter.emitLine(`${valueIndent}${valueCode};`);
-            } else if (valueCode === "" || !valueCode) {
-              // For unit expressions, don't emit anything
-            } else if (tempVar) {
-              // For regular expressions, assign to temp variable (only if not unit type)
-              if (!isUnit) {
-                context.emitter.emitLine(
-                  `${valueIndent}${tempVar} = ${valueCode};`
+              // Use the dup result as the value
+              const dupExpr = value.$.deferredDupExpressions[0]!;
+              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+                const dupResultVar = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
                 );
+                if (tempVar && !isUnit) {
+                  context.emitter.emitLine(
+                    `${valueIndent}${tempVar} = ${dupResultVar};`
+                  );
+                }
+              } else {
+                const valueCode = generateExpr(value, valueIndent, context);
+                if (valueCode && tempVar && !isUnit) {
+                  context.emitter.emitLine(
+                    `${valueIndent}${tempVar} = ${valueCode};`
+                  );
+                }
+              }
+            } else {
+              // Generate the value expression INSIDE the conditional block
+              const valueCode = generateExpr(value, valueIndent, context);
+
+              // Check if this is a control flow statement or unit expression
+              if (
+                valueCode === "continue" ||
+                valueCode === "break" ||
+                valueCode.startsWith("goto") ||
+                (exprIsFunctionCall(value) &&
+                  exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
+                valueCode.includes("return")
+              ) {
+                // For control flow statements, emit them directly without assignment
+                context.emitter.emitLine(`${valueIndent}${valueCode};`);
+              } else if (valueCode === "" || !valueCode) {
+                // For unit expressions, don't emit anything
+              } else if (tempVar) {
+                // For regular expressions, assign to temp variable (only if not unit type)
+                if (!isUnit) {
+                  context.emitter.emitLine(
+                    `${valueIndent}${tempVar} = ${valueCode};`
+                  );
+                }
               }
             }
           }
