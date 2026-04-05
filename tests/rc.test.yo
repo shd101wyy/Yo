@@ -205,6 +205,178 @@ test "Test match returning RC object - no phantom drop", {
   assert((s2 == `beta`), "match returning RC String B");
 };
 
+// --- Array index access with RC types ---
+// Regression tests for the inline incr_rc leak (array-index-rc-leak.md).
+// Only ubuntu/Linux detected the leak via LeakSanitizer; macOS ARM lacks it.
+
+test "Test array index access - no RC leak for inline use", {
+  // Inline access: y(0).* should NOT dup (no ownership transfer)
+  {
+    x := Box(i32)(42);
+    y := [x,];
+    assert(y(0).* == 42, "inline y(0).* should read without leak");
+    assert(y(0).* == 42, "second inline y(0).* should also not leak");
+    assert(y(0).* == 42, "third inline y(0).* should also not leak");
+  };
+
+  // Assigned access: tmp := y(0) should dup exactly once
+  {
+    x := Box(i32)(7);
+    y := [x,];
+    tmp := y(0);
+    assert(tmp.* == 7, "assigned y(0) should work");
+    assert(rc(tmp) == 2, "tmp and y(0) should share RC=2");
+    assert(rc(x) == 2, "x and y(0) are the same allocation");
+  };
+
+  // Multi-element array with inline access
+  {
+    a := Box(i32)(10);
+    b := Box(i32)(20);
+    c := Box(i32)(30);
+    arr := [a, b, c,];
+    assert(arr(0).* == 10, "arr(0).* == 10");
+    assert(arr(1).* == 20, "arr(1).* == 20");
+    assert(arr(2).* == 30, "arr(2).* == 30");
+  };
+
+  // Nested array access with inline use
+  {
+    x := Box(i32)(99);
+    inner := [x,];
+    outer := [inner,];
+    assert(outer(0)(0).* == 99, "nested inline access should not leak");
+  };
+
+  // Array index used as function argument
+  {
+    identity :: (fn(b : Box(i32)) -> Box(i32))(b);
+    x := Box(i32)(55);
+    y := [x,];
+    result := identity(y(0));
+    assert(result.* == 55, "array index as fn arg should dup correctly");
+  };
+};
+
+test "Test ArrayList index access - no RC leak", {
+  // ArrayList of Box(i32) - inline access
+  {
+    list := ArrayList(Box(i32)).new();
+    list.push(Box(i32)(100));
+    list.push(Box(i32)(200));
+    list.push(Box(i32)(300));
+
+    assert(list(usize(0)).* == 100, "list(0).* == 100");
+    assert(list(usize(1)).* == 200, "list(1).* == 200");
+    assert(list(usize(2)).* == 300, "list(2).* == 300");
+    // Multiple inline accesses should not leak
+    assert(list(usize(0)).* == 100, "repeated list(0).* should not leak");
+    assert(list(usize(0)).* == 100, "third list(0).* should not leak");
+  };
+
+  // ArrayList of Box(i32) - assigned access
+  {
+    list := ArrayList(Box(i32)).new();
+    list.push(Box(i32)(42));
+
+    elem := list(usize(0));
+    assert(elem.* == 42, "assigned elem.* should work");
+  };
+
+  // ArrayList of String - inline access
+  {
+    list := ArrayList(String).new();
+    list.push(`hello`);
+    list.push(`world`);
+
+    assert((list(usize(0)) == `hello`), "list(0) == hello");
+    assert((list(usize(1)) == `world`), "list(1) == world");
+    // Repeated access should not leak
+    assert((list(usize(0)) == `hello`), "repeated list(0) should not leak");
+  };
+
+  // ArrayList of String - assigned access
+  {
+    list := ArrayList(String).new();
+    list.push(`test`);
+
+    s := list(usize(0));
+    assert((s == `test`), "assigned string from ArrayList should work");
+  };
+};
+
+test "Test array of objects - no RC leak", {
+  Container :: object(value : i32);
+
+  // Inline access to array of objects
+  {
+    c1 := Container(i32(1));
+    c2 := Container(i32(2));
+    c3 := Container(i32(3));
+    arr := [c1, c2, c3,];
+
+    assert(arr(0).value == i32(1), "arr(0).value == 1");
+    assert(arr(1).value == i32(2), "arr(1).value == 2");
+    assert(arr(2).value == i32(3), "arr(2).value == 3");
+  };
+
+  // Assigned access to array of objects
+  {
+    c := Container(i32(42));
+    arr := [c,];
+    elem := arr(0);
+    assert(elem.value == i32(42), "assigned object from array should work");
+  };
+
+  // Inline access does not increase RC
+  {
+    c := Container(i32(77));
+    arr := [c,];
+    val := arr(0).value;
+    assert(val == i32(77), "inline field read works");
+  };
+};
+
+test "Test array index in expressions - no RC leak", {
+  // Array index inside comparison
+  {
+    x := Box(i32)(10);
+    y := Box(i32)(10);
+    arr := [x, y,];
+    assert((arr(0).* == arr(1).*), "comparing array elements inline");
+  };
+
+  // Array index inside arithmetic
+  {
+    a := Box(i32)(5);
+    b := Box(i32)(3);
+    arr := [a, b,];
+    sum := (arr(0).* + arr(1).*);
+    assert((sum == 8), "sum of array elements via inline access");
+  };
+
+  // Array index used in cond
+  {
+    x := Box(i32)(42);
+    arr := [x,];
+    result := cond(
+      (arr(0).* > 0) => true,
+      true => false
+    );
+    assert(result, "array index in cond should not leak");
+  };
+
+  // Deeply nested inline access
+  {
+    x := Box(i32)(1);
+    a := [x,];
+    b := [a,];
+    c := [b,];
+    d := [c,];
+    assert(d(0)(0)(0)(0).* == 1, "4-deep nested inline access should not leak");
+  };
+};
+
 test "Test chained method calls - no duplicate var", {
   // Regression test: chained method calls on ArrayList should not
   // cause duplicate temp variable declarations in generated C.
