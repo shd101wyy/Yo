@@ -241,6 +241,12 @@ export function evaluateAnonymousModuleBeginExprs({
                   moduleValue.fields.push(undefined);
                 }
 
+                // Track explicitly exported labels for codegen naming
+                if (!moduleValue.exportedLabels) {
+                  moduleValue.exportedLabels = new Set();
+                }
+                moduleValue.exportedLabels.add(extendedStructField.label);
+
                 // Add information to exportExpr
                 exportExpr.$ = {
                   env,
@@ -353,6 +359,12 @@ export function evaluateAnonymousModuleBeginExprs({
                 },
               });
               moduleValue.fields.push(variable.value?.[0]);
+
+              // Track explicitly exported labels for codegen naming
+              if (!moduleValue.exportedLabels) {
+                moduleValue.exportedLabels = new Set();
+              }
+              moduleValue.exportedLabels.add(variableName);
 
               // Add information to exportExpr
               exportExpr.$ = {

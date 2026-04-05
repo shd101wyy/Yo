@@ -164,13 +164,38 @@ export function collectRequiredFunctions(
           };
         }
       } else {
-        // Executable mode: use mangled names for all functions.
-        // Plain C names are only used in library mode where external linkage
-        // is needed for cross-module references.
-        context.functions[value.funcId] = {
-          value,
-          cName: sanitizeForCIdentifier(value.funcId),
-        };
+        // Executable mode: only explicitly exported functions from the current
+        // module get plain C names (needed for emcc's -sEXPORTED_FUNCTIONS).
+        // Functions not in the export statement keep hashed names to avoid
+        // collisions with C/POSIX names (e.g., `index`).
+        const isExplicitlyExported =
+          isTopLevelExport &&
+          context.currentModuleId &&
+          value.funcId.startsWith(`fn_${context.currentModuleId}_`) &&
+          "exportedLabels" in moduleValue &&
+          moduleValue.exportedLabels?.has(label);
+        if (isExplicitlyExported) {
+          const plainCName = sanitizeForCIdentifier(label);
+          const hasCollision = Object.values(context.functions).some(
+            (f) => f.cName === plainCName
+          );
+          if (!hasCollision) {
+            context.functions[value.funcId] = {
+              value,
+              cName: plainCName,
+            };
+          } else {
+            context.functions[value.funcId] = {
+              value,
+              cName: sanitizeForCIdentifier(value.funcId),
+            };
+          }
+        } else {
+          context.functions[value.funcId] = {
+            value,
+            cName: sanitizeForCIdentifier(value.funcId),
+          };
+        }
       }
 
       // Recursively collect functions called by this function
