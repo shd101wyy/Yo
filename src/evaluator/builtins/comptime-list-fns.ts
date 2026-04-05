@@ -10,6 +10,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createUsizeType } from "../../types/creators";
 import { isComptimeListType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
+import { randomId } from "../../utils";
 import {
   createComptimeListValue,
   createNumberValue,
@@ -76,6 +77,7 @@ export function evaluateYoComptimeListCar({
     env: evaluatedArgExpr.$.env,
     type: comptimeListType.childType,
     value: createUnknownValue(comptimeListType.childType, {
+      variableName: `__comptime_list_car_${randomId(env.modulePath)}`,
       env: evaluatedArgExpr.$.env,
       context,
     }), // Will be updated later

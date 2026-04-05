@@ -1502,3 +1502,23 @@ ${program.map((expr) => exprToString(expr)).join("\n")}
 
   return program[0]!;
 }
+
+/**
+ * Parse a code string into multiple expressions (e.g., for template string expansion).
+ */
+export function generateExprsFromCode(code: string): Expr[] {
+  const parser = new Parser({
+    modulePath: `auto-generated://
+// === START auto-generated code ===
+${code}
+// === END auto-generated code ===
+`,
+    inputString: code,
+  });
+
+  if (parser.getParserError()) {
+    throw parser.getParserError()!;
+  }
+
+  return parser.getProgram();
+}

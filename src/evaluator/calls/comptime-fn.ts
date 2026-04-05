@@ -68,6 +68,7 @@ export function evaluateComptimeFunctionCall({
   const unfilteredArgValues: (Value | undefined)[] = [
     ...argValues_.forallArgs.map((v) => v.value),
     ...argValues_.args.map((v) => v.value),
+    ...argValues_.variadicArgs.map((v) => v.value),
   ];
   if (unfilteredArgValues.some((val) => !val)) {
     throw formatErrorMessage({

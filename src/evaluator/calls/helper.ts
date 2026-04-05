@@ -58,6 +58,7 @@ import type {
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isComptimeListType,
   isEffectsRowType,
   isExprListType,
   isExprType,
@@ -1529,6 +1530,31 @@ Got:   ${typeToString(typeValue.type)}`,
           // This might affect assigning Free type arg to Type parameter
           isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
           value: [exprListValue],
+          token: functionType.variadicParameter.exprs.expr.token,
+          initializedAtToken: functionType.variadicParameter.exprs.expr.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+        },
+      });
+      calleeEnv = nextEnv;
+    } else if (
+      functionType.variadicParameter.isCompileTimeOnly &&
+      isComptimeListType(functionType.variadicParameter.type)
+    ) {
+      // Comptime variadic — collect evaluated comptime values into ComptimeList
+      const elementType = functionType.variadicParameter.type.childType;
+      const comptimeListValue = createComptimeListValue(
+        elementType,
+        variadicArgs.map((arg) => arg.value!)
+      );
+
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv,
+        variable: {
+          name: functionType.variadicParameter.label,
+          type: comptimeListValue.type,
+          isCompileTimeOnly: true,
+          value: [comptimeListValue],
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,

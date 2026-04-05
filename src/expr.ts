@@ -1137,6 +1137,29 @@ export const BuiltinFunctions = {
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
 
+  // Type reflection builtins
+  __yo_type_get_tag: ["__yo_type_get_tag"],
+  __yo_type_is_struct: ["__yo_type_is_struct"],
+  __yo_type_is_enum: ["__yo_type_is_enum"],
+  __yo_type_get_name: ["__yo_type_get_name"],
+  __yo_type_get_fields: ["__yo_type_get_fields"],
+  __yo_type_field_count: ["__yo_type_field_count"],
+  __yo_type_get_field_name: ["__yo_type_get_field_name"],
+  __yo_type_get_field_type: ["__yo_type_get_field_type"],
+  __yo_type_get_variants: ["__yo_type_get_variants"],
+  __yo_type_variant_count: ["__yo_type_variant_count"],
+  __yo_type_get_variant_name: ["__yo_type_get_variant_name"],
+  __yo_type_get_variant_fields: ["__yo_type_get_variant_fields"],
+  __yo_type_get_variant_field_count: ["__yo_type_get_variant_field_count"],
+  __yo_type_get_variant_field_name: ["__yo_type_get_variant_field_name"],
+  __yo_type_get_variant_field_type: ["__yo_type_get_variant_field_type"],
+
+  // comptime_eval builtin
+  comptime_eval: ["comptime_eval"],
+
+  // Derive traits builtin
+  derive: ["derive"],
+
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
   __yo_var_is_owning_the_rc_value: ["__yo_var_is_owning_the_rc_value"],

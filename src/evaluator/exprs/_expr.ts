@@ -80,7 +80,20 @@ import {
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
+  evaluateYoTypeIsStruct,
+  evaluateYoTypeIsEnum,
+  evaluateYoTypeGetName,
+  evaluateYoTypeFieldCount,
+  evaluateYoTypeGetFieldName,
+  evaluateYoTypeGetFieldType,
+  evaluateYoTypeVariantCount,
+  evaluateYoTypeGetVariantName,
+  evaluateYoTypeGetVariantFieldCount,
+  evaluateYoTypeGetVariantFieldName,
+  evaluateYoTypeGetVariantFieldType,
+  evaluateComptimeEval,
 } from "../builtins/type-fns";
+import { evaluateDerive } from "../builtins/derive";
 import { evaluateTypeId } from "../builtins/typeid";
 import { evaluateVaStart } from "../builtins/va-start";
 import {
@@ -983,6 +996,87 @@ ${exprToString(expr)}`,
     ) {
       // __yo_type_impls - check if a type implements a marker module
       return evaluateYoTypeImpls({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_struct, 1)
+    ) {
+      return evaluateYoTypeIsStruct({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_enum, 1)
+    ) {
+      return evaluateYoTypeIsEnum({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_name, 1)
+    ) {
+      return evaluateYoTypeGetName({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_field_count, 1)
+    ) {
+      return evaluateYoTypeFieldCount({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_field_name, 2)
+    ) {
+      return evaluateYoTypeGetFieldName({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_field_type, 2)
+    ) {
+      return evaluateYoTypeGetFieldType({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_variant_count, 1)
+    ) {
+      return evaluateYoTypeVariantCount({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_variant_name, 2)
+    ) {
+      return evaluateYoTypeGetVariantName({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_type_get_variant_field_count,
+        2
+      )
+    ) {
+      return evaluateYoTypeGetVariantFieldCount({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_type_get_variant_field_name,
+        3
+      )
+    ) {
+      return evaluateYoTypeGetVariantFieldName({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_type_get_variant_field_type,
+        3
+      )
+    ) {
+      return evaluateYoTypeGetVariantFieldType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_eval, 1)) {
+      return evaluateComptimeEval({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.derive)) {
+      // derive(Type, Trait1, Trait2, ...)
+      return evaluateDerive({
         expr,
         env,
         context: { ...context },
