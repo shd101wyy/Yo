@@ -539,10 +539,7 @@ export function evaluatePropertyAccess({
         // findAssociatedTypeFromGenericImpls is ambiguous when multiple impls
         // of the same trait exist with different associated types (e.g.,
         // Index(usize) with Output=T vs Index(Range(usize)) with Output=Slice(T)).
-        if (
-          (context as unknown as Record<string, unknown>)
-            .isEvaluatingGenericImplSpecialization
-        ) {
+        if (context.isEvaluatingGenericImplSpecialization) {
           const vars = getVariablesFromEnv(env, propertyName);
           if (vars.length > 0) {
             const v = vars[vars.length - 1]!;

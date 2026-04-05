@@ -224,27 +224,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     );
   }
 
-  // Pre-scan: determine if any object type can form RC cycles.
-  // This gates the cycle-detection GC infrastructure (header fields, GC checks in
-  // __yo_decr_rc, register/unregister/collect functions). When no type needs it,
-  // we emit a smaller __yo_ref_header_t and a faster __yo_decr_rc.
-  if (context.needsCycleGC === undefined) {
-    context.needsCycleGC = false;
-    for (const typeId in context.types) {
-      const { type } = context.types[typeId]!;
-      if (
-        isStructType(type) &&
-        type.isReferenceSemantics &&
-        !type.fields.some((field) => typeContainsSomeType(field.type))
-      ) {
-        if (canTypeFormRcCycle(type, new Set(), type.env)) {
-          context.needsCycleGC = true;
-          break;
-        }
-      }
-    }
-  }
-
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
 

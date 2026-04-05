@@ -251,6 +251,14 @@ export interface EvaluatorContext {
    * `escape` is only valid inside given handler definitions.
    */
   isInsideGivenHandler?: boolean;
+
+  /**
+   * Whether we are currently re-evaluating type expressions during generic impl
+   * specialization. When true, associated types (e.g., Output) are looked up
+   * from the env before falling through to findAssociatedTypeFromGenericImpls,
+   * which can be ambiguous when multiple impls of the same trait exist.
+   */
+  isEvaluatingGenericImplSpecialization?: boolean;
 }
 
 /**

@@ -1,5 +1,6 @@
 import {
   BuiltinFunctions,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -16,10 +17,13 @@ import {
 import {
   type CodeGenContext,
   getTypeString,
+  getVariableNameForCodegen,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
+
+let ptrFnsIndexTempCounter = 0;
 
 /**
  * The `&` (address-of) operator generation
@@ -64,7 +68,7 @@ export function generateAddressOf(
         if (isInclusive) {
           return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
         }
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
+        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
       }
     } else if (
       funcType &&
@@ -97,7 +101,7 @@ export function generateAddressOf(
         if (isInclusive) {
           return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
         }
-        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
+        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
       }
     }
   }
@@ -133,7 +137,34 @@ export function generateAddressOf(
     const methodValue = arg.$.indexMethodValue;
     if (isFunctionValue(methodValue)) {
       const calleeExpr = arg.func!;
-      const calleeCode = generateExpr(calleeExpr, indent, context);
+      let calleeCode = generateExpr(calleeExpr, indent, context);
+
+      // If the callee is a function call returning a temporary (rvalue), we
+      // can't take its address directly. Emit it into a temp variable first.
+      // Property access (`.` calls) generates lvalue C code, so skip those.
+      if (
+        exprIsFunctionCall(calleeExpr) &&
+        !exprIsAtom(calleeExpr) &&
+        !exprIsFunctionCallOf(calleeExpr, ".") &&
+        calleeExpr.$?.type
+      ) {
+        const isAlreadyVariable =
+          calleeExpr.$?.variableName &&
+          calleeCode ===
+            getVariableNameForCodegen(
+              calleeExpr.$.variableName,
+              calleeExpr.$.env
+            );
+        if (!isAlreadyVariable) {
+          const calleeType = getTypeString(calleeExpr.$.type, context);
+          const tempName = `__yo_ptr_idx_tmp_${ptrFnsIndexTempCounter++}`;
+          context.emitter.emitLine(
+            `${indent}${calleeType} ${tempName} = ${calleeCode};`
+          );
+          calleeCode = tempName;
+        }
+      }
+
       const indexArg = arg.args[0];
       const indexCode = indexArg
         ? generateExpr(indexArg, indent, context)

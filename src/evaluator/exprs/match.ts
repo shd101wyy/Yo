@@ -1339,6 +1339,13 @@ function evaluatePrimitiveMatch({
       caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
       evaluatedBody.$.env = caseEnv;
 
+      // If scrutinee is a runtime value (undefined), unset the body's compile-time value
+      // to force codegen to generate all statements
+      // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
+      if (scrutineeValue === undefined && evaluatedBody.$) {
+        evaluatedBody.$.value = undefined;
+      }
+
       // Check control flow BEFORE type compatibility — branches with return/escape/break/continue
       // act as "never" type and are compatible with any expected type
       if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {

@@ -1985,7 +1985,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                     value: resultValue,
                     type: resultType,
                     ptrType: ptrResultType,
-                    indexMethodType: undefined as unknown as FunctionType,
+                    indexMethodType: undefined,
                     indexMethodValue: undefined,
                     callerEnv,
                   },
