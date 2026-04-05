@@ -473,7 +473,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
         ) {
           // Module field has a module value - recursively collect its functions
           const moduleValue = field.assignedValue;
-          collectRequiredFunctions(moduleValue, context);
+          collectRequiredFunctions(moduleValue, context, false);
         }
       }
     }

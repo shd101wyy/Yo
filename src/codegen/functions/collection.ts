@@ -164,17 +164,16 @@ export function collectRequiredFunctions(
           };
         }
       } else {
-        // Executable mode: only explicitly exported functions from the current
-        // module get plain C names (needed for emcc's -sEXPORTED_FUNCTIONS).
-        // Functions not in the export statement keep hashed names to avoid
-        // collisions with C/POSIX names (e.g., `index`).
-        const isExplicitlyExported =
+        // Executable mode: top-level exports from the current module use their
+        // plain label name so they can be referenced by emcc's
+        // -sEXPORTED_FUNCTIONS (e.g., _wasm_render). Functions collected from
+        // other modules or through recursive traversal (isTopLevelExport=false)
+        // keep hashed names to avoid C/POSIX collisions.
+        const isFromCurrentModule =
           isTopLevelExport &&
           context.currentModuleId &&
-          value.funcId.startsWith(`fn_${context.currentModuleId}_`) &&
-          "exportedLabels" in moduleValue &&
-          moduleValue.exportedLabels?.has(label);
-        if (isExplicitlyExported) {
+          value.funcId.startsWith(`fn_${context.currentModuleId}_`);
+        if (isFromCurrentModule) {
           const plainCName = sanitizeForCIdentifier(label);
           const hasCollision = Object.values(context.functions).some(
             (f) => f.cName === plainCName
@@ -184,6 +183,11 @@ export function collectRequiredFunctions(
               value,
               cName: plainCName,
             };
+            // Register for external linkage (no static inline prefix)
+            if (!context.exportedFunctionLabels) {
+              context.exportedFunctionLabels = new Map();
+            }
+            context.exportedFunctionLabels.set(value.funcId, label);
           } else {
             context.functions[value.funcId] = {
               value,

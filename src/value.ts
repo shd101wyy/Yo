@@ -119,12 +119,6 @@ export type ModuleValue = {
    * When a field is not found on a loading module, a specific error is shown.
    */
   isLoading?: boolean;
-  /**
-   * Labels explicitly listed in `export` statements.
-   * Used by codegen to give exported functions stable C names in executable mode
-   * (e.g., for emcc's -sEXPORTED_FUNCTIONS).
-   */
-  exportedLabels?: Set<string>;
 };
 
 export type TraitValue = {
