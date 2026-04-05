@@ -140,8 +140,15 @@ export function generateComptimeValue(
         // This is the null case (None variant)
         return "NULL";
       } else if (variant.fields.length === 1 && value.fields.length === 1) {
-        // This is the pointer case (Some variant)
-        return generateComptimeValue(value.fields[0]!, context);
+        // This is the pointer case (Some variant).
+        // Pass the pointer type as context so comptime_string values
+        // are generated as C string literals, not as str/Slice structs.
+        return generateComptimeValue(value.fields[0]!, context, {
+          $: {
+            type: nullablePointerType,
+            convertedRuntimeType: nullablePointerType,
+          },
+        } as Expr);
       }
     }
 
