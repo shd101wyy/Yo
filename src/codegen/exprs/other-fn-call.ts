@@ -2020,6 +2020,9 @@ function generateEvidenceFnPtrCall(
   // resolve to void* in the function type, so we build the cast from the
   // concrete argument and return types at this call expression.
   let callExpr: string;
+  // Track whether the handler has a forall/SomeType return type (compiled as void).
+  // The cast must use void to match the handler's actual C return type.
+  let handlerReturnsVoid = false;
   if (
     evidenceParam?.fieldFunctionType.forallParameters &&
     evidenceParam.fieldFunctionType.forallParameters.length > 0
@@ -2028,9 +2031,17 @@ function generateEvidenceFnPtrCall(
     // argument expression types. This avoids mismatches like ComptimeString
     // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
     // For SomeType (forall type vars), resolve from the call-site arg types.
-    const concreteRetType = expr.$?.type
-      ? getTypeString(expr.$.type, context)
-      : getTypeString(returnType, context);
+    const fieldRetType = evidenceParam.fieldFunctionType.return.type;
+    // When the handler's return type is SomeType (forall type variable), it's
+    // compiled as void in C. The cast must use void to avoid ABI mismatch —
+    // casting a void-returning function to return a struct is undefined behavior
+    // and crashes on WASM.
+    handlerReturnsVoid = isSomeType(fieldRetType);
+    const concreteRetType = handlerReturnsVoid
+      ? "void"
+      : expr.$?.type
+        ? getTypeString(expr.$.type, context)
+        : getTypeString(returnType, context);
     const concreteParamTypes: string[] = [];
     const fnParamType = evidenceParam.fieldFunctionType;
     const runtimeParams = fnParamType.parameters.filter(
@@ -2160,6 +2171,61 @@ function generateEvidenceFnPtrCall(
         }
         emitter.emitLine(`${indent}}`);
         return "";
+      }
+
+      // When the handler has a forall/SomeType return type, it's compiled as
+      // void in C (isModuleEffectMember). We must NOT assign the handler's
+      // (void) "return value" to a typed temp — that's undefined behavior and
+      // crashes on WASM. Instead: declare the temp var zero-initialized before
+      // the call (so escape-path drops reference a valid variable), call as void,
+      // check escape, then leave the zero-init for the (unlikely) resume case.
+      if (handlerReturnsVoid) {
+        // Declare temp var before the call — the escape path's consumed-var
+        // drops may reference it, so it must exist in scope.
+        emitter.emitLine(
+          `${indent}${cTypeString} ${tempVar} = (${cTypeString}){0};`
+        );
+        emitter.emitLine(`${indent}${callExpr}(${argsList});`);
+
+        if (expr.$?.deferredDropExpressions) {
+          generateDeferredDropExpressions(expr, indent, context);
+        }
+
+        emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+        if (!context.inAsyncStateMachine) {
+          generatePendingDeferredDrops(
+            indent + "  ",
+            context,
+            expr,
+            false,
+            true,
+            false
+          );
+          generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        }
+        if (context.inAsyncStateMachine) {
+          emitAsyncFutureEscape({
+            emitter,
+            indent: indent + "  ",
+            resultCode: undefined,
+            debugLabel: undefined,
+          });
+        } else {
+          const callerReturnType = context.currentFunctionType?.return.type;
+          if (callerReturnType && !isUnitType(callerReturnType)) {
+            const callerCType = getTypeString(callerReturnType, context);
+            if (callerCType !== "void") {
+              emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+            } else {
+              emitter.emitLine(`${indent}  return;`);
+            }
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        }
+        emitter.emitLine(`${indent}}`);
+        storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
+        return tempVar;
       }
 
       emitter.emitLine(
