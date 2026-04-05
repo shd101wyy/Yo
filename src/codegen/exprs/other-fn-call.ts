@@ -38,7 +38,6 @@ import { typeContainsRcType } from "../../types/utils";
 import {
   isFunctionValue,
   isModuleValue,
-  isNumberValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
@@ -1839,19 +1838,19 @@ export function generateOtherFunctionCall(
   } else if (isArrayType(functionType)) {
     const firstArg = expr.args[0];
 
-    // Check if this is a slicing operation: arr(start:end) or arr(:)
+    // Check if this is a range slicing operation: arr(start..end) or arr(start..=end)
     if (
       firstArg &&
       exprIsFunctionCall(firstArg) &&
-      exprIsFunctionCallOf(firstArg, ":")
+      (exprIsFunctionCallOf(firstArg, "..") ||
+        exprIsFunctionCallOf(firstArg, "..="))
     ) {
-      // arr(start:end) -> create slice value
+      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
       const arrayCode = generateExpr(expr.func!, indent, context);
       const startCode = generateExpr(firstArg.args[0]!, indent, context);
       const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
       const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).childType, context))}`;
-      // Register the slice type
       if (!context.sliceStructTypes.has(sliceTypeName)) {
         context.sliceStructTypes.set(sliceTypeName, {
           childType: getTypeString(
@@ -1860,30 +1859,10 @@ export function generateOtherFunctionCall(
           ),
         });
       }
+      if (isInclusive) {
+        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
+      }
       return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    } else if (
-      firstArg &&
-      exprIsAtom(firstArg) &&
-      firstArg.token.value === ":"
-    ) {
-      // arr(:) -> create slice value for whole array
-      const arrayCode = generateExpr(expr.func!, indent, context);
-      const arrayType = functionType as ArrayType;
-      const childType = arrayType.childType;
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(childType, context))}`;
-      // Register the slice type
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(childType, context),
-        });
-      }
-
-      if (isNumberValue(arrayType.length)) {
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[0], .length = ${arrayType.length.value} }`;
-      } else {
-        return `/* Error: Cannot slice array with non-compile-time length */`;
-      }
     }
 
     // Array access by index: arr[index] or arr(index)
@@ -1894,41 +1873,28 @@ export function generateOtherFunctionCall(
   } else if (isSliceType(functionType)) {
     const firstArg = expr.args[0];
 
-    // Check if this is a sub-slicing operation: slice(start:end) or slice(:)
+    // Check if this is a range sub-slicing operation: slice(start..end) or slice(start..=end)
     if (
       firstArg &&
       exprIsFunctionCall(firstArg) &&
-      exprIsFunctionCallOf(firstArg, ":")
+      (exprIsFunctionCallOf(firstArg, "..") ||
+        exprIsFunctionCallOf(firstArg, "..="))
     ) {
-      // slice(start:end) -> create sub-slice
+      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
       const sliceCode = generateExpr(expr.func!, indent, context);
       const startCode = generateExpr(firstArg.args[0]!, indent, context);
       const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
       const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(functionType.childType, context))}`;
-      // Register the slice type
       if (!context.sliceStructTypes.has(sliceTypeName)) {
         context.sliceStructTypes.set(sliceTypeName, {
           childType: getTypeString(functionType.childType, context),
         });
+      }
+      if (isInclusive) {
+        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
       }
       return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    } else if (
-      firstArg &&
-      exprIsAtom(firstArg) &&
-      firstArg.token.value === ":"
-    ) {
-      // slice(:) -> create slice copy of whole slice
-      const sliceCode = generateExpr(expr.func!, indent, context);
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(functionType.childType, context))}`;
-      // Register the slice type
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(functionType.childType, context),
-        });
-      }
-      return `(${sliceTypeName}){ .data = ${sliceCode}.data, .length = ${sliceCode}.length }`;
     }
 
     // Slice access by index: slice.data[index]
@@ -2054,6 +2020,9 @@ function generateEvidenceFnPtrCall(
   // resolve to void* in the function type, so we build the cast from the
   // concrete argument and return types at this call expression.
   let callExpr: string;
+  // Track whether the handler has a forall/SomeType return type (compiled as void).
+  // The cast must use void to match the handler's actual C return type.
+  let handlerReturnsVoid = false;
   if (
     evidenceParam?.fieldFunctionType.forallParameters &&
     evidenceParam.fieldFunctionType.forallParameters.length > 0
@@ -2062,9 +2031,17 @@ function generateEvidenceFnPtrCall(
     // argument expression types. This avoids mismatches like ComptimeString
     // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
     // For SomeType (forall type vars), resolve from the call-site arg types.
-    const concreteRetType = expr.$?.type
-      ? getTypeString(expr.$.type, context)
-      : getTypeString(returnType, context);
+    const fieldRetType = evidenceParam.fieldFunctionType.return.type;
+    // When the handler's return type is SomeType (forall type variable), it's
+    // compiled as void in C. The cast must use void to avoid ABI mismatch —
+    // casting a void-returning function to return a struct is undefined behavior
+    // and crashes on WASM.
+    handlerReturnsVoid = isSomeType(fieldRetType);
+    const concreteRetType = handlerReturnsVoid
+      ? "void"
+      : expr.$?.type
+        ? getTypeString(expr.$.type, context)
+        : getTypeString(returnType, context);
     const concreteParamTypes: string[] = [];
     const fnParamType = evidenceParam.fieldFunctionType;
     const runtimeParams = fnParamType.parameters.filter(
@@ -2194,6 +2171,61 @@ function generateEvidenceFnPtrCall(
         }
         emitter.emitLine(`${indent}}`);
         return "";
+      }
+
+      // When the handler has a forall/SomeType return type, it's compiled as
+      // void in C (isModuleEffectMember). We must NOT assign the handler's
+      // (void) "return value" to a typed temp — that's undefined behavior and
+      // crashes on WASM. Instead: declare the temp var zero-initialized before
+      // the call (so escape-path drops reference a valid variable), call as void,
+      // check escape, then leave the zero-init for the (unlikely) resume case.
+      if (handlerReturnsVoid) {
+        // Declare temp var before the call — the escape path's consumed-var
+        // drops may reference it, so it must exist in scope.
+        emitter.emitLine(
+          `${indent}${cTypeString} ${tempVar} = (${cTypeString}){0};`
+        );
+        emitter.emitLine(`${indent}${callExpr}(${argsList});`);
+
+        if (expr.$?.deferredDropExpressions) {
+          generateDeferredDropExpressions(expr, indent, context);
+        }
+
+        emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+        if (!context.inAsyncStateMachine) {
+          generatePendingDeferredDrops(
+            indent + "  ",
+            context,
+            expr,
+            false,
+            true,
+            false
+          );
+          generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        }
+        if (context.inAsyncStateMachine) {
+          emitAsyncFutureEscape({
+            emitter,
+            indent: indent + "  ",
+            resultCode: undefined,
+            debugLabel: undefined,
+          });
+        } else {
+          const callerReturnType = context.currentFunctionType?.return.type;
+          if (callerReturnType && !isUnitType(callerReturnType)) {
+            const callerCType = getTypeString(callerReturnType, context);
+            if (callerCType !== "void") {
+              emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+            } else {
+              emitter.emitLine(`${indent}  return;`);
+            }
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        }
+        emitter.emitLine(`${indent}}`);
+        storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
+        return tempVar;
       }
 
       emitter.emitLine(

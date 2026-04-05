@@ -32,6 +32,9 @@ import type {
 } from "../../types/definitions";
 import {
   isArrayType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isEnumType,
   isSomeType,
   isStructType,
@@ -754,6 +757,22 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       }
     }
 
+    // Convert compile-time types to runtime types if needed
+    // For example: comptime_string -> str when assigning to a str field
+    // Only convert when the target type is a runtime type (not comptime_int, etc.)
+    if (
+      !isComptimeIntType(expectedType) &&
+      !isComptimeFloatType(expectedType) &&
+      !isComptimeStringType(expectedType)
+    ) {
+      rhsType = convertComptimeTypeToRuntimeType({
+        type: rhsType,
+        expectedType: expectedType,
+        expr: rhs,
+        env,
+      });
+    }
+
     // Check if the type matches
     if (
       !areTypesCompatible({ type: expectedType, env }, { type: rhsType, env })
@@ -945,9 +964,16 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     // Fallback: if both LHS and RHS have compile-time values but the specific
     // handlers above didn't fire (e.g. comptime pointer deref with UnknownValue
     // params during function body analysis), mark as compile-time-only.
+    // Exclude cases where LHS is a runtime-only UnknownValue — it means the value
+    // comes from runtime-only dispatch (e.g., Index trait lvalue assignment) and
+    // the assignment must still generate runtime code.
     if (
       !isCompileTimeOnlyAssignment &&
       evaluatedLhs.$?.value !== undefined &&
+      !(
+        isUnknownValue(evaluatedLhs.$.value) &&
+        evaluatedLhs.$.value.isRuntimeOnly
+      ) &&
       rhs.$?.value !== undefined
     ) {
       isCompileTimeOnlyAssignment = true;

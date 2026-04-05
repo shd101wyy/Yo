@@ -114,6 +114,11 @@ export type ModuleValue = {
    * These are collected during module evaluation for use by codegen.
    */
   moduleLevelInitExprs?: Expr[];
+  /**
+   * True while the module is still being evaluated (used for circular import detection).
+   * When a field is not found on a loading module, a specific error is shown.
+   */
+  isLoading?: boolean;
 };
 
 export type TraitValue = {
@@ -176,6 +181,13 @@ export type UnknownValue = {
    * The name of the variable holding this unknown value.
    */
   variableName?: string;
+  /**
+   * When true, this UnknownValue represents a runtime computation result
+   * (e.g., from Index trait dispatch) that cannot be used for compile-time
+   * evaluation. When false/undefined, it's a compile-time placeholder
+   * (e.g., from CTFE analysis) that CAN be used for comptime functions.
+   */
+  isRuntimeOnly?: boolean;
 };
 
 /**

@@ -195,6 +195,52 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 
+## Operator traits use associated type Output
+
+All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot) use `Output` as an **associated type** in the trait body — the same pattern as the `Index` trait. The `Output` is NOT a function parameter.
+
+Binary operator traits take `Rhs` as a type parameter:
+```rust
+Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
+```
+
+Unary operator traits (Negate, BitNot) are parameterless:
+```rust
+Negate :: trait(
+  Output : Type,
+  (neg): (fn(self: Self) -> Self.Output)
+);
+```
+
+Comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`:
+```rust
+ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (+) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
+  )
+);
+```
+
+Impls must provide `Output : Type` explicitly:
+```rust
+impl(i32, Add(i32)(
+  Output : i32,
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
+));
+
+impl(i32, Negate(
+  Output : i32,
+  (neg): ((self) -> __yo_op_neg(self))
+));
+```
+
 ## Higher-Kinded Types (HKT)
 
 Yo supports HKT by using **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime functions — HKT lets you abstract over them.
@@ -368,3 +414,49 @@ export ...(_http), ...(_client);
 // Users write:
 { HttpRequest, fetch } :: import "std/http";
 ```
+
+## Index trait (unified indexing)
+
+All container indexing uses the `Index` trait. Array/Slice have special compiler builtins to avoid infinite recursion.
+
+### Architecture
+
+- `Index(Idx)` — runtime indexing trait with associated type `Output`
+- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`)
+- Array/Slice Index impls delegate to compiler builtins (`__yo_array_index`, `__yo_slice_index`, etc.)
+- Other types (ArrayList, HashMap, BTreeMap, Deque, String) implement Index with normal methods
+
+### Array/Slice builtins
+
+| Runtime builtin | Comptime builtin | Purpose |
+|---|---|---|
+| `__yo_array_index` | `__yo_comptime_array_index` | Element access |
+| `__yo_slice_index` | `__yo_comptime_slice_index` | Element access |
+| `__yo_array_index_range` | `__yo_comptime_array_index_range` | Range slicing |
+| `__yo_array_index_range_inclusive` | `__yo_comptime_array_index_range_inclusive` | Inclusive range slicing |
+| `__yo_slice_index_range` | `__yo_comptime_slice_index_range` | Range slicing |
+| `__yo_slice_index_range_inclusive` | `__yo_comptime_slice_index_range_inclusive` | Inclusive range slicing |
+
+Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builtins handle bounds checking, value extraction, and `arrayElementRef` for mutation.
+
+### comptime_string indexing
+
+`comptime_string` supports indexing via `ComptimeIndex`:
+- `"Hello"(0)` → `"H"` (single character as comptime_string)
+- `"Hello"(0..3)` → `"Hel"` (range slicing)
+- `"Hello"(0..=2)` → `"Hel"` (inclusive range slicing)
+
+Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__yo_comptime_string_index_range_inclusive`
+
+### Self.Output resolution in generic impls
+
+When a type has multiple Index impls (e.g., `Index(usize)` and `Index(Range(usize))`), `Self.Output` is resolved by:
+1. `extractTraitTypeArgsFromImplExpr` extracts associated type field expressions from impl body args (e.g., `Output : T`)
+2. The re-evaluation loop in `findMethodsFromGenericImpls` evaluates these expressions with concrete substitutions
+3. `property-access.ts` checks the env for `Output` before calling `findAssociatedTypeFromGenericImpls` (which would be ambiguous)
+
+### arrayElementRef for comptime mutation
+
+Comptime array indexing returns an `arrayElementRef` that enables:
+- `arr(0) = val` — compile-time mutation via `assignment.ts`
+- `&(arr(0))` — compile-time pointer creation via `ptr-fns.ts`

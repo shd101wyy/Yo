@@ -1,6 +1,6 @@
 # str literal codegen emits bare C string instead of Slice struct
 
-## Status: Open
+## Status: Fixed (verified — both cond branches and struct field assignments emit correct Slice struct)
 
 ## Description
 

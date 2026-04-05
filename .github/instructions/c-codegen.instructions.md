@@ -60,6 +60,26 @@ The `begin.ts` performs reference counting optimization that cancels out dup/dro
 
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
 
+## Index trait codegen
+
+Array/Slice indexing through the Index trait uses compiler builtins that are inlined at call sites.
+
+### generateIndexTraitCall (in `src/codegen/exprs/generation.ts`)
+
+This function generates C code for `value(arg)` dispatched through the Index trait:
+- For builtins (`__yo_array_index`, `__yo_slice_index`): inlines `(&((&value)->data[idx]))` directly
+- For range builtins: creates compound literal `*(Slice(T))` with computed data pointer and length
+- For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
+- Auto-dereferences the pointer result unless wrapped in `&()` (checked via `isIndexTraitAddressOf`)
+
+### ptr-fns.ts address-of optimization
+
+`&(arr(i))` where `arr(i)` uses Index trait dispatch skips the auto-deref. The `ptr-fns.ts` `generateAddressOf` function detects `isIndexTraitAddressOf` and inlines the builtin directly, producing `(&((&arr)->data[i]))` without the outer `*` deref.
+
+### Why Index methods use inline expansion
+
+Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`. The codegen skips generating standalone C function definitions for these. Instead, `generateIndexTraitCall` inlines the expansion at each call site. This avoids issues where the skip logic would also affect other specialized impl methods like `clone`.
+
 ## Algebraic effects codegen
 
 - Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
@@ -170,6 +190,12 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
+
+### Evidence function pointer casts must use void for forall handlers
+
+When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: fn(forall(T), error: AnyError) -> T`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
+
+The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates escape. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
 ### Handler functions are standalone, not closures
 

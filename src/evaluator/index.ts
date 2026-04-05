@@ -60,6 +60,7 @@ export default class Evaluator {
   private moduleValue: ModuleValue | undefined;
   private moduleError: Error | undefined;
   private allowPartialModule: boolean;
+  private registerPartialModule: ((mv: ModuleValue) => void) | undefined;
 
   constructor({
     modulePath,
@@ -67,15 +68,18 @@ export default class Evaluator {
     loadModule,
     inputString,
     allowPartialModule = false,
+    registerPartialModule,
   }: {
     modulePath: string;
     stdPath: string;
     loadModule: LoadModuleFn;
     inputString?: string;
     allowPartialModule?: boolean;
+    registerPartialModule?: (mv: ModuleValue) => void;
   }) {
     this.modulePath = modulePath;
     this.allowPartialModule = allowPartialModule;
+    this.registerPartialModule = registerPartialModule;
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
@@ -185,6 +189,7 @@ export default class Evaluator {
         currentModulePath: this.modulePath,
       },
       allowPartialModule: this.allowPartialModule,
+      registerPartialModule: this.registerPartialModule,
     });
     env = nextEnv;
     this.moduleValue = moduleValue;

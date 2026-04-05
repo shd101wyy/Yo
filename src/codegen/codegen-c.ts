@@ -4,6 +4,8 @@ import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
+import { isStructType } from "../types/guards";
+import { canTypeFormRcCycle, typeContainsSomeType } from "../types/utils";
 import {
   generateDeferredAsyncBlocks,
   preRegisterAsyncBlockTypes,
@@ -110,9 +112,7 @@ export class CodeGeneratorC {
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
       allocator: options.allocator ?? "libc",
       isLibrary: options.isLibrary ?? false,
-      currentModuleId: options.isLibrary
-        ? generateModuleId(modulePath)
-        : undefined,
+      currentModuleId: generateModuleId(modulePath),
       moduleLevelInitExprs:
         options.allModuleLevelInitExprs ?? moduleValue.moduleLevelInitExprs,
     };
@@ -159,6 +159,30 @@ typedef enum {
   __YO_FUTURE_ERROR = 2       // Task failed with error
 } __yo_future_state_t;
 `);
+
+    // Pre-scan: determine if any object type can form RC cycles.
+    // This must be computed before generateTypeDeclarations because it affects
+    // __yo_ref_header_t layout (with or without GC fields).
+    context.needsCycleGC = false;
+    for (const typeId in context.types) {
+      const { type } = context.types[typeId]!;
+      if (
+        isStructType(type) &&
+        type.isReferenceSemantics &&
+        !type.fields.some((field) => typeContainsSomeType(field.type))
+      ) {
+        if (canTypeFormRcCycle(type, new Set(), type.env)) {
+          context.needsCycleGC = true;
+          break;
+        }
+      }
+    }
+
+    // Initialize type-tag dispatch maps (only used when !needsCycleGC)
+    if (!context.needsCycleGC) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
 
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);
@@ -231,6 +255,33 @@ static Slice_uint8_t_u42_ __yo_args;
 
     // Sixth pass: Generate the specialized function bodies
     generateSpecializedFunctions(context);
+
+    // Emit type-tag dispose dispatch function (only when using lightweight RC)
+    if (
+      !context.needsCycleGC &&
+      context.disposeTypeIds &&
+      context.disposeTypeIds.size > 0
+    ) {
+      this.emitter
+        .emitLine(`// Type-tag dispatch for dispose — replaces function pointers
+// WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
+static void __yo_dispose_dispatch(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  switch (header->type_id) {`);
+      for (const [disposeFnName, typeId] of context.disposeTypeIds) {
+        this.emitter.emitLine(
+          `    case ${typeId}: ${disposeFnName}(ptr); return;`
+        );
+      }
+      this.emitter.emitLine(`    default: return;
+  }
+}`);
+    } else if (!context.needsCycleGC) {
+      // No dispose functions registered, but we still need the forward-declared stub
+      this.emitter.emitLine(
+        `static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }`
+      );
+    }
 
     // Propagate codegen flags for C compiler invocation
     if (context.needsIntelAsmSyntax) {

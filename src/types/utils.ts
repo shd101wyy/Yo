@@ -24,6 +24,7 @@ import type {
   ModuleField,
   ModuleType,
   PtrType,
+  SliceType,
   SomeType,
   StructType,
   TraitType,
@@ -304,6 +305,8 @@ export function typeContainsSomeType(
       );
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
+    case TypeTag.Slice:
+      return typeContainsSomeType((type as SliceType).childType, checkedTypes);
     case TypeTag.TypeApplication:
       // TypeApplication always contains a SomeType (the constructor)
       return true;

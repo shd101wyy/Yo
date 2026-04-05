@@ -86,7 +86,7 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
     cond(
       r.found => {
         entry := self._entries.get(r.idx).unwrap();
-        self._entries.set(r.idx, BTreeEntry(K, V)(key: entry.key, value: v));
+        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key: entry.key, value: v);
       },
       true => {
         // Append new entry then bubble left to sorted position
@@ -95,8 +95,8 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
         while (pos > r.idx), (pos = (pos - usize(1))), {
           curr := self._entries.get(pos).unwrap();
           prev := self._entries.get((pos - usize(1))).unwrap();
-          self._entries.set(pos, prev);
-          self._entries.set((pos - usize(1)), curr);
+          &(self._entries(pos)).* = prev;
+          &(self._entries((pos - usize(1)))).* = curr;
         };
       }
     );
@@ -245,6 +245,16 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
     BTreeMapValues(K, V)(_inner: BTreeMapIter(K, V)(_entries: self._entries, _index: usize(0)))
   )
 );
+
+impl(forall(K : Type, V : Type), BTreeMap(K, V), Index(K)(
+  Output : V,
+  index : (fn(self: *(Self), idx: K, where(K <: Ord(K))) -> *(Self.Output))({
+    r := self.*._find(idx);
+    assert(r.found, "BTreeMap: key not found");
+    entry_ptr := &(self.*._entries(r.idx));
+    &(entry_ptr.*.value)
+  })
+));
 
 export
   BTreeMap,

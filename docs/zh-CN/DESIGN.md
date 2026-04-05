@@ -3041,6 +3041,14 @@ asm("mov {0}, #42", out(reg, x));
 
 完整的设计、语法参考和 C 代码生成细节，请参阅 [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md)。
 
+## Index 特征
+
+Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过 `&(value(index)).* = new_value` 进行修改。
+
+标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。数组和切片使用内置索引（相同语法），并支持 `..` 和 `..=` 的范围切片。
+
+完整的设计、特征定义和实现细节，请参阅 [INDEX_TRAIT.md](./INDEX_TRAIT.md)。
+
 ## 设计中
 
 仍处于设计阶段的特性请查阅 [IN_DESIGN.md](../../plans/IN_DESIGN.md)。

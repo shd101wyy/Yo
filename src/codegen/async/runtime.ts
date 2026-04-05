@@ -37,10 +37,17 @@ import { generateAsyncRuntimeIOWasm } from "./runtime-io-wasm";
  *
  * Only emits the runtime for the compilation target — no platform macros needed.
  */
+export interface AsyncRuntimeOptions {
+  needsCycleGC: boolean;
+  /** Register a dispose function for type-tag dispatch (!needsCycleGC). */
+  registerDisposeTypeId?: (disposeFnName: string) => number;
+}
+
 export function generateAsyncRuntime(
   emitter: Emitter,
   targetInfo: TargetInfo,
-  _debugAsyncAwait: boolean
+  _debugAsyncAwait: boolean,
+  options: AsyncRuntimeOptions
 ): void {
   generateAsyncRuntimeCore(emitter, targetInfo);
 
@@ -57,6 +64,6 @@ export function generateAsyncRuntime(
   }
 
   if (!isTargetWasm(targetInfo)) {
-    generateAsyncRuntimeIOCommon(emitter, targetInfo);
+    generateAsyncRuntimeIOCommon(emitter, targetInfo, options);
   }
 }

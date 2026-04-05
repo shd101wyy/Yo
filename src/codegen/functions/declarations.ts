@@ -523,7 +523,29 @@ export function generateFunctionDeclaration(
   // Non-extern functions are 'static' (internal linkage) since all Yo code
   // compiles to a single C file. This enables the C compiler to strip unused
   // functions with -O2.
-  const linkagePrefix = isExtern ? "extern " : "static ";
+  // Exported functions and __yo_user_main keep external linkage.
+  // RC functions (___drop, ___dup) get __attribute__((always_inline)) to ensure
+  // the C compiler inlines them even at -Os, avoiding unnecessary struct copies
+  // in tight loops like ArrayList._free_elements.
+  const isExportedByName =
+    cFunctionName === "__yo_user_main" ||
+    (context.exportedFunctionLabels &&
+      [...context.exportedFunctionLabels.values()].some(
+        (label) => sanitizeForCIdentifier(label) === cFunctionName
+      ));
+  const isRcFunction =
+    !isExtern &&
+    !isExportedByName &&
+    (cFunctionName.includes("___drop") ||
+      cFunctionName.includes("___dup") ||
+      cFunctionName.includes("___dispose"));
+  const linkagePrefix = isExtern
+    ? "extern "
+    : isExportedByName
+      ? ""
+      : isRcFunction
+        ? "static inline __attribute__((always_inline)) "
+        : "static inline ";
   context.emitter.emitDeclarationLine(
     `${linkagePrefix}${functionPrototype}; // ${yoTypeStr}`
   );
@@ -539,10 +561,10 @@ export function generateObjectConstructorDeclarations(
 
   // Generate builtin reference counting functions (static — single C file)
   emitter.emitDeclarationLine(
-    `static void __yo_decr_rc(void* ptr); // Decrement reference count`
+    `static inline void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
-    `static void* __yo_incr_rc(void* ptr); // Increment reference count`
+    `static inline void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
   // Generate GC function declarations
@@ -700,8 +722,16 @@ export function generateSpecializedFunctionDeclarations(
     generated.add(funcId);
 
     // Emit the function declaration
+    // RC functions get __attribute__((always_inline)) for better optimization at -Os
+    const specializedIsRcFunction =
+      cFunctionName.includes("___drop") ||
+      cFunctionName.includes("___dup") ||
+      cFunctionName.includes("___dispose");
+    const specializedPrefix = specializedIsRcFunction
+      ? "static inline __attribute__((always_inline)) "
+      : "static inline ";
     context.emitter.emitDeclarationLine(
-      `static ${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
+      `${specializedPrefix}${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }

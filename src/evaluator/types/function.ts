@@ -55,6 +55,7 @@ import { getFunctionParameterToken, typeOfType } from "../../types/hierarchy";
 import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
+  typeContainsSomeType,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
@@ -71,7 +72,10 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../trait-checking";
+import {
+  findSomeTypeMissingComptimeConstraint,
+  typeImplementsTrait,
+} from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -442,6 +446,7 @@ export function evaluateFunctionParameter({
     }
     if (
       isCompileTimeOnly &&
+      !typeContainsSomeType(parameterType) &&
       typeProhibitsComptimeModifier(parameterType, env)
     ) {
       throw formatErrorMessage({
@@ -449,6 +454,28 @@ export function evaluateFunctionParameter({
         errorMessage: `Parameter marked as "comptime" but type is not available at compile-time:
 ${typeToString(parameterType)}`,
       });
+    }
+    // When a comptime parameter type contains SomeTypes, validate that each
+    // SomeType has a Comptime constraint. Skip during trait field evaluation.
+    if (
+      isCompileTimeOnly &&
+      typeContainsSomeType(parameterType) &&
+      !context.SelfTraitType
+    ) {
+      const missingSomeType = findSomeTypeMissingComptimeConstraint(
+        parameterType,
+        env
+      );
+      if (missingSomeType) {
+        throw formatErrorMessage({
+          token: lhsExpr?.token ?? expr.token,
+          errorMessage: `Parameter type "${typeToString(
+            parameterType
+          )}" is used with "comptime" but type parameter "${typeToString(
+            missingSomeType
+          )}" does not implement the Comptime trait. Add "${missingSomeType.name} <: Comptime" to the where clause.`,
+        });
+      }
     }
     if (
       !isCompileTimeOnly &&
@@ -2493,6 +2520,7 @@ ${typeToString(returnType)}`,
 
   if (
     isReturnTypeCompileTimeOnly &&
+    !typeContainsSomeType(returnType) &&
     typeProhibitsComptimeModifier(returnType, env)
   ) {
     throw formatErrorMessage({
@@ -2501,6 +2529,31 @@ ${typeToString(returnType)}`,
         returnType
       )} which can only be used at runtime.`,
     });
+  }
+
+  // When the return type is comptime and contains SomeTypes, validate that
+  // each SomeType has a Comptime constraint. Skip during trait field evaluation
+  // because trait where-clause constraints (e.g., Self.Output <: Comptime) may
+  // not be applied yet — trait.ts validates after all constraints are resolved.
+  if (
+    isReturnTypeCompileTimeOnly &&
+    typeContainsSomeType(returnType) &&
+    !context.SelfTraitType
+  ) {
+    const missingSomeType = findSomeTypeMissingComptimeConstraint(
+      returnType,
+      env
+    );
+    if (missingSomeType) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Return type "${typeToString(
+          returnType
+        )}" is used with "comptime" but type parameter "${typeToString(
+          missingSomeType
+        )}" does not implement the Comptime trait. Add "${missingSomeType.name} <: Comptime" to the where clause.`,
+      });
+    }
   }
 
   // If the returnType is compile time only, then

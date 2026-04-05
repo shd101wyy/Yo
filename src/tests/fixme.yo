@@ -1,31 +1,24 @@
 open import "std/fmt";
+open import "std/string";
+open import "std/collections/array_list";
 
-Node :: object(value: i32, next: Option(Self));
-
-traverse :: (fn(head: Option(Node)) -> i32)({
-  (count : i32) = i32(0);
-  (current_opt : Option(Node)) = head;
-
-  while runtime(true), {
-    match(current_opt,
-      .None => { return count; },
-      .Some(current) => {
-        count = (count + i32(1));
-        current_opt = current.next;
-      }
-    );
-  };
-  count
+// Test: indexing a function call result (temporary)
+test_index_temp :: (fn() -> unit)({
+  get_list :: (fn() -> ArrayList(u8))({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(1));
+    list.push(u8(2));
+    list.push(u8(3));
+    list
+  });
+  // Index directly into function return value
+  (ch : u8) = get_list()(usize(1));
+  assert((ch == u8(2)), "should be 2");
+  println("index-temp test passed");
 });
 
 main :: (fn() -> unit)({
-  (n3 : Node) = Node(i32(3), .None);
-  (n2 : Node) = Node(i32(2), .Some(n3));
-  (n1 : Node) = Node(i32(1), .Some(n2));
-
-  (result : i32) = traverse(.Some(n1));
-  assert((result == i32(3)), "should count 3 nodes");
-  println(`traverse count: ${result}`);
+  test_index_temp();
 });
 
 export main;

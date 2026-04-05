@@ -30,6 +30,7 @@ import {
 import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime-numeric-fns";
 import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
+import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
 import { evaluateDowncast } from "../builtins/downcast";
 import { evaluateDrop } from "../builtins/drop";
@@ -892,6 +893,42 @@ ${exprToString(expr)}`,
     ) {
       return evaluateYoComptimeStringFunctions({
         expr,
+        env,
+        context: { ...context },
+      });
+    }
+    // Comptime array/slice/string index builtins
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_array_index_range
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_array_index_range_inclusive
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_slice_index_range
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_slice_index_range_inclusive
+      ) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_index) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_index_range
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_index_range_inclusive
+      )
+    ) {
+      return evaluateYoComptimeIndexFunctions({
+        expr: expr as FnCallExpr,
         env,
         context: { ...context },
       });

@@ -1,4 +1,5 @@
 import {
+  BuiltinFunctions,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -10,14 +11,19 @@ import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
 import {
   isBooleanValue,
   isComptimeStringValue,
+  isFunctionValue,
   isNumberValue,
 } from "../../value";
 import {
   type CodeGenContext,
   getTypeString,
+  getVariableNameForCodegen,
+  isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
+
+let ptrFnsIndexTempCounter = 0;
 
 /**
  * The `&` (address-of) operator generation
@@ -41,15 +47,16 @@ export function generateAddressOf(
       if (
         firstArg &&
         exprIsFunctionCall(firstArg) &&
-        exprIsFunctionCallOf(firstArg, ":")
+        (exprIsFunctionCallOf(firstArg, "..") ||
+          exprIsFunctionCallOf(firstArg, "..="))
       ) {
-        // *(arr(start:end)) -> create slice value directly
+        const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
+        // *(arr(start..end)) or *(arr(start..=end)) -> create slice value directly
         const arrayCode = generateExpr(arg.func!, indent, context);
         const startCode = generateExpr(firstArg.args[0]!, indent, context);
         const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
         const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((funcType as ArrayType).childType, context))}`;
-        // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
             childType: getTypeString(
@@ -58,37 +65,17 @@ export function generateAddressOf(
             ),
           });
         }
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
-      } else if (
-        firstArg &&
-        exprIsAtom(firstArg) &&
-        firstArg.token.value === ":"
-      ) {
-        // *(arr(:)) -> create slice value for whole array
-        const arrayCode = generateExpr(arg.func!, indent, context);
-        const arrayType = funcType as ArrayType;
-        const childType = arrayType.childType;
-
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(childType, context))}`;
-        // Register the slice type
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: getTypeString(childType, context),
-          });
+        if (isInclusive) {
+          return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
         }
-
-        if (isNumberValue(arrayType.length)) {
-          return `(${sliceTypeName}){ .data = &${arrayCode}.data[0], .length = ${arrayType.length.value} }`;
-        } else {
-          return `/* Error: Cannot slice array with non-compile-time length */`;
-        }
+        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
       }
     } else if (
       funcType &&
       (isSliceType(funcType) ||
         (isPtrType(funcType) && isSliceType(funcType.childType)))
     ) {
-      // Handle slice-from-slice: *(slice(start:end))
+      // Handle slice-from-slice: *(slice(start..end)) or *(slice(start..=end))
       const sliceBaseType = isSliceType(funcType)
         ? (funcType as SliceType)
         : (funcType.childType as SliceType);
@@ -96,37 +83,25 @@ export function generateAddressOf(
       if (
         firstArg &&
         exprIsFunctionCall(firstArg) &&
-        exprIsFunctionCallOf(firstArg, ":")
+        (exprIsFunctionCallOf(firstArg, "..") ||
+          exprIsFunctionCallOf(firstArg, "..="))
       ) {
-        // *(slice(start:end)) -> create sub-slice
+        const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
+        // *(slice(start..end)) -> create sub-slice
         const sliceCode = generateExpr(arg.func!, indent, context);
         const startCode = generateExpr(firstArg.args[0]!, indent, context);
         const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
         const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.childType, context))}`;
-        // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
             childType: getTypeString(sliceBaseType.childType, context),
           });
         }
-        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
-      } else if (
-        firstArg &&
-        exprIsAtom(firstArg) &&
-        firstArg.token.value === ":"
-      ) {
-        // *(slice(:)) -> create slice copy of whole slice
-        const sliceCode = generateExpr(arg.func!, indent, context);
-
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.childType, context))}`;
-        // Register the slice type
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: getTypeString(sliceBaseType.childType, context),
-          });
+        if (isInclusive) {
+          return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
         }
-        return `(${sliceTypeName}){ .data = ${sliceCode}.data, .length = ${sliceCode}.length }`;
+        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
       }
     }
   }
@@ -148,6 +123,70 @@ export function generateAddressOf(
     if (isComptimeStringValue(argValue) && arg.$?.convertedRuntimeType) {
       const argCode = generateExpr(arg, indent, context);
       return `(&${argCode})`;
+    }
+  }
+
+  // Special case: &(value(i)) where value(i) uses Index trait dispatch.
+  // The Index.index() method already returns a pointer, so we just call it
+  // without the auto-deref. This avoids generating &(*index_fn(&v, i)).
+  if (
+    expr.$?.isIndexTraitAddressOf &&
+    exprIsFunctionCall(arg) &&
+    arg.$?.indexMethodValue
+  ) {
+    const methodValue = arg.$.indexMethodValue;
+    if (isFunctionValue(methodValue)) {
+      const calleeExpr = arg.func!;
+      let calleeCode = generateExpr(calleeExpr, indent, context);
+
+      // If the callee is a function call returning a temporary (rvalue), we
+      // can't take its address directly. Emit it into a temp variable first.
+      // Property access (`.` calls) generates lvalue C code, so skip those.
+      if (
+        exprIsFunctionCall(calleeExpr) &&
+        !exprIsAtom(calleeExpr) &&
+        !exprIsFunctionCallOf(calleeExpr, ".") &&
+        calleeExpr.$?.type
+      ) {
+        const isAlreadyVariable =
+          calleeExpr.$?.variableName &&
+          calleeCode ===
+            getVariableNameForCodegen(
+              calleeExpr.$.variableName,
+              calleeExpr.$.env
+            );
+        if (!isAlreadyVariable) {
+          const calleeType = getTypeString(calleeExpr.$.type, context);
+          const tempName = `__yo_ptr_idx_tmp_${ptrFnsIndexTempCounter++}`;
+          context.emitter.emitLine(
+            `${indent}${calleeType} ${tempName} = ${calleeCode};`
+          );
+          calleeCode = tempName;
+        }
+      }
+
+      const indexArg = arg.args[0];
+      const indexCode = indexArg
+        ? generateExpr(indexArg, indent, context)
+        : "0";
+
+      // Inline builtin body if possible
+      const inlineOp =
+        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(methodValue);
+      if (inlineOp) {
+        if (
+          BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
+          BuiltinFunctions.__yo_slice_index.includes(inlineOp)
+        ) {
+          return `(&((&${calleeCode})->data[${indexCode}]))`;
+        }
+      }
+
+      // Fallback to function call
+      const cFuncName = context.functions[methodValue.funcId]?.cName;
+      if (cFuncName) {
+        return `${cFuncName}(&${calleeCode}, ${indexCode})`;
+      }
     }
   }
 

@@ -250,6 +250,16 @@ impl(forall(T : Type), Deque(T),
   )
 );
 
+impl(forall(T : Type), Deque(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
+    assert((idx < self.*._len), "Deque: index out of bounds");
+    buf := self.*._buf.unwrap();
+    physical_idx := ((self.*._head + idx) % self.*._capacity);
+    (buf &+ physical_idx)
+  })
+));
+
 export
   Deque,
   DequeIter,

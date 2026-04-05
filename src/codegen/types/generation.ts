@@ -192,34 +192,42 @@ static __YO_COND_TYPE __yo_cond_create(void) {
 
 // Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
 typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
+`);
 
-// Reference counting header - simple non-atomic RC with cycle collection support
-// Thread-local: each object is owned by the thread that created it
+  // Conditionally emit header struct: smaller when no types need cycle GC
+  if (context.needsCycleGC) {
+    context.emitter.emitDeclarationLine(`
+// Reference counting header - non-atomic RC with cycle collection support
 typedef struct __yo_ref_header_t {
-  // Simple reference count (non-atomic, thread-local)
   size_t ref_count;
-  
-  // GC cycle collection fields
-  uint8_t gc_flags;                                     // GC tracking flags
-  __yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
-  
-  // GC object management fields (doubly-linked list for O(1) deletion)
-  struct __yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
-  struct __yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
-  void (*dispose_fn)(void*);                            // Dispose function for this object type (immutable after construction)
-  void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
+  uint8_t gc_flags;
+  __yo_gc_mark_t gc_mark;
+  struct __yo_ref_header_t* gc_next;
+  struct __yo_ref_header_t* gc_prev;
+  void (*dispose_fn)(void*);
+  void (*traverse_fn)(void*, void (*visit)(void*));
 } __yo_ref_header_t;
 
-// Per-thread GC state - defined after __yo_ref_header_t so it can use complete type
+// Per-thread GC state
 struct __yo_thread_gc_state {
-  __yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
-  size_t tracked_count;                      // Number of objects tracked by this thread
-  size_t thread_id;                          // Thread identifier (for debugging)
-  size_t alloc_count;                        // Allocations since last collection
-  __yo_thread_gc_state_t* next;                // Next thread in global thread list
-  __yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
-};
+  __yo_ref_header_t* tracked_objects;
+  size_t tracked_count;
+  size_t thread_id;
+  size_t alloc_count;
+  __yo_thread_gc_state_t* next;
+  __yo_thread_gc_state_t* prev;
+};`);
+  } else {
+    context.emitter.emitDeclarationLine(`
+// Lightweight reference counting header — no cycle detection fields
+// Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
+typedef struct __yo_ref_header_t {
+  size_t ref_count;
+  uint16_t type_id;
+} __yo_ref_header_t;`);
+  }
 
+  context.emitter.emitDeclarationLine(`
 // Generic Future type - used by async runtime for type-agnostic operations
 // All concrete Future types share this same layout for common fields
 typedef struct {
@@ -831,13 +839,32 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     // Skip if constructor already generated
     if (createGenerated) continue;
 
+    const isoDisposeName = `__yo_dispose_iso_${isoTypeName}`;
+    let isoDisposeAssignment: string;
+    if (context.needsCycleGC) {
+      isoDisposeAssignment = `  iso->header.dispose_fn = ${isoDisposeName};`;
+    } else {
+      if (!context.disposeTypeIds) {
+        context.disposeTypeIds = new Map();
+        context.nextDisposeTypeId = 1;
+      }
+      let typeId = context.disposeTypeIds.get(isoDisposeName);
+      if (typeId === undefined) {
+        typeId = context.nextDisposeTypeId!;
+        context.nextDisposeTypeId = typeId + 1;
+        context.disposeTypeIds.set(isoDisposeName, typeId);
+      }
+      isoDisposeAssignment = `  iso->header.type_id = ${typeId};`;
+    }
+    const isoGcInit = context.needsCycleGC
+      ? `\n  iso->header.gc_mark = __YO_GC_UNMARKED;\n  iso->header.gc_flags = 0;`
+      : "";
+
     emitter.emitLine(`
 ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
-  iso->header.ref_count = 1;
-  iso->header.gc_mark = __YO_GC_UNMARKED;
-  iso->header.gc_flags = 0;
-  iso->header.dispose_fn = __yo_dispose_iso_${isoTypeName};
+  iso->header.ref_count = 1;${isoGcInit}
+${isoDisposeAssignment}
   atomic_store(&iso->extracted, false);
   iso->value = value;
   return iso;
@@ -1018,13 +1045,32 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
     const { childTypeCName, createGenerated } = arcInfo;
     if (createGenerated) continue;
 
+    const arcDisposeName = `__yo_dispose_arc_${arcTypeName}`;
+    let arcDisposeAssignment: string;
+    if (context.needsCycleGC) {
+      arcDisposeAssignment = `  arc->header.dispose_fn = ${arcDisposeName};`;
+    } else {
+      if (!context.disposeTypeIds) {
+        context.disposeTypeIds = new Map();
+        context.nextDisposeTypeId = 1;
+      }
+      let typeId = context.disposeTypeIds.get(arcDisposeName);
+      if (typeId === undefined) {
+        typeId = context.nextDisposeTypeId!;
+        context.nextDisposeTypeId = typeId + 1;
+        context.disposeTypeIds.set(arcDisposeName, typeId);
+      }
+      arcDisposeAssignment = `  arc->header.type_id = ${typeId};`;
+    }
+    const arcGcInit = context.needsCycleGC
+      ? `\n  arc->header.gc_mark = __YO_GC_UNMARKED;\n  arc->header.gc_flags = 0;`
+      : "";
+
     emitter.emitLine(`
 ${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value) {
   ${arcTypeName} arc = (${arcTypeName})__yo_malloc(sizeof(${arcTypeName}_struct));
-  arc->header.ref_count = 1;
-  arc->header.gc_mark = __YO_GC_UNMARKED;
-  arc->header.gc_flags = 0;
-  arc->header.dispose_fn = __yo_dispose_arc_${arcTypeName};
+  arc->header.ref_count = 1;${arcGcInit}
+${arcDisposeAssignment}
   arc->value = value;
   return arc;
 }`);

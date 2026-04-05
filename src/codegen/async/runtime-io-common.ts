@@ -28,6 +28,7 @@ import {
 import { generatePlatformSysRuntimeMacOS } from "./runtime-io-macos";
 import { generatePlatformSysRuntimeLinux } from "./runtime-io-linux";
 import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
+import type { AsyncRuntimeOptions } from "./runtime";
 import { generatePlatformSysRuntimeWasm } from "./runtime-io-wasm";
 
 // ---------------------------------------------------------------------------
@@ -560,7 +561,8 @@ static int32_t __yo_isatty(int32_t fd) {
  */
 export function generateAsyncRuntimeIOCommon(
   emitter: Emitter,
-  targetInfo: TargetInfo
+  targetInfo: TargetInfo,
+  options: AsyncRuntimeOptions
 ): void {
   const isWindows = isTargetWindows(targetInfo);
   const isLinux = isTargetLinux(targetInfo);
@@ -570,6 +572,19 @@ export function generateAsyncRuntimeIOCommon(
   // Timer operations (platform-specific)
   // ============================================================================
   if (isLinux) {
+    // Determine how to register the timer future's dispose function
+    let timerDisposeInit: string;
+    if (options.needsCycleGC) {
+      timerDisposeInit = `  future->header.dispose_fn = __yo_timer_future_dispose;`;
+    } else if (options.registerDisposeTypeId) {
+      const timerTypeId = options.registerDisposeTypeId(
+        "__yo_timer_future_dispose"
+      );
+      timerDisposeInit = `  future->header.type_id = ${timerTypeId};`;
+    } else {
+      timerDisposeInit = `  // No dispose registration available`;
+    }
+
     emitter.emitLine(`
 // ============================================================================
 // Timer Operations (Linux - timerfd + io_uring)
@@ -604,7 +619,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   
   __yo_io_future_t* future = &timer_future->base;
   future->header.ref_count = 1;
-  future->header.dispose_fn = __yo_timer_future_dispose;
+${timerDisposeInit}
   atomic_init(&future->state, 0);
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);

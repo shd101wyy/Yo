@@ -99,6 +99,12 @@ extern "Yo",
   __yo_slice_ptr :
     fn(forall(T: Type), slice: Slice(T)) -> *(T),
 
+  // array/slice indexing builtins (used by Index trait impls)
+  __yo_array_index :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: usize) -> *(T),
+  __yo_slice_index :
+    fn(forall(T: Type), self: *(Slice(T)), idx: usize) -> *(T),
+
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
   __yo_c_macro_value : (fn(comptime(name) : comptime_string) -> comptime(comptime_string)),
@@ -179,149 +185,240 @@ Dispose :: trait(
 );
 export Dispose;
 
-/// === Arithmetic ===
-Add :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (+)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
+/// === Index ===
+Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
+  )
+);
+export Index;
+
+ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(comptime(self): *(Self), comptime(idx): Idx) -> comptime(*(Self.Output))),
+    where(Self <: Comptime, Self.Output <: Comptime)
+  )
+);
+export ComptimeIndex;
+
+/// === Range Types ===
+Range :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(start : T, end : T)
+);
+export Range;
+
+RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(start : T, end : T)
+);
+export RangeInclusive;
+
+/// === Range Operator Traits ===
+RangeOp :: trait(
+  (..) : (fn(start: Self, end: Self) -> Range(Self))
+);
+export RangeOp;
+
+RangeInclusiveOp :: trait(
+  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
+);
+export RangeInclusiveOp;
+
+// array/slice range indexing builtins (declared after Range/RangeInclusive types)
+extern "Yo",
+  __yo_array_index_range :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: Range(usize)) -> *(Slice(T)),
+  __yo_array_index_range_inclusive :
+    fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: RangeInclusive(usize)) -> *(Slice(T)),
+  __yo_slice_index_range :
+    fn(forall(T: Type), self: *(Slice(T)), idx: Range(usize)) -> *(Slice(T)),
+  __yo_slice_index_range_inclusive :
+    fn(forall(T: Type), self: *(Slice(T)), idx: RangeInclusive(usize)) -> *(Slice(T))
 ;
+
+// comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
+extern "Yo",
+  __yo_comptime_array_index :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): usize, where(T <: Comptime)) -> comptime(*(T))),
+  __yo_comptime_slice_index :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): usize, where(T <: Comptime)) -> comptime(*(T))),
+  __yo_comptime_array_index_range :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
+  __yo_comptime_array_index_range_inclusive :
+    (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
+  __yo_comptime_slice_index_range :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
+  __yo_comptime_slice_index_range_inclusive :
+    (fn(forall(T: Type), comptime(self): *(Slice(T)), comptime(idx): RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
+  __yo_comptime_string_index :
+    (fn(comptime(self): comptime_string, comptime(idx): comptime_int) -> comptime(comptime_string)),
+  __yo_comptime_string_index_range :
+    (fn(comptime(self): comptime_string, comptime(idx): Range(comptime_int)) -> comptime(comptime_string)),
+  __yo_comptime_string_index_range_inclusive :
+    (fn(comptime(self): comptime_string, comptime(idx): RangeInclusive(comptime_int)) -> comptime(comptime_string))
+;
+
+ComptimeRangeOp :: trait(
+  (..) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(Range(Self))),
+  where(Self <: Comptime)
+);
+export ComptimeRangeOp;
+
+ComptimeRangeInclusiveOp :: trait(
+  (..=) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(RangeInclusive(Self))),
+  where(Self <: Comptime)
+);
+export ComptimeRangeInclusiveOp;
+
+/// === Arithmetic ===
+Add :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Add;
 
-ComptimeAdd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (+)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (+) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeAdd;
 
-Sub :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (-)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+Sub :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (-) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Sub;
 
-ComptimeSub :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (-)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (-) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeSub;
 
-Mul :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (*)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+Mul :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (*) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Mul;
 
-ComptimeMul :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (*)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (*) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeMul;
 
-Div :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (/)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+Div :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (/) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Div;
 
-ComptimeDiv :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (/)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (/) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeDiv;
 
-Mod :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (%)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+Mod :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (%) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Mod;
 
-ComptimeMod :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (%)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (%) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeMod;
 
-BitLeftShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (<<)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+BitLeftShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (<<) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export BitLeftShift;
 
-ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (<<)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (<<) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeBitLeftShift;
 
-BitRightShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (>>)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+BitRightShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (>>) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export BitRightShift;
 
-ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (>>)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (>>) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeBitRightShift;
 
-Exponentiation :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
-  trait
-    Output := Output,
-    (**)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+Exponentiation :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
+  trait(
+    Output : Type,
+    (**) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export Exponentiation;
 
-ComptimeExponentiation :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (**)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (**) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeExponentiation;
 
-Negate :: (fn(comptime(Output) : Type)-> comptime(Trait)) 
-  trait
-    Output := Output,
-    (neg): (fn(self: Self)-> Output)
-;
+Negate :: trait(
+  Output : Type,
+  (neg): (fn(self: Self) -> Self.Output)
+);
 export Negate;
 
-ComptimeNegate :: (fn(comptime(Output) : Type, where(Output <: Comptime))-> comptime(Trait)) 
-  trait(
-    Output := Output,
-    (neg) : (fn(comptime(self): Self)-> comptime(Output)),
-    where(Self <: Comptime)
-  )
-;
+ComptimeNegate :: trait(
+  Output : Type,
+  (neg) : (fn(comptime(self): Self) -> comptime(Self.Output)),
+  where(Self <: Comptime, Self.Output <: Comptime)
+);
 export ComptimeNegate;
 
 /// === Logic ===
@@ -336,68 +433,68 @@ ComptimeLogicalNot :: trait
 ;
 export ComptimeLogicalNot;
 
-BitNot :: (fn(comptime(Output) : Type) -> comptime(Trait))
-  trait
-    Output := Output,
-    (~)    :  (fn(self: Self)-> Output)
-;
+BitNot :: trait(
+  Output : Type,
+  (~) : (fn(self: Self) -> Self.Output)
+);
 export BitNot;
 
-ComptimeBitNot :: (fn(comptime(Output) : Type, where(Output <: Comptime)) -> comptime(Trait))
-  trait(
-    Output := Output,
-    (~)    :  (fn(comptime(self): Self)-> comptime(Output)),
-    where(Self <: Comptime)
-  )
-;
+ComptimeBitNot :: trait(
+  Output : Type,
+  (~) : (fn(comptime(self): Self) -> comptime(Self.Output)),
+  where(Self <: Comptime, Self.Output <: Comptime)
+);
 export ComptimeBitNot;
 
-BitAnd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait)) 
-  trait
-    Output := Output,
-    (&)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    (&) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export BitAnd;
 
-ComptimeBitAnd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait)) 
+ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (&)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (&) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeBitAnd;
 
-BitOr :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait))
-  trait
-    Output := Output,
-    (|)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    (|) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export BitOr;
 
-ComptimeBitOr :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait))
+ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (|)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (|) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeBitOr;
 
-BitXor :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait)) 
-  trait
-    Output := Output,
-    (^)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
-;
+BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    (^) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+  )
+);
 export BitXor;
 
-ComptimeBitXor :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait)) 
+ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
-    Output := Output,
-    (^)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
-    where(Self <: Comptime)
+    Output : Type,
+    (^) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    where(Self <: Comptime, Self.Output <: Comptime)
   )
-;
+);
 export ComptimeBitXor;
 
 (!) :: impl {
@@ -427,14 +524,14 @@ export not, (!);
 (~) :: impl {
   (bit_not) :: (fn(forall(_Self : Type),
             self : _Self,
-            where(_Self <: BitNot(_Self))
+            where(_Self <: BitNot)
           ) -> _Self)
     self.(~)()
   ;
 
   (comptime_bit_not) :: (fn(forall(_Self : Type),
           comptime(self) : _Self,
-          where(_Self <: (Comptime, ComptimeBitNot(_Self)))
+          where(_Self <: (Comptime, ComptimeBitNot))
         ) -> comptime(_Self))
     self.(~)()
   ;
@@ -450,14 +547,14 @@ export (~);
 (-) :: impl {
   (neg) :: (fn(forall(_Self : Type),
             self : _Self,
-            where(_Self <: Negate(_Self))
+            where(_Self <: Negate)
           ) -> _Self) {
     return self.neg();
   };
 
   (comptime_neg) :: (fn(forall(_Self : Type), 
           comptime(self) : _Self,
-          where(_Self <: (Comptime, ComptimeNegate(_Self)))
+          where(_Self <: (Comptime, ComptimeNegate))
         ) -> comptime(_Self)) {
     return self.neg();
   };
@@ -617,31 +714,37 @@ impl(void, Send());
 impl(comptime_int, Acyclic());
 impl(comptime_int, Comptime());
 impl(comptime_int, ComptimeAdd(comptime_int)(
+  Output : comptime_int,
   (+) : ((lhs, rhs) ->
     __yo_comptime_int_add(lhs, rhs)
   )
 ));
 impl(comptime_int, ComptimeSub(comptime_int)(
+  Output : comptime_int,
   (-) : ((lhs, rhs) ->
     __yo_comptime_int_sub(lhs, rhs)
   )
 ));
 impl(comptime_int, ComptimeMul(comptime_int)(
+  Output : comptime_int,
   (*) : ((lhs, rhs) ->
     __yo_comptime_int_mul(lhs, rhs)
   )
 ));
 impl(comptime_int, ComptimeDiv(comptime_int)(
+  Output : comptime_int,
   (/) : ((lhs, rhs) ->
     __yo_comptime_int_div(lhs, rhs)
   )
 ));
 impl(comptime_int, ComptimeMod(comptime_int)(
+  Output : comptime_int,
   (%) : ((lhs, rhs) ->
     __yo_comptime_int_mod(lhs, rhs)
   )
 ));
-impl(comptime_int, ComptimeNegate(comptime_int)(
+impl(comptime_int, ComptimeNegate(
+  Output : comptime_int,
   (neg) : (self ->
     __yo_comptime_int_neg(self)
   )
@@ -673,6 +776,12 @@ impl(comptime_int, ComptimeToString(
     __yo_comptime_int_to_comptime_string(self)
   )
 ));
+impl(comptime_int, ComptimeRangeOp(
+  (..): ((start, end) -> Range(comptime_int)(start: start, end: end))
+));
+impl(comptime_int, ComptimeRangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(comptime_int)(start: start, end: end))
+));
 _comptime_int :: comptime_int;
 export comptime_int : _comptime_int;
 
@@ -680,26 +789,31 @@ export comptime_int : _comptime_int;
 impl(comptime_float, Acyclic());
 impl(comptime_float, Comptime());
 impl(comptime_float, ComptimeAdd(comptime_float)(
+  Output : comptime_float,
   (+) : ((lhs, rhs) ->
     __yo_comptime_float_add(lhs, rhs)
   )
 ));
 impl(comptime_float, ComptimeSub(comptime_float)(
+  Output : comptime_float,
   (-) : ((lhs, rhs) ->
     __yo_comptime_float_sub(lhs, rhs)
   )
 ));
 impl(comptime_float, ComptimeMul(comptime_float)(
+  Output : comptime_float,
   (*) : ((lhs, rhs) ->
     __yo_comptime_float_mul(lhs, rhs)
   )
 ));
 impl(comptime_float, ComptimeDiv(comptime_float)(
+  Output : comptime_float,
   (/) : ((lhs, rhs) ->
     __yo_comptime_float_div(lhs, rhs)
   )
 ));
-impl(comptime_float, ComptimeNegate(comptime_float)(
+impl(comptime_float, ComptimeNegate(
+  Output : comptime_float,
   (neg) : (self ->
     __yo_comptime_float_neg(self)
   )
@@ -736,6 +850,7 @@ export comptime_float : _comptime_float;
 impl(comptime_string, Acyclic());
 impl(comptime_string, Comptime());
 impl(comptime_string, ComptimeAdd(comptime_string)(
+  Output : comptime_string,
   (+) : ((lhs, rhs) ->
     __yo_comptime_string_concat(lhs, rhs)
   )
@@ -830,42 +945,54 @@ impl(i8, Acyclic());
 impl(i8, Comptime());
 impl(i8, Runtime());
 impl(i8, Add(i8)(
+  Output : i8,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i8, Sub(i8)(
+  Output : i8,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i8, Mul(i8)(
+  Output : i8,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i8, Div(i8)(
+  Output : i8,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i8, Mod(i8)(
+  Output : i8,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(i8, Negate(i8)(
+impl(i8, Negate(
+  Output : i8,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i8, BitLeftShift(i8)(
+  Output : i8,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i8, BitRightShift(i8)(
+  Output : i8,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i8, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(i8, BitNot(i8)(
+impl(i8, BitNot(
+  Output : i8,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i8, BitAnd(i8)(
+  Output : i8,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i8, BitOr(i8)(
+  Output : i8,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i8, BitXor(i8)(
+  Output : i8,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i8, Eq(i8)(
@@ -885,31 +1012,37 @@ impl(i8, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i8, ComptimeAdd(i8)(
+  Output : i8,
   (+) : ((lhs, rhs) ->
     __yo_comptime_i8_add(lhs, rhs)
   )
 ));
 impl(i8, ComptimeSub(i8)(
+  Output : i8,
   (-) : ((lhs, rhs) ->
     __yo_comptime_i8_sub(lhs, rhs)
   )
 ));
 impl(i8, ComptimeMul(i8)(
+  Output : i8,
   (*) : ((lhs, rhs) ->
     __yo_comptime_i8_mul(lhs, rhs)
   )
 ));
 impl(i8, ComptimeDiv(i8)(
+  Output : i8,
   (/) : ((lhs, rhs) ->
     __yo_comptime_i8_div(lhs, rhs)
   )
 ));
 impl(i8, ComptimeMod(i8)(
+  Output : i8,
   (%) : ((lhs, rhs) ->
     __yo_comptime_i8_mod(lhs, rhs)
   )
 ));
-impl(i8, ComptimeNegate(i8)(
+impl(i8, ComptimeNegate(
+  Output : i8,
   (neg) : (self ->
     __yo_comptime_i8_neg(self)
   )
@@ -937,31 +1070,37 @@ impl(i8, ComptimeOrd(i8)(
   )
 ));
 impl(i8, ComptimeBitAnd(i8)(
+  Output : i8,
   (&): ((lhs, rhs) ->
     __yo_comptime_i8_bit_and(lhs, rhs)
   )
 ));
 impl(i8, ComptimeBitOr(i8)(
+  Output : i8,
   (|): ((lhs, rhs) ->
     __yo_comptime_i8_bit_or(lhs, rhs)
   )
 ));
 impl(i8, ComptimeBitXor(i8)(
+  Output : i8,
   (^): ((lhs, rhs) ->
     __yo_comptime_i8_bit_xor(lhs, rhs)
   )
 ));
 impl(i8, ComptimeBitLeftShift(i8)(
+  Output : i8,
   (<<): ((lhs, rhs) ->
     __yo_comptime_i8_shl(lhs, rhs)
   )
 ));
 impl(i8, ComptimeBitRightShift(i8)(
+  Output : i8,
   (>>): ((lhs, rhs) ->
     __yo_comptime_i8_shr(lhs, rhs)
   )
 ));
-impl(i8, ComptimeBitNot(i8)(
+impl(i8, ComptimeBitNot(
+  Output : i8,
   (~): (self ->
     __yo_comptime_i8_bit_not(self)
   )
@@ -982,42 +1121,54 @@ impl(i16, Acyclic());
 impl(i16, Comptime());
 impl(i16, Runtime());
 impl(i16, Add(i16)(
+  Output : i16,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i16, Sub(i16)(
+  Output : i16,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i16, Mul(i16)(
+  Output : i16,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i16, Div(i16)(
+  Output : i16,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i16, Mod(i16)(
+  Output : i16,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(i16, Negate(i16)(
+impl(i16, Negate(
+  Output : i16,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i16, BitLeftShift(i16)(
+  Output : i16,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i16, BitRightShift(i16)(
+  Output : i16,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i16, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(i16, BitNot(i16)(
+impl(i16, BitNot(
+  Output : i16,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i16, BitAnd(i16)(
+  Output : i16,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i16, BitOr(i16)(
+  Output : i16,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i16, BitXor(i16)(
+  Output : i16,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i16, Eq(i16)(
@@ -1037,31 +1188,37 @@ impl(i16, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i16, ComptimeAdd(i16)(
+  Output : i16,
   (+) : ((lhs, rhs) ->
     __yo_comptime_i16_add(lhs, rhs)
   )
 ));
 impl(i16, ComptimeSub(i16)(
+  Output : i16,
   (-) : ((lhs, rhs) ->
     __yo_comptime_i16_sub(lhs, rhs)
   )
 ));
 impl(i16, ComptimeMul(i16)(
+  Output : i16,
   (*) : ((lhs, rhs) ->
     __yo_comptime_i16_mul(lhs, rhs)
   )
 ));
 impl(i16, ComptimeDiv(i16)(
+  Output : i16,
   (/) : ((lhs, rhs) ->
     __yo_comptime_i16_div(lhs, rhs)
   )
 ));
 impl(i16, ComptimeMod(i16)(
+  Output : i16,
   (%) : ((lhs, rhs) ->
     __yo_comptime_i16_mod(lhs, rhs)
   )
 ));
-impl(i16, ComptimeNegate(i16)(
+impl(i16, ComptimeNegate(
+  Output : i16,
   (neg) : (self ->
     __yo_comptime_i16_neg(self)
   )
@@ -1089,31 +1246,37 @@ impl(i16, ComptimeOrd(i16)(
   )
 ));
 impl(i16, ComptimeBitAnd(i16)(
+  Output : i16,
   (&): ((lhs, rhs) ->
     __yo_comptime_i16_bit_and(lhs, rhs)
   )
 ));
 impl(i16, ComptimeBitOr(i16)(
+  Output : i16,
   (|): ((lhs, rhs) ->
     __yo_comptime_i16_bit_or(lhs, rhs)
   )
 ));
 impl(i16, ComptimeBitXor(i16)(
+  Output : i16,
   (^): ((lhs, rhs) ->
     __yo_comptime_i16_bit_xor(lhs, rhs)
   )
 ));
 impl(i16, ComptimeBitLeftShift(i16)(
+  Output : i16,
   (<<): ((lhs, rhs) ->
     __yo_comptime_i16_shl(lhs, rhs)
   )
 ));
 impl(i16, ComptimeBitRightShift(i16)(
+  Output : i16,
   (>>): ((lhs, rhs) ->
     __yo_comptime_i16_shr(lhs, rhs)
   )
 ));
-impl(i16, ComptimeBitNot(i16)(
+impl(i16, ComptimeBitNot(
+  Output : i16,
   (~): (self ->
     __yo_comptime_i16_bit_not(self)
   )
@@ -1134,70 +1297,88 @@ impl(i32, Acyclic());
 impl(i32, Comptime());
 impl(i32, Runtime());
 impl(i32, Add(i32)(
+  Output : i32,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i32, Sub(i32)(
+  Output : i32,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i32, Mul(i32)(
+  Output : i32,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i32, Div(i32)(
+  Output : i32,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i32, Mod(i32)(
+  Output : i32,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(i32, Negate(i32)(
+impl(i32, Negate(
+  Output : i32,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i32, BitLeftShift(i32)(
+  Output : i32,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i32, BitRightShift(i32)(
+  Output : i32,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i32, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(i32, BitNot(i32)(
+impl(i32, BitNot(
+  Output : i32,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i32, BitAnd(i32)(
+  Output : i32,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i32, BitOr(i32)(
+  Output : i32,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i32, BitXor(i32)(
+  Output : i32,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i32, ComptimeBitAnd(i32)(
+  Output : i32,
   (&): ((lhs, rhs) ->
     __yo_comptime_i32_bit_and(lhs, rhs)
   )
 ));
 impl(i32, ComptimeBitOr(i32)(
+  Output : i32,
   (|): ((lhs, rhs) ->
     __yo_comptime_i32_bit_or(lhs, rhs)
   )
 ));
 impl(i32, ComptimeBitXor(i32)(
+  Output : i32,
   (^): ((lhs, rhs) ->
     __yo_comptime_i32_bit_xor(lhs, rhs)
   )
 ));
 impl(i32, ComptimeBitLeftShift(i32)(
+  Output : i32,
   (<<): ((lhs, rhs) ->
     __yo_comptime_i32_shl(lhs, rhs)
   )
 ));
 impl(i32, ComptimeBitRightShift(i32)(
+  Output : i32,
   (>>): ((lhs, rhs) ->
     __yo_comptime_i32_shr(lhs, rhs)
   )
 ));
-impl(i32, ComptimeBitNot(i32)(
+impl(i32, ComptimeBitNot(
+  Output : i32,
   (~): (self ->
     __yo_comptime_i32_bit_not(self)
   )
@@ -1224,31 +1405,37 @@ impl(i32, Clone(
   )
 ));
 impl(i32, ComptimeAdd(i32)(
+  Output : i32,
   (+) : ((lhs, rhs) ->
     __yo_comptime_i32_add(lhs, rhs)
   )
 ));
 impl(i32, ComptimeSub(i32)(
+  Output : i32,
   (-) : ((lhs, rhs) ->
     __yo_comptime_i32_sub(lhs, rhs)
   )
 ));
 impl(i32, ComptimeMul(i32)(
+  Output : i32,
   (*) : ((lhs, rhs) ->
     __yo_comptime_i32_mul(lhs, rhs)
   )
 ));
 impl(i32, ComptimeDiv(i32)(
+  Output : i32,
   (/) : ((lhs, rhs) ->
     __yo_comptime_i32_div(lhs, rhs)
   )
 ));
 impl(i32, ComptimeMod(i32)(
+  Output : i32,
   (%) : ((lhs, rhs) ->
     __yo_comptime_i32_mod(lhs, rhs)
   )
 ));
-impl(i32, ComptimeNegate(i32)(
+impl(i32, ComptimeNegate(
+  Output : i32,
   (neg) : (self ->
     __yo_comptime_i32_neg(self)
   )
@@ -1291,42 +1478,54 @@ impl(i64, Acyclic());
 impl(i64, Comptime());
 impl(i64, Runtime());
 impl(i64, Add(i64)(
+  Output : i64,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i64, Sub(i64)(
+  Output : i64,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i64, Mul(i64)(
+  Output : i64,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i64, Div(i64)(
+  Output : i64,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i64, Mod(i64)(
+  Output : i64,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(i64, Negate(i64)(
+impl(i64, Negate(
+  Output : i64,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i64, BitLeftShift(i64)(
+  Output : i64,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i64, BitRightShift(i64)(
+  Output : i64,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i64, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(i64, BitNot(i64)(
+impl(i64, BitNot(
+  Output : i64,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i64, BitAnd(i64)(
+  Output : i64,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i64, BitOr(i64)(
+  Output : i64,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i64, BitXor(i64)(
+  Output : i64,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i64, Eq(i64)(
@@ -1346,31 +1545,37 @@ impl(i64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i64, ComptimeAdd(i64)(
+  Output : i64,
   (+) : ((lhs, rhs) ->
     __yo_comptime_i64_add(lhs, rhs)
   )
 ));
 impl(i64, ComptimeSub(i64)(
+  Output : i64,
   (-) : ((lhs, rhs) ->
     __yo_comptime_i64_sub(lhs, rhs)
   )
 ));
 impl(i64, ComptimeMul(i64)(
+  Output : i64,
   (*) : ((lhs, rhs) ->
     __yo_comptime_i64_mul(lhs, rhs)
   )
 ));
 impl(i64, ComptimeDiv(i64)(
+  Output : i64,
   (/) : ((lhs, rhs) ->
     __yo_comptime_i64_div(lhs, rhs)
   )
 ));
 impl(i64, ComptimeMod(i64)(
+  Output : i64,
   (%) : ((lhs, rhs) ->
     __yo_comptime_i64_mod(lhs, rhs)
   )
 ));
-impl(i64, ComptimeNegate(i64)(
+impl(i64, ComptimeNegate(
+  Output : i64,
   (neg) : (self ->
     __yo_comptime_i64_neg(self)
   )
@@ -1398,31 +1603,37 @@ impl(i64, ComptimeOrd(i64)(
   )
 ));
 impl(i64, ComptimeBitAnd(i64)(
+  Output : i64,
   (&): ((lhs, rhs) ->
     __yo_comptime_i64_bit_and(lhs, rhs)
   )
 ));
 impl(i64, ComptimeBitOr(i64)(
+  Output : i64,
   (|): ((lhs, rhs) ->
     __yo_comptime_i64_bit_or(lhs, rhs)
   )
 ));
 impl(i64, ComptimeBitXor(i64)(
+  Output : i64,
   (^): ((lhs, rhs) ->
     __yo_comptime_i64_bit_xor(lhs, rhs)
   )
 ));
 impl(i64, ComptimeBitLeftShift(i64)(
+  Output : i64,
   (<<): ((lhs, rhs) ->
     __yo_comptime_i64_shl(lhs, rhs)
   )
 ));
 impl(i64, ComptimeBitRightShift(i64)(
+  Output : i64,
   (>>): ((lhs, rhs) ->
     __yo_comptime_i64_shr(lhs, rhs)
   )
 ));
-impl(i64, ComptimeBitNot(i64)(
+impl(i64, ComptimeBitNot(
+  Output : i64,
   (~): (self ->
     __yo_comptime_i64_bit_not(self)
   )
@@ -1443,42 +1654,54 @@ impl(u8, Acyclic());
 impl(u8, Comptime());
 impl(u8, Runtime());
 impl(u8, Add(u8)(
+  Output : u8,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u8, Sub(u8)(
+  Output : u8,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u8, Mul(u8)(
+  Output : u8,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u8, Div(u8)(
+  Output : u8,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u8, Mod(u8)(
+  Output : u8,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(u8, Negate(u8)(
+impl(u8, Negate(
+  Output : u8,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u8, BitLeftShift(u8)(
+  Output : u8,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u8, BitRightShift(u8)(
+  Output : u8,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u8, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(u8, BitNot(u8)(
+impl(u8, BitNot(
+  Output : u8,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u8, BitAnd(u8)(
+  Output : u8,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u8, BitOr(u8)(
+  Output : u8,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u8, BitXor(u8)(
+  Output : u8,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u8, Eq(u8)(
@@ -1498,26 +1721,31 @@ impl(u8, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u8, ComptimeAdd(u8)(
+  Output : u8,
   (+) : ((lhs, rhs) ->
     __yo_comptime_u8_add(lhs, rhs)
   )
 ));
 impl(u8, ComptimeSub(u8)(
+  Output : u8,
   (-) : ((lhs, rhs) ->
     __yo_comptime_u8_sub(lhs, rhs)
   )
 ));
 impl(u8, ComptimeMul(u8)(
+  Output : u8,
   (*) : ((lhs, rhs) ->
     __yo_comptime_u8_mul(lhs, rhs)
   )
 ));
 impl(u8, ComptimeDiv(u8)(
+  Output : u8,
   (/) : ((lhs, rhs) ->
     __yo_comptime_u8_div(lhs, rhs)
   )
 ));
 impl(u8, ComptimeMod(u8)(
+  Output : u8,
   (%) : ((lhs, rhs) ->
     __yo_comptime_u8_mod(lhs, rhs)
   )
@@ -1545,31 +1773,37 @@ impl(u8, ComptimeOrd(u8)(
   )
 ));
 impl(u8, ComptimeBitAnd(u8)(
+  Output : u8,
   (&): ((lhs, rhs) ->
     __yo_comptime_u8_bit_and(lhs, rhs)
   )
 ));
 impl(u8, ComptimeBitOr(u8)(
+  Output : u8,
   (|): ((lhs, rhs) ->
     __yo_comptime_u8_bit_or(lhs, rhs)
   )
 ));
 impl(u8, ComptimeBitXor(u8)(
+  Output : u8,
   (^): ((lhs, rhs) ->
     __yo_comptime_u8_bit_xor(lhs, rhs)
   )
 ));
 impl(u8, ComptimeBitLeftShift(u8)(
+  Output : u8,
   (<<): ((lhs, rhs) ->
     __yo_comptime_u8_shl(lhs, rhs)
   )
 ));
 impl(u8, ComptimeBitRightShift(u8)(
+  Output : u8,
   (>>): ((lhs, rhs) ->
     __yo_comptime_u8_shr(lhs, rhs)
   )
 ));
-impl(u8, ComptimeBitNot(u8)(
+impl(u8, ComptimeBitNot(
+  Output : u8,
   (~): (self ->
     __yo_comptime_u8_bit_not(self)
   )
@@ -1590,42 +1824,54 @@ impl(u16, Acyclic());
 impl(u16, Comptime());
 impl(u16, Runtime());
 impl(u16, Add(u16)(
+  Output : u16,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u16, Sub(u16)(
+  Output : u16,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u16, Mul(u16)(
+  Output : u16,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u16, Div(u16)(
+  Output : u16,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u16, Mod(u16)(
+  Output : u16,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(u16, Negate(u16)(
+impl(u16, Negate(
+  Output : u16,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u16, BitLeftShift(u16)(
+  Output : u16,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u16, BitRightShift(u16)(
+  Output : u16,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u16, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(u16, BitNot(u16)(
+impl(u16, BitNot(
+  Output : u16,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u16, BitAnd(u16)(
+  Output : u16,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u16, BitOr(u16)(
+  Output : u16,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u16, BitXor(u16)(
+  Output : u16,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u16, Eq(u16)(
@@ -1645,26 +1891,31 @@ impl(u16, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u16, ComptimeAdd(u16)(
+  Output : u16,
   (+) : ((lhs, rhs) ->
     __yo_comptime_u16_add(lhs, rhs)
   )
 ));
 impl(u16, ComptimeSub(u16)(
+  Output : u16,
   (-) : ((lhs, rhs) ->
     __yo_comptime_u16_sub(lhs, rhs)
   )
 ));
 impl(u16, ComptimeMul(u16)(
+  Output : u16,
   (*) : ((lhs, rhs) ->
     __yo_comptime_u16_mul(lhs, rhs)
   )
 ));
 impl(u16, ComptimeDiv(u16)(
+  Output : u16,
   (/) : ((lhs, rhs) ->
     __yo_comptime_u16_div(lhs, rhs)
   )
 ));
 impl(u16, ComptimeMod(u16)(
+  Output : u16,
   (%) : ((lhs, rhs) ->
     __yo_comptime_u16_mod(lhs, rhs)
   )
@@ -1692,31 +1943,37 @@ impl(u16, ComptimeOrd(u16)(
   )
 ));
 impl(u16, ComptimeBitAnd(u16)(
+  Output : u16,
   (&): ((lhs, rhs) ->
     __yo_comptime_u16_bit_and(lhs, rhs)
   )
 ));
 impl(u16, ComptimeBitOr(u16)(
+  Output : u16,
   (|): ((lhs, rhs) ->
     __yo_comptime_u16_bit_or(lhs, rhs)
   )
 ));
 impl(u16, ComptimeBitXor(u16)(
+  Output : u16,
   (^): ((lhs, rhs) ->
     __yo_comptime_u16_bit_xor(lhs, rhs)
   )
 ));
 impl(u16, ComptimeBitLeftShift(u16)(
+  Output : u16,
   (<<): ((lhs, rhs) ->
     __yo_comptime_u16_shl(lhs, rhs)
   )
 ));
 impl(u16, ComptimeBitRightShift(u16)(
+  Output : u16,
   (>>): ((lhs, rhs) ->
     __yo_comptime_u16_shr(lhs, rhs)
   )
 ));
-impl(u16, ComptimeBitNot(u16)(
+impl(u16, ComptimeBitNot(
+  Output : u16,
   (~): (self ->
     __yo_comptime_u16_bit_not(self)
   )
@@ -1737,42 +1994,54 @@ impl(u32, Acyclic());
 impl(u32, Comptime());
 impl(u32, Runtime());
 impl(u32, Add(u32)(
+  Output : u32,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u32, Sub(u32)(
+  Output : u32,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u32, Mul(u32)(
+  Output : u32,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u32, Div(u32)(
+  Output : u32,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u32, Mod(u32)(
+  Output : u32,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(u32, Negate(u32)(
+impl(u32, Negate(
+  Output : u32,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u32, BitLeftShift(u32)(
+  Output : u32,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u32, BitRightShift(u32)(
+  Output : u32,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u32, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(u32, BitNot(u32)(
+impl(u32, BitNot(
+  Output : u32,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u32, BitAnd(u32)(
+  Output : u32,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u32, BitOr(u32)(
+  Output : u32,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u32, BitXor(u32)(
+  Output : u32,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u32, Eq(u32)(
@@ -1792,26 +2061,31 @@ impl(u32, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u32, ComptimeAdd(u32)(
+  Output : u32,
   (+) : ((lhs, rhs) ->
     __yo_comptime_u32_add(lhs, rhs)
   )
 ));
 impl(u32, ComptimeSub(u32)(
+  Output : u32,
   (-) : ((lhs, rhs) ->
     __yo_comptime_u32_sub(lhs, rhs)
   )
 ));
 impl(u32, ComptimeMul(u32)(
+  Output : u32,
   (*) : ((lhs, rhs) ->
     __yo_comptime_u32_mul(lhs, rhs)
   )
 ));
 impl(u32, ComptimeDiv(u32)(
+  Output : u32,
   (/) : ((lhs, rhs) ->
     __yo_comptime_u32_div(lhs, rhs)
   )
 ));
 impl(u32, ComptimeMod(u32)(
+  Output : u32,
   (%) : ((lhs, rhs) ->
     __yo_comptime_u32_mod(lhs, rhs)
   )
@@ -1839,31 +2113,37 @@ impl(u32, ComptimeOrd(u32)(
   )
 ));
 impl(u32, ComptimeBitAnd(u32)(
+  Output : u32,
   (&): ((lhs, rhs) ->
     __yo_comptime_u32_bit_and(lhs, rhs)
   )
 ));
 impl(u32, ComptimeBitOr(u32)(
+  Output : u32,
   (|): ((lhs, rhs) ->
     __yo_comptime_u32_bit_or(lhs, rhs)
   )
 ));
 impl(u32, ComptimeBitXor(u32)(
+  Output : u32,
   (^): ((lhs, rhs) ->
     __yo_comptime_u32_bit_xor(lhs, rhs)
   )
 ));
 impl(u32, ComptimeBitLeftShift(u32)(
+  Output : u32,
   (<<): ((lhs, rhs) ->
     __yo_comptime_u32_shl(lhs, rhs)
   )
 ));
 impl(u32, ComptimeBitRightShift(u32)(
+  Output : u32,
   (>>): ((lhs, rhs) ->
     __yo_comptime_u32_shr(lhs, rhs)
   )
 ));
-impl(u32, ComptimeBitNot(u32)(
+impl(u32, ComptimeBitNot(
+  Output : u32,
   (~): (self ->
     __yo_comptime_u32_bit_not(self)
   )
@@ -1884,42 +2164,54 @@ impl(u64, Acyclic());
 impl(u64, Comptime());
 impl(u64, Runtime());
 impl(u64, Add(u64)(
+  Output : u64,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u64, Sub(u64)(
+  Output : u64,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u64, Mul(u64)(
+  Output : u64,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u64, Div(u64)(
+  Output : u64,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u64, Mod(u64)(
+  Output : u64,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(u64, Negate(u64)(
+impl(u64, Negate(
+  Output : u64,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u64, BitLeftShift(u64)(
+  Output : u64,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u64, BitRightShift(u64)(
+  Output : u64,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u64, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(u64, BitNot(u64)(
+impl(u64, BitNot(
+  Output : u64,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u64, BitAnd(u64)(
+  Output : u64,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u64, BitOr(u64)(
+  Output : u64,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u64, BitXor(u64)(
+  Output : u64,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u64, Eq(u64)(
@@ -1939,26 +2231,31 @@ impl(u64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u64, ComptimeAdd(u64)(
+  Output : u64,
   (+) : ((lhs, rhs) ->
     __yo_comptime_u64_add(lhs, rhs)
   )
 ));
 impl(u64, ComptimeSub(u64)(
+  Output : u64,
   (-) : ((lhs, rhs) ->
     __yo_comptime_u64_sub(lhs, rhs)
   )
 ));
 impl(u64, ComptimeMul(u64)(
+  Output : u64,
   (*) : ((lhs, rhs) ->
     __yo_comptime_u64_mul(lhs, rhs)
   )
 ));
 impl(u64, ComptimeDiv(u64)(
+  Output : u64,
   (/) : ((lhs, rhs) ->
     __yo_comptime_u64_div(lhs, rhs)
   )
 ));
 impl(u64, ComptimeMod(u64)(
+  Output : u64,
   (%) : ((lhs, rhs) ->
     __yo_comptime_u64_mod(lhs, rhs)
   )
@@ -1986,31 +2283,37 @@ impl(u64, ComptimeOrd(u64)(
   )
 ));
 impl(u64, ComptimeBitAnd(u64)(
+  Output : u64,
   (&): ((lhs, rhs) ->
     __yo_comptime_u64_bit_and(lhs, rhs)
   )
 ));
 impl(u64, ComptimeBitOr(u64)(
+  Output : u64,
   (|): ((lhs, rhs) ->
     __yo_comptime_u64_bit_or(lhs, rhs)
   )
 ));
 impl(u64, ComptimeBitXor(u64)(
+  Output : u64,
   (^): ((lhs, rhs) ->
     __yo_comptime_u64_bit_xor(lhs, rhs)
   )
 ));
 impl(u64, ComptimeBitLeftShift(u64)(
+  Output : u64,
   (<<): ((lhs, rhs) ->
     __yo_comptime_u64_shl(lhs, rhs)
   )
 ));
 impl(u64, ComptimeBitRightShift(u64)(
+  Output : u64,
   (>>): ((lhs, rhs) ->
     __yo_comptime_u64_shr(lhs, rhs)
   )
 ));
-impl(u64, ComptimeBitNot(u64)(
+impl(u64, ComptimeBitNot(
+  Output : u64,
   (~): (fn(comptime(self): u64) -> comptime(u64))(
     __yo_comptime_u64_bit_not(self)
   )
@@ -2027,36 +2330,46 @@ impl(f32, Acyclic());
 impl(f32, Comptime());
 impl(f32, Runtime());
 impl(f32, Add(f32)(
+  Output : f32,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(f32, Sub(f32)(
+  Output : f32,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(f32, Mul(f32)(
+  Output : f32,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(f32, Div(f32)(
+  Output : f32,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(f32, Mod(f32)(
+  Output : f32,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(f32, Negate(f32)(
+impl(f32, Negate(
+  Output : f32,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(f32, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(f32, BitNot(f32)(
+impl(f32, BitNot(
+  Output : f32,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(f32, BitAnd(f32)(
+  Output : f32,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(f32, BitOr(f32)(
+  Output : f32,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(f32, BitXor(f32)(
+  Output : f32,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(f32, Eq(f32)(
@@ -2076,26 +2389,31 @@ impl(f32, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(f32, ComptimeAdd(f32)(
+  Output : f32,
   (+) : ((lhs, rhs) ->
     __yo_comptime_f32_add(lhs, rhs)
   )
 ));
 impl(f32, ComptimeSub(f32)(
+  Output : f32,
   (-) : ((lhs, rhs) ->
     __yo_comptime_f32_sub(lhs, rhs)
   )
 ));
 impl(f32, ComptimeMul(f32)(
+  Output : f32,
   (*) : ((lhs, rhs) ->
     __yo_comptime_f32_mul(lhs, rhs)
   )
 ));
 impl(f32, ComptimeDiv(f32)(
+  Output : f32,
   (/) : ((lhs, rhs) ->
     __yo_comptime_f32_div(lhs, rhs)
   )
 ));
-impl(f32, ComptimeNegate(f32)(
+impl(f32, ComptimeNegate(
+  Output : f32,
   (neg) : (self ->
     __yo_comptime_f32_neg(self)
   )
@@ -2134,36 +2452,46 @@ impl(f64, Acyclic());
 impl(f64, Comptime());
 impl(f64, Runtime());
 impl(f64, Add(f64)(
+  Output : f64,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(f64, Sub(f64)(
+  Output : f64,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(f64, Mul(f64)(
+  Output : f64,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(f64, Div(f64)(
+  Output : f64,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(f64, Mod(f64)(
+  Output : f64,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(f64, Negate(f64)(
+impl(f64, Negate(
+  Output : f64,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(f64, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(f64, BitNot(f64)(
+impl(f64, BitNot(
+  Output : f64,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(f64, BitAnd(f64)(
+  Output : f64,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(f64, BitOr(f64)(
+  Output : f64,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(f64, BitXor(f64)(
+  Output : f64,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(f64, Eq(f64)(
@@ -2183,26 +2511,31 @@ impl(f64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(f64, ComptimeAdd(f64)(
+  Output : f64,
   (+) : ((lhs, rhs) ->
     __yo_comptime_f64_add(lhs, rhs)
   )
 ));
 impl(f64, ComptimeSub(f64)(
+  Output : f64,
   (-) : ((lhs, rhs) ->
     __yo_comptime_f64_sub(lhs, rhs)
   )
 ));
 impl(f64, ComptimeMul(f64)(
+  Output : f64,
   (*) : ((lhs, rhs) ->
     __yo_comptime_f64_mul(lhs, rhs)
   )
 ));
 impl(f64, ComptimeDiv(f64)(
+  Output : f64,
   (/) : ((lhs, rhs) ->
     __yo_comptime_f64_div(lhs, rhs)
   )
 ));
-impl(f64, ComptimeNegate(f64)(
+impl(f64, ComptimeNegate(
+  Output : f64,
   (neg) : (self ->
     __yo_comptime_f64_neg(self)
   )
@@ -2251,42 +2584,54 @@ impl(isize, Acyclic());
 impl(isize, Comptime());
 impl(isize, Runtime());
 impl(isize, Add(isize)(
+  Output : isize,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(isize, Sub(isize)(
+  Output : isize,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(isize, Mul(isize)(
+  Output : isize,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(isize, Div(isize)(
+  Output : isize,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(isize, Mod(isize)(
+  Output : isize,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(isize, Negate(isize)(
+impl(isize, Negate(
+  Output : isize,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(isize, BitLeftShift(isize)(
+  Output : isize,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(isize, BitRightShift(isize)(
+  Output : isize,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(isize, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(isize, BitNot(isize)(
+impl(isize, BitNot(
+  Output : isize,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(isize, BitAnd(isize)(
+  Output : isize,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(isize, BitOr(isize)(
+  Output : isize,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(isize, BitXor(isize)(
+  Output : isize,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(isize, Eq(isize)(
@@ -2306,31 +2651,37 @@ impl(isize, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(isize, ComptimeAdd(isize)(
+  Output : isize,
   (+) : ((lhs, rhs) ->
     __yo_comptime_isize_add(lhs, rhs)
   )
 ));
 impl(isize, ComptimeSub(isize)(
+  Output : isize,
   (-) : ((lhs, rhs) ->
     __yo_comptime_isize_sub(lhs, rhs)
   )
 ));
 impl(isize, ComptimeMul(isize)(
+  Output : isize,
   (*) : ((lhs, rhs) ->
     __yo_comptime_isize_mul(lhs, rhs)
   )
 ));
 impl(isize, ComptimeDiv(isize)(
+  Output : isize,
   (/) : ((lhs, rhs) ->
     __yo_comptime_isize_div(lhs, rhs)
   )
 ));
 impl(isize, ComptimeMod(isize)(
+  Output : isize,
   (%) : ((lhs, rhs) ->
     __yo_comptime_isize_mod(lhs, rhs)
   )
 ));
-impl(isize, ComptimeNegate(isize)(
+impl(isize, ComptimeNegate(
+  Output : isize,
   (neg) : (self ->
     __yo_comptime_isize_neg(self)
   )
@@ -2358,31 +2709,37 @@ impl(isize, ComptimeOrd(isize)(
   )
 ));
 impl(isize, ComptimeBitAnd(isize)(
+  Output : isize,
   (&): ((lhs, rhs) ->
     __yo_comptime_isize_bit_and(lhs, rhs)
   )
 ));
 impl(isize, ComptimeBitOr(isize)(
+  Output : isize,
   (|): ((lhs, rhs) ->
     __yo_comptime_isize_bit_or(lhs, rhs)
   )
 ));
 impl(isize, ComptimeBitXor(isize)(
+  Output : isize,
   (^): ((lhs, rhs) ->
     __yo_comptime_isize_bit_xor(lhs, rhs)
   )
 ));
 impl(isize, ComptimeBitLeftShift(isize)(
+  Output : isize,
   (<<): ((lhs, rhs) ->
     __yo_comptime_isize_shl(lhs, rhs)
   )
 ));
 impl(isize, ComptimeBitRightShift(isize)(
+  Output : isize,
   (>>): ((lhs, rhs) ->
     __yo_comptime_isize_shr(lhs, rhs)
   )
 ));
-impl(isize, ComptimeBitNot(isize)(
+impl(isize, ComptimeBitNot(
+  Output : isize,
   (~): (self ->
     __yo_comptime_isize_bit_not(self)
   )
@@ -2406,42 +2763,54 @@ impl(usize, Acyclic());
 impl(usize, Comptime());
 impl(usize, Runtime());
 impl(usize, Add(usize)(
+  Output : usize,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(usize, Sub(usize)(
+  Output : usize,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(usize, Mul(usize)(
+  Output : usize,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(usize, Div(usize)(
+  Output : usize,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(usize, Mod(usize)(
+  Output : usize,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(usize, Negate(usize)(
+impl(usize, Negate(
+  Output : usize,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(usize, BitLeftShift(usize)(
+  Output : usize,
   (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(usize, BitRightShift(usize)(
+  Output : usize,
   (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(usize, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(usize, BitNot(usize)(
+impl(usize, BitNot(
+  Output : usize,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(usize, BitAnd(usize)(
+  Output : usize,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(usize, BitOr(usize)(
+  Output : usize,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(usize, BitXor(usize)(
+  Output : usize,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(usize, Eq(usize)(
@@ -2460,27 +2829,44 @@ impl(usize, Hash(
 impl(usize, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
+impl(usize, RangeOp(
+  (..): ((start, end) -> Range(usize)(start: start, end: end))
+));
+impl(usize, RangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(usize)(start: start, end: end))
+));
+impl(usize, ComptimeRangeOp(
+  (..): ((start, end) -> Range(usize)(start: start, end: end))
+));
+impl(usize, ComptimeRangeInclusiveOp(
+  (..=): ((start, end) -> RangeInclusive(usize)(start: start, end: end))
+));
 impl(usize, ComptimeAdd(usize)(
+  Output : usize,
   (+) : ((lhs, rhs) ->
     __yo_comptime_usize_add(lhs, rhs)
   )
 ));
 impl(usize, ComptimeSub(usize)(
+  Output : usize,
   (-) : ((lhs, rhs) ->
     __yo_comptime_usize_sub(lhs, rhs)
   )
 ));
 impl(usize, ComptimeMul(usize)(
+  Output : usize,
   (*) : ((lhs, rhs) ->
     __yo_comptime_usize_mul(lhs, rhs)
   )
 ));
 impl(usize, ComptimeDiv(usize)(
+  Output : usize,
   (/) : ((lhs, rhs) ->
     __yo_comptime_usize_div(lhs, rhs)
   )
 ));
 impl(usize, ComptimeMod(usize)(
+  Output : usize,
   (%) : ((lhs, rhs) ->
     __yo_comptime_usize_mod(lhs, rhs)
   )
@@ -2508,31 +2894,37 @@ impl(usize, ComptimeOrd(usize)(
   )
 ));
 impl(usize, ComptimeBitAnd(usize)(
+  Output : usize,
   (&): ((lhs, rhs) ->
     __yo_comptime_usize_bit_and(lhs, rhs)
   )
 ));
 impl(usize, ComptimeBitOr(usize)(
+  Output : usize,
   (|): ((lhs, rhs) ->
     __yo_comptime_usize_bit_or(lhs, rhs)
   )
 ));
 impl(usize, ComptimeBitXor(usize)(
+  Output : usize,
   (^): ((lhs, rhs) ->
     __yo_comptime_usize_bit_xor(lhs, rhs)
   )
 ));
 impl(usize, ComptimeBitLeftShift(usize)(
+  Output : usize,
   (<<): ((lhs, rhs) ->
     __yo_comptime_usize_shl(lhs, rhs)
   )
 ));
 impl(usize, ComptimeBitRightShift(usize)(
+  Output : usize,
   (>>): ((lhs, rhs) ->
     __yo_comptime_usize_shr(lhs, rhs)
   )
 ));
-impl(usize, ComptimeBitNot(usize)(
+impl(usize, ComptimeBitNot(
+  Output : usize,
   (~): (self ->
     __yo_comptime_usize_bit_not(self)
   )
@@ -2548,36 +2940,46 @@ impl(char, Send());
 impl(char, Acyclic());
 impl(char, Runtime());
 impl(char, Add(char)(
+  Output : char,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(char, Sub(char)(
+  Output : char,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(char, Mul(char)(
+  Output : char,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(char, Div(char)(
+  Output : char,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(char, Mod(char)(
+  Output : char,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(char, Negate(char)(
+impl(char, Negate(
+  Output : char,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(char, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(char, BitNot(char)(
+impl(char, BitNot(
+  Output : char,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(char, BitAnd(char)(
+  Output : char,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(char, BitOr(char)(
+  Output : char,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(char, BitXor(char)(
+  Output : char,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(char, Eq(char)(
@@ -2604,36 +3006,46 @@ impl(int, Send());
 impl(int, Acyclic());
 impl(int, Runtime());
 impl(int, Add(int)(
+  Output : int,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(int, Sub(int)(
+  Output : int,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(int, Mul(int)(
+  Output : int,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(int, Div(int)(
+  Output : int,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(int, Mod(int)(
+  Output : int,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(int, Negate(int)(
+impl(int, Negate(
+  Output : int,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(int, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(int, BitNot(int)(
+impl(int, BitNot(
+  Output : int,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(int, BitAnd(int)(
+  Output : int,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(int, BitOr(int)(
+  Output : int,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(int, BitXor(int)(
+  Output : int,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(int, Eq(int)(
@@ -2660,36 +3072,46 @@ impl(uint, Send());
 impl(uint, Acyclic());
 impl(uint, Runtime());
 impl(uint, Add(uint)(
+  Output : uint,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(uint, Sub(uint)(
+  Output : uint,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(uint, Mul(uint)(
+  Output : uint,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(uint, Div(uint)(
+  Output : uint,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(uint, Mod(uint)(
+  Output : uint,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(uint, Negate(uint)(
+impl(uint, Negate(
+  Output : uint,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(uint, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(uint, BitNot(uint)(
+impl(uint, BitNot(
+  Output : uint,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(uint, BitAnd(uint)(
+  Output : uint,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(uint, BitOr(uint)(
+  Output : uint,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(uint, BitXor(uint)(
+  Output : uint,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(uint, Eq(uint)(
@@ -2716,36 +3138,46 @@ impl(short, Send());
 impl(short, Acyclic());
 impl(short, Runtime());
 impl(short, Add(short)(
+  Output : short,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(short, Sub(short)(
+  Output : short,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(short, Mul(short)(
+  Output : short,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(short, Div(short)(
+  Output : short,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(short, Mod(short)(
+  Output : short,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(short, Negate(short)(
+impl(short, Negate(
+  Output : short,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(short, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(short, BitNot(short)(
+impl(short, BitNot(
+  Output : short,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(short, BitAnd(short)(
+  Output : short,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(short, BitOr(short)(
+  Output : short,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(short, BitXor(short)(
+  Output : short,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(short, Eq(short)(
@@ -2772,36 +3204,46 @@ impl(ushort, Send());
 impl(ushort, Acyclic());
 impl(ushort, Runtime());
 impl(ushort, Add(ushort)(
+  Output : ushort,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ushort, Sub(ushort)(
+  Output : ushort,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ushort, Mul(ushort)(
+  Output : ushort,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ushort, Div(ushort)(
+  Output : ushort,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ushort, Mod(ushort)(
+  Output : ushort,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(ushort, Negate(ushort)(
+impl(ushort, Negate(
+  Output : ushort,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ushort, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(ushort, BitNot(ushort)(
+impl(ushort, BitNot(
+  Output : ushort,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ushort, BitAnd(ushort)(
+  Output : ushort,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ushort, BitOr(ushort)(
+  Output : ushort,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ushort, BitXor(ushort)(
+  Output : ushort,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ushort, Eq(ushort)(
@@ -2828,36 +3270,46 @@ impl(long, Send());
 impl(long, Acyclic());
 impl(long, Runtime());
 impl(long, Add(long)(
+  Output : long,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(long, Sub(long)(
+  Output : long,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(long, Mul(long)(
+  Output : long,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(long, Div(long)(
+  Output : long,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(long, Mod(long)(
+  Output : long,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(long, Negate(long)(
+impl(long, Negate(
+  Output : long,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(long, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(long, BitNot(long)(
+impl(long, BitNot(
+  Output : long,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(long, BitAnd(long)(
+  Output : long,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(long, BitOr(long)(
+  Output : long,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(long, BitXor(long)(
+  Output : long,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(long, Eq(long)(
@@ -2885,36 +3337,46 @@ impl(ulong, Send());
 impl(ulong, Acyclic());
 impl(ulong, Runtime());
 impl(ulong, Add(ulong)(
+  Output : ulong,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ulong, Sub(ulong)(
+  Output : ulong,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ulong, Mul(ulong)(
+  Output : ulong,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ulong, Div(ulong)(
+  Output : ulong,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ulong, Mod(ulong)(
+  Output : ulong,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(ulong, Negate(ulong)(
+impl(ulong, Negate(
+  Output : ulong,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ulong, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(ulong, BitNot(ulong)(
+impl(ulong, BitNot(
+  Output : ulong,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ulong, BitAnd(ulong)(
+  Output : ulong,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ulong, BitOr(ulong)(
+  Output : ulong,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ulong, BitXor(ulong)(
+  Output : ulong,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ulong, Eq(ulong)(
@@ -2941,36 +3403,46 @@ impl(longlong, Send());
 impl(longlong, Acyclic());
 impl(longlong, Runtime());
 impl(longlong, Add(longlong)(
+  Output : longlong,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(longlong, Sub(longlong)(
+  Output : longlong,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(longlong, Mul(longlong)(
+  Output : longlong,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(longlong, Div(longlong)(
+  Output : longlong,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(longlong, Mod(longlong)(
+  Output : longlong,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(longlong, Negate(longlong)(
+impl(longlong, Negate(
+  Output : longlong,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(longlong, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(longlong, BitNot(longlong)(
+impl(longlong, BitNot(
+  Output : longlong,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(longlong, BitAnd(longlong)(
+  Output : longlong,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(longlong, BitOr(longlong)(
+  Output : longlong,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(longlong, BitXor(longlong)(
+  Output : longlong,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(longlong, Eq(longlong)(
@@ -2997,36 +3469,46 @@ impl(ulonglong, Send());
 impl(ulonglong, Acyclic());
 impl(ulonglong, Runtime());
 impl(ulonglong, Add(ulonglong)(
+  Output : ulonglong,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ulonglong, Sub(ulonglong)(
+  Output : ulonglong,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ulonglong, Mul(ulonglong)(
+  Output : ulonglong,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ulonglong, Div(ulonglong)(
+  Output : ulonglong,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ulonglong, Mod(ulonglong)(
+  Output : ulonglong,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(ulonglong, Negate(ulonglong)(
+impl(ulonglong, Negate(
+  Output : ulonglong,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ulonglong, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(ulonglong, BitNot(ulonglong)(
+impl(ulonglong, BitNot(
+  Output : ulonglong,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ulonglong, BitAnd(ulonglong)(
+  Output : ulonglong,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ulonglong, BitOr(ulonglong)(
+  Output : ulonglong,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ulonglong, BitXor(ulonglong)(
+  Output : ulonglong,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ulonglong, Eq(ulonglong)(
@@ -3053,36 +3535,46 @@ impl(longdouble, Send());
 impl(longdouble, Acyclic());
 impl(longdouble, Runtime());
 impl(longdouble, Add(longdouble)(
+  Output : longdouble,
   (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(longdouble, Sub(longdouble)(
+  Output : longdouble,
   (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(longdouble, Mul(longdouble)(
+  Output : longdouble,
   (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(longdouble, Div(longdouble)(
+  Output : longdouble,
   (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(longdouble, Mod(longdouble)(
+  Output : longdouble,
   (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
-impl(longdouble, Negate(longdouble)(
+impl(longdouble, Negate(
+  Output : longdouble,
   (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(longdouble, LogicalNot(
   (!): ((self) -> __yo_op_not(self))
 ));
-impl(longdouble, BitNot(longdouble)(
+impl(longdouble, BitNot(
+  Output : longdouble,
   (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(longdouble, BitAnd(longdouble)(
+  Output : longdouble,
   (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(longdouble, BitOr(longdouble)(
+  Output : longdouble,
   (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(longdouble, BitXor(longdouble)(
+  Output : longdouble,
   (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(longdouble, Eq(longdouble)(
@@ -3110,18 +3602,21 @@ impl(forall(T : Type), *(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
 /*
-// NOTE: Below should give eror, as C disallows pointer arithmetic on void pointers.
-impl(*(void), Add(usize, *(void))(
+// NOTE: Below should give error, as C disallows pointer arithmetic on void pointers.
+impl(*(void), Add(usize)(
+  Output : *(void),
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
 ));
-impl(*(void), Sub(usize, *(void))(
+impl(*(void), Sub(usize)(
+  Output : *(void),
   (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
 ));
 impl(*(void), Eq(*(void))(
   (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
   (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
 ));
-impl(*(void), Div(*(void), isize)(
+impl(*(void), Div(*(void))(
+  Output : isize,
   (/) : ((lhs, rhs) -> __yo_ptr_diff(lhs, rhs))
 ));
 impl(*(void), Ord(*(void))(
@@ -3188,10 +3683,40 @@ impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U),
   })
 );
 
+/// Array Index impls
+impl(forall(T : Type, N : usize), Array(T, N), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    __yo_array_index(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), Array(T, N), Index(Range(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
+    __yo_array_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), Array(T, N), Index(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
+    __yo_array_index_range_inclusive(self, idx)
+  )
+));
+
 /// Slice
 impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
+
+impl(forall(T : Type), Range(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), Range(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), Range(T), Runtime());
+
+impl(forall(T : Type), RangeInclusive(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), RangeInclusive(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), RangeInclusive(T), Runtime());
 impl(forall(T : Type), Slice(T),
   from_raw_parts : (fn(ptr : *(T), length : usize) -> Self)(
     __yo_slice_new(ptr, length)
@@ -3203,6 +3728,94 @@ impl(forall(T : Type), Slice(T),
     __yo_slice_ptr(self)
   )
 );
+
+/// Slice Index impls
+impl(forall(T : Type), Slice(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    __yo_slice_index(self, idx)
+  )
+));
+
+impl(forall(T : Type), Slice(T), Index(Range(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
+    __yo_slice_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type), Slice(T), Index(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
+    __yo_slice_index_range_inclusive(self, idx)
+  )
+));
+
+/// Array ComptimeIndex impls
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(Range(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): Range(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type, N : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_array_index_range_inclusive(self, idx)
+  )
+));
+
+/// Slice ComptimeIndex impls
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(Range(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): Range(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), Slice(T), ComptimeIndex(RangeInclusive(usize))(
+  Output : Slice(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_slice_index_range_inclusive(self, idx)
+  )
+));
+
+/// comptime_string ComptimeIndex impls
+impl(comptime_string, ComptimeIndex(comptime_int)(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index(self, idx)
+  )
+));
+
+impl(comptime_string, ComptimeIndex(Range(comptime_int))(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index_range(self, idx)
+  )
+));
+
+impl(comptime_string, ComptimeIndex(RangeInclusive(comptime_int))(
+  Output : comptime_string,
+  index : ((self, idx) ->
+    __yo_comptime_string_index_range_inclusive(self, idx)
+  )
+));
 
 /// str
 str :: newtype(

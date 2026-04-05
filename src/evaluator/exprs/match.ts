@@ -457,19 +457,6 @@ export function evaluateMatch({
       caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
       evaluatedBody.$.env = caseEnv;
 
-      if (
-        context.expectedType &&
-        !areTypesCompatible(context.expectedType, {
-          type: evaluatedBody.$.type,
-          env: evaluatedBody.$.env,
-        })
-      ) {
-        throw formatErrorMessage({
-          token: evaluatedBody.token,
-          errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
-        });
-      }
-
       // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // to force codegen to generate all statements
       // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
@@ -477,7 +464,8 @@ export function evaluateMatch({
         evaluatedBody.$.value = undefined;
       }
 
-      // Check if the the evaluatedBody has "return"/"escape"/"break"/"continue" expression
+      // Check control flow BEFORE type compatibility — branches with return/escape/break/continue
+      // act as "never" type and are compatible with any expected type
       if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         controlFlows.push(evaluatedBody.$.controlFlow!);
         // Collect bodies with return control flow for validation
@@ -519,13 +507,9 @@ export function evaluateMatch({
         }
       } else {
         hasCaseThatDoesntHaveControlFlowSet = true;
-      }
 
-      caseEnv = evaluatedBody.$.env;
-      bodies.push(evaluatedBody);
-
-      if (context.expectedType) {
         if (
+          context.expectedType &&
           !areTypesCompatible(context.expectedType, {
             type: evaluatedBody.$.type,
             env: evaluatedBody.$.env,
@@ -533,16 +517,33 @@ export function evaluateMatch({
         ) {
           throw formatErrorMessage({
             token: evaluatedBody.token,
-            errorMessage: `Incompatible type with expected type:
-- Expected: ${typeToString(context.expectedType.type)}
-- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+            errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
           });
         }
       }
 
+      caseEnv = evaluatedBody.$.env;
+      bodies.push(evaluatedBody);
+
       // Set or verify the result type consistency
       if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
+
+        if (context.expectedType) {
+          if (
+            !areTypesCompatible(context.expectedType, {
+              type: evaluatedBody.$.type,
+              env: evaluatedBody.$.env,
+            })
+          ) {
+            throw formatErrorMessage({
+              token: evaluatedBody.token,
+              errorMessage: `Incompatible type with expected type:
+- Expected: ${typeToString(context.expectedType.type)}
+- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+            });
+          }
+        }
 
         if (isGadtMatch) {
           // For GADT matches, verify each branch body type against its GADT-refined expected type
@@ -1338,26 +1339,15 @@ function evaluatePrimitiveMatch({
       caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
       evaluatedBody.$.env = caseEnv;
 
-      if (
-        context.expectedType &&
-        !areTypesCompatible(context.expectedType, {
-          type: evaluatedBody.$.type,
-          env: evaluatedBody.$.env,
-        })
-      ) {
-        throw formatErrorMessage({
-          token: evaluatedBody.token,
-          errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
-        });
-      }
-
       // If scrutinee is a runtime value (undefined), unset the body's compile-time value
+      // to force codegen to generate all statements
       // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
       if (scrutineeValue === undefined && evaluatedBody.$) {
         evaluatedBody.$.value = undefined;
       }
 
-      // Handle control flow
+      // Check control flow BEFORE type compatibility — branches with return/escape/break/continue
+      // act as "never" type and are compatible with any expected type
       if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         controlFlows.push(evaluatedBody.$.controlFlow!);
         if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
@@ -1392,6 +1382,19 @@ function evaluatePrimitiveMatch({
         // let the final result handling set it with UnknownValue
       } else {
         hasCaseThatDoesntHaveControlFlowSet = true;
+
+        if (
+          context.expectedType &&
+          !areTypesCompatible(context.expectedType, {
+            type: evaluatedBody.$.type,
+            env: evaluatedBody.$.env,
+          })
+        ) {
+          throw formatErrorMessage({
+            token: evaluatedBody.token,
+            errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+          });
+        }
 
         // If we have a concrete compile-time value for scrutinee (not UnknownValue),
         // wildcard always matches, so return early with the body value
@@ -1574,26 +1577,14 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     caseEnv = consumeCaseBodyTempVar(evaluatedBody, caseEnv);
     evaluatedBody.$.env = caseEnv;
 
-    if (
-      context.expectedType &&
-      !areTypesCompatible(context.expectedType, {
-        type: evaluatedBody.$.type,
-        env: evaluatedBody.$.env,
-      })
-    ) {
-      throw formatErrorMessage({
-        token: evaluatedBody.token,
-        errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
-      });
-    }
-
     // If scrutinee is a runtime value, unset the body's compile-time value
     // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
     if (scrutineeValue === undefined && evaluatedBody.$) {
       evaluatedBody.$.value = undefined;
     }
 
-    // Handle control flow
+    // Check control flow BEFORE type compatibility — branches with return/escape/break/continue
+    // act as "never" type and are compatible with any expected type
     if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
       controlFlows.push(evaluatedBody.$.controlFlow!);
       if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
@@ -1628,6 +1619,19 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       }
     } else {
       hasCaseThatDoesntHaveControlFlowSet = true;
+
+      if (
+        context.expectedType &&
+        !areTypesCompatible(context.expectedType, {
+          type: evaluatedBody.$.type,
+          env: evaluatedBody.$.env,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: evaluatedBody.token,
+          errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+        });
+      }
 
       // When we have a compile-time match without control flow, return early with the matched value
       if (

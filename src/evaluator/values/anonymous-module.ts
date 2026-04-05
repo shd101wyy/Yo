@@ -18,7 +18,8 @@ import { createModuleType } from "../../types/creators";
 import type { ModuleType } from "../../types/definitions";
 import { isModuleType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
-import { createModuleValue, type ModuleValue, type Value } from "../../value";
+import { ValueTag } from "../../value-tag";
+import type { ModuleValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -28,6 +29,7 @@ export function evaluateAnonymousModuleBeginExprs({
   env,
   context,
   allowPartialModule = false,
+  registerPartialModule,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
 }: {
   beginExprs: Expr[];
@@ -39,6 +41,12 @@ export function evaluateAnonymousModuleBeginExprs({
    * we still want to return the moduleValue so the hoverProvider and completionProvider can work.
    */
   allowPartialModule?: boolean;
+  /**
+   * Callback to register the ModuleValue early so circular imports can
+   * access already-exported fields. Called immediately after the ModuleValue
+   * is created (before any expressions are evaluated).
+   */
+  registerPartialModule?: (mv: ModuleValue) => void;
 }): {
   moduleValue: ModuleValue;
   moduleType: ModuleType;
@@ -47,9 +55,22 @@ export function evaluateAnonymousModuleBeginExprs({
 } {
   // Create module type
   const moduleType = createModuleType(env);
-  const moduleElementValues: (Value | undefined)[] = [];
   // Collect module-level `:=` initialization expressions for codegen
   const moduleLevelInitExprs: Expr[] = [];
+
+  // Create the module value early so circular imports can access
+  // already-exported fields through the shared fields arrays.
+  const moduleValue: ModuleValue = {
+    tag: ValueTag.Module,
+    type: moduleType,
+    fields: [],
+    isLoading: true,
+  };
+
+  // Register the partial module for circular import resolution
+  if (registerPartialModule) {
+    registerPartialModule(moduleValue);
+  }
 
   let partialModuleError: Error | undefined = undefined;
 
@@ -215,9 +236,9 @@ export function evaluateAnonymousModuleBeginExprs({
 
                 // Add the value to the module field values
                 if (extendedModuleValue) {
-                  moduleElementValues.push(extendedModuleValue.fields[k]);
+                  moduleValue.fields.push(extendedModuleValue.fields[k]);
                 } else {
-                  moduleElementValues.push(undefined);
+                  moduleValue.fields.push(undefined);
                 }
 
                 // Add information to exportExpr
@@ -331,7 +352,7 @@ export function evaluateAnonymousModuleBeginExprs({
                   defaultValueExpr: undefined,
                 },
               });
-              moduleElementValues.push(variable.value?.[0]);
+              moduleValue.fields.push(variable.value?.[0]);
 
               // Add information to exportExpr
               exportExpr.$ = {
@@ -444,12 +465,10 @@ Use \`${varName} := value;\` or \`(${varName} : ${evaluatedExpr.args[1]?.token.v
     }
   }
 
-  // Create the module value
-  const moduleValue = createModuleValue(
-    { ...moduleType },
-    moduleElementValues,
-    moduleLevelInitExprs
-  );
+  // Finalize the module value
+  moduleValue.isLoading = false;
+  moduleValue.moduleLevelInitExprs =
+    moduleLevelInitExprs.length > 0 ? moduleLevelInitExprs : undefined;
 
   return {
     moduleValue,

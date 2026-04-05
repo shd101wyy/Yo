@@ -697,6 +697,21 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
   )
 );
 
+impl(forall(K : Type, V : Type), HashMap(K, V), Index(K)(
+  Output : V,
+  index : (fn(self: *(Self), idx: K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
+    hash := idx.hash();
+    bucket_opt := Self._find_bucket(self.*, idx, hash);
+    match(bucket_opt,
+      .Some(i) => {
+        data_ptr := Self._data_ptr(self.*);
+        &((data_ptr &+ i).*.value)
+      },
+      .None => panic("HashMap: key not found")
+    )
+  })
+));
+
 export
   HashMap,
   HashMapError,

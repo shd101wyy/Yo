@@ -384,6 +384,29 @@ impl(String,
     );
   }),
 
+  // Clear the string content but keep the allocated buffer for reuse
+  clear : (fn(self: *(Self)) -> unit)(
+    match(self.*._bytes,
+      .Some(al) => al.clear(),
+      .None => ()
+    )
+  ),
+
+  // Create a deep copy of this string with its own buffer
+  clone : (fn(self: Self) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(al.len());
+        match(al.ptr(),
+          .Some(p) => new_al.extend_from_ptr(p, al.len()),
+          .None => ()
+        );
+        Self(_bytes: .Some(new_al))
+      }
+    )
+  ),
+
   // Get the number of bytes in the string (not Unicode characters)
   bytes_len : (fn(self: Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))
@@ -415,7 +438,7 @@ impl(String,
             end_byte = byte_index;
             break;
           });
-          (b : u8) = al.get_unchecked(byte_index);
+          (b : u8) = al(byte_index);
           (byte_len : usize) = cond(
             (b < u8(0x80)) => usize(1),
             (b < u8(0xE0)) => usize(2),
@@ -1249,14 +1272,14 @@ impl(String,
 
         (start_idx : usize) = usize(0);
         while (start_idx < total_bytes), {
-          (b : u8) = al.get_unchecked(start_idx);
+          (b : u8) = al(start_idx);
           if(!(Self._is_whitespace_byte(b)), { break; });
           start_idx = (start_idx + usize(1));
         };
 
         (end_idx : usize) = total_bytes;
         while (end_idx > start_idx), {
-          (b : u8) = al.get_unchecked((end_idx - usize(1)));
+          (b : u8) = al((end_idx - usize(1)));
           if(!(Self._is_whitespace_byte(b)), { break; });
           end_idx = (end_idx - usize(1));
         };
@@ -1370,8 +1393,9 @@ impl(String,
   )
 );
 
-impl(String, Add(String, String)(
-  (+) : (fn(self: Self, other: Self) -> Self)({
+impl(String, Add(String)(
+  Output : String,
+  (+) : (fn(self: Self, other: Self) -> Self.Output)({
     return self.concat(other);
   })
 ));
@@ -1885,6 +1909,16 @@ impl(String,
     )
   )
 );
+
+impl(String, Index(usize)(
+  Output : u8,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    match(self.*._bytes,
+      .Some(bytes) => &(bytes(idx)),
+      .None => panic("String: index on empty string")
+    )
+  )
+));
 
 export
   String,

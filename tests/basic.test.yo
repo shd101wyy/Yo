@@ -1001,11 +1001,11 @@ test "Test 'struct'", {
         Self.new(v)
       ),
 
-      add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
+      add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
         self.value = (self.value + value);
       }),
 
-      another_add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
+      another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
         self.add(value);
       })
     );
@@ -2491,4 +2491,38 @@ test "Test comptime match branch elimination", {
     );
     assert((result == 999), "match on comptime 99 should yield wildcard 999");
   };
+};
+
+// Test: return in match branch should be treated as never type
+test "return in match branch type compatibility", {
+  open import "std/collections/array_list";
+
+  test_fn :: (fn() -> unit)({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(42));
+    // .None branch returns from the function — its type should be never/bottom,
+    // compatible with *(u8) expected type from .Some branch
+    (ptr : *(u8)) = match(list._ptr,
+      .Some(p) => p,
+      .None => { return (); }
+    );
+    assert((ptr.* == u8(42)), "ptr value should be 42");
+  });
+  test_fn();
+};
+
+// Test: indexing a function call result directly (temporary)
+test "index function call result", {
+  open import "std/collections/array_list";
+
+  get_list :: (fn() -> ArrayList(u8))({
+    (list : ArrayList(u8)) = ArrayList(u8).new();
+    list.push(u8(10));
+    list.push(u8(20));
+    list.push(u8(30));
+    list
+  });
+  // Index directly into function return value
+  (val : u8) = get_list()(usize(1));
+  assert((val == u8(20)), "index fn call result should be 20");
 };

@@ -15,7 +15,7 @@ import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
 import { type Token, TokenType } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
-import type { StructType, Type } from "./types/definitions";
+import type { FunctionType, StructType, Type } from "./types/definitions";
 import { isSomeType } from "./types/guards";
 import { typeContainsRcType, typeToString } from "./types/utils";
 import {
@@ -398,6 +398,27 @@ export interface EvaluatedExprData {
   };
 
   /**
+   * For Index trait dispatch expressions (value(i)), this stores the pointer type
+   * returned by the Index.index() method before auto-deref. This allows &(value(i))
+   * to skip the auto-deref and return the pointer directly.
+   */
+  indexTraitPtrType?: Type;
+
+  /**
+   * For Index trait dispatch, stores the specialized function type and value
+   * of the index method. Used by codegen to emit the call.
+   */
+  indexMethodType?: FunctionType;
+  indexMethodValue?: Value;
+
+  /**
+   * When true, this &(value(i)) expression uses the Index trait's returned pointer
+   * directly (skipping the extra & wrapping). Used by codegen to emit the index
+   * method call without dereferencing.
+   */
+  isIndexTraitAddressOf?: boolean;
+
+  /**
    * For assignments that are purely compile-time (both LHS and RHS are compile-time known),
    * this flag indicates that no C code should be generated for this assignment.
    *
@@ -731,6 +752,26 @@ export const BuiltinFunctions = {
   __yo_slice_len: ["__yo_slice_len"],
   __yo_slice_new: ["__yo_slice_new"],
   __yo_slice_ptr: ["__yo_slice_ptr"],
+
+  // Array/Slice indexing builtins (used by Index trait impls)
+  __yo_array_index: ["__yo_array_index"],
+  __yo_slice_index: ["__yo_slice_index"],
+  __yo_array_index_range: ["__yo_array_index_range"],
+  __yo_array_index_range_inclusive: ["__yo_array_index_range_inclusive"],
+  __yo_slice_index_range: ["__yo_slice_index_range"],
+  __yo_slice_index_range_inclusive: ["__yo_slice_index_range_inclusive"],
+
+  // Comptime array/slice indexing builtins (used by ComptimeIndex trait impls)
+  __yo_comptime_array_index: ["__yo_comptime_array_index"],
+  __yo_comptime_slice_index: ["__yo_comptime_slice_index"],
+  __yo_comptime_array_index_range: ["__yo_comptime_array_index_range"],
+  __yo_comptime_array_index_range_inclusive: [
+    "__yo_comptime_array_index_range_inclusive",
+  ],
+  __yo_comptime_slice_index_range: ["__yo_comptime_slice_index_range"],
+  __yo_comptime_slice_index_range_inclusive: [
+    "__yo_comptime_slice_index_range_inclusive",
+  ],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
@@ -1080,6 +1121,13 @@ export const BuiltinFunctions = {
   __yo_comptime_string_to_lower: ["__yo_comptime_string_to_lower"],
   // 2-3 args (string, start, optional end)
   __yo_comptime_string_slice: ["__yo_comptime_string_slice"],
+
+  // Comptime string indexing builtins (used by ComptimeIndex trait impls)
+  __yo_comptime_string_index: ["__yo_comptime_string_index"],
+  __yo_comptime_string_index_range: ["__yo_comptime_string_index_range"],
+  __yo_comptime_string_index_range_inclusive: [
+    "__yo_comptime_string_index_range_inclusive",
+  ],
 
   // Type related functions
   __yo_type_to_comptime_string: ["__yo_type_to_comptime_string"],
@@ -2125,6 +2173,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         const newVariable: Variable = {
           ...frameVariables[j]!,
           id: newVariableId,
+          // Reset compile-time value since the variable was reassigned in a runtime branch;
+          // the actual value is unknown at compile time after the branch merge.
+          value: undefined,
           // Clear ownership tracking since the value may come from different sources
           isOwningTheSameRcValueAs: undefined,
         };
@@ -2295,6 +2346,7 @@ export function setExprAsNeedsToCallDup(
   // declared in the C output (compile-time values are inlined).
   if (expr.$.value) {
     const variableName = expr.$.variableName;
+    let needsDupForNonOwningRcTemp = false;
     if (
       variableName &&
       isTempVariableName(expr.$.env.modulePath, variableName) &&
@@ -2309,9 +2361,17 @@ export function setExprAsNeedsToCallDup(
             consumedAtToken: expr.token,
           });
         }
+        // Non-owning RC temp (e.g., index trait result): fall through to
+        // generate dup instead of returning early. The codegen does NOT dup
+        // inline for these, so the evaluator must handle it.
+        if (!variable.isOwningTheRcValue) {
+          needsDupForNonOwningRcTemp = true;
+        }
       }
     }
-    return;
+    if (!needsDupForNonOwningRcTemp) {
+      return;
+    }
   }
 
   const variableName = expr.$.variableName;

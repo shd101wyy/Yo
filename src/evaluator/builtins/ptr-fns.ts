@@ -102,9 +102,12 @@ export function evaluateAddressCall({
 
     const pointerType = createPtrType(argType);
 
-    // Check if we can create a compile-time pointer
+    // Check if we can create a compile-time pointer first.
     // This requires the source expression to have a sourceVariable with a value array
-    // OR an arrayElementRef for array element access like &(arr(0))
+    // OR an arrayElementRef for array element access like &(arr(0)).
+    // We check arrayElementRef BEFORE indexTraitPtrType because comptime arrays
+    // set both properties, and arrayElementRef allows creating a comptime pointer
+    // whereas indexTraitPtrType would return a runtime-only pointer.
     const sourceVariable = evaluatedArgExpr.$.sourceVariable;
     const arrayElementRef = evaluatedArgExpr.$.arrayElementRef;
 
@@ -134,12 +137,26 @@ export function evaluateAddressCall({
         pathCollection: evaluatedArgExpr.$.pathCollection,
       };
     } else {
-      expr.$ = {
-        env,
-        type: pointerType,
-        value: undefined, // reference is only available for runtime
-        pathCollection: evaluatedArgExpr.$.pathCollection,
-      };
+      // Check if this is &(value(i)) where value(i) was dispatched via Index trait.
+      // The Index.index() method returns *(Output), which was auto-dereferenced to Output.
+      // For &(value(i)), we skip the auto-deref and return the *(Output) pointer directly.
+      const indexTraitPtrType = evaluatedArgExpr.$.indexTraitPtrType;
+      if (indexTraitPtrType) {
+        expr.$ = {
+          env,
+          type: indexTraitPtrType,
+          value: undefined, // pointer is only available at runtime
+          pathCollection: evaluatedArgExpr.$.pathCollection,
+          isIndexTraitAddressOf: true,
+        };
+      } else {
+        expr.$ = {
+          env,
+          type: pointerType,
+          value: undefined, // reference is only available for runtime
+          pathCollection: evaluatedArgExpr.$.pathCollection,
+        };
+      }
     }
     attachTempVariableToExpr(expr, false);
     return expr;

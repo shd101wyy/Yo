@@ -1,4 +1,5 @@
 import type { Environment } from "../../env";
+import { getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
@@ -229,6 +230,9 @@ export function evaluatePropertyAccess({
           env,
           context,
         });
+        if (objectValue.isRuntimeOnly && isUnknownValue(dereferencedValue)) {
+          dereferencedValue.isRuntimeOnly = true;
+        }
         expr.$ = {
           env,
           type: baseType,
@@ -528,6 +532,29 @@ export function evaluatePropertyAccess({
           };
           propertyExpr.$ = expr.$;
           return expr;
+        }
+
+        // During generic impl specialization, the associated type (e.g., Output)
+        // may already be bound in the env. Check there first, because
+        // findAssociatedTypeFromGenericImpls is ambiguous when multiple impls
+        // of the same trait exist with different associated types (e.g.,
+        // Index(usize) with Output=T vs Index(Range(usize)) with Output=Slice(T)).
+        if (context.isEvaluatingGenericImplSpecialization) {
+          const vars = getVariablesFromEnv(env, propertyName);
+          if (vars.length > 0) {
+            const v = vars[vars.length - 1]!;
+            if (v.value && v.value.length > 0 && isTypeValue(v.value[0])) {
+              expr.$ = {
+                env,
+                type: v.value[0].type,
+                value: v.value[0],
+                pathCollection: [],
+                isAccessingProperty: true,
+              };
+              propertyExpr.$ = expr.$;
+              return expr;
+            }
+          }
         }
 
         // Check for associated types from generic impls (e.g., Self.Item from Iterator(T))
@@ -848,10 +875,17 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(tupleElement.type, {
+              const fieldUnknown = createUnknownValue(tupleElement.type, {
                 env,
                 context,
               });
+              if (
+                objectExprValue.isRuntimeOnly &&
+                isUnknownValue(fieldUnknown)
+              ) {
+                fieldUnknown.isRuntimeOnly = true;
+              }
+              expr.$.value = fieldUnknown;
             } else {
               let values: (Value | undefined)[] = [];
               if (isTupleValue(objectExprValue)) {
@@ -898,6 +932,18 @@ export function evaluatePropertyAccess({
           );
           if (moduleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
+              // Check if this module is still being evaluated (circular import).
+              // If so, the field might exist but hasn't been exported yet.
+              if (
+                objectExprValue &&
+                isModuleValue(objectExprValue) &&
+                objectExprValue.isLoading
+              ) {
+                throw formatErrorMessage({
+                  token: propertyExpr.token,
+                  errorMessage: `Field "${label}" is not yet available from this module. In a circular import, only fields exported before the import of the current module are accessible. Reorder your exports or break the cycle.`,
+                });
+              }
               throw formatErrorMessage({
                 token: propertyExpr.token,
                 errorMessage: `Module field "${label}" not found in module type`,
@@ -929,10 +975,17 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(moduleField.type, {
+              const fieldUnknown = createUnknownValue(moduleField.type, {
                 env,
                 context,
               });
+              if (
+                objectExprValue.isRuntimeOnly &&
+                isUnknownValue(fieldUnknown)
+              ) {
+                fieldUnknown.isRuntimeOnly = true;
+              }
+              expr.$.value = fieldUnknown;
             } else {
               let values: (Value | undefined)[] = [];
               if (isModuleValue(objectExprValue)) {

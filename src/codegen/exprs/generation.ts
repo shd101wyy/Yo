@@ -29,15 +29,11 @@ import {
   isEffectsRowType,
   isFunctionType,
   isModuleType,
+  isPtrType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
-import {
-  isFunctionValue,
-  isModuleValue,
-  isUnknownValue,
-  type Value,
-} from "../../value";
+import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
 import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -46,6 +42,7 @@ import {
   type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
+  isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import {
@@ -115,6 +112,8 @@ import { generateAnonymousTuple } from "./tuple-fn";
 import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
 
+let indexTraitTempCounter = 0;
+
 /**
  * Expand effect row spreads from a FutureTraitType's effects into individual
  * implicit parameters. Each expanded parameter has a `label` matching the
@@ -140,6 +139,123 @@ function expandFutureEffects(
     }
   }
   return result;
+}
+
+/**
+ * Generate C code for Index trait dispatch: value(i) → *index_fn(&value, i)
+ * The index method returns a pointer, and we auto-deref it unless
+ * this is wrapped in &() (isIndexTraitAddressOf).
+ */
+function generateIndexTraitCall(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const methodValue = expr.$?.indexMethodValue;
+  if (!methodValue || !isFunctionValue(methodValue)) {
+    return `/* Error: Index trait method value missing */`;
+  }
+
+  // Generate &callee (address-of the receiver)
+  const calleeExpr = expr.func!;
+  let calleeCode = generateExpr(calleeExpr, indent, context);
+
+  // If the callee is a function call returning a temporary (rvalue), we can't
+  // take its address directly. Emit it into a temp variable first.
+  // IMPORTANT: Property access (`.` calls) generates lvalue C code (e.g.,
+  // `self->_buf`), so we must NOT copy those into temps — writes to the temp
+  // would not affect the original struct field.
+  if (
+    exprIsFunctionCall(calleeExpr) &&
+    !exprIsAtom(calleeExpr) &&
+    !exprIsFunctionCallOf(calleeExpr, ".") &&
+    calleeExpr.$?.type
+  ) {
+    // Check if generateExpr already assigned a named variable
+    const isAlreadyVariable =
+      calleeExpr.$?.variableName &&
+      calleeCode ===
+        getVariableNameForCodegen(calleeExpr.$.variableName, calleeExpr.$.env);
+    if (!isAlreadyVariable) {
+      const calleeType = getTypeString(calleeExpr.$.type, context);
+      const tempName = `__yo_idx_tmp_${indexTraitTempCounter++}`;
+      context.emitter.emitLine(
+        `${indent}${calleeType} ${tempName} = ${calleeCode};`
+      );
+      calleeCode = tempName;
+    }
+  }
+
+  // Generate the index argument
+  const indexArg = expr.args[0];
+  const indexCode = indexArg ? generateExpr(indexArg, indent, context) : "0";
+
+  // Determine the call code: inline builtin body or call the specialized function
+  let callCode: string;
+  const inlineOp =
+    isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(methodValue);
+  if (inlineOp) {
+    // Inline the builtin expansion directly at the call site.
+    // This avoids generating a standalone C function for the specialized method.
+    // Element index: __yo_array_index / __yo_slice_index → &(self->data[idx])
+    if (
+      BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
+      BuiltinFunctions.__yo_slice_index.includes(inlineOp)
+    ) {
+      callCode = `(&((&${calleeCode})->data[${indexCode}]))`;
+    }
+    // Range index: produce compound literal *(Slice(T))
+    else if (
+      (BuiltinFunctions.__yo_array_index_range.includes(inlineOp) ||
+        BuiltinFunctions.__yo_slice_index_range.includes(inlineOp)) &&
+      expr.$?.indexTraitPtrType &&
+      isPtrType(expr.$.indexTraitPtrType)
+    ) {
+      const sliceCType = getTypeString(
+        expr.$.indexTraitPtrType.childType,
+        context
+      );
+      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start })`;
+    }
+    // Range inclusive index
+    else if (
+      (BuiltinFunctions.__yo_array_index_range_inclusive.includes(inlineOp) ||
+        BuiltinFunctions.__yo_slice_index_range_inclusive.includes(inlineOp)) &&
+      expr.$?.indexTraitPtrType &&
+      isPtrType(expr.$.indexTraitPtrType)
+    ) {
+      const sliceCType = getTypeString(
+        expr.$.indexTraitPtrType.childType,
+        context
+      );
+      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start + 1 })`;
+    } else {
+      // Fallback: call the function by name
+      const cFuncName = context.functions[methodValue.funcId]?.cName;
+      if (!cFuncName) {
+        return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
+      }
+      callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+    }
+  } else {
+    // Non-inline method: call the specialized function by name
+    const cFuncName = context.functions[methodValue.funcId]?.cName;
+    if (!cFuncName) {
+      return `/* Error: Index method ${methodValue.funcId} not found in function registry */`;
+    }
+    callCode = `${cFuncName}(&${calleeCode}, ${indexCode})`;
+  }
+
+  // Deref unless this is an &(value(i)) expression
+  if (expr.$?.isIndexTraitAddressOf) {
+    return callCode;
+  }
+
+  // Deref the pointer returned by the index method.
+  // Note: For RC types, the evaluator handles dup via setExprAsNeedsToCallDup
+  // when the result is consumed (assignment, function argument, return).
+  // We do NOT dup inline here, as that would leak for unassigned uses like y(0).*.
+  return `(*${callCode})`;
 }
 
 /**
@@ -886,8 +1002,7 @@ function generateFuncCall(
     !isUnitType(expr.$.type) &&
     !hasAnyControlFlow(expr.$?.controlFlow)
   ) {
-    const value: Value = expr.$.value;
-    return generateComptimeValue(value, context, expr);
+    return generateComptimeValue(expr.$.value, context, expr);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {
@@ -1018,6 +1133,10 @@ function generateFuncCall(
   // open for runtime struct
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
     return generateOpen(expr, indent, context);
+  }
+  // Index trait dispatch: value(i) → *index_fn(&value, i)
+  else if (expr.$?.indexTraitPtrType && expr.$?.indexMethodType) {
+    return generateIndexTraitCall(expr, indent, context);
   }
   // other function call
   else {

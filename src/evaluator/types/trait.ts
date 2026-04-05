@@ -36,7 +36,7 @@ import {
   isTypeHierarchyType,
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
-import { typeToString } from "../../types/utils";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {
@@ -47,6 +47,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { findSomeTypeMissingComptimeConstraint } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 import { attachTraitToReceiverType } from "./utils";
 
@@ -1063,6 +1064,58 @@ export function evaluateTraitType({
         traitType,
         collectPendingTraits: false,
       });
+    }
+  }
+
+  // Validate comptime function types in trait fields.
+  // This must run AFTER pending where-clause constraints are applied, because
+  // constraints like `Self.Output <: Comptime` are pending until the associated
+  // type `Output` is created during field evaluation.
+  for (const field of fields) {
+    if (!isFunctionType(field.type)) continue;
+    const fnType = field.type;
+
+    // Check comptime return type
+    if (
+      fnType.return.isCompileTimeOnly &&
+      typeContainsSomeType(fnType.return.type)
+    ) {
+      const missingSomeType = findSomeTypeMissingComptimeConstraint(
+        fnType.return.type,
+        env
+      );
+      if (missingSomeType) {
+        const token = fnType.return.typeExpr?.token ?? expr.token;
+        throw formatErrorMessage({
+          token,
+          errorMessage: `Return type "${typeToString(
+            fnType.return.type
+          )}" in trait field "${field.label}" is used with "comptime" but type parameter "${typeToString(
+            missingSomeType
+          )}" does not implement the Comptime trait. Add "${missingSomeType.name} <: Comptime" to the where clause.`,
+        });
+      }
+    }
+
+    // Check comptime parameters
+    for (const param of fnType.parameters) {
+      if (param.isCompileTimeOnly && typeContainsSomeType(param.type)) {
+        const missingSomeType = findSomeTypeMissingComptimeConstraint(
+          param.type,
+          env
+        );
+        if (missingSomeType) {
+          const token = param.exprs.typeExpr?.token ?? expr.token;
+          throw formatErrorMessage({
+            token,
+            errorMessage: `Parameter type "${typeToString(
+              param.type
+            )}" in trait field "${field.label}" is used with "comptime" but type parameter "${typeToString(
+              missingSomeType
+            )}" does not implement the Comptime trait. Add "${missingSomeType.name} <: Comptime" to the where clause.`,
+          });
+        }
+      }
     }
   }
 

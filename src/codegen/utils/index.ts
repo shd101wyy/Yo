@@ -33,6 +33,7 @@ import type {
 } from "../../types/definitions";
 import {
   isEnumType,
+  isNewtypeType,
   isObjectType,
   isPtrType,
   isSliceType,
@@ -255,6 +256,27 @@ export interface CodeGenContext {
   typeIdStatics?: Map<string, string>;
 
   /**
+   * When true, at least one object type can form RC cycles and needs GC tracking.
+   * When false, GC infrastructure is omitted: __yo_ref_header_t is smaller (no gc_flags,
+   * gc_mark, gc_next, gc_prev, traverse_fn), __yo_decr_rc skips GC checks, and all
+   * GC runtime functions (register, unregister, collect) become no-ops.
+   */
+  needsCycleGC?: boolean;
+
+  /**
+   * When !needsCycleGC, maps dispose function C names to sequential integer type IDs.
+   * Used to replace indirect dispose_fn calls with a switch-based dispatch table,
+   * which compiles to WASM br_table instead of expensive call_indirect.
+   * Type ID 0 is reserved for "no dispose needed" (NULL dispose_fn).
+   */
+  disposeTypeIds?: Map<string, number>;
+
+  /**
+   * Next available type ID for disposeTypeIds. Starts at 1 (0 = no dispose).
+   */
+  nextDisposeTypeId?: number;
+
+  /**
    * When true, compiling as a library (no main() wrapper, exported functions use plain names).
    */
   isLibrary?: boolean;
@@ -426,7 +448,18 @@ export function getTypeString(
     case TypeTag.ComptimeFloat:
       return "double"; // For comptime_float, we can use double
     case TypeTag.ComptimeString:
-      return "uint8_t*"; // For comptime_string, we use C string (char* or uint8_t*)
+      // At runtime, comptime_string values become str (Slice(u8)).
+      // Look up the str newtype from registered types for the correct C name.
+      for (const entry of Object.values(context.types)) {
+        if (
+          isNewtypeType(entry.type) &&
+          entry.type.fields.length === 1 &&
+          isSliceType(entry.type.fields[0]!.type)
+        ) {
+          return entry.cName;
+        }
+      }
+      return "uint8_t*"; // fallback if str type not found
 
     case TypeTag.Char:
       return "char"; // C char type

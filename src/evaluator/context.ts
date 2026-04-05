@@ -251,6 +251,14 @@ export interface EvaluatorContext {
    * `escape` is only valid inside given handler definitions.
    */
   isInsideGivenHandler?: boolean;
+
+  /**
+   * Whether we are currently re-evaluating type expressions during generic impl
+   * specialization. When true, associated types (e.g., Output) are looked up
+   * from the env before falling through to findAssociatedTypeFromGenericImpls,
+   * which can be ambiguous when multiple impls of the same trait exist.
+   */
+  isEvaluatingGenericImplSpecialization?: boolean;
 }
 
 /**
@@ -309,42 +317,6 @@ export interface TraitSpecializationResult {
   callerEnv: Environment;
 }
 
-export interface ArrayCallResult {
-  /**
-   * The value by index from the array value.
-   */
-  value: Value | undefined;
-
-  /**
-   * The index used to access the array, if it's compile-time known.
-   */
-  index?: number;
-
-  /**
-   * For compile-time arrays, this stores a reference to the ArrayValue and index.
-   * This allows taking the address of an array element: p :: &(arr(0))
-   */
-  arrayElementRef?: {
-    arrayValue: ArrayValue;
-    index: number;
-  };
-
-  /**
-   * Type of the return value.
-   * It might be the childType of the array or slice:
-   * - arr(3)
-   *
-   * Or it might be a slice type if the user calls a slice method:
-   * - arr(3:5)
-   */
-  type: Type;
-
-  /**
-   * The caller environment.
-   */
-  callerEnv: Environment;
-}
-
 export interface MacroFunctionCallResult {
   calleeEnv: Environment;
   callerEnv: Environment;
@@ -359,6 +331,56 @@ export interface NumericTypeCallResult {
 export interface PointerTypeCallResult {
   expr: Expr;
   env: Environment;
+}
+
+export interface IndexCallResult {
+  /**
+   * The auto-dereferenced value (Output type, not *(Output)).
+   */
+  value: Value | undefined;
+
+  /**
+   * The auto-dereferenced type (Output).
+   */
+  type: Type;
+
+  /**
+   * The pointer type returned by index() before auto-deref: *(Output).
+   * Used for &(value(i)) to skip the auto-deref.
+   */
+  ptrType: Type;
+
+  /**
+   * The specialized function type of the index method.
+   * May be undefined for comptime array/slice element access.
+   */
+  indexMethodType: FunctionType | undefined;
+
+  /**
+   * The specialized function value of the index method (may be undefined for runtime dispatch).
+   */
+  indexMethodValue: Value | undefined;
+
+  /**
+   * The caller environment after evaluating the argument.
+   */
+  callerEnv: Environment;
+
+  /**
+   * The compile-time index, if known. Used for building pathCollection
+   * to support array element assignment (arr(0) = val).
+   */
+  index?: number;
+
+  /**
+   * For compile-time arrays, stores a reference to the ArrayValue and index.
+   * Used by assignment.ts for compile-time array mutation and by ptr-fns.ts
+   * for &(arr(0)) pointer creation.
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
 }
 
 export interface FunctionToCall {
@@ -442,15 +464,6 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   tryToCallArrayWithArguments
-         */
-        kind: "array";
-        result: ArrayCallResult;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
          *   tryToConvertToNumericType
          */
         kind: "numeric-type";
@@ -482,6 +495,17 @@ export interface FunctionToCall {
          */
         kind: "arc-value";
         result: FnCallExpr;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   tryToCallWithIndexTrait
+         *
+         * Dispatches value(arg) via the Index trait.
+         */
+        kind: "index";
+        result: IndexCallResult;
       }
     | {
         kind: "error";
@@ -525,11 +549,11 @@ export function getTraitTypeCallResult(
   return functionToCall.result.result;
 }
 
-export function getArrayCallResult(
+export function getIndexCallResult(
   functionToCall: FunctionToCall
-): ArrayCallResult {
-  if (functionToCall.result.kind !== "array") {
-    throw new Error("Expected array call result");
+): IndexCallResult {
+  if (functionToCall.result.kind !== "index") {
+    throw new Error("Expected index call result");
   }
   return functionToCall.result.result;
 }

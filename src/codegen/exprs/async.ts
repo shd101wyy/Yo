@@ -976,16 +976,35 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`
   );
-  emitter.emitLine(`  sm->header.gc_flags = 0;`);
-  emitter.emitLine(`  sm->header.gc_mark = __YO_GC_UNMARKED;`);
-  emitter.emitLine(`  sm->header.gc_next = NULL;`);
-  emitter.emitLine(`  sm->header.gc_prev = NULL;`);
-  emitter.emitLine(
-    `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
-  );
-  emitter.emitLine(
-    `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`
-  );
+  if (context.needsCycleGC) {
+    emitter.emitLine(`  sm->header.gc_flags = 0;`);
+    emitter.emitLine(`  sm->header.gc_mark = __YO_GC_UNMARKED;`);
+    emitter.emitLine(`  sm->header.gc_next = NULL;`);
+    emitter.emitLine(`  sm->header.gc_prev = NULL;`);
+  }
+  if (context.needsCycleGC) {
+    emitter.emitLine(
+      `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+    );
+  } else {
+    // Type-tag dispatch for async SM
+    if (!context.disposeTypeIds) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
+    let typeId = context.disposeTypeIds.get(disposeFunctionName);
+    if (typeId === undefined) {
+      typeId = context.nextDisposeTypeId!;
+      context.nextDisposeTypeId = typeId + 1;
+      context.disposeTypeIds.set(disposeFunctionName, typeId);
+    }
+    emitter.emitLine(`  sm->header.type_id = ${typeId};`);
+  }
+  if (context.needsCycleGC) {
+    emitter.emitLine(
+      `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`
+    );
+  }
   emitter.emitLine(``);
 
   emitter.emitLine(`  sm->state = 0;`);
@@ -1580,14 +1599,35 @@ export function generateIoAsyncSyncCall(
   );
   emitter.emitLine(`${indent}memset(${resultVar}, 0, sizeof(${structName}));`);
   emitter.emitLine(`${indent}${resultVar}->header.ref_count = 1;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = __YO_GC_UNMARKED;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
-  emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
-  emitter.emitLine(
-    `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
-  );
-  emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
+  if (context.needsCycleGC) {
+    emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
+    emitter.emitLine(
+      `${indent}${resultVar}->header.gc_mark = __YO_GC_UNMARKED;`
+    );
+    emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
+    emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
+  }
+  if (context.needsCycleGC) {
+    emitter.emitLine(
+      `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+    );
+  } else {
+    // Type-tag dispatch for sync_fut_t
+    if (!context.disposeTypeIds) {
+      context.disposeTypeIds = new Map();
+      context.nextDisposeTypeId = 1;
+    }
+    let typeId = context.disposeTypeIds.get(disposeFunctionName);
+    if (typeId === undefined) {
+      typeId = context.nextDisposeTypeId!;
+      context.nextDisposeTypeId = typeId + 1;
+      context.disposeTypeIds.set(disposeFunctionName, typeId);
+    }
+    emitter.emitLine(`${indent}${resultVar}->header.type_id = ${typeId};`);
+  }
+  if (context.needsCycleGC) {
+    emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
+  }
   // Copy capture data from stack-allocated struct into the heap-allocated future
   emitter.emitLine(`${indent}${resultVar}->__capture = ${closureCode};`);
   // Dup captured variables so the future owns its own references.

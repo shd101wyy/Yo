@@ -186,11 +186,11 @@ impl(Regex,
   exec : (fn(self : Self, input : String) -> Option(RegexMatch))({
     bytes := input.as_bytes();
     input_len := bytes.len();
+    vm := NfaVm.new(self._program, self._flags, input);
 
     // Sticky flag: only try matching at position 0
     cond(
       self._flags.sticky => {
-        vm := NfaVm.new(self._program, self._flags, input);
         result := vm.exec_at(usize(0));
         cond(
           result.matched => .Some(self._build_match(result.slots, input)),
@@ -205,7 +205,6 @@ impl(Regex,
         );
 
         while (byte_pos <= input_len), {
-          vm := NfaVm.new(self._program, self._flags, input);
           result := vm.exec_at(byte_pos);
 
           cond(
@@ -244,13 +243,13 @@ impl(Regex,
     matches := ArrayList(RegexMatch).new();
     bytes := input.as_bytes();
     input_len := bytes.len();
+    vm := NfaVm.new(self._program, self._flags, input);
 
     cond(
       self._flags.sticky => {
         // Sticky: only try at position 0, then at end of each match
         (byte_pos : usize) = usize(0);
         while (byte_pos <= input_len), {
-          vm := NfaVm.new(self._program, self._flags, input);
           result := vm.exec_at(byte_pos);
 
           cond(
@@ -293,7 +292,6 @@ impl(Regex,
         );
 
         while (byte_pos <= input_len), {
-          vm := NfaVm.new(self._program, self._flags, input);
           result := vm.exec_at(byte_pos);
 
           cond(

@@ -426,8 +426,15 @@ export function checkIfFunctionParameterMatchesArgument({
 
   let argType = evaluatedArgExpr.$.type;
 
-  // Cannot assign runtime parameter to comptime parameter
-  if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
+  // Cannot assign runtime parameter to comptime parameter.
+  // A runtime value is either undefined (no value) or a runtime-only UnknownValue
+  // (e.g., from Index trait dispatch / pointer deref chain).
+  if (
+    parameter.isCompileTimeOnly &&
+    (!evaluatedArgExpr.$?.value ||
+      (isUnknownValue(evaluatedArgExpr.$.value) &&
+        evaluatedArgExpr.$.value.isRuntimeOnly))
+  ) {
     throw formatErrorMessage({
       token: argExpr?.token ?? PlaceholderToken,
       errorMessage: `Cannot assign runtime argument to compile-time parameter:\n${
