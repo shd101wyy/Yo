@@ -34,7 +34,6 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
-import { typeContainsRcType } from "../../types/utils";
 import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -64,10 +63,7 @@ import { generateComptimeValue } from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
 import { generateDowncast } from "./downcast";
-import {
-  generateDeferredDupExpressions,
-  generateDupCodeForValue,
-} from "./drop-dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
 import { generateYoGcCollect } from "./gc";
@@ -255,18 +251,10 @@ function generateIndexTraitCall(
     return callCode;
   }
 
-  // When dereferencing a pointer to an RC type, the struct copy does not
-  // increment the reference count. We must emit an explicit ___dup to prevent
-  // use-after-free when both the local variable and the container are dropped.
-  const outputType = expr.$?.type;
-  if (outputType && typeContainsRcType(outputType)) {
-    const derefResult = `(*${callCode})`;
-    const dupCode = generateDupCodeForValue(derefResult, outputType, context);
-    if (dupCode !== derefResult) {
-      return dupCode;
-    }
-  }
-
+  // Deref the pointer returned by the index method.
+  // Note: For RC types, the evaluator handles dup via setExprAsNeedsToCallDup
+  // when the result is consumed (assignment, function argument, return).
+  // We do NOT dup inline here, as that would leak for unassigned uses like y(0).*.
   return `(*${callCode})`;
 }
 

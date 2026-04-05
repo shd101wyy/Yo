@@ -2346,6 +2346,7 @@ export function setExprAsNeedsToCallDup(
   // declared in the C output (compile-time values are inlined).
   if (expr.$.value) {
     const variableName = expr.$.variableName;
+    let needsDupForNonOwningRcTemp = false;
     if (
       variableName &&
       isTempVariableName(expr.$.env.modulePath, variableName) &&
@@ -2360,9 +2361,17 @@ export function setExprAsNeedsToCallDup(
             consumedAtToken: expr.token,
           });
         }
+        // Non-owning RC temp (e.g., index trait result): fall through to
+        // generate dup instead of returning early. The codegen does NOT dup
+        // inline for these, so the evaluator must handle it.
+        if (!variable.isOwningTheRcValue) {
+          needsDupForNonOwningRcTemp = true;
+        }
       }
     }
-    return;
+    if (!needsDupForNonOwningRcTemp) {
+      return;
+    }
   }
 
   const variableName = expr.$.variableName;
