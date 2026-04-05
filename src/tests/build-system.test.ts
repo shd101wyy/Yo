@@ -1647,6 +1647,27 @@ describe("Artifact output naming", () => {
       })
     ).toBe("libmylib");
   });
+
+  test("uses .html for WASM executables by default", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "executable",
+        name: "app",
+        target: "wasm32-emscripten",
+      })
+    ).toBe("app.html");
+  });
+
+  test("uses .js for WASM executables with -sMODULARIZE", () => {
+    expect(
+      getArtifactOutputFileName({
+        kind: "executable",
+        name: "app",
+        target: "wasm32-emscripten",
+        cFlags: ["-O3 -sMODULARIZE=1 -sEXPORT_NAME=createApp"],
+      })
+    ).toBe("app.js");
+  });
 });
 
 describe("Runtime dependency staging", () => {

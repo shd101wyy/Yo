@@ -65,7 +65,8 @@ export interface BuildOptions {
 }
 
 export function getArtifactOutputFileName(
-  artifact: Pick<BuildArtifact, "kind" | "name" | "target">,
+  artifact: Pick<BuildArtifact, "kind" | "name" | "target"> &
+    Partial<Pick<BuildArtifact, "cFlags">>,
   targetTriple?: string
 ): string {
   if (artifact.kind === "static_library") {
@@ -82,7 +83,12 @@ export function getArtifactOutputFileName(
   }
 
   if (artifact.kind === "executable" && isTargetWasm(effectiveTarget)) {
-    return `${artifact.name}.js`;
+    // -sMODULARIZE is incompatible with .html output; use .js in that case.
+    // Otherwise default to .html (emcc also generates .js and .wasm alongside).
+    const hasModularize = (artifact.cFlags ?? []).some((f) =>
+      f.includes("-sMODULARIZE")
+    );
+    return `${artifact.name}.${hasModularize ? "js" : "html"}`;
   }
 
   return artifact.name;
@@ -1879,14 +1885,17 @@ async function runExecutable(
     process.exit(1);
   }
 
-  // WASM executables (.js) — run with node
+  // WASM executables — run with node using the .js file
   const parsedTarget = parseTarget(effectiveTarget);
   const isWasm = isTargetWasm(parsedTarget);
 
   const { spawnSync } = await import("child_process");
   let result;
   if (isWasm) {
-    result = spawnSync("node", [exePath, ...args], {
+    // emcc may output .html (which also generates .js + .wasm) or .js directly.
+    // Node always runs the .js file.
+    const jsPath = exePath.replace(/\.html$/, ".js");
+    result = spawnSync("node", [jsPath, ...args], {
       stdio: "inherit",
       cwd: projectDir,
     });
