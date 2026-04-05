@@ -168,17 +168,17 @@ test_step.depend_on(tests);
 
 `CompilationTarget` 为支持的目标三元组提供了符号名称。推荐使用这些常量，而不是硬编码目标字符串：
 
-| 值                                      | 目标三元组             | 说明                          |
-| --------------------------------------- | ---------------------- | ----------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`     | Linux x86-64（glibc）         |
-| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`    | Linux x86-64（musl，原生）    |
-| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`    | Linux ARM64                   |
-| `CompilationTarget.Aarch64_Linux_Musl`  | `aarch64-linux-musl`   | Linux ARM64（musl，原生）     |
-| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`        | macOS Apple Silicon           |
-| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`         | macOS Intel                   |
-| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc`  | Windows x86-64                |
-| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`    | WebAssembly（Emscripten）     |
-| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`          | WebAssembly（独立 WASI）      |
+| 值                                      | 目标三元组            | 说明                       |
+| --------------------------------------- | --------------------- | -------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64（glibc）      |
+| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64（musl，原生） |
+| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                |
+| `CompilationTarget.Aarch64_Linux_Musl`  | `aarch64-linux-musl`  | Linux ARM64（musl，原生）  |
+| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon        |
+| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                |
+| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64             |
+| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`   | WebAssembly（Emscripten）  |
+| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly（独立 WASI）   |
 
 宿主目标也可通过 `build.target_host` 获取。
 
@@ -580,17 +580,17 @@ yo build --target wasm-emscripten
 
 ### 支持的目标
 
-| 目标三元组             | 说明                          |
-| ---------------------- | ----------------------------- |
-| `x86_64-linux-gnu`     | Linux x86-64（glibc）         |
-| `x86_64-linux-musl`    | Linux x86-64（musl，原生）    |
-| `aarch64-linux-gnu`    | Linux ARM64                   |
-| `aarch64-linux-musl`   | Linux ARM64（musl，原生）     |
-| `aarch64-macos`        | macOS Apple Silicon           |
-| `x86_64-macos`         | macOS Intel                   |
-| `x86_64-windows-msvc`  | Windows x86-64                |
-| `wasm32-emscripten`    | WebAssembly（Emscripten）     |
-| `wasm32-wasi`          | WebAssembly（独立 WASI）      |
+| 目标三元组            | 说明                       |
+| --------------------- | -------------------------- |
+| `x86_64-linux-gnu`    | Linux x86-64（glibc）      |
+| `x86_64-linux-musl`   | Linux x86-64（musl，原生） |
+| `aarch64-linux-gnu`   | Linux ARM64                |
+| `aarch64-linux-musl`  | Linux ARM64（musl，原生）  |
+| `aarch64-macos`       | macOS Apple Silicon        |
+| `x86_64-macos`        | macOS Intel                |
+| `x86_64-windows-msvc` | Windows x86-64             |
+| `wasm32-emscripten`   | WebAssembly（Emscripten）  |
+| `wasm32-wasi`         | WebAssembly（独立 WASI）   |
 
 缩写别名：`wasm-emscripten` → `wasm32-emscripten`，`wasm-wasi` → `wasm32-wasi`。
 
@@ -602,6 +602,20 @@ yo build --target wasm-emscripten
 - **不**添加 `-sNODERAWFS`（该选项使用 `require('fs')`，浏览器中不存在）
 - 始终添加 `-sEMULATE_FUNCTION_POINTER_CASTS=1`（代码生成所需）
 - 通过 `system_library()` 声明的系统库以 `-l<name>` 形式传递给 emcc（跳过 pkg-config/vcpkg 宿主平台解析）
+
+#### 输出格式自动检测
+
+主输出文件的扩展名会自动确定：
+
+| C 标志           | 主输出文件 | 附加文件        | 使用场景                   |
+| ---------------- | ---------- | --------------- | -------------------------- |
+| （默认）         | `.html`    | `.js` + `.wasm` | 浏览器应用（GitHub Pages） |
+| `-sMODULARIZE=1` | `.js`      | `.wasm`         | JS 模块（库/打包工具）     |
+
+- **`.html`（默认）：** emcc 会生成浏览器外壳页面，同时生成 `.js` 胶水代码和 `.wasm` 二进制文件。适用于独立 Web 应用和 GitHub Pages 部署。
+- **`.js`（使用 `-sMODULARIZE`）：** emcc 的 `-sMODULARIZE` 标志与 `.html` 输出不兼容，因此构建系统会自动切换为 `.js` 输出。适用于将输出作为 JavaScript 模块使用的场景（如打包工具、动态导入或自定义 HTML 页面）。
+
+通过 `yo build run` 运行 WASM 构件时，无论主输出文件是 `.html` 还是 `.js`，构建系统始终使用 Node.js 执行 `.js` 文件。
 
 要运行输出文件，需使用本地 HTTP 服务器（WASM 需要 HTTP，不支持 `file://`）：
 

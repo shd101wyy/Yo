@@ -582,17 +582,17 @@ yo build --target wasm-emscripten
 
 ### Supported Targets
 
-| Target Triple          | Notes                         |
-| ---------------------- | ----------------------------- |
-| `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
-| `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
-| `aarch64-linux-gnu`    | Linux ARM64                   |
-| `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
-| `aarch64-macos`        | macOS Apple Silicon           |
-| `x86_64-macos`         | macOS Intel                   |
-| `x86_64-windows-msvc`  | Windows x86-64                |
-| `wasm32-emscripten`    | WebAssembly (Emscripten)      |
-| `wasm32-wasi`          | WebAssembly (standalone WASI) |
+| Target Triple         | Notes                         |
+| --------------------- | ----------------------------- |
+| `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
+| `x86_64-linux-musl`   | Linux x86-64 (musl, native)   |
+| `aarch64-linux-gnu`   | Linux ARM64                   |
+| `aarch64-linux-musl`  | Linux ARM64 (musl, native)    |
+| `aarch64-macos`       | macOS Apple Silicon           |
+| `x86_64-macos`        | macOS Intel                   |
+| `x86_64-windows-msvc` | Windows x86-64                |
+| `wasm32-emscripten`   | WebAssembly (Emscripten)      |
+| `wasm32-wasi`         | WebAssembly (standalone WASI) |
 
 Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
 
@@ -604,6 +604,20 @@ When building for `wasm32-emscripten` via `yo build`, the output defaults to **b
 - `-sNODERAWFS` is **not** added (it uses `require('fs')` which doesn't exist in browsers)
 - `-sEMULATE_FUNCTION_POINTER_CASTS=1` is always added (required for codegen)
 - System libraries declared via `system_library()` are passed as `-l<name>` to emcc (pkg-config/vcpkg host-platform resolution is skipped)
+
+#### Output Format Auto-Detection
+
+The primary output file extension is automatically determined:
+
+| C Flags          | Primary Output | Extra Files     | Use Case                    |
+| ---------------- | -------------- | --------------- | --------------------------- |
+| (default)        | `.html`        | `.js` + `.wasm` | Browser app (GitHub Pages)  |
+| `-sMODULARIZE=1` | `.js`          | `.wasm`         | JS module (library/bundler) |
+
+- **`.html` (default):** emcc generates a browser shell page alongside the `.js` glue code and `.wasm` binary. Use this for standalone web apps and GitHub Pages deployment.
+- **`.js` (with `-sMODULARIZE`):** emcc's `-sMODULARIZE` flag is incompatible with `.html` output, so the build system automatically switches to `.js`. Use this when you need the output as a JavaScript module (e.g., for bundlers, dynamic imports, or custom HTML pages).
+
+When running WASM artifacts via `yo build run`, the build system always executes the `.js` file with Node.js, regardless of whether the primary output is `.html` or `.js`.
 
 To serve the output, use a local HTTP server (WASM requires HTTP, not `file://`):
 
