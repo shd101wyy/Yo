@@ -52,7 +52,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Slice](#array--slice)
-  - [Range with `:`](#range-with-)
+  - [Range with `..`](#range-with-)
   - [Array Methods](#array-methods)
     - [Array.fill](#arrayfill)
     - [Array.len](#arraylen)
@@ -66,7 +66,15 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
 - [Advanced Type System](#advanced-type-system)
   - [Higher-Kinded Types (HKT)](#higher-kinded-types-hkt)
+    - [HKT forall parameters](#hkt-forall-parameters)
+    - [HKT traits](#hkt-traits)
+    - [Generic functions with HKT where clauses](#generic-functions-with-hkt-where-clauses)
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
+    - [GADT match type refinement](#gadt-match-type-refinement)
+    - [GADT exhaustiveness](#gadt-exhaustiveness)
+    - [Multi-parameter GADTs](#multi-parameter-gadts)
+    - [GADTs with custom discriminants](#gadts-with-custom-discriminants)
+    - [Mixed GADT and regular variants](#mixed-gadt-and-regular-variants)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
 - [C union](#c-union)
@@ -113,6 +121,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
   - [Anonymous module](#anonymous-module)
+  - [Module-level mutable variables](#module-level-mutable-variables)
 - [Naming Convention](#naming-convention)
 - [Testing](#testing)
   - [Basic Test Syntax](#basic-test-syntax)
@@ -134,6 +143,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Compile-Time Expected Errors](#compile-time-expected-errors)
   - [Compile-Time vs Runtime](#compile-time-vs-runtime)
   - [Benefits of Compile-Time Evaluation](#benefits-of-compile-time-evaluation)
+- [Inline Assembly](#inline-assembly)
+- [Index Trait](#index-trait)
 - [In Design](#in-design)
 - [References](#references)
 
@@ -986,24 +997,18 @@ slice(1) = 20;
 slice_of_slice := slice(0:2);  // Slice from slice
 ```
 
-### Range with `:`
+### Range with `..`
 
-Slices use the `:` operator for range syntax:
+Slices use the `..` operator for range syntax:
 
 ```rust
 arr := [1, 2, 3, 4, 5];
 
 // Slice from index 1 to 3 (exclusive)
-slice1 := arr(1:3);  // [2, 3]
+slice1 := arr(1..3);  // Slice(i32) [2, 3]
 
-// Slice from start to index
-slice2 := arr(:3);  // [1, 2, 3]
-
-// Slice from index to end
-slice3 := arr(2:);  // [3, 4, 5]
-
-// Full slice
-slice4 := arr(:);  // [1, 2, 3, 4, 5]
+// Slice from index 1 to 3 (inclusive)
+slice2 := arr(1..=3); // Slice(i32) [2, 3, 4]
 ```
 
 ### Array Methods
