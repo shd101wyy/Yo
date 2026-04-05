@@ -1,67 +1,38 @@
 # Export in executable mode produces static functions
 
-## Status: Partially Fixed (library mode only)
+## Status: Fixed
 
 ## Description
 
-When compiling an executable (non-library), `export fn_name;` has no effect on the
-generated C linkage. All exported functions (except `main`) get `static inline`
-linkage, making them invisible to external tooling like Emscripten's
-`-sEXPORTED_FUNCTIONS`.
-
-## Steps to Reproduce
-
-```rust
-my_api :: (fn(x: i32) -> i32)(x);
-main :: (fn() -> unit)(());
-export main, my_api;
-```
-
-Compile with `--emit-c --skip-c-compiler`. In the generated C:
-
-```c
-static inline int32_t fn_yoXXX_id_N_my_api(int32_t x) { ... }
-```
-
-The function is `static inline` despite being explicitly exported.
-
-## Expected Behavior
-
-Exported functions should have external linkage (no `static inline` prefix) and
-use plain C names so they can be referenced by linker flags, FFI, or WASM
-`EXPORTED_FUNCTIONS`.
+When compiling an executable (non-library), `export fn_name;` had no effect on
+the generated C function name. All exported functions (except `main`) got mangled
+names like `fn_yoXXX_id_N_my_api`, making them invisible to external tooling
+like Emscripten's `-sEXPORTED_FUNCTIONS`.
 
 ## Root Cause
 
 In `src/codegen/functions/collection.ts`, `collectRequiredFunctions` only
-populates `exportedFunctionLabels` (and assigns plain C names) when
-`context.isLibrary` is true (line 124). The `else` branch for executables
-(line 147) uses hashed names and never registers exports.
+assigned plain C names when `context.isLibrary` was true. The executable mode
+used hashed names for everything.
 
-## Fix History
+## Fix (commit d447f8fd)
 
-### Initial fix (commit b69948f9)
+Added `exportedLabels` set to `ModuleValue` that tracks labels from explicit
+`export` statements. In executable mode, only functions whose labels are in this
+set get plain C names. This avoids POSIX collisions (e.g., trait impl `index`
+vs POSIX `index()`) while ensuring WASM exports work.
 
-In the `else` branch, also assign plain C names and register in
-`exportedFunctionLabels`, matching the library-mode behavior for functions
-from the current module.
+### How it works
 
-### Regression (reverted in executable mode)
+1. **Evaluator** (`anonymous-module.ts`): When processing `export foo, bar;`,
+   adds `"foo"` and `"bar"` to `moduleValue.exportedLabels`.
+2. **Codegen** (`collection.ts`): In executable mode, checks
+   `moduleValue.exportedLabels?.has(label)` before assigning a plain C name.
+   Functions not in the export list keep their hashed/mangled names.
 
-The initial fix caused name collisions:
+### Library mode (unchanged)
 
-1. **dyn.test.yo**: Multiple trait impls with same method name (e.g., `print` for
-   both `i32` and `bool`) all got the same plain C name → C type conflict.
-2. **index.test.yo**: Impl method `index` from `impl(MyArray, Index(usize)(...))`
-   got plain C name `index` which collides with POSIX `index()` from `<strings.h>`.
-
-The executable-mode plain name assignment was reverted. Only library mode retains
-plain C name assignment (with collision detection). For WASM executables, an
-alternative approach using `__attribute__((export_name("...")))` or explicit
-`-sEXPORTED_FUNCTIONS` flags should be used instead.
-
-Library mode also gained:
-
-- `isTopLevelExport` parameter to prevent trait impl methods from getting plain names
-- Collision detection: before assigning a plain name, check if any existing function
-  already has that name
+Library mode uses `isFromCurrentModule` + collision detection for ALL module
+fields (not just explicitly exported ones). This is correct because library
+mode needs all user-defined functions to have plain names for `extern "Yo"`
+cross-module linking.

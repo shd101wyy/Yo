@@ -164,13 +164,42 @@ export function collectRequiredFunctions(
           };
         }
       } else {
-        // Executable mode: use mangled names for all functions.
-        // Plain C names are only used in library mode where external linkage
-        // is needed for cross-module references.
-        context.functions[value.funcId] = {
-          value,
-          cName: sanitizeForCIdentifier(value.funcId),
-        };
+        // Executable mode: top-level exports from the current module use their
+        // plain label name so they can be referenced by emcc's
+        // -sEXPORTED_FUNCTIONS (e.g., _wasm_render). Functions collected from
+        // other modules or through recursive traversal (isTopLevelExport=false)
+        // keep hashed names to avoid C/POSIX collisions.
+        const isFromCurrentModule =
+          isTopLevelExport &&
+          context.currentModuleId &&
+          value.funcId.startsWith(`fn_${context.currentModuleId}_`);
+        if (isFromCurrentModule) {
+          const plainCName = sanitizeForCIdentifier(label);
+          const hasCollision = Object.values(context.functions).some(
+            (f) => f.cName === plainCName
+          );
+          if (!hasCollision) {
+            context.functions[value.funcId] = {
+              value,
+              cName: plainCName,
+            };
+            // Register for external linkage (no static inline prefix)
+            if (!context.exportedFunctionLabels) {
+              context.exportedFunctionLabels = new Map();
+            }
+            context.exportedFunctionLabels.set(value.funcId, label);
+          } else {
+            context.functions[value.funcId] = {
+              value,
+              cName: sanitizeForCIdentifier(value.funcId),
+            };
+          }
+        } else {
+          context.functions[value.funcId] = {
+            value,
+            cName: sanitizeForCIdentifier(value.funcId),
+          };
+        }
       }
 
       // Recursively collect functions called by this function
