@@ -180,10 +180,12 @@ TypeFieldInfo :: struct(
 VariantInfo :: struct(
   name : comptime_string,
   fields : ComptimeList(TypeFieldInfo),
-  field_count : comptime_int,
-  has_discriminant : bool
+  _enum_type : Type,        // 内部：父枚举类型
+  _variant_index : comptime_int  // 内部：变体索引
 );
 ```
+
+`fields` 列表包含每个变体字段的 `TypeFieldInfo` 条目。使用 `v.fields.len()` 获取字段数量。
 
 ### StructKind
 
@@ -303,7 +305,7 @@ comptime_assert((describe(Point) == "struct type"), "Point description");
 
 ## 与 derive_rule 配合使用
 
-`TypeInfo` 专为 `derive_rule` 设计，实现强大的编译时代码生成。类型反射内建函数如 `__yo_type_field_count`、`__yo_type_join_fields` 等仍可用于向后兼容，但 `TypeInfo` 提供了更结构化的替代方案：
+`TypeInfo` 专为 `derive_rule` 设计，实现强大的编译时代码生成：
 
 ```rust
 // 在 derive 规则中使用 TypeInfo 检查类型种类
@@ -320,15 +322,17 @@ derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Ex
 
 `Type` 类型提供用于编译时类型分析的静态方法：
 
-| 方法                            | 描述                                     |
-| ------------------------------- | ---------------------------------------- |
-| `Type.get_info(T)`              | 返回类型 `T` 的 `TypeInfo` 枚举          |
-| `Type.eq(A, B)`                 | 精确类型相等（名义类型——需要相同的定义） |
-| `Type.neq(A, B)`                | 类型不等（`Type.eq` 的取反）             |
-| `Type.is_compatible_with(A, B)` | 宽松类型兼容性（允许隐式转换）           |
-| `Type.impls(T, Marker)`         | 检查类型 `T` 是否实现了标记 trait        |
-| `Type.contains_rc_type(T)`      | 检查类型是否包含引用计数字段             |
-| `Type.can_form_rc_cycle(T)`     | 检查类型是否可能形成引用计数循环         |
+| 方法                            | 描述                                            |
+| ------------------------------- | ----------------------------------------------- |
+| `Type.get_info(T)`              | 返回类型 `T` 的 `TypeInfo` 枚举                 |
+| `Type.get_struct_fields(T)`     | 返回结构体 `T` 的 `ComptimeList(TypeFieldInfo)` |
+| `Type.get_enum_variants(T)`     | 返回枚举 `T` 的 `ComptimeList(VariantInfo)`     |
+| `Type.eq(A, B)`                 | 精确类型相等（名义类型——需要相同的定义）        |
+| `Type.neq(A, B)`                | 类型不等（`Type.eq` 的取反）                    |
+| `Type.is_compatible_with(A, B)` | 宽松类型兼容性（允许隐式转换）                  |
+| `Type.impls(T, Marker)`         | 检查类型 `T` 是否实现了标记 trait               |
+| `Type.contains_rc_type(T)`      | 检查类型是否包含引用计数字段                    |
+| `Type.can_form_rc_cycle(T)`     | 检查类型是否可能形成引用计数循环                |
 
 ### 类型相等 vs 类型兼容
 
@@ -348,24 +352,20 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 ## 内建函数
 
-| 内建函数                                     | 描述                                     |
-| -------------------------------------------- | ---------------------------------------- |
-| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`               |
-| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）           |
-| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型） |
-| `__yo_type_is_struct(T)`                     | 检查 `T` 是否为结构体                    |
-| `__yo_type_is_enum(T)`                       | 检查 `T` 是否为枚举                      |
-| `__yo_type_field_count(T)`                   | 结构体/枚举的字段数                      |
-| `__yo_type_get_name(T)`                      | 类型名作为 `comptime_string`             |
-| `__yo_type_get_field_name(T, i)`             | 索引 `i` 处的字段名                      |
-| `__yo_type_get_field_type(T, i)`             | 索引 `i` 处的字段类型                    |
-| `__yo_type_variant_count(T)`                 | 枚举变体数                               |
-| `__yo_type_get_variant_name(T, i)`           | 索引 `i` 处的变体名                      |
-| `__yo_type_get_variant_field_count(T, i)`    | 变体 `i` 的字段数                        |
-| `__yo_type_get_variant_field_name(T, i, j)`  | 变体 `i` 中字段 `j` 的名称               |
-| `__yo_type_get_variant_field_type(T, i, j)`  | 变体 `i` 中字段 `j` 的类型               |
-| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                     |
-| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                             |
+| 内建函数                                     | 描述                                           |
+| -------------------------------------------- | ---------------------------------------------- |
+| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`                     |
+| `__yo_type_get_fields(T)`                    | 返回结构体字段的 `ComptimeList(TypeFieldInfo)` |
+| `__yo_type_get_variants(T)`                  | 返回枚举变体的 `ComptimeList(VariantInfo)`     |
+| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）                 |
+| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型）       |
+| `__yo_type_field_count(T)`                   | 结构体字段数                                   |
+| `__yo_type_to_comptime_string(T)`            | 类型名作为 `comptime_string`                   |
+| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                           |
+| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                                   |
+| `__yo_type_impls(T, Marker)`                 | 检查类型是否实现了标记 trait                   |
+| `__yo_type_contains_rc_type(T)`              | 检查是否包含引用计数字段                       |
+| `__yo_type_can_form_rc_cycle(T)`             | 检查是否可能形成引用计数循环                   |
 
 ## 设计文档
 

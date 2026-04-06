@@ -1,66 +1,74 @@
 // Tests for compile-time type reflection builtins, TypeInfo, and Type methods
 
 // ============================================================
-// Low-level type reflection builtins
+// Type reflection via TypeInfo and Type methods
 // ============================================================
 
 PointR :: struct(x : i32, y : i32);
 
-test "type reflection __yo_type_is_struct", {
-  comptime_assert(__yo_type_is_struct(PointR), "PointR is a struct");
+test "type reflection is_struct via TypeInfo", {
+  comptime_assert(Type.get_info(PointR).is_struct(), "PointR is a struct");
 };
 
-test "type reflection __yo_type_field_count", {
-  comptime_assert((__yo_type_field_count(PointR) == 2), "PointR has 2 fields");
+test "type reflection field count via Type.get_struct_fields", {
+  fields :: Type.get_struct_fields(PointR);
+  comptime_assert((fields.len() == usize(2)), "PointR has 2 fields");
 };
 
-test "type reflection __yo_type_get_name", {
-  comptime_assert((__yo_type_get_name(PointR) == "PointR"), "type name is PointR");
+test "type reflection type name via __yo_type_to_comptime_string", {
+  comptime_assert((__yo_type_to_comptime_string(PointR) == "PointR"), "type name is PointR");
 };
 
-test "type reflection __yo_type_get_field_name", {
-  comptime_assert((__yo_type_get_field_name(PointR, 0) == "x"), "field 0 is x");
-  comptime_assert((__yo_type_get_field_name(PointR, 1) == "y"), "field 1 is y");
+test "type reflection field name via Type.get_struct_fields", {
+  fields :: Type.get_struct_fields(PointR);
+  comptime_assert((fields.get(usize(0)).name == "x"), "field 0 is x");
+  comptime_assert((fields.get(usize(1)).name == "y"), "field 1 is y");
 };
 
-test "type reflection __yo_type_get_field_type", {
-  comptime_assert(__yo_are_types_compatible(__yo_type_get_field_type(PointR, 0), i32), "field 0 type is i32");
-  comptime_assert(__yo_are_types_compatible(__yo_type_get_field_type(PointR, 1), i32), "field 1 type is i32");
+test "type reflection field type via Type.get_struct_fields", {
+  fields :: Type.get_struct_fields(PointR);
+  comptime_assert(__yo_are_types_compatible(fields.get(usize(0)).field_type, i32), "field 0 type is i32");
+  comptime_assert(__yo_are_types_compatible(fields.get(usize(1)).field_type, i32), "field 1 type is i32");
 };
 
 ColorR :: enum(Red, Green, Blue);
 
-test "type reflection __yo_type_is_enum", {
-  comptime_assert(__yo_type_is_enum(ColorR), "ColorR is an enum");
-  comptime_assert(!(__yo_type_is_struct(ColorR)), "ColorR is not a struct");
+test "type reflection is_enum via TypeInfo", {
+  comptime_assert(Type.get_info(ColorR).is_enum(), "ColorR is an enum");
+  comptime_assert(!(Type.get_info(ColorR).is_struct()), "ColorR is not a struct");
 };
 
-test "type reflection __yo_type_variant_count", {
-  comptime_assert((__yo_type_variant_count(ColorR) == 3), "ColorR has 3 variants");
+test "type reflection variant count via Type.get_enum_variants", {
+  variants :: Type.get_enum_variants(ColorR);
+  comptime_assert((variants.len() == usize(3)), "ColorR has 3 variants");
 };
 
-test "type reflection __yo_type_get_variant_name", {
-  comptime_assert((__yo_type_get_variant_name(ColorR, 0) == "Red"), "variant 0 is Red");
-  comptime_assert((__yo_type_get_variant_name(ColorR, 1) == "Green"), "variant 1 is Green");
-  comptime_assert((__yo_type_get_variant_name(ColorR, 2) == "Blue"), "variant 2 is Blue");
+test "type reflection variant name via Type.get_enum_variants", {
+  variants :: Type.get_enum_variants(ColorR);
+  comptime_assert((variants.get(usize(0)).name == "Red"), "variant 0 is Red");
+  comptime_assert((variants.get(usize(1)).name == "Green"), "variant 1 is Green");
+  comptime_assert((variants.get(usize(2)).name == "Blue"), "variant 2 is Blue");
 };
 
 ShapeR :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
 
-test "type reflection __yo_type_get_variant_field_count", {
-  comptime_assert((__yo_type_get_variant_field_count(ShapeR, 0) == 1), "Circle has 1 field");
-  comptime_assert((__yo_type_get_variant_field_count(ShapeR, 1) == 2), "Rect has 2 fields");
+test "type reflection variant field count via VariantInfo.fields", {
+  variants :: Type.get_enum_variants(ShapeR);
+  comptime_assert((variants.get(usize(0)).fields.len() == usize(1)), "Circle has 1 field");
+  comptime_assert((variants.get(usize(1)).fields.len() == usize(2)), "Rect has 2 fields");
 };
 
-test "type reflection __yo_type_get_variant_field_name", {
-  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 0, 0) == "radius"), "Circle field 0 is radius");
-  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 1, 0) == "w"), "Rect field 0 is w");
-  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 1, 1) == "h"), "Rect field 1 is h");
+test "type reflection variant field name via VariantInfo.fields", {
+  variants :: Type.get_enum_variants(ShapeR);
+  comptime_assert((variants.get(usize(0)).fields.get(usize(0)).name == "radius"), "Circle field 0 is radius");
+  comptime_assert((variants.get(usize(1)).fields.get(usize(0)).name == "w"), "Rect field 0 is w");
+  comptime_assert((variants.get(usize(1)).fields.get(usize(1)).name == "h"), "Rect field 1 is h");
 };
 
-test "type reflection __yo_type_get_variant_field_type", {
-  comptime_assert(__yo_are_types_compatible(__yo_type_get_variant_field_type(ShapeR, 0, 0), i32), "Circle.radius is i32");
-  comptime_assert(__yo_are_types_compatible(__yo_type_get_variant_field_type(ShapeR, 1, 0), i32), "Rect.w is i32");
+test "type reflection variant field type via VariantInfo.fields", {
+  variants :: Type.get_enum_variants(ShapeR);
+  comptime_assert(__yo_are_types_compatible(variants.get(usize(0)).fields.get(usize(0)).field_type, i32), "Circle.radius is i32");
+  comptime_assert(__yo_are_types_compatible(variants.get(usize(1)).fields.get(usize(0)).field_type, i32), "Rect.w is i32");
 };
 
 // ============================================================

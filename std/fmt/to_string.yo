@@ -258,14 +258,14 @@ __ts_s5 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, com
   ((((a + b) + c) + d) + e)
 );
 __ts_fold_range :: (fn(
-  comptime(n) : comptime_int,
+  comptime(n) : usize,
   comptime(init) : comptime_string,
-  comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : comptime_int) -> comptime(comptime_string))
+  comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : usize) -> comptime(comptime_string))
 ) -> comptime(comptime_string))(
   cond(
-    (n == 0) => init,
-    (n == 1) => f(init, 0),
-    true => f(recur((n - 1), init, f), (n - 1))
+    (n == usize(0)) => init,
+    (n == usize(1)) => f(init, usize(0)),
+    true => f(recur((n - usize(1)), init, f), (n - usize(1)))
   )
 );
 
@@ -279,20 +279,26 @@ __derive_join_plus :: (fn(comptime(parts) : comptime_string, comptime(new_part) 
 
 __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
   {
-    type_name :: __yo_type_get_name(T);
+    type_name :: __yo_type_to_comptime_string(T);
+    info :: Type.get_info(T);
     cond(
-      __yo_type_is_struct(T) => {
-        fc :: __yo_type_field_count(T);
+      info.is_struct() => {
+        fields :: Type.get_struct_fields(T);
+        fc :: fields.len();
         cond(
           (fc == 0) => {
-            code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> String.from(\"", __ts_s2(type_name, "()\"))\n))"));
-            code.to_expr()
+            label :: __ts_s3("String.from(\"", type_name, "()\")");
+            ctx.make_impl(quote(
+              ToString(
+                to_string : ((self) -> #(label.to_expr()))
+              )
+            ))
           },
           true => {
             body :: __ts_fold_range(fc, __ts_s3("String.from(\"", type_name, "(\")" ),
-              (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+              (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
                 {
-                  fname :: __yo_type_get_field_name(T, fi);
+                  fname :: fields.get(fi).name;
                   with_sep :: cond(
                     (fi == 0) => a,
                     true => __derive_join_plus(a, "String.from(\", \")")
@@ -302,26 +308,29 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
               )
             );
             full_body :: __derive_join_plus(body, "String.from(\")\")");
-            code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> ", __ts_s2(full_body, ")\n))"));
-            code.to_expr()
+            ctx.make_impl(quote(
+              ToString(
+                to_string : ((self) -> #(full_body.to_expr()))
+              )
+            ))
           }
         )
       },
-      __yo_type_is_enum(T) => {
-        vc :: __yo_type_variant_count(T);
+      info.is_enum() => {
+        variants :: Type.get_enum_variants(T);
+        vc :: variants.len();
         ts_branches :: __ts_fold_range(vc, "",
-          (fn(comptime(acc) : comptime_string, comptime(vi) : comptime_int) -> comptime(comptime_string))(
+          (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))(
             {
-              vn :: __yo_type_get_variant_name(T, vi);
-              fc :: __yo_type_get_variant_field_count(T, vi);
+              v :: variants.get(vi);
               branch :: cond(
-                (fc == 0) =>
-                  __ts_s5(".", vn, " => String.from(\"", type_name, __ts_s3(".", vn, "\")")),
+                (v.fields.len() == 0) =>
+                  __ts_s5(".", v.name, " => String.from(\"", type_name, __ts_s3(".", v.name, "\")")),
                 true => {
-                  bindings :: __ts_fold_range(fc, "",
-                    (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+                  bindings :: __ts_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
                       {
-                        fname :: __yo_type_get_variant_field_name(T, vi, fi);
+                        fname :: v.fields.get(fi).name;
                         cond(
                           (a == "") => __ts_s2("__v_", fname),
                           true => __ts_s3(a, ", __v_", fname)
@@ -329,11 +338,11 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                       }
                     )
                   );
-                  body :: __ts_fold_range(fc,
-                    __ts_s5("String.from(\"", type_name, ".", vn, "(\")" ),
-                    (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+                  body :: __ts_fold_range(v.fields.len(),
+                    __ts_s5("String.from(\"", type_name, ".", v.name, "(\")" ),
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
                       {
-                        fname :: __yo_type_get_variant_field_name(T, vi, fi);
+                        fname :: v.fields.get(fi).name;
                         with_sep :: cond(
                           (fi == 0) => a,
                           true => __derive_join_plus(a, "String.from(\", \")")
@@ -343,7 +352,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                     )
                   );
                   full_body :: __derive_join_plus(body, "String.from(\")\")");
-                  __ts_s4(".", vn, __ts_s3("(", bindings, ") => "), full_body)
+                  __ts_s4(".", v.name, __ts_s3("(", bindings, ") => "), full_body)
                 }
               );
               cond(
@@ -353,17 +362,20 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
             }
           )
         );
-        code :: __ts_s4(
-          __ts_s3("impl(", type_name, ", ToString(\n  to_string : ((self) -> match(self.*,\n    "),
-          ts_branches,
-          "\n  ))\n",
-          "))"
-        );
-        code.to_expr()
+        match_body :: __ts_s3("match(self.*,\n    ", ts_branches, "\n  )");
+        ctx.make_impl(quote(
+          ToString(
+            to_string : ((self) -> #(match_body.to_expr()))
+          )
+        ))
       },
       true => {
-        code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> String.from(\"", __ts_s2(type_name, "\"))\n))"));
-        code.to_expr()
+        label :: __ts_s3("String.from(\"", type_name, "\")");
+        ctx.make_impl(quote(
+          ToString(
+            to_string : ((self) -> #(label.to_expr()))
+          )
+        ))
       }
     )
   }

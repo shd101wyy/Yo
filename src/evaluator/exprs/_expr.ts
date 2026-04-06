@@ -25,6 +25,7 @@ import {
   evaluateYoComptimeListCdr,
   evaluateYoComptimeListCons,
   evaluateYoComptimeListElementType,
+  evaluateYoComptimeListGet,
   evaluateYoComptimeListLength,
 } from "../builtins/comptime-list-fns";
 import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime-numeric-fns";
@@ -81,19 +82,11 @@ import {
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
-  evaluateYoTypeIsStruct,
-  evaluateYoTypeIsEnum,
   evaluateYoTypeGetTag,
   evaluateYoTypeGetInfo,
-  evaluateYoTypeGetName,
+  evaluateYoTypeGetFields,
+  evaluateYoTypeGetVariants,
   evaluateYoTypeFieldCount,
-  evaluateYoTypeGetFieldName,
-  evaluateYoTypeGetFieldType,
-  evaluateYoTypeVariantCount,
-  evaluateYoTypeGetVariantName,
-  evaluateYoTypeGetVariantFieldCount,
-  evaluateYoTypeGetVariantFieldName,
-  evaluateYoTypeGetVariantFieldType,
   evaluateComptimeEval,
   evaluateComptimeStringToExpr,
   evaluateTypeJoinFields,
@@ -824,6 +817,15 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_get)
+    ) {
+      // __yo_comptime_list_get
+      return evaluateYoComptimeListGet({
+        expr,
+        env,
+        context: { ...context },
+      });
     }
     // All numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64, comptime_int, comptime_float)
     else if (
@@ -1018,14 +1020,6 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_struct, 1)
-    ) {
-      return evaluateYoTypeIsStruct({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_enum, 1)
-    ) {
-      return evaluateYoTypeIsEnum({ expr, env, context: { ...context } });
-    } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_tag, 1)
     ) {
       return evaluateYoTypeGetTag({ expr, env, context: { ...context } });
@@ -1034,69 +1028,17 @@ ${exprToString(expr)}`,
     ) {
       return evaluateYoTypeGetInfo({ expr, env, context: { ...context } });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_name, 1)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_fields, 1)
     ) {
-      return evaluateYoTypeGetName({ expr, env, context: { ...context } });
+      return evaluateYoTypeGetFields({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_variants, 1)
+    ) {
+      return evaluateYoTypeGetVariants({ expr, env, context: { ...context } });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_field_count, 1)
     ) {
       return evaluateYoTypeFieldCount({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_field_name, 2)
-    ) {
-      return evaluateYoTypeGetFieldName({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_field_type, 2)
-    ) {
-      return evaluateYoTypeGetFieldType({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_variant_count, 1)
-    ) {
-      return evaluateYoTypeVariantCount({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_variant_name, 2)
-    ) {
-      return evaluateYoTypeGetVariantName({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_type_get_variant_field_count,
-        2
-      )
-    ) {
-      return evaluateYoTypeGetVariantFieldCount({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_type_get_variant_field_name,
-        3
-      )
-    ) {
-      return evaluateYoTypeGetVariantFieldName({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_type_get_variant_field_type,
-        3
-      )
-    ) {
-      return evaluateYoTypeGetVariantFieldType({
-        expr,
-        env,
-        context: { ...context },
-      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_eval, 1)) {
       return evaluateComptimeEval({ expr, env, context: { ...context } });
     } else if (

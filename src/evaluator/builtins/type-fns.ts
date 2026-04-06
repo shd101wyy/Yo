@@ -61,7 +61,6 @@ import {
   createTypeValue,
   createUnknownValue,
   createComptimeListValue as createComptimeListValueFn,
-  isComptimeIntValue,
   isComptimeStringValue,
   isExprValue,
   isFunctionValue,
@@ -557,128 +556,6 @@ function evaluateTypeArg({
   }
 
   return { type: arg.$.value.value, env: arg.$.env };
-}
-
-/** Helper: evaluate type arg + comptime_int index */
-function evaluateTypeAndIndexArgs({
-  expr,
-  env,
-  context,
-  builtinName,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-  builtinName: string;
-}): { type: Type; index: number; env: Environment } {
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `${builtinName}: first argument must be a Type`,
-    });
-  }
-
-  const indexArg = evaluateExpression({
-    expr: expr.args[1]!,
-    env: typeArg.$.env,
-    context: { ...context },
-  });
-
-  if (!indexArg.$) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `${builtinName}: second argument must be a comptime_int`,
-    });
-  }
-
-  // Index may be unknown (e.g., in a comptime function body with SomeType)
-  const index = isComptimeIntValue(indexArg.$.value)
-    ? Number(indexArg.$.value.value)
-    : -1; // -1 signals unknown index
-
-  return {
-    type: typeArg.$.value.value,
-    index,
-    env: indexArg.$.env,
-  };
-}
-
-/** __yo_type_is_struct(T) -> comptime(bool) */
-export function evaluateYoTypeIsStruct({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_is_struct",
-  });
-
-  if (isSomeType(type)) {
-    const value = createUnknownValue(createBooleanType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  const value = createBooleanValue(isStructType(type));
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_is_enum(T) -> comptime(bool) */
-export function evaluateYoTypeIsEnum({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_is_enum",
-  });
-
-  if (isSomeType(type)) {
-    const value = createUnknownValue(createBooleanType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  const value = createBooleanValue(isEnumType(type));
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
 }
 
 /** __yo_type_get_tag(T) -> comptime(TypeTag)
@@ -1275,7 +1152,7 @@ function bindTempVariantInfoList(
     const viResult = createVariantInfoValue(
       env,
       variant.name,
-      variant.fields?.length ?? 0,
+      variant.fields ?? [],
       enumType,
       i,
       context
@@ -1591,43 +1468,6 @@ function bindTempTraitInfoList(
   return bindComptimeList(env, values, "TraitInfo", "trl_" + prefix, context);
 }
 
-/** __yo_type_get_name(T) -> comptime(comptime_string) */
-export function evaluateYoTypeGetName({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_name",
-  });
-
-  if (isSomeType(type)) {
-    const value = createUnknownValue(createComptimeStringType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  const name = type.typeName ?? typeToString(type);
-  const value = createComptimeStringValue(name);
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
 /** __yo_type_field_count(T) -> comptime(comptime_int) */
 export function evaluateYoTypeFieldCount({
   expr,
@@ -1664,480 +1504,6 @@ export function evaluateYoTypeFieldCount({
   const value = createComptimeIntValue(BigInt(type.fields.length));
   expr.$ = {
     env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_field_name(T, index) -> comptime(comptime_string) */
-export function evaluateYoTypeGetFieldName({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const {
-    type,
-    index,
-    env: nextEnv,
-  } = evaluateTypeAndIndexArgs({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_field_name",
-  });
-
-  if (isSomeType(type) || index === -1) {
-    const value = createUnknownValue(createComptimeStringType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isStructType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_field_name: expected a struct type, got: ${typeToString(type)}`,
-    });
-  }
-
-  if (index < 0 || index >= type.fields.length) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_field_name: index ${index} out of bounds for ${typeToString(type)} with ${type.fields.length} fields`,
-    });
-  }
-
-  const value = createComptimeStringValue(type.fields[index]!.label);
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_field_type(T, index) -> comptime(Type) */
-export function evaluateYoTypeGetFieldType({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const {
-    type,
-    index,
-    env: nextEnv,
-  } = evaluateTypeAndIndexArgs({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_field_type",
-  });
-
-  if (isSomeType(type) || index === -1) {
-    const value = createUnknownValue(createTypeValue(type).type, {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isStructType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_field_type: expected a struct type, got: ${typeToString(type)}`,
-    });
-  }
-
-  if (index < 0 || index >= type.fields.length) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_field_type: index ${index} out of bounds for ${typeToString(type)} with ${type.fields.length} fields`,
-    });
-  }
-
-  const fieldType = type.fields[index]!.type;
-  const value = createTypeValue(fieldType);
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_variant_count(T) -> comptime(comptime_int) */
-export function evaluateYoTypeVariantCount({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_variant_count",
-  });
-
-  if (isSomeType(type)) {
-    const value = createUnknownValue(createComptimeIntType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isEnumType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_variant_count: expected an enum type, got: ${typeToString(type)}`,
-    });
-  }
-
-  const value = createComptimeIntValue(BigInt(type.variants.length));
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_variant_name(T, index) -> comptime(comptime_string) */
-export function evaluateYoTypeGetVariantName({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const {
-    type,
-    index,
-    env: nextEnv,
-  } = evaluateTypeAndIndexArgs({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_variant_name",
-  });
-
-  if (isSomeType(type) || index === -1) {
-    const value = createUnknownValue(createComptimeStringType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isEnumType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_name: expected an enum type, got: ${typeToString(type)}`,
-    });
-  }
-
-  if (index < 0 || index >= type.variants.length) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_name: index ${index} out of bounds for ${typeToString(type)} with ${type.variants.length} variants`,
-    });
-  }
-
-  const value = createComptimeStringValue(type.variants[index]!.name);
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_variant_field_count(T, index) -> comptime(comptime_int) */
-export function evaluateYoTypeGetVariantFieldCount({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const {
-    type,
-    index,
-    env: nextEnv,
-  } = evaluateTypeAndIndexArgs({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_variant_field_count",
-  });
-
-  if (isSomeType(type) || index === -1) {
-    const value = createUnknownValue(createComptimeIntType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isEnumType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_field_count: expected an enum type, got: ${typeToString(type)}`,
-    });
-  }
-
-  if (index < 0 || index >= type.variants.length) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_field_count: index ${index} out of bounds`,
-    });
-  }
-
-  const variant = type.variants[index]!;
-  const fieldCount = variant.fields?.length ?? 0;
-  const value = createComptimeIntValue(BigInt(fieldCount));
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_variant_field_name(T, variantIndex, fieldIndex) -> comptime(comptime_string) */
-export function evaluateYoTypeGetVariantFieldName({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: first argument must be a Type`,
-    });
-  }
-
-  const variantIndexArg = evaluateExpression({
-    expr: expr.args[1]!,
-    env: typeArg.$.env,
-    context: { ...context },
-  });
-
-  if (!variantIndexArg.$) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: second argument must be a comptime_int`,
-    });
-  }
-
-  const fieldIndexArg = evaluateExpression({
-    expr: expr.args[2]!,
-    env: variantIndexArg.$.env,
-    context: { ...context },
-  });
-
-  if (!fieldIndexArg.$) {
-    throw formatErrorMessage({
-      token: expr.args[2]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: third argument must be a comptime_int`,
-    });
-  }
-
-  const type = typeArg.$.value.value;
-
-  // Handle SomeType or unknown indices
-  if (
-    isSomeType(type) ||
-    !isComptimeIntValue(variantIndexArg.$.value) ||
-    !isComptimeIntValue(fieldIndexArg.$.value)
-  ) {
-    const value = createUnknownValue(createComptimeStringType(), {
-      env: fieldIndexArg.$.env,
-      context,
-    });
-    expr.$ = {
-      env: fieldIndexArg.$.env,
-      type: value.type,
-      value,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  const variantIndex = Number(variantIndexArg.$.value.value);
-  const fieldIndex = Number(fieldIndexArg.$.value.value);
-
-  if (!isEnumType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: expected an enum type`,
-    });
-  }
-
-  const variant = type.variants[variantIndex];
-  if (!variant) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: variant index ${variantIndex} out of bounds`,
-    });
-  }
-
-  const field = variant.fields?.[fieldIndex];
-  if (!field) {
-    throw formatErrorMessage({
-      token: expr.args[2]!.token,
-      errorMessage: `__yo_type_get_variant_field_name: field index ${fieldIndex} out of bounds for variant ${variant.name}`,
-    });
-  }
-
-  const value = createComptimeStringValue(field.label);
-  expr.$ = {
-    env: fieldIndexArg.$.env,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/** __yo_type_get_variant_field_type(T, variantIndex, fieldIndex) -> comptime(Type) */
-export function evaluateYoTypeGetVariantFieldType({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: first argument must be a Type`,
-    });
-  }
-
-  const variantIndexArg = evaluateExpression({
-    expr: expr.args[1]!,
-    env: typeArg.$.env,
-    context: { ...context },
-  });
-
-  if (!variantIndexArg.$) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: second argument must be a comptime_int`,
-    });
-  }
-
-  const fieldIndexArg = evaluateExpression({
-    expr: expr.args[2]!,
-    env: variantIndexArg.$.env,
-    context: { ...context },
-  });
-
-  if (!fieldIndexArg.$) {
-    throw formatErrorMessage({
-      token: expr.args[2]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: third argument must be a comptime_int`,
-    });
-  }
-
-  const type = typeArg.$.value.value;
-
-  // Handle SomeType or unknown indices
-  if (
-    isSomeType(type) ||
-    !isComptimeIntValue(variantIndexArg.$.value) ||
-    !isComptimeIntValue(fieldIndexArg.$.value)
-  ) {
-    const value = createUnknownValue(createTypeValue(type).type, {
-      env: fieldIndexArg.$.env,
-      context,
-    });
-    expr.$ = {
-      env: fieldIndexArg.$.env,
-      type: value.type,
-      value,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  const variantIndex = Number(variantIndexArg.$.value.value);
-  const fieldIndex = Number(fieldIndexArg.$.value.value);
-
-  if (!isEnumType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: expected an enum type`,
-    });
-  }
-
-  const variant = type.variants[variantIndex];
-  if (!variant) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: variant index ${variantIndex} out of bounds`,
-    });
-  }
-
-  const field = variant.fields?.[fieldIndex];
-  if (!field) {
-    throw formatErrorMessage({
-      token: expr.args[2]!.token,
-      errorMessage: `__yo_type_get_variant_field_type: field index ${fieldIndex} out of bounds for variant ${variant.name}`,
-    });
-  }
-
-  const value = createTypeValue(field.type);
-  expr.$ = {
-    env: fieldIndexArg.$.env,
     type: value.type,
     value,
     pathCollection: [],
@@ -2685,7 +2051,7 @@ export function evaluateTypeMapVariants({
     const { value: variantInfoValue, env: env2 } = createVariantInfoValue(
       env,
       variant.name,
-      variant.fields?.length ?? 0,
+      variant.fields ?? [],
       targetType,
       i,
       context
@@ -2815,7 +2181,7 @@ export function evaluateTypeJoinVariants({
     const { value: variantInfoValue, env: env2 } = createVariantInfoValue(
       env,
       variant.name,
-      variant.fields?.length ?? 0,
+      variant.fields ?? [],
       targetType,
       i,
       context
@@ -2861,7 +2227,7 @@ export function evaluateTypeJoinVariants({
 function createVariantInfoValue(
   env: Environment,
   variantName: string,
-  fieldCount: number,
+  variantFields: TypeField[],
   enumType: Type,
   variantIndex: number,
   context: EvaluatorContext
@@ -2874,8 +2240,12 @@ function createVariantInfoValue(
     value: createTypeValue(enumType),
   });
 
+  // Build ComptimeList(TypeFieldInfo) for variant fields
+  const fieldsTmp = bindTempTypeFieldList(env, variantFields, context);
+  env = fieldsTmp.env;
+
   const escapedName = JSON.stringify(variantName);
-  const code = `VariantInfo(${escapedName}, ${fieldCount}, ${tempEnumTypeName}, ${variantIndex})`;
+  const code = `VariantInfo(${escapedName}, ${fieldsTmp.name}, ${tempEnumTypeName}, ${variantIndex})`;
   const callExpr = generateExprFromCode(code);
   const result = evaluateExpression({
     expr: callExpr,
@@ -2897,4 +2267,168 @@ function createVariantInfoValue(
  */
 function createExprListValue(elements: Value[]) {
   return createComptimeListValueFn(createExprType(), elements);
+}
+
+/**
+ * __yo_type_get_fields(T) -> ComptimeList(TypeFieldInfo)
+ *
+ * Returns the struct fields of T as a ComptimeList(TypeFieldInfo).
+ * Panics if T is not a struct type.
+ */
+export function evaluateYoTypeGetFields({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_fields, 1);
+
+  const typeArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_get_fields: argument must be a Type`,
+    });
+  }
+  env = typeArg.$.env;
+  const targetType = typeArg.$.value.value;
+
+  if (isSomeType(targetType) || isTypeHierarchyType(targetType)) {
+    // Return UnknownValue with correct ComptimeList(TypeFieldInfo) type
+    const dummyExpr = generateExprFromCode(
+      'comptime_list(TypeFieldInfo("_", unit))'
+    );
+    const dummyResult = evaluateExpression({
+      expr: dummyExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (dummyResult.$ && dummyResult.$.value) {
+      const value = createUnknownValue(dummyResult.$.type, { env, context });
+      expr.$ = { env, type: value.type, value, pathCollection: [] };
+    }
+    return expr;
+  }
+
+  if (!isStructType(targetType)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_get_fields: expected a struct type, got: ${typeToString(targetType)}`,
+    });
+  }
+
+  const structType = targetType as StructType;
+  const result = bindTempTypeFieldList(env, structType.fields, context);
+  env = result.env;
+
+  // Evaluate the bound list variable to get its value
+  const listExpr = generateExprFromCode(result.name);
+  const listResult = evaluateExpression({
+    expr: listExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!listResult.$ || !listResult.$.value) {
+    throw new Error(`__yo_type_get_fields: failed to evaluate field list`);
+  }
+
+  expr.$ = {
+    env: listResult.$.env,
+    type: listResult.$.type,
+    value: listResult.$.value,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * __yo_type_get_variants(T) -> ComptimeList(VariantInfo)
+ *
+ * Returns the enum variants of T as a ComptimeList(VariantInfo).
+ * Panics if T is not an enum type.
+ */
+export function evaluateYoTypeGetVariants({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_type_get_variants,
+    1
+  );
+
+  const typeArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_get_variants: argument must be a Type`,
+    });
+  }
+  env = typeArg.$.env;
+  const targetType = typeArg.$.value.value;
+
+  if (isSomeType(targetType) || isTypeHierarchyType(targetType)) {
+    // Return UnknownValue with correct ComptimeList(VariantInfo) type
+    const dummyExpr = generateExprFromCode(
+      'comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, 0))'
+    );
+    const dummyResult = evaluateExpression({
+      expr: dummyExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (dummyResult.$ && dummyResult.$.value) {
+      const value = createUnknownValue(dummyResult.$.type, { env, context });
+      expr.$ = { env, type: value.type, value, pathCollection: [] };
+    }
+    return expr;
+  }
+
+  if (!isEnumType(targetType)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_get_variants: expected an enum type, got: ${typeToString(targetType)}`,
+    });
+  }
+
+  const enumType = targetType as EnumType;
+  const result = bindTempVariantInfoList(env, enumType, context);
+  env = result.env;
+
+  // Evaluate the bound list variable to get its value
+  const listExpr = generateExprFromCode(result.name);
+  const listResult = evaluateExpression({
+    expr: listExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!listResult.$ || !listResult.$.value) {
+    throw new Error(`__yo_type_get_variants: failed to evaluate variant list`);
+  }
+
+  expr.$ = {
+    env: listResult.$.env,
+    type: listResult.$.type,
+    value: listResult.$.value,
+    pathCollection: [],
+  };
+  return expr;
 }

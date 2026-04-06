@@ -316,8 +316,9 @@ impl(bool, MyEq(bool)(
 // Register derive rule for MyEq: field-wise equality (structs and fieldless enums)
 my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
   {
+    info :: Type.get_info(T);
     eq_body :: cond(
-      __yo_type_is_struct(T) => cond(
+      info.is_struct() => cond(
         (__yo_type_field_count(T) == 0) => quote(true),
         true => __yo_type_join_fields(
           T,
@@ -327,12 +328,12 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           quote(&&)
         )
       ),
-      __yo_type_is_enum(T) => {
+      info.is_enum() => {
         match_branches :: __yo_type_map_variants(
           T,
           (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
             cond(
-              (variant.field_count == 0) => quote(
+              (variant.fields.len() == usize(0)) => quote(
                 .(#(variant.name.to_expr())) => match(other,
                   .(#(variant.name.to_expr())) => true,
                   _ => false

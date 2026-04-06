@@ -180,10 +180,12 @@ Represents an enum variant:
 VariantInfo :: struct(
   name : comptime_string,
   fields : ComptimeList(TypeFieldInfo),
-  field_count : comptime_int,
-  has_discriminant : bool
+  _enum_type : Type,        // internal: parent enum type
+  _variant_index : comptime_int  // internal: variant index
 );
 ```
+
+The `fields` list contains `TypeFieldInfo` entries for each variant field. Use `v.fields.len()` to get the field count.
 
 ### StructKind
 
@@ -303,7 +305,7 @@ comptime_assert((describe(Point) == "struct type"), "Point description");
 
 ## Using with derive_rule
 
-`TypeInfo` is designed to work with `derive_rule` for powerful compile-time code generation. Type reflection builtins like `__yo_type_field_count`, `__yo_type_join_fields`, etc. remain available for backward compatibility, but `TypeInfo` provides a more structured alternative:
+`TypeInfo` is designed to work with `derive_rule` for powerful compile-time code generation:
 
 ```rust
 // Using TypeInfo to check type kind in a derive rule
@@ -323,6 +325,8 @@ The `Type` type provides static methods for compile-time type analysis:
 | Method                          | Description                                              |
 | ------------------------------- | -------------------------------------------------------- |
 | `Type.get_info(T)`              | Returns `TypeInfo` enum for type `T`                     |
+| `Type.get_struct_fields(T)`     | Returns `ComptimeList(TypeFieldInfo)` for struct `T`     |
+| `Type.get_enum_variants(T)`     | Returns `ComptimeList(VariantInfo)` for enum `T`         |
 | `Type.eq(A, B)`                 | Exact type equality (nominal — same definition required) |
 | `Type.neq(A, B)`                | Type inequality (negation of `Type.eq`)                  |
 | `Type.is_compatible_with(A, B)` | Loose type compatibility (allows coercion)               |
@@ -348,24 +352,20 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 ## Builtin Functions
 
-| Builtin                                      | Description                                |
-| -------------------------------------------- | ------------------------------------------ |
-| `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`            |
-| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion) |
-| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal) |
-| `__yo_type_is_struct(T)`                     | Checks if `T` is a struct                  |
-| `__yo_type_is_enum(T)`                       | Checks if `T` is an enum                   |
-| `__yo_type_field_count(T)`                   | Number of fields in struct/enum            |
-| `__yo_type_get_name(T)`                      | Type name as `comptime_string`             |
-| `__yo_type_get_field_name(T, i)`             | Field name at index `i`                    |
-| `__yo_type_get_field_type(T, i)`             | Field type at index `i`                    |
-| `__yo_type_variant_count(T)`                 | Number of enum variants                    |
-| `__yo_type_get_variant_name(T, i)`           | Variant name at index `i`                  |
-| `__yo_type_get_variant_field_count(T, i)`    | Number of fields in variant `i`            |
-| `__yo_type_get_variant_field_name(T, i, j)`  | Field `j` name in variant `i`              |
-| `__yo_type_get_variant_field_type(T, i, j)`  | Field `j` type in variant `i`              |
-| `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields              |
-| `__yo_type_map_variants(T, mapper)`          | Map over enum variants                     |
+| Builtin                                      | Description                                             |
+| -------------------------------------------- | ------------------------------------------------------- |
+| `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`                         |
+| `__yo_type_get_fields(T)`                    | Returns `ComptimeList(TypeFieldInfo)` for struct fields |
+| `__yo_type_get_variants(T)`                  | Returns `ComptimeList(VariantInfo)` for enum variants   |
+| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion)              |
+| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal)              |
+| `__yo_type_field_count(T)`                   | Number of fields in struct                              |
+| `__yo_type_to_comptime_string(T)`            | Type name as `comptime_string`                          |
+| `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields                           |
+| `__yo_type_map_variants(T, mapper)`          | Map over enum variants                                  |
+| `__yo_type_impls(T, Marker)`                 | Checks if type implements a marker trait                |
+| `__yo_type_contains_rc_type(T)`              | Checks for reference-counted fields                     |
+| `__yo_type_can_form_rc_cycle(T)`             | Checks for potential RC cycles                          |
 
 ## Design Document
 

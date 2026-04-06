@@ -791,6 +791,7 @@ export const BuiltinFunctions = {
   __yo_comptime_list_append: ["__yo_comptime_list_append"],
   __yo_comptime_list_length: ["__yo_comptime_list_length"],
   __yo_comptime_list_element_type: ["__yo_comptime_list_element_type"],
+  __yo_comptime_list_get: ["__yo_comptime_list_get"],
 
   // comptime_int related functions
   /// 2 args
@@ -1141,20 +1142,9 @@ export const BuiltinFunctions = {
   // Type reflection builtins
   __yo_type_get_tag: ["__yo_type_get_tag"],
   __yo_type_get_info: ["__yo_type_get_info"],
-  __yo_type_is_struct: ["__yo_type_is_struct"],
-  __yo_type_is_enum: ["__yo_type_is_enum"],
-  __yo_type_get_name: ["__yo_type_get_name"],
   __yo_type_get_fields: ["__yo_type_get_fields"],
   __yo_type_field_count: ["__yo_type_field_count"],
-  __yo_type_get_field_name: ["__yo_type_get_field_name"],
-  __yo_type_get_field_type: ["__yo_type_get_field_type"],
   __yo_type_get_variants: ["__yo_type_get_variants"],
-  __yo_type_variant_count: ["__yo_type_variant_count"],
-  __yo_type_get_variant_name: ["__yo_type_get_variant_name"],
-  __yo_type_get_variant_fields: ["__yo_type_get_variant_fields"],
-  __yo_type_get_variant_field_count: ["__yo_type_get_variant_field_count"],
-  __yo_type_get_variant_field_name: ["__yo_type_get_variant_field_name"],
-  __yo_type_get_variant_field_type: ["__yo_type_get_variant_field_type"],
 
   // comptime_eval builtin
   comptime_eval: ["comptime_eval"],
