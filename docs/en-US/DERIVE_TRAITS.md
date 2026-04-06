@@ -250,60 +250,7 @@ Registered rules always take priority over built-in derives.
 
 ## Type Reflection
 
-Derive rules can use two levels of type reflection:
-
-### TypeInfo (Recommended)
-
-`Type.get_info(T)` returns a `TypeInfo` enum with rich structural metadata:
-
-```rust
-info :: Type.get_info(T);
-comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
-
-// Extract struct fields
-field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
-
-// Check struct kind (Struct, Object, NewType)
-is_newtype :: match(info,
-  .Struct(_, k) => match(k, .NewType => true, _ => false),
-  _ => false
-);
-```
-
-For the full TypeInfo documentation, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).
-
-### Low-Level Builtins
-
-These builtins are used internally by `derive` and are available for derive rules:
-
-| Builtin                                        | Description                                            |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| `__yo_type_is_struct(T)`                       | Returns `true` if T is a struct type                   |
-| `__yo_type_is_enum(T)`                         | Returns `true` if T is an enum type                    |
-| `__yo_type_get_name(T)`                        | Returns the type name as a `comptime_string`           |
-| `__yo_type_field_count(T)`                     | Returns the number of struct fields                    |
-| `__yo_type_get_field_name(T, i)`               | Returns the name of the i-th field                     |
-| `__yo_type_get_field_type(T, i)`               | Returns the type of the i-th field                     |
-| `__yo_type_variant_count(T)`                   | Returns the number of enum variants                    |
-| `__yo_type_get_variant_name(T, i)`             | Returns the name of the i-th variant                   |
-| `__yo_type_get_variant_field_count(T, i)`      | Returns the number of fields in the i-th variant       |
-| `__yo_type_get_variant_field_name(T, i, j)`    | Returns the name of the j-th field in the i-th variant |
-| `__yo_type_get_variant_field_type(T, i, j)`    | Returns the type of the j-th field in the i-th variant |
-| `__yo_type_join_fields(T, mapper, combiner)`   | Map over fields and combine with an operator           |
-| `__yo_type_map_variants(T, mapper)`            | Map enum variants to Expr list                         |
-| `__yo_type_join_variants(T, mapper, combiner)` | Iterate variants, combine with operator                |
-
-### Macro Builtins
-
-| Builtin                     | Description                            |
-| --------------------------- | -------------------------------------- |
-| `quote(expr)`               | Quote an expression as `Expr`          |
-| `#(expr)` / `unquote(expr)` | Splice an `Expr` into a quote          |
-| `.(#(expr))`                | Property access splicing               |
-| `...#(list)`                | Spread a `ComptimeList(Expr)`          |
-| `quote(&&)`                 | Quote an operator as `Expr`            |
-| `"str".to_expr()`           | Convert `comptime_string` to `Expr`    |
-| `comptime_eval("code")`     | Parse and evaluate a string as Yo code |
+Derive rules can inspect types at compile time using `Type.get_info(T)` and the `__yo_type_*` builtins. See [TYPE_REFLECTION.md](./TYPE_REFLECTION.md) for the full documentation.
 
 ## User-Defined Derives (Legacy)
 

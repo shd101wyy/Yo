@@ -250,60 +250,7 @@ derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), 
 
 ## 类型反射
 
-派生规则可以使用两个层次的类型反射：
-
-### TypeInfo（推荐）
-
-`Type.get_info(T)` 返回一个 `TypeInfo` 枚举，包含丰富的结构化元数据：
-
-```rust
-info :: Type.get_info(T);
-comptime_assert(info.is_struct(), "MyTrait 只能为结构体派生");
-
-// 提取结构体字段
-field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
-
-// 检查结构体类型（Struct、Object、NewType）
-is_newtype :: match(info,
-  .Struct(_, k) => match(k, .NewType => true, _ => false),
-  _ => false
-);
-```
-
-完整的 TypeInfo 文档请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
-
-### 底层内建函数
-
-这些内建函数由 `derive` 内部使用，也可用于派生规则：
-
-| 内建函数                                       | 描述                                   |
-| ---------------------------------------------- | -------------------------------------- |
-| `__yo_type_is_struct(T)`                       | 如果 T 是结构体类型则返回 `true`       |
-| `__yo_type_is_enum(T)`                         | 如果 T 是枚举类型则返回 `true`         |
-| `__yo_type_get_name(T)`                        | 返回类型名称，类型为 `comptime_string` |
-| `__yo_type_field_count(T)`                     | 返回结构体字段数量                     |
-| `__yo_type_get_field_name(T, i)`               | 返回第 i 个字段的名称                  |
-| `__yo_type_get_field_type(T, i)`               | 返回第 i 个字段的类型                  |
-| `__yo_type_variant_count(T)`                   | 返回枚举变体数量                       |
-| `__yo_type_get_variant_name(T, i)`             | 返回第 i 个变体的名称                  |
-| `__yo_type_get_variant_field_count(T, i)`      | 返回第 i 个变体的字段数量              |
-| `__yo_type_get_variant_field_name(T, i, j)`    | 返回第 i 个变体的第 j 个字段的名称     |
-| `__yo_type_get_variant_field_type(T, i, j)`    | 返回第 i 个变体的第 j 个字段的类型     |
-| `__yo_type_join_fields(T, mapper, combiner)`   | 迭代字段，用运算符组合                 |
-| `__yo_type_map_variants(T, mapper)`            | 将枚举变体映射为 Expr 列表             |
-| `__yo_type_join_variants(T, mapper, combiner)` | 迭代变体，用运算符组合                 |
-
-### 宏内建函数
-
-| 内建函数                    | 描述                               |
-| --------------------------- | ---------------------------------- |
-| `quote(expr)`               | 将表达式引用为 `Expr`              |
-| `#(expr)` / `unquote(expr)` | 在 quote 中拼接 `Expr`             |
-| `.(#(expr))`                | 属性访问拼接                       |
-| `...#(list)`                | 展开 `ComptimeList(Expr)`          |
-| `quote(&&)`                 | 将运算符引用为 `Expr`              |
-| `"str".to_expr()`           | 将 `comptime_string` 转换为 `Expr` |
-| `comptime_eval("code")`     | 将字符串解析并作为 Yo 代码执行     |
+派生规则可以使用 `Type.get_info(T)` 和 `__yo_type_*` 内建函数在编译期检查类型。完整文档请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
 
 ## 用户自定义派生（旧方式）
 
