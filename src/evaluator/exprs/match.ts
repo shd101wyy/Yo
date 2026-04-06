@@ -299,6 +299,7 @@ export function evaluateMatch({
   let usedWildcardPattern = false;
   const controlFlows: ControlFlowFlags[] = []; // Track control flows from all cases
   const returnBodies: Expr[] = []; // Track bodies with return control flow for validation
+  let matchedBodyIndex = -1; // Track which body index is the compile-time matched branch
 
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i]!;
@@ -524,6 +525,16 @@ export function evaluateMatch({
 
       caseEnv = evaluatedBody.$.env;
       bodies.push(evaluatedBody);
+
+      // Track the compile-time matched body index (fieldless variant path)
+      if (
+        matchedBodyIndex === -1 &&
+        isEnumValue(scrutineeValue) &&
+        !isUnknownValue(scrutineeValue) &&
+        (scrutineeValue.variantName === variantName || variantName === "_")
+      ) {
+        matchedBodyIndex = bodies.length - 1;
+      }
 
       // Set or verify the result type consistency
       if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
@@ -950,6 +961,16 @@ export function evaluateMatch({
       caseEnv = evaluatedBody.$.env;
       bodies.push(evaluatedBody);
 
+      // Track the compile-time matched body index (variant-with-fields path)
+      if (
+        matchedBodyIndex === -1 &&
+        isEnumValue(scrutineeValue) &&
+        !isUnknownValue(scrutineeValue) &&
+        (scrutineeValue.variantName === variantName || variantName === "_")
+      ) {
+        matchedBodyIndex = bodies.length - 1;
+      }
+
       // Set or verify the result type consistency
       if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
@@ -1074,15 +1095,29 @@ Supported patterns:
         !hasControlFlow(body.$.controlFlow, "escape")
     );
 
-    // For compile-time known enum value, find the matched body's value
+    // For compile-time known enum value, find the matched body's value.
+    // When the scrutinee is a concrete EnumValue, only one branch was evaluated with
+    // isExecuting=true (the matching one). Other branches (like wildcard `_`) are evaluated
+    // for type-checking but with isExecuting=false. We use matchedBodyIndex to find it.
     let matchedBodyValue: Value | undefined = undefined;
     if (
+      isEnumValue(scrutineeValue) &&
+      !isUnknownValue(scrutineeValue) &&
+      matchedBodyIndex >= 0 &&
+      matchedBodyIndex < bodies.length &&
+      bodies[matchedBodyIndex]!.$
+    ) {
+      // Use the matched body directly
+      const matchedBody = bodies[matchedBodyIndex]!.$!;
+      env = matchedBody.env;
+      matchedBodyValue = matchedBody.value;
+    } else if (
       isEnumValue(scrutineeValue) &&
       !isUnknownValue(scrutineeValue) &&
       nonReturnBodies.length === 1 &&
       nonReturnBodies[0]!.$
     ) {
-      // Compile-time known match with exactly one matching body
+      // Fallback: single non-return body
       env = nonReturnBodies[0]!.$.env;
       matchedBodyValue = nonReturnBodies[0]!.$.value;
     } else if (
