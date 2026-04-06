@@ -23,6 +23,21 @@ import type {
   StructType,
   TraitType,
   Type,
+  FunctionType,
+  ArrayType,
+  SliceType,
+  PtrType,
+  IsoType,
+  ArcType,
+  DynType,
+  SomeType as SomeTypeT,
+  TupleType,
+  UnionType,
+  ModuleType,
+  TypeHierarchyType,
+  ComptimeListType,
+  TypeField,
+  FunctionParameter,
 } from "../../types/definitions";
 import { TypeTag } from "../../types/tags";
 import {
@@ -50,9 +65,11 @@ import {
   isComptimeStringValue,
   isExprValue,
   isFunctionValue,
+  isNumberValue,
   isTypeValue,
   type Value,
 } from "../../value";
+import type { TypeValue } from "../../type-value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
@@ -766,6 +783,746 @@ function typeTagToVariantName(tag: string): string {
     default:
       throw new Error(`Unknown TypeTag: ${tag}`);
   }
+}
+
+/**
+ * __yo_type_get_info(T) -> comptime(TypeInfo)
+ *
+ * Returns a TypeInfo enum value with compound data for the given type.
+ * Primitive types return fieldless variants, compound types carry metadata.
+ */
+export function evaluateYoTypeGetInfo({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  const { type, env: nextEnv } = evaluateTypeArg({
+    expr,
+    env,
+    context,
+    builtinName: "__yo_type_get_info",
+  });
+
+  if (isSomeType(type)) {
+    // During SomeType validation, return UnknownValue with TypeInfo type
+    const typeInfoExpr = generateExprFromCode("TypeInfo.Unit");
+    const typeInfoResult = evaluateExpression({
+      expr: typeInfoExpr,
+      env: nextEnv,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (typeInfoResult.$) {
+      const value = createUnknownValue(typeInfoResult.$.type, {
+        env: nextEnv,
+        context,
+      });
+      expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
+    }
+    return expr;
+  }
+
+  let code: string;
+  let evalEnv = nextEnv;
+
+  switch (type.tag) {
+    // === Primitive (fieldless) variants ===
+    case TypeTag.Unit:
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Char:
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble:
+    case TypeTag.Void:
+    case TypeTag.Expr:
+    case TypeTag.EffectsRow:
+    case TypeTag.TypeApplication: {
+      const variantName = typeTagToVariantName(type.tag);
+      code = `TypeInfo.${variantName}`;
+      break;
+    }
+
+    // === Array(element, length) ===
+    case TypeTag.Array: {
+      const arrType = type as ArrayType;
+      const elemTmp = bindTempType(evalEnv, arrType.childType, context);
+      evalEnv = elemTmp.env;
+      const lengthValue = arrType.length;
+      let lengthStr: string;
+      if (isNumberValue(lengthValue)) {
+        lengthStr = String(lengthValue.value);
+      } else {
+        lengthStr = "0";
+      }
+      code = `TypeInfo.Array(${elemTmp.name}, ${lengthStr})`;
+      break;
+    }
+
+    // === Slice(element) ===
+    case TypeTag.Slice: {
+      const sliceType = type as SliceType;
+      const elemTmp = bindTempType(evalEnv, sliceType.childType, context);
+      evalEnv = elemTmp.env;
+      code = `TypeInfo.Slice(${elemTmp.name})`;
+      break;
+    }
+
+    // === Ptr(pointee) ===
+    case TypeTag.Ptr: {
+      const ptrType = type as PtrType;
+      const childTmp = bindTempType(evalEnv, ptrType.childType, context);
+      evalEnv = childTmp.env;
+      code = `TypeInfo.Ptr(${childTmp.name})`;
+      break;
+    }
+
+    // === Iso(child) ===
+    case TypeTag.Iso: {
+      const isoType = type as IsoType;
+      const childTmp = bindTempType(evalEnv, isoType.childType, context);
+      evalEnv = childTmp.env;
+      code = `TypeInfo.Iso(${childTmp.name})`;
+      break;
+    }
+
+    // === Arc(child) ===
+    case TypeTag.Arc: {
+      const arcType = type as ArcType;
+      const childTmp = bindTempType(evalEnv, arcType.childType, context);
+      evalEnv = childTmp.env;
+      code = `TypeInfo.Arc(${childTmp.name})`;
+      break;
+    }
+
+    // === ComptimeList(element) ===
+    case TypeTag.ComptimeList: {
+      const clType = type as ComptimeListType;
+      const elemTmp = bindTempType(evalEnv, clType.childType, context);
+      evalEnv = elemTmp.env;
+      code = `TypeInfo.ComptimeList(${elemTmp.name})`;
+      break;
+    }
+
+    // === Type(level) ===
+    case TypeTag.Type: {
+      const thType = type as TypeHierarchyType;
+      code = `TypeInfo.Type(${thType.level})`;
+      break;
+    }
+
+    // === Struct(fields, kind) ===
+    case TypeTag.Struct: {
+      const structType = type as StructType;
+      const fieldListTmp = bindTempTypeFieldList(
+        evalEnv,
+        structType.fields,
+        context
+      );
+      evalEnv = fieldListTmp.env;
+
+      let kindStr: string;
+      if (structType.isNewtype) {
+        kindStr = "StructKind.NewType";
+      } else if (structType.isReferenceSemantics) {
+        kindStr = "StructKind.Object";
+      } else {
+        kindStr = "StructKind.Struct";
+      }
+
+      code = `TypeInfo.Struct(${fieldListTmp.name}, ${kindStr})`;
+      break;
+    }
+
+    // === Enum(variants) ===
+    case TypeTag.Enum: {
+      const enumType = type as EnumType;
+      const variantListTmp = bindTempVariantInfoList(
+        evalEnv,
+        enumType,
+        context
+      );
+      evalEnv = variantListTmp.env;
+      code = `TypeInfo.Enum(${variantListTmp.name})`;
+      break;
+    }
+
+    // === Union(fields) ===
+    case TypeTag.Union: {
+      const unionType = type as UnionType;
+      const fieldListTmp = bindTempTypeFieldList(
+        evalEnv,
+        unionType.fields,
+        context
+      );
+      evalEnv = fieldListTmp.env;
+      code = `TypeInfo.Union(${fieldListTmp.name})`;
+      break;
+    }
+
+    // === Tuple(fields) ===
+    case TypeTag.Tuple: {
+      const tupleType = type as TupleType;
+      const fieldListTmp = bindTempTypeFieldList(
+        evalEnv,
+        tupleType.fields,
+        context
+      );
+      evalEnv = fieldListTmp.env;
+      code = `TypeInfo.Tuple(${fieldListTmp.name})`;
+      break;
+    }
+
+    // === Function(info) ===
+    case TypeTag.Function: {
+      const fnType = type as FunctionType;
+      const infoTmp = bindTempFunctionInfo(evalEnv, fnType, context);
+      evalEnv = infoTmp.env;
+      code = `TypeInfo.Function(${infoTmp.name})`;
+      break;
+    }
+
+    // === Module(fields) ===
+    case TypeTag.Module: {
+      const modType = type as ModuleType;
+      const fieldListTmp = bindTempTypeFieldListFromModuleFields(
+        evalEnv,
+        modType.fields,
+        context
+      );
+      evalEnv = fieldListTmp.env;
+      code = `TypeInfo.Module(${fieldListTmp.name})`;
+      break;
+    }
+
+    // === Trait(fields, kind) ===
+    case TypeTag.Trait: {
+      const traitType = type as TraitType;
+      const fieldListTmp = bindTempTraitFieldInfoList(
+        evalEnv,
+        traitType,
+        context
+      );
+      evalEnv = fieldListTmp.env;
+
+      const kindTmp = bindTempTraitKind(evalEnv, traitType, context);
+      evalEnv = kindTmp.env;
+
+      code = `TypeInfo.Trait(${fieldListTmp.name}, ${kindTmp.name})`;
+      break;
+    }
+
+    // === Dyn(required_traits, negative_traits) ===
+    case TypeTag.Dyn: {
+      const dynType = type as DynType;
+      const reqTmp = bindTempTraitInfoList(
+        evalEnv,
+        dynType.requiredTraits.map((t) => t.traitType),
+        context,
+        "req"
+      );
+      evalEnv = reqTmp.env;
+      const negTmp = bindTempTraitInfoList(
+        evalEnv,
+        dynType.negativeTraits.map((t) => t.traitType),
+        context,
+        "neg"
+      );
+      evalEnv = negTmp.env;
+      code = `TypeInfo.Dyn(${reqTmp.name}, ${negTmp.name})`;
+      break;
+    }
+
+    // === SomeType(name, required_traits, negative_traits, resolved_type) ===
+    case TypeTag.SomeType: {
+      const someType = type as SomeTypeT;
+      const escapedName = JSON.stringify(someType.name);
+      const reqTmp = bindTempTraitInfoList(
+        evalEnv,
+        someType.requiredTraits.map((t) => t.traitType),
+        context,
+        "req"
+      );
+      evalEnv = reqTmp.env;
+      const negTmp = bindTempTraitInfoList(
+        evalEnv,
+        someType.negativeTraits.map((t) => t.traitType),
+        context,
+        "neg"
+      );
+      evalEnv = negTmp.env;
+
+      let resolvedTmp: { name: string; env: Environment };
+      if (someType.resolvedConcreteType) {
+        resolvedTmp = bindTempType(
+          evalEnv,
+          someType.resolvedConcreteType,
+          context
+        );
+      } else {
+        // unit if unresolved
+        resolvedTmp = { name: "unit", env: evalEnv };
+      }
+      evalEnv = resolvedTmp.env;
+
+      code = `TypeInfo.SomeType(${escapedName}, ${reqTmp.name}, ${negTmp.name}, ${resolvedTmp.name})`;
+      break;
+    }
+
+    default:
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_type_get_info: unsupported type tag: ${type.tag}`,
+      });
+  }
+
+  const infoExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: infoExpr,
+    env: evalEnv,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `__yo_type_get_info: failed to create TypeInfo for type tag: ${type.tag}`,
+    });
+  }
+
+  expr.$ = {
+    env: nextEnv,
+    type: result.$.type,
+    value: result.$.value,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Helper: bind a Type value to a temp variable and return its name.
+ */
+function bindTempType(
+  env: Environment,
+  type: Type,
+  _context: EvaluatorContext
+): { name: string; env: Environment } {
+  const name = `__ti_t_${generateVarialeId(env.modulePath, "tit")}`;
+  const tv = createTypeValue(type);
+  env = addComptimeTempVar({ env, name, type: tv.type, value: tv });
+  return { name, env };
+}
+
+/**
+ * Helper: build a ComptimeList(TypeFieldInfo) from TypeField[] and bind to temp var.
+ */
+function bindTempTypeFieldList(
+  env: Environment,
+  fields: TypeField[],
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const fieldValues: Value[] = [];
+  for (const field of fields) {
+    const fiTmp = bindTempTypeFieldInfoValue(env, field, context);
+    env = fiTmp.env;
+    fieldValues.push(fiTmp.value);
+  }
+
+  return bindComptimeList(env, fieldValues, "TypeFieldInfo", "fl", context);
+}
+
+/**
+ * Helper: create a single TypeFieldInfo value from a TypeField and bind to temp var.
+ */
+function bindTempTypeFieldInfoValue(
+  env: Environment,
+  field: TypeField,
+  context: EvaluatorContext
+): { name: string; env: Environment; value: Value } {
+  const name = `__ti_fi_${generateVarialeId(env.modulePath, "tifi")}`;
+
+  // Bind the field type as a temp var
+  const ftTmp = bindTempType(env, field.type, context);
+  env = ftTmp.env;
+
+  const escapedLabel = JSON.stringify(field.label);
+  const code = `TypeFieldInfo(${escapedLabel}, ${ftTmp.name})`;
+  const callExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw new Error(
+      `Failed to create TypeFieldInfo for field "${field.label}"`
+    );
+  }
+
+  const value = result.$.value;
+  env = addComptimeTempVar({
+    env,
+    name,
+    type: result.$.type,
+    value,
+  });
+
+  return { name, env, value };
+}
+
+/**
+ * Helper: build a ComptimeList(VariantInfo) from EnumType and bind to temp var.
+ * Reuses existing VariantInfo struct.
+ */
+function bindTempVariantInfoList(
+  env: Environment,
+  enumType: EnumType,
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const variantValues: Value[] = [];
+  for (let i = 0; i < enumType.variants.length; i++) {
+    const variant = enumType.variants[i]!;
+    const viResult = createVariantInfoValue(
+      env,
+      variant.name,
+      variant.fields?.length ?? 0,
+      enumType,
+      i,
+      context
+    );
+    env = viResult.env;
+    variantValues.push(viResult.value);
+  }
+
+  return bindComptimeList(env, variantValues, "VariantInfo", "vl", context);
+}
+
+/**
+ * Helper: build a FunctionInfo value and bind to temp var.
+ */
+function bindTempFunctionInfo(
+  env: Environment,
+  fnType: FunctionType,
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const name = `__ti_fni_${generateVarialeId(env.modulePath, "tifni")}`;
+
+  // Build params list
+  const paramsTmp = bindTempParamInfoList(env, fnType.parameters, context);
+  env = paramsTmp.env;
+
+  // Return type
+  const retTmp = bindTempType(env, fnType.return.type, context);
+  env = retTmp.env;
+
+  // Forall params
+  const forallTmp = bindTempForallParamInfoList(
+    env,
+    fnType.forallParameters,
+    context
+  );
+  env = forallTmp.env;
+
+  // Implicit params
+  const implicitTmp = bindTempImplicitParamInfoList(
+    env,
+    fnType.implicitParameters,
+    context
+  );
+  env = implicitTmp.env;
+
+  const isClosureStr = fnType.isClosure ? "true" : "false";
+
+  const code = `FunctionInfo(${paramsTmp.name}, ${retTmp.name}, ${forallTmp.name}, ${implicitTmp.name}, ${isClosureStr})`;
+  const callExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw new Error("Failed to create FunctionInfo");
+  }
+
+  env = addComptimeTempVar({
+    env,
+    name,
+    type: result.$.type,
+    value: result.$.value,
+  });
+
+  return { name, env };
+}
+
+/**
+ * Helper: build a ComptimeList(ParamInfo) from FunctionParameter[] and bind to temp var.
+ */
+function bindTempParamInfoList(
+  env: Environment,
+  params: FunctionParameter[],
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const paramValues: Value[] = [];
+  for (const param of params) {
+    const ptTmp = bindTempType(env, param.type, context);
+    env = ptTmp.env;
+
+    const escapedName = JSON.stringify(param.label);
+    const isComptime = param.isCompileTimeOnly ? "true" : "false";
+    const isQuote = param.isQuote ? "true" : "false";
+    const isVariadic = "false";
+
+    const code = `ParamInfo(${escapedName}, ${ptTmp.name}, ${isComptime}, ${isQuote}, ${isVariadic})`;
+    const callExpr = generateExprFromCode(code);
+    const result = evaluateExpression({
+      expr: callExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!result.$ || !result.$.value) {
+      throw new Error(`Failed to create ParamInfo for param "${param.label}"`);
+    }
+
+    env = result.$.env;
+    paramValues.push(result.$.value);
+  }
+
+  return bindComptimeList(env, paramValues, "ParamInfo", "pl", context);
+}
+
+/**
+ * Helper: build a ComptimeList(ForallParamInfo) and bind to temp var.
+ */
+function bindTempForallParamInfoList(
+  env: Environment,
+  params: FunctionParameter[],
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const values: Value[] = [];
+  for (const param of params) {
+    const ptTmp = bindTempType(env, param.type, context);
+    env = ptTmp.env;
+
+    const escapedName = JSON.stringify(param.label);
+    const code = `ForallParamInfo(${escapedName}, ${ptTmp.name})`;
+    const callExpr = generateExprFromCode(code);
+    const result = evaluateExpression({
+      expr: callExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!result.$ || !result.$.value) {
+      throw new Error(
+        `Failed to create ForallParamInfo for param "${param.label}"`
+      );
+    }
+
+    env = result.$.env;
+    values.push(result.$.value);
+  }
+
+  return bindComptimeList(env, values, "ForallParamInfo", "fpl", context);
+}
+
+/**
+ * Helper: build a ComptimeList(ImplicitParamInfo) and bind to temp var.
+ */
+function bindTempImplicitParamInfoList(
+  env: Environment,
+  params: FunctionParameter[],
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const values: Value[] = [];
+  for (const param of params) {
+    const ptTmp = bindTempType(env, param.type, context);
+    env = ptTmp.env;
+
+    const escapedName = JSON.stringify(param.label);
+    const code = `ImplicitParamInfo(${escapedName}, ${ptTmp.name})`;
+    const callExpr = generateExprFromCode(code);
+    const result = evaluateExpression({
+      expr: callExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!result.$ || !result.$.value) {
+      throw new Error(
+        `Failed to create ImplicitParamInfo for param "${param.label}"`
+      );
+    }
+
+    env = result.$.env;
+    values.push(result.$.value);
+  }
+
+  return bindComptimeList(env, values, "ImplicitParamInfo", "ipl", context);
+}
+
+/**
+ * Helper: build a ComptimeList(TypeFieldInfo) from ModuleField[] and bind to temp var.
+ */
+function bindTempTypeFieldListFromModuleFields(
+  env: Environment,
+  fields: { type: Type; label: string }[],
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const typeFields = fields.map((f) => ({
+    type: f.type,
+    label: f.label,
+  })) as TypeField[];
+  return bindTempTypeFieldList(env, typeFields, context);
+}
+
+/**
+ * Helper: build a ComptimeList(TraitFieldInfo) from TraitType and bind to temp var.
+ */
+function bindTempTraitFieldInfoList(
+  env: Environment,
+  traitType: TraitType,
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const values: Value[] = [];
+  for (const field of traitType.fields) {
+    const ftTmp = bindTempType(env, field.type, context);
+    env = ftTmp.env;
+
+    const escapedName = JSON.stringify(field.label);
+    const isAssoc = field.unassignedSomeType ? "true" : "false";
+
+    const code = `TraitFieldInfo(${escapedName}, ${ftTmp.name}, ${isAssoc})`;
+    const callExpr = generateExprFromCode(code);
+    const result = evaluateExpression({
+      expr: callExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!result.$ || !result.$.value) {
+      throw new Error(
+        `Failed to create TraitFieldInfo for field "${field.label}"`
+      );
+    }
+
+    env = result.$.env;
+    values.push(result.$.value);
+  }
+
+  return bindComptimeList(env, values, "TraitFieldInfo", "tfl", context);
+}
+
+/**
+ * Helper: build a TraitKind value and bind to temp var.
+ */
+function bindTempTraitKind(
+  env: Environment,
+  traitType: TraitType,
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  const name = `__ti_tk_${generateVarialeId(env.modulePath, "titk")}`;
+
+  let code: string;
+  if (traitType.isFuture) {
+    const childTmp = bindTempType(env, traitType.isFuture.outputType, context);
+    env = childTmp.env;
+
+    // Build effects list as ComptimeList(TraitInfo)
+    const effectTypes = traitType.isFuture.effects.map((e) => e.type);
+    const effectsTmp = bindTempTraitInfoList(env, effectTypes, context, "eff");
+    env = effectsTmp.env;
+
+    code = `TraitKind.Future(${childTmp.name}, ${effectsTmp.name})`;
+  } else if (traitType.isFn) {
+    const fnInfoTmp = bindTempFunctionInfo(
+      env,
+      traitType.isFn.callType,
+      context
+    );
+    env = fnInfoTmp.env;
+    code = `TraitKind.Fn(${fnInfoTmp.name})`;
+  } else {
+    code = `TraitKind.Normal`;
+  }
+
+  const callExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw new Error("Failed to create TraitKind");
+  }
+
+  env = addComptimeTempVar({
+    env,
+    name,
+    type: result.$.type,
+    value: result.$.value,
+  });
+
+  return { name, env };
+}
+
+/**
+ * Helper: build a ComptimeList(TraitInfo) from trait types and bind to temp var.
+ */
+function bindTempTraitInfoList(
+  env: Environment,
+  traitTypes: Type[],
+  context: EvaluatorContext,
+  prefix: string
+): { name: string; env: Environment } {
+  const values: Value[] = [];
+  for (const tt of traitTypes) {
+    const ttTmp = bindTempType(env, tt, context);
+    env = ttTmp.env;
+
+    const code = `TraitInfo(${ttTmp.name})`;
+    const callExpr = generateExprFromCode(code);
+    const result = evaluateExpression({
+      expr: callExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!result.$ || !result.$.value) {
+      throw new Error("Failed to create TraitInfo");
+    }
+
+    env = result.$.env;
+    values.push(result.$.value);
+  }
+
+  return bindComptimeList(env, values, "TraitInfo", "trl_" + prefix, context);
 }
 
 /** __yo_type_get_name(T) -> comptime(comptime_string) */
@@ -1484,6 +2241,50 @@ function addComptimeTempVar({
     },
   });
   return result.env;
+}
+
+/**
+ * Helper: create a ComptimeList from values and bind to a temp var.
+ * Resolves the element type from the first value, or by evaluating a type expression string.
+ */
+function bindComptimeList(
+  env: Environment,
+  values: Value[],
+  elementTypeName: string,
+  varPrefix: string,
+  context: EvaluatorContext
+): { name: string; env: Environment } {
+  let elementType: Type;
+  if (values.length > 0) {
+    elementType = values[0]!.type;
+  } else {
+    const typeExpr = generateExprFromCode(elementTypeName);
+    const typeResult = evaluateExpression({
+      expr: typeExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (
+      !typeResult.$ ||
+      !typeResult.$.value ||
+      !isTypeValue(typeResult.$.value)
+    ) {
+      throw new Error(
+        `Failed to resolve type "${elementTypeName}" for empty ComptimeList`
+      );
+    }
+    elementType = (typeResult.$.value as TypeValue).value;
+  }
+
+  const name = `__ti_${varPrefix}_${generateVarialeId(env.modulePath, "ti" + varPrefix)}`;
+  const listValue = createComptimeListValueFn(elementType, values);
+  env = addComptimeTempVar({
+    env,
+    name,
+    type: listValue.type,
+    value: listValue,
+  });
+  return { name, env };
 }
 
 /**

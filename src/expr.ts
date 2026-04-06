@@ -1139,6 +1139,7 @@ export const BuiltinFunctions = {
 
   // Type reflection builtins
   __yo_type_get_tag: ["__yo_type_get_tag"],
+  __yo_type_get_info: ["__yo_type_get_info"],
   __yo_type_is_struct: ["__yo_type_is_struct"],
   __yo_type_is_enum: ["__yo_type_is_enum"],
   __yo_type_get_name: ["__yo_type_get_name"],

@@ -4012,91 +4012,196 @@ impl(Type, ComptimeToString(
 _Type :: Type;
 export Type : _Type;
 
-// TypeTag — compile-time enum representing the tag of a type (mirrors compiler's internal TypeTag)
-TypeTag :: enum(
-  // Primitive numeric types
-  Unit,
-  Bool,
+// === Type Reflection Metadata Structs ===
+
+// StructKind — discriminant for struct flavors
+StructKind :: enum(Struct, Object, NewType);
+impl(StructKind, Comptime());
+export StructKind;
+
+// TypeFieldInfo — Yo representation of TypeField
+TypeFieldInfo :: struct(
+  name : comptime_string,
+  field_type : Type
+);
+impl(TypeFieldInfo, Comptime());
+impl(TypeFieldInfo,
+  to_expr : (fn(comptime(self): TypeFieldInfo) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self.name)
+  )
+);
+export TypeFieldInfo;
+
+// TraitInfo — lightweight trait reference
+TraitInfo :: struct(
+  trait_type : Type
+);
+impl(TraitInfo, Comptime());
+export TraitInfo;
+
+// TraitFieldInfo — trait field metadata
+TraitFieldInfo :: struct(
+  name : comptime_string,
+  field_type : Type,
+  is_associated_type : bool
+);
+impl(TraitFieldInfo, Comptime());
+export TraitFieldInfo;
+
+// ParamInfo — function parameter metadata
+ParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type,
+  is_comptime : bool,
+  is_quote : bool,
+  is_variadic : bool
+);
+impl(ParamInfo, Comptime());
+export ParamInfo;
+
+// ForallParamInfo — forall type parameter
+ForallParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type
+);
+impl(ForallParamInfo, Comptime());
+export ForallParamInfo;
+
+// ImplicitParamInfo — using/effect parameter
+ImplicitParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type
+);
+impl(ImplicitParamInfo, Comptime());
+export ImplicitParamInfo;
+
+// FunctionInfo — shared function type metadata
+FunctionInfo :: struct(
+  params : ComptimeList(ParamInfo),
+  return_type : Type,
+  forall_params : ComptimeList(ForallParamInfo),
+  implicit_params : ComptimeList(ImplicitParamInfo),
+  is_closure : bool
+);
+impl(FunctionInfo, Comptime());
+export FunctionInfo;
+
+// TraitKind — discriminant for trait flavors
+TraitKind :: enum(
+  Future(child : Type, effects : ComptimeList(TraitInfo)),
+  Fn(call : FunctionInfo),
+  Normal
+);
+impl(TraitKind, Comptime());
+export TraitKind;
+
+// VariantInfo — enum variant metadata
+VariantInfo :: struct(
+  name : comptime_string,
+  field_count : comptime_int,
+  _enum_type : Type,
+  _variant_index : comptime_int
+);
+impl(VariantInfo, Comptime());
+export VariantInfo;
+
+// TypeInfo — compile-time enum representing rich type metadata
+TypeInfo :: enum(
+  // Primitives (fieldless)
+  Unit, Bool,
   Usize, Isize,
   U8, I8, U16, I16, U32, I32, U64, I64,
   F32, F64,
 
-  // Compile-time types
-  ComptimeInt, ComptimeFloat, ComptimeString,
-
-  // C-compatible types
+  // C-compatible primitives (fieldless)
   Char, Short, UShort, Int, UInt,
   Long, ULong, LongLong, ULongLong, LongDouble,
-
-  // Void
   Void,
 
-  // Type universe
-  Type,
+  // Compound types (with metadata)
+  Array(element : Type, length : comptime_int),
+  Slice(element : Type),
+  Tuple(fields : ComptimeList(TypeFieldInfo)),
+  Struct(
+    fields : ComptimeList(TypeFieldInfo),
+    kind : StructKind
+  ),
+  Enum(
+    variants : ComptimeList(VariantInfo)
+  ),
+  Union(
+    fields : ComptimeList(TypeFieldInfo)
+  ),
+  Function(info : FunctionInfo),
+  Ptr(pointee : Type),
+  Iso(child : Type),
+  Arc(child : Type),
+  Dyn(
+    required_traits : ComptimeList(TraitInfo),
+    negative_traits : ComptimeList(TraitInfo)
+  ),
 
-  // Compound types
-  Array, Tuple, Struct, Enum, Union, Function,
+  // Meta types
+  Module(
+    fields : ComptimeList(TypeFieldInfo)
+  ),
+  Trait(
+    fields : ComptimeList(TraitFieldInfo),
+    kind : TraitKind
+  ),
+  Type(level : comptime_int),
+  SomeType(
+    name : comptime_string,
+    required_traits : ComptimeList(TraitInfo),
+    negative_traits : ComptimeList(TraitInfo),
+    resolved_type : Type
+  ),
 
-  // Generic placeholder
-  SomeType,
+  // Comptime only
+  ComptimeInt, ComptimeFloat, ComptimeString,
+  ComptimeList(element : Type),
 
-  // Slice (fat pointer)
-  Slice,
-
-  // Module & Trait
-  Module, Trait,
-
-  // Pointer types
-  Ptr, Iso, Arc,
-
-  // Dynamic dispatch
-  Dyn,
-
-  // Metaprogramming
-  Expr, ComptimeList,
-
-  // Effects
+  // Metaprogramming (fieldless)
+  Expr,
   EffectsRow,
-
-  // HKT
   TypeApplication
 );
-impl(TypeTag, Comptime());
-impl(TypeTag,
-  is_struct : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Struct => true, _ => false)
+impl(TypeInfo, Comptime());
+impl(TypeInfo,
+  is_struct : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Struct(_, _) => true, _ => false)
   ),
-  is_enum : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Enum => true, _ => false)
+  is_enum : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Enum(_) => true, _ => false)
   ),
-  is_union : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Union => true, _ => false)
+  is_union : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Union(_) => true, _ => false)
   ),
-  is_tuple : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Tuple => true, _ => false)
+  is_tuple : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Tuple(_) => true, _ => false)
   ),
-  is_array : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Array => true, _ => false)
+  is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Array(_, _) => true, _ => false)
   ),
-  is_slice : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Slice => true, _ => false)
+  is_slice : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Slice(_) => true, _ => false)
   ),
-  is_function : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Function => true, _ => false)
+  is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Function(_) => true, _ => false)
   ),
-  is_pointer : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Ptr => true, _ => false)
+  is_pointer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Ptr(_) => true, _ => false)
   ),
-  is_trait : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Trait => true, _ => false)
+  is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Trait(_, _) => true, _ => false)
   ),
-  is_module : (fn(comptime(self) : TypeTag) -> comptime(bool))(
-    match(self, .Module => true, _ => false)
+  is_module : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Module(_) => true, _ => false)
   ),
-  is_void : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_void : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Void => true, _ => false)
   ),
-  is_primitive : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_primitive : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,
       .Bool => true,
       .Usize => true, .Isize => true,
@@ -4114,7 +4219,7 @@ impl(TypeTag,
       _ => false
     )
   ),
-  is_integer : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_integer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,
       .Usize => true, .Isize => true,
       .U8 => true, .I8 => true,
@@ -4129,20 +4234,21 @@ impl(TypeTag,
       _ => false
     )
   ),
-  is_float : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_float : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,
       .F32 => true, .F64 => true,
       .LongDouble => true,
       _ => false
     )
   ),
-  is_comptime : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_comptime : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,
       .ComptimeInt => true, .ComptimeFloat => true, .ComptimeString => true,
+      .ComptimeList(_) => true, .Expr => true,
       _ => false
     )
   ),
-  is_numeric : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+  is_numeric : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,
       .Usize => true, .Isize => true,
       .U8 => true, .I8 => true,
@@ -4161,17 +4267,17 @@ impl(TypeTag,
     )
   )
 );
-export TypeTag;
+export TypeInfo;
 
-// Type.get_tag() — returns TypeTag for the given type
-// Defined after TypeTag so the return type is available
+// Type.get_info() — returns TypeInfo for the given type
+// Defined after TypeInfo so the return type is available
 impl(Type,
-  get_tag : (fn(comptime(self): Type) -> comptime(TypeTag))({
-    return __yo_type_get_tag(self);
+  get_info : (fn(comptime(self): Type) -> comptime(TypeInfo))({
+    return __yo_type_get_info(self);
   })
 );
 
-// FieldInfo — compile-time struct field metadata for derive rules
+// FieldInfo — compile-time struct field metadata for derive rules (legacy alias)
 FieldInfo :: struct(name : comptime_string, field_type : Type);
 impl(FieldInfo, Comptime());
 impl(FieldInfo,
@@ -4180,17 +4286,6 @@ impl(FieldInfo,
   )
 );
 export FieldInfo;
-
-// VariantInfo — compile-time enum variant metadata for derive rules
-VariantInfo :: struct(
-  name : comptime_string,
-  field_count : comptime_int,
-  _enum_type : Type,
-  _variant_index : comptime_int
-);
-impl(VariantInfo, Comptime());
-export VariantInfo;
-
 
 // Variable
 Var :: impl({

@@ -83,6 +83,7 @@ import {
   evaluateYoTypeIsStruct,
   evaluateYoTypeIsEnum,
   evaluateYoTypeGetTag,
+  evaluateYoTypeGetInfo,
   evaluateYoTypeGetName,
   evaluateYoTypeFieldCount,
   evaluateYoTypeGetFieldName,
@@ -1018,6 +1019,10 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_tag, 1)
     ) {
       return evaluateYoTypeGetTag({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_info, 1)
+    ) {
+      return evaluateYoTypeGetInfo({ expr, env, context: { ...context } });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_name, 1)
     ) {

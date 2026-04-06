@@ -543,93 +543,172 @@ test "built-in derive Eq for generic struct with forall/where", {
   assert(!(b1 == b3), "different boxes should not be equal");
 };
 
-// === TypeTag tests ===
+// === TypeInfo tests (replaces TypeTag) ===
 
-test "TypeTag for primitive types", {
-  comptime_assert(Type.get_tag(i32).is_primitive(), "i32 should be primitive");
-  comptime_assert(Type.get_tag(bool).is_primitive(), "bool should be primitive");
-  comptime_assert(Type.get_tag(f64).is_primitive(), "f64 should be primitive");
-  comptime_assert(Type.get_tag(u8).is_primitive(), "u8 should be primitive");
-  comptime_assert(Type.get_tag(usize).is_primitive(), "usize should be primitive");
+test "TypeInfo for primitive types", {
+  comptime_assert(Type.get_info(i32).is_primitive(), "i32 should be primitive");
+  comptime_assert(Type.get_info(bool).is_primitive(), "bool should be primitive");
+  comptime_assert(Type.get_info(f64).is_primitive(), "f64 should be primitive");
+  comptime_assert(Type.get_info(u8).is_primitive(), "u8 should be primitive");
+  comptime_assert(Type.get_info(usize).is_primitive(), "usize should be primitive");
 
   // Exact tag checks via match
-  comptime_assert(match(Type.get_tag(i32), .I32 => true, _ => false), "i32 tag should be I32");
-  comptime_assert(match(Type.get_tag(bool), .Bool => true, _ => false), "bool tag should be Bool");
-  comptime_assert(match(Type.get_tag(f64), .F64 => true, _ => false), "f64 tag should be F64");
-  comptime_assert(match(Type.get_tag(unit), .Unit => true, _ => false), "unit tag should be Unit");
+  comptime_assert(match(Type.get_info(i32), .I32 => true, _ => false), "i32 tag should be I32");
+  comptime_assert(match(Type.get_info(bool), .Bool => true, _ => false), "bool tag should be Bool");
+  comptime_assert(match(Type.get_info(f64), .F64 => true, _ => false), "f64 tag should be F64");
+  comptime_assert(match(Type.get_info(unit), .Unit => true, _ => false), "unit tag should be Unit");
 };
 
-test "TypeTag for struct and enum", {
-  k_point :: Type.get_tag(Point);
+test "TypeInfo for struct and enum", {
+  k_point :: Type.get_info(Point);
   comptime_assert(k_point.is_struct(), "Point should be Struct");
-  comptime_assert(match(k_point, .Struct => true, _ => false), "Point tag should be Struct");
+  comptime_assert(match(k_point, .Struct(_, _) => true, _ => false), "Point tag should be Struct");
   TKColor :: enum(R, G, B);
-  k_color :: Type.get_tag(TKColor);
+  k_color :: Type.get_info(TKColor);
   comptime_assert(k_color.is_enum(), "TKColor should be Enum");
-  comptime_assert(match(k_color, .Enum => true, _ => false), "TKColor tag should be Enum");
+  comptime_assert(match(k_color, .Enum(_) => true, _ => false), "TKColor tag should be Enum");
 };
 
-test "TypeTag for array, slice, pointer", {
+test "TypeInfo for array, slice, pointer", {
   Arr3 :: [i32; 3];
-  k_arr :: Type.get_tag(Arr3);
+  k_arr :: Type.get_info(Arr3);
   comptime_assert(k_arr.is_array(), "Array should be Array");
   SliceI32 :: [i32];
-  k_slice :: Type.get_tag(SliceI32);
+  k_slice :: Type.get_info(SliceI32);
   comptime_assert(k_slice.is_slice(), "Slice should be Slice");
   PtrI32 :: *(i32);
-  k_ptr :: Type.get_tag(PtrI32);
+  k_ptr :: Type.get_info(PtrI32);
   comptime_assert(k_ptr.is_pointer(), "Pointer should be Ptr");
 };
 
-test "TypeTag negative cases", {
-  k_i32 :: Type.get_tag(i32);
+test "TypeInfo negative cases", {
+  k_i32 :: Type.get_info(i32);
   comptime_assert(!(k_i32.is_struct()), "i32 should not be Struct");
-  k_point :: Type.get_tag(Point);
+  k_point :: Type.get_info(Point);
   comptime_assert(!(k_point.is_enum()), "Point should not be Enum");
   comptime_assert(!(k_point.is_primitive()), "Point should not be primitive");
 };
 
-test "TypeTag match dispatch", {
-  tag :: Type.get_tag(i32);
+test "TypeInfo match dispatch", {
+  tag :: Type.get_info(i32);
   result :: match(tag,
-    .Struct => "struct",
-    .Enum => "enum",
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
     .I32 => "i32",
     _ => "other"
   );
   comptime_assert((result == "i32"), "i32 tag should match I32");
 
-  tag2 :: Type.get_tag(Point);
+  tag2 :: Type.get_info(Point);
   result2 :: match(tag2,
-    .Struct => "struct",
-    .Enum => "enum",
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
     .I32 => "i32",
     _ => "other"
   );
   comptime_assert((result2 == "struct"), "Point tag should match Struct");
 };
 
-test "TypeTag static call style", {
-  k_point :: Type.get_tag(Point);
-  comptime_assert(TypeTag.is_struct(k_point), "TypeTag.is_struct works");
+test "TypeInfo static call style", {
+  k_point :: Type.get_info(Point);
+  comptime_assert(TypeInfo.is_struct(k_point), "TypeInfo.is_struct works");
   TKColor2 :: enum(X, Y);
-  k_color :: Type.get_tag(TKColor2);
-  comptime_assert(TypeTag.is_enum(k_color), "TypeTag.is_enum works");
+  k_color :: Type.get_info(TKColor2);
+  comptime_assert(TypeInfo.is_enum(k_color), "TypeInfo.is_enum works");
 };
 
-test "TypeTag guard methods: is_integer, is_float, is_numeric, is_comptime", {
-  comptime_assert(Type.get_tag(i32).is_integer(), "i32 should be integer");
-  comptime_assert(Type.get_tag(u64).is_integer(), "u64 should be integer");
-  comptime_assert(Type.get_tag(usize).is_integer(), "usize should be integer");
-  comptime_assert(!(Type.get_tag(f32).is_integer()), "f32 should not be integer");
-  comptime_assert(!(Type.get_tag(bool).is_integer()), "bool should not be integer");
+test "TypeInfo guard methods: is_integer, is_float, is_numeric, is_comptime", {
+  comptime_assert(Type.get_info(i32).is_integer(), "i32 should be integer");
+  comptime_assert(Type.get_info(u64).is_integer(), "u64 should be integer");
+  comptime_assert(Type.get_info(usize).is_integer(), "usize should be integer");
+  comptime_assert(!(Type.get_info(f32).is_integer()), "f32 should not be integer");
+  comptime_assert(!(Type.get_info(bool).is_integer()), "bool should not be integer");
 
-  comptime_assert(Type.get_tag(f32).is_float(), "f32 should be float");
-  comptime_assert(Type.get_tag(f64).is_float(), "f64 should be float");
-  comptime_assert(!(Type.get_tag(i32).is_float()), "i32 should not be float");
+  comptime_assert(Type.get_info(f32).is_float(), "f32 should be float");
+  comptime_assert(Type.get_info(f64).is_float(), "f64 should be float");
+  comptime_assert(!(Type.get_info(i32).is_float()), "i32 should not be float");
 
-  comptime_assert(Type.get_tag(i32).is_numeric(), "i32 should be numeric");
-  comptime_assert(Type.get_tag(f64).is_numeric(), "f64 should be numeric");
-  comptime_assert(!(Type.get_tag(bool).is_numeric()), "bool should not be numeric");
-  comptime_assert(!(Type.get_tag(Point).is_numeric()), "Point should not be numeric");
+  comptime_assert(Type.get_info(i32).is_numeric(), "i32 should be numeric");
+  comptime_assert(Type.get_info(f64).is_numeric(), "f64 should be numeric");
+  comptime_assert(!(Type.get_info(bool).is_numeric()), "bool should not be numeric");
+  comptime_assert(!(Type.get_info(Point).is_numeric()), "Point should not be numeric");
+};
+
+test "TypeInfo compound: Array element and length", {
+  Arr3 :: [i32; 3];
+  info :: Type.get_info(Arr3);
+  comptime_assert(info.is_array(), "should be array");
+  elem :: match(info, .Array(e, _) => e, _ => unit);
+  comptime_assert(__yo_are_types_compatible(elem, i32), "element type should be i32");
+  len :: match(info, .Array(_, l) => l, _ => 0);
+  comptime_assert((len == 3), "array length should be 3");
+};
+
+test "TypeInfo compound: Slice element", {
+  SliceU8 :: [u8];
+  info :: Type.get_info(SliceU8);
+  comptime_assert(info.is_slice(), "should be slice");
+  elem :: match(info, .Slice(e) => e, _ => unit);
+  comptime_assert(__yo_are_types_compatible(elem, u8), "element type should be u8");
+};
+
+test "TypeInfo compound: Struct fields and kind", {
+  info :: Type.get_info(Point);
+  comptime_assert(info.is_struct(), "should be struct");
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+  comptime_assert((field_count == usize(2)), "Point should have 2 fields");
+  is_struct_kind :: match(info, .Struct(_, k) => match(k, .Struct => true, _ => false), _ => false);
+  comptime_assert(is_struct_kind, "Point kind should be Struct");
+};
+
+test "TypeInfo compound: Enum variants", {
+  MyColor :: enum(Red, Green, Blue);
+  info :: Type.get_info(MyColor);
+  comptime_assert(info.is_enum(), "should be enum");
+  variant_count :: match(info, .Enum(v) => v.len(), _ => usize(0));
+  comptime_assert((variant_count == usize(3)), "MyColor should have 3 variants");
+};
+
+test "TypeInfo compound: Pointer pointee", {
+  PtrI32 :: *(i32);
+  info :: Type.get_info(PtrI32);
+  comptime_assert(info.is_pointer(), "should be pointer");
+  pointee :: match(info, .Ptr(p) => p, _ => unit);
+  comptime_assert(__yo_are_types_compatible(pointee, i32), "pointee type should be i32");
+};
+
+test "TypeInfo compound: Function info", {
+  FnType :: (fn(x : i32, y : i32) -> bool);
+  info :: Type.get_info(FnType);
+  comptime_assert(info.is_function(), "should be function");
+  param_count :: match(info, .Function(fi) => fi.params.len(), _ => usize(0));
+  comptime_assert((param_count == usize(2)), "should have 2 params");
+  ret_is_bool :: match(info, .Function(fi) => __yo_are_types_compatible(fi.return_type, bool), _ => false);
+  comptime_assert(ret_is_bool, "return type should be bool");
+};
+
+test "TypeInfo compound: Struct kind - NewType", {
+  MyNewType :: newtype(value : i32);
+  info :: Type.get_info(MyNewType);
+  comptime_assert(info.is_struct(), "newtype should be struct");
+  is_newtype_kind :: match(info, .Struct(_, k) => match(k, .NewType => true, _ => false), _ => false);
+  comptime_assert(is_newtype_kind, "should be NewType kind");
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+  comptime_assert((field_count == usize(1)), "newtype should have 1 field");
+};
+
+test "TypeInfo compound: Struct kind - Object", {
+  MyObj :: object(x : i32, y : i32);
+  info :: Type.get_info(MyObj);
+  comptime_assert(info.is_struct(), "object should be struct");
+  is_object_kind :: match(info, .Struct(_, k) => match(k, .Object => true, _ => false), _ => false);
+  comptime_assert(is_object_kind, "should be Object kind");
+};
+
+test "TypeInfo compound: ComptimeList element type", {
+  CLType :: ComptimeList(i32);
+  info :: Type.get_info(CLType);
+  comptime_assert(info.is_comptime(), "ComptimeList should be comptime");
+  elem_is_i32 :: match(info, .ComptimeList(e) => __yo_are_types_compatible(e, i32), _ => false);
+  comptime_assert(elem_is_i32, "ComptimeList element should be i32");
 };
