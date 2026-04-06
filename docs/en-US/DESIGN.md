@@ -2868,6 +2868,102 @@ unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
 ;
 ```
 
+## Derive Traits
+
+Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but using function-call syntax. The `derive` function generates `impl` blocks for common traits automatically based on a type's structure.
+
+### Built-in derives
+
+Five traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, and `ToString`. They work for both structs and enums:
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Eq, Hash, Clone, Ord, ToString);
+
+// Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
+main :: (fn() -> unit) {
+  p1 := Point(1, 2);
+  p2 := Point(1, 2);
+  assert((p1 == p2), "equal");
+  assert((p1.to_string() == `Point(1, 2)`), "to_string");
+};
+export main;
+```
+
+### User-defined derive rules with `derive_rule`
+
+Trait authors can register custom derive rules using `derive_rule`. This uses Yo's quote/unquote macro system to generate `impl` blocks at compile time:
+
+```rust
+MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
+  trait(eq : (fn(self : T, other : T) -> bool))
+);
+
+derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+  eq_body :: __yo_type_join_fields(
+    T,
+    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
+      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    ),
+    quote(&&)
+  );
+  quote(
+    impl(unquote(target), MyEq(unquote(target))(
+      eq : ((self, other) => unquote(eq_body))
+    ))
+  )
+});
+
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq);  // Uses the registered derive_rule
+```
+
+### Type reflection for derive rules
+
+Type reflection builtins enable derive rules to inspect types at compile time:
+
+- `Type.get_kind(T)` — returns a `TypeKind` enum variant (`Struct`, `Enum`, `Primitive`, etc.)
+- `__yo_type_field_count(T)` — number of struct fields
+- `__yo_type_get_field_name(T, i)` — field name at index
+- `__yo_type_get_field_type(T, i)` — field type at index
+- `__yo_type_variant_count(T)` — number of enum variants
+- `__yo_type_join_fields(T, mapper, combiner)` — map over fields and combine with an operator
+
+For the full design including variadic comptime parameters, derive_rule storage, generic type support with `forall`/`where`, and all type reflection builtins, see [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md).
+
+## Type Reflection
+
+Yo provides compile-time type reflection through the `TypeKind` enum and `Type.get_kind()`:
+
+```rust
+TypeKind :: enum(
+  Struct, Enum, Union, Tuple, Array, Slice,
+  Function, Pointer, Trait, Module, Void, Primitive, Other
+);
+```
+
+Usage:
+
+```rust
+k :: Type.get_kind(i32);
+comptime_assert(k.is_primitive(), "i32 is primitive");
+
+k2 :: Type.get_kind(Point);
+comptime_assert(k2.is_struct(), "Point is a struct");
+
+// Match dispatch on type kind
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+  match(Type.get_kind(T),
+    .Struct => "struct type",
+    .Enum => "enum type",
+    .Primitive => "primitive type",
+    _ => "other type"
+  )
+);
+```
+
+`TypeKind` provides guard methods: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`, `is_primitive()`.
+
 ## Compile-Time Evaluation
 
 Yo has powerful compile-time evaluation capabilities. You can perform computations, type manipulations, and code generation at compile time.

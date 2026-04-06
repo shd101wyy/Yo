@@ -2868,6 +2868,102 @@ unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
 ;
 ```
 
+## 派生特征（Derive Traits）
+
+Yo 支持类似 Rust `#[derive(...)]` 的自动特征派生，但使用函数调用语法。`derive` 函数根据类型的结构自动生成 `impl` 块。
+
+### 内置派生
+
+五个特征具有内置派生支持：`Eq`、`Hash`、`Clone`、`Ord` 和 `ToString`。它们适用于结构体和枚举：
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Eq, Hash, Clone, Ord, ToString);
+
+// 现在 Point 支持 ==、!=、哈希、克隆、比较和字符串转换
+main :: (fn() -> unit) {
+  p1 := Point(1, 2);
+  p2 := Point(1, 2);
+  assert((p1 == p2), "equal");
+  assert((p1.to_string() == `Point(1, 2)`), "to_string");
+};
+export main;
+```
+
+### 用户自定义派生规则（`derive_rule`）
+
+特征作者可以使用 `derive_rule` 注册自定义派生规则。这利用 Yo 的 quote/unquote 宏系统在编译时生成 `impl` 块：
+
+```rust
+MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
+  trait(eq : (fn(self : T, other : T) -> bool))
+);
+
+derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+  eq_body :: __yo_type_join_fields(
+    T,
+    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
+      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    ),
+    quote(&&)
+  );
+  quote(
+    impl(unquote(target), MyEq(unquote(target))(
+      eq : ((self, other) => unquote(eq_body))
+    ))
+  )
+});
+
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq);  // 使用注册的 derive_rule
+```
+
+### 用于派生规则的类型反射
+
+类型反射内建函数使派生规则能够在编译时检查类型：
+
+- `Type.get_kind(T)` — 返回 `TypeKind` 枚举变体（`Struct`、`Enum`、`Primitive` 等）
+- `__yo_type_field_count(T)` — 结构体字段数量
+- `__yo_type_get_field_name(T, i)` — 索引处的字段名称
+- `__yo_type_get_field_type(T, i)` — 索引处的字段类型
+- `__yo_type_variant_count(T)` — 枚举变体数量
+- `__yo_type_join_fields(T, mapper, combiner)` — 遍历字段并用运算符组合
+
+完整设计包括可变参数编译时参数、derive_rule 存储、带有 `forall`/`where` 的泛型类型支持以及所有类型反射内建函数，请参阅 [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md)。
+
+## 类型反射（Type Reflection）
+
+Yo 通过 `TypeKind` 枚举和 `Type.get_kind()` 提供编译时类型反射：
+
+```rust
+TypeKind :: enum(
+  Struct, Enum, Union, Tuple, Array, Slice,
+  Function, Pointer, Trait, Module, Void, Primitive, Other
+);
+```
+
+用法：
+
+```rust
+k :: Type.get_kind(i32);
+comptime_assert(k.is_primitive(), "i32 is primitive");
+
+k2 :: Type.get_kind(Point);
+comptime_assert(k2.is_struct(), "Point is a struct");
+
+// 基于类型类别的 match 分发
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+  match(Type.get_kind(T),
+    .Struct => "struct type",
+    .Enum => "enum type",
+    .Primitive => "primitive type",
+    _ => "other type"
+  )
+);
+```
+
+`TypeKind` 提供守卫方法：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_slice()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_module()`、`is_void()`、`is_primitive()`。
+
 ## 编译时求值
 
 Yo 拥有强大的编译时求值能力。你可以在编译时执行计算、类型操作和代码生成。
