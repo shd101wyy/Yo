@@ -961,6 +961,14 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       isCompileTimeOnlyAssignment = true;
     }
 
+    // Check if the LHS has a comptimeListElementRef (set by comptime list indexing)
+    const comptimeListElementRef = evaluatedLhs.$.comptimeListElementRef;
+    if (comptimeListElementRef && rhs.$?.value) {
+      comptimeListElementRef.listValue.elements[comptimeListElementRef.index] =
+        rhs.$.value;
+      isCompileTimeOnlyAssignment = true;
+    }
+
     // Fallback: if both LHS and RHS have compile-time values but the specific
     // handlers above didn't fire (e.g. comptime pointer deref with UnknownValue
     // params during function body analysis), mark as compile-time-only.

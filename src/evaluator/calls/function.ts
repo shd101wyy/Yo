@@ -75,6 +75,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isArrayValue,
+  isComptimeListValue,
   isComptimeStringValue,
   isExprValue,
   isFunctionValue,
@@ -1743,6 +1744,72 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               };
             }
           }
+          // ComptimeList element access: list(index) where list is a comptime list value
+          else if (
+            isComptimeListType(functionToCall.type) &&
+            isComptimeListValue(functionToCall.value) &&
+            argsToUse.length === 1
+          ) {
+            const listValue = functionToCall.value;
+            const argExpr = argsToUse[0]!;
+            const evaluatedArgExpr = evaluateExpression({
+              expr: argExpr,
+              env,
+              context: {
+                ...context,
+                expectedType: { type: createUsizeType(), env },
+              },
+            });
+            if (!evaluatedArgExpr.$) {
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Failed to evaluate ComptimeList index`,
+              });
+            }
+            const callerEnv = evaluatedArgExpr.$.env;
+
+            if (isNumberValue(evaluatedArgExpr.$.value)) {
+              const indexValue = evaluatedArgExpr.$.value.value;
+              const index =
+                typeof indexValue === "bigint"
+                  ? Number(indexValue)
+                  : indexValue;
+              if (index < 0 || index >= listValue.elements.length) {
+                throw formatErrorMessage({
+                  token: argExpr.token,
+                  errorMessage: `ComptimeList index out of bounds: ${index}. Expected index in range [0, ${listValue.elements.length - 1}].`,
+                });
+              }
+              const elementValue = listValue.elements[index]!;
+              const elementType = listValue.type.childType;
+              const comptimeListElementRef = {
+                listValue,
+                index,
+              };
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "index" as const,
+                  result: {
+                    value: elementValue,
+                    type: elementType,
+                    ptrType: createPtrType(elementType),
+                    indexMethodType: undefined,
+                    indexMethodValue: undefined,
+                    callerEnv,
+                    index,
+                    comptimeListElementRef,
+                  },
+                },
+              };
+            }
+
+            // Runtime index not supported for ComptimeList
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `ComptimeList indexing requires a compile-time index`,
+            });
+          }
           // numeric type conversion (i32, u8, f64, etc.)
           else if (
             isTypeValue(value) &&
@@ -2962,6 +3029,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         callerEnv,
         index,
         arrayElementRef,
+        comptimeListElementRef,
       } = getIndexCallResult(functionToCall);
 
       // Build pathCollection for compile-time array element access (assignment support)
@@ -2989,6 +3057,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         indexMethodType: indexMethodType,
         indexMethodValue: indexMethodValue,
         arrayElementRef: arrayElementRef,
+        comptimeListElementRef: comptimeListElementRef,
         isAccessingProperty: true,
       };
 

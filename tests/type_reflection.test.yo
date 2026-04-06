@@ -283,3 +283,33 @@ test "Type.eq: enum types", {
   E3 :: enum(A, B);
   comptime_assert(Type.neq(E1, E3), "different enums with same structure should not be equal");
 };
+
+// ============================================================
+// ComptimeList indexing via ComptimeIndex trait
+// ============================================================
+
+test "ComptimeList indexing: read elements", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  comptime_assert((l(0) == 1), "l(0) should be 1");
+  comptime_assert((l(1) == 2), "l(1) should be 2");
+  comptime_assert((l(2) == 3), "l(2) should be 3");
+};
+
+test "ComptimeList indexing: mutation", {
+  l :: ComptimeList(i32)(10, 20, 30);
+  comptime_assert((l(0) == 10), "l(0) should be 10");
+  l(0) = 99;
+  comptime_assert((l(0) == 99), "l(0) should be 99 after mutation");
+  comptime_assert((l(1) == 20), "l(1) should still be 20");
+  comptime_assert((l(2) == 30), "l(2) should still be 30");
+};
+
+test "ComptimeList indexing: multiple mutations", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  l(0) = 100;
+  l(1) = 200;
+  l(2) = 300;
+  comptime_assert((l(0) == 100), "l(0) should be 100");
+  comptime_assert((l(1) == 200), "l(1) should be 200");
+  comptime_assert((l(2) == 300), "l(2) should be 300");
+};

@@ -10,11 +10,17 @@ import type { Token } from "../../token";
 import { createPtrType, createSliceType } from "../../types/creators";
 import type {
   ArrayType,
+  ComptimeListType,
   PtrType,
   SliceType,
   Type,
 } from "../../types/definitions";
-import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
+import {
+  isArrayType,
+  isComptimeListType,
+  isPtrType,
+  isSliceType,
+} from "../../types/guards";
 import {
   createComptimeStringValue,
   createSliceValue,
@@ -204,12 +210,18 @@ function computeElementReturnType(selfType: Type): Type {
     if (isSliceType(pointee)) {
       return createPtrType((pointee as SliceType).childType);
     }
+    if (isComptimeListType(pointee)) {
+      return createPtrType((pointee as ComptimeListType).childType);
+    }
   }
   if (isArrayType(selfType)) {
     return createPtrType((selfType as ArrayType).childType);
   }
   if (isSliceType(selfType)) {
     return createPtrType((selfType as SliceType).childType);
+  }
+  if (isComptimeListType(selfType)) {
+    return createPtrType((selfType as ComptimeListType).childType);
   }
   return selfType;
 }

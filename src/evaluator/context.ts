@@ -4,7 +4,13 @@ import type { Expr, FnCallExpr, PathCollection } from "../expr";
 import type { FunctionValue } from "../function-value";
 import type { Token } from "../token";
 import type { FunctionType, TraitType, Type } from "../types/definitions";
-import type { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
+import type {
+  ArrayValue,
+  ComptimeListValue,
+  ModuleValue,
+  TraitValue,
+  Value,
+} from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -379,6 +385,15 @@ export interface IndexCallResult {
    */
   arrayElementRef?: {
     arrayValue: ArrayValue;
+    index: number;
+  };
+
+  /**
+   * For compile-time ComptimeLists, stores a reference to the ComptimeListValue and index.
+   * Used by assignment.ts for compile-time list mutation (l(0) = value).
+   */
+  comptimeListElementRef?: {
+    listValue: ComptimeListValue;
     index: number;
   };
 }

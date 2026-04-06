@@ -25,6 +25,7 @@ import {
 } from "./utils";
 import {
   type ArrayValue,
+  type ComptimeListValue,
   isTypeValue,
   type TraitValue,
   type Value,
@@ -394,6 +395,15 @@ export interface EvaluatedExprData {
    */
   arrayElementRef?: {
     arrayValue: ArrayValue;
+    index: number;
+  };
+
+  /**
+   * For comptime list element access (list(i)), this stores a reference to the
+   * ComptimeListValue and the index, enabling compile-time mutation via assignment.
+   */
+  comptimeListElementRef?: {
+    listValue: ComptimeListValue;
     index: number;
   };
 
