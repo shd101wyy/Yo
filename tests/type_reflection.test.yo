@@ -1,0 +1,277 @@
+// Tests for compile-time type reflection builtins, TypeInfo, and Type methods
+
+// ============================================================
+// Low-level type reflection builtins
+// ============================================================
+
+PointR :: struct(x : i32, y : i32);
+
+test "type reflection __yo_type_is_struct", {
+  comptime_assert(__yo_type_is_struct(PointR), "PointR is a struct");
+};
+
+test "type reflection __yo_type_field_count", {
+  comptime_assert((__yo_type_field_count(PointR) == 2), "PointR has 2 fields");
+};
+
+test "type reflection __yo_type_get_name", {
+  comptime_assert((__yo_type_get_name(PointR) == "PointR"), "type name is PointR");
+};
+
+test "type reflection __yo_type_get_field_name", {
+  comptime_assert((__yo_type_get_field_name(PointR, 0) == "x"), "field 0 is x");
+  comptime_assert((__yo_type_get_field_name(PointR, 1) == "y"), "field 1 is y");
+};
+
+test "type reflection __yo_type_get_field_type", {
+  comptime_assert(__yo_are_types_compatible(__yo_type_get_field_type(PointR, 0), i32), "field 0 type is i32");
+  comptime_assert(__yo_are_types_compatible(__yo_type_get_field_type(PointR, 1), i32), "field 1 type is i32");
+};
+
+ColorR :: enum(Red, Green, Blue);
+
+test "type reflection __yo_type_is_enum", {
+  comptime_assert(__yo_type_is_enum(ColorR), "ColorR is an enum");
+  comptime_assert(!(__yo_type_is_struct(ColorR)), "ColorR is not a struct");
+};
+
+test "type reflection __yo_type_variant_count", {
+  comptime_assert((__yo_type_variant_count(ColorR) == 3), "ColorR has 3 variants");
+};
+
+test "type reflection __yo_type_get_variant_name", {
+  comptime_assert((__yo_type_get_variant_name(ColorR, 0) == "Red"), "variant 0 is Red");
+  comptime_assert((__yo_type_get_variant_name(ColorR, 1) == "Green"), "variant 1 is Green");
+  comptime_assert((__yo_type_get_variant_name(ColorR, 2) == "Blue"), "variant 2 is Blue");
+};
+
+ShapeR :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
+
+test "type reflection __yo_type_get_variant_field_count", {
+  comptime_assert((__yo_type_get_variant_field_count(ShapeR, 0) == 1), "Circle has 1 field");
+  comptime_assert((__yo_type_get_variant_field_count(ShapeR, 1) == 2), "Rect has 2 fields");
+};
+
+test "type reflection __yo_type_get_variant_field_name", {
+  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 0, 0) == "radius"), "Circle field 0 is radius");
+  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 1, 0) == "w"), "Rect field 0 is w");
+  comptime_assert((__yo_type_get_variant_field_name(ShapeR, 1, 1) == "h"), "Rect field 1 is h");
+};
+
+test "type reflection __yo_type_get_variant_field_type", {
+  comptime_assert(__yo_are_types_compatible(__yo_type_get_variant_field_type(ShapeR, 0, 0), i32), "Circle.radius is i32");
+  comptime_assert(__yo_are_types_compatible(__yo_type_get_variant_field_type(ShapeR, 1, 0), i32), "Rect.w is i32");
+};
+
+// ============================================================
+// TypeInfo (high-level type reflection)
+// ============================================================
+
+test "TypeInfo for primitive types", {
+  comptime_assert(Type.get_info(i32).is_primitive(), "i32 should be primitive");
+  comptime_assert(Type.get_info(bool).is_primitive(), "bool should be primitive");
+  comptime_assert(Type.get_info(f64).is_primitive(), "f64 should be primitive");
+  comptime_assert(Type.get_info(u8).is_primitive(), "u8 should be primitive");
+  comptime_assert(Type.get_info(char).is_primitive(), "char should be primitive");
+  comptime_assert(Type.get_info(usize).is_primitive(), "usize should be primitive");
+};
+
+TIPoint :: struct(x : i32, y : i32);
+TIColor :: enum(Red, Green, Blue);
+
+test "TypeInfo for struct and enum", {
+  k_point :: Type.get_info(TIPoint);
+  comptime_assert(k_point.is_struct(), "Point should be Struct");
+
+  k_color :: Type.get_info(TIColor);
+  comptime_assert(k_color.is_enum(), "TKColor should be Enum");
+};
+
+test "TypeInfo for array, slice, pointer", {
+  Arr3 :: [i32; 3];
+  SliceType :: [i32];
+  PtrType :: *(i32);
+  comptime_assert(Type.get_info(Arr3).is_array(), "array should be Array");
+  comptime_assert(Type.get_info(SliceType).is_slice(), "slice should be Slice");
+  comptime_assert(Type.get_info(PtrType).is_pointer(), "pointer should be Pointer");
+};
+
+test "TypeInfo negative cases", {
+  k_i32 :: Type.get_info(i32);
+  k_point :: Type.get_info(TIPoint);
+  comptime_assert(!(k_i32.is_struct()), "i32 should not be Struct");
+  comptime_assert(!(k_i32.is_enum()), "i32 should not be Enum");
+  comptime_assert(!(k_point.is_enum()), "Point should not be Enum");
+  comptime_assert(!(k_point.is_primitive()), "Point should not be Primitive");
+};
+
+test "TypeInfo match dispatch", {
+  info_i32 :: Type.get_info(i32);
+  result :: match(info_i32,
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
+    .I32 => "i32",
+    _ => "other"
+  );
+  comptime_assert((result == "i32"), "i32 tag should match I32");
+
+  info_point :: Type.get_info(TIPoint);
+  result2 :: match(info_point,
+    .Struct(_, _) => "struct",
+    .Enum(_) => "enum",
+    .I32 => "i32",
+    _ => "other"
+  );
+  comptime_assert((result2 == "struct"), "Point tag should match Struct");
+
+  info_color :: Type.get_info(TIColor);
+  result3 :: match(info_color,
+    .Enum(_) => "enum",
+    _ => "other"
+  );
+  comptime_assert((result3 == "enum"), "TKColor should match Enum");
+};
+
+test "TypeInfo static call style", {
+  k_point :: Type.get_info(TIPoint);
+  comptime_assert(TypeInfo.is_struct(k_point), "TypeInfo.is_struct works");
+
+  k_color :: Type.get_info(TIColor);
+  comptime_assert(TypeInfo.is_enum(k_color), "TypeInfo.is_enum works");
+};
+
+test "TypeInfo guard methods: is_integer, is_float, is_numeric, is_comptime", {
+  comptime_assert(Type.get_info(i32).is_integer(), "i32 is integer");
+  comptime_assert(Type.get_info(u64).is_integer(), "u64 is integer");
+  comptime_assert(!(Type.get_info(f32).is_integer()), "f32 is not integer");
+
+  comptime_assert(Type.get_info(f32).is_float(), "f32 is float");
+  comptime_assert(Type.get_info(f64).is_float(), "f64 is float");
+  comptime_assert(!(Type.get_info(i32).is_float()), "i32 is not float");
+
+  comptime_assert(Type.get_info(i32).is_numeric(), "i32 is numeric");
+  comptime_assert(Type.get_info(f64).is_numeric(), "f64 is numeric");
+  comptime_assert(!(Type.get_info(bool).is_numeric()), "bool is not numeric");
+
+  comptime_assert(Type.get_info(comptime_int).is_comptime(), "comptime_int is comptime");
+  comptime_assert(Type.get_info(comptime_float).is_comptime(), "comptime_float is comptime");
+  comptime_assert(Type.get_info(comptime_string).is_comptime(), "comptime_string is comptime");
+  comptime_assert(!(Type.get_info(i32).is_comptime()), "i32 is not comptime");
+};
+
+test "TypeInfo compound: Array element and length", {
+  ArrT :: [i32; 3];
+  arr_info :: Type.get_info(ArrT);
+  comptime_assert(arr_info.is_array(), "should be array");
+  elem_is_i32 :: match(arr_info, .Array(elem, len) => __yo_are_types_compatible(elem, i32), _ => false);
+  comptime_assert(elem_is_i32, "array element should be i32");
+  len_is_3 :: match(arr_info, .Array(elem, len) => (len == 3), _ => false);
+  comptime_assert(len_is_3, "array length should be 3");
+};
+
+test "TypeInfo compound: Slice element", {
+  SlcT :: [i32];
+  slice_info :: Type.get_info(SlcT);
+  comptime_assert(slice_info.is_slice(), "should be slice");
+  elem_is_i32 :: match(slice_info, .Slice(elem) => __yo_are_types_compatible(elem, i32), _ => false);
+  comptime_assert(elem_is_i32, "slice element should be i32");
+};
+
+test "TypeInfo compound: Struct fields and kind", {
+  info :: Type.get_info(TIPoint);
+  comptime_assert(info.is_struct(), "should be struct");
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+  comptime_assert((field_count == usize(2)), "Point should have 2 fields");
+  is_struct_kind :: match(info, .Struct(_, k) => match(k, .Struct => true, _ => false), _ => false);
+  comptime_assert(is_struct_kind, "should be Struct kind");
+};
+
+test "TypeInfo compound: Enum variants", {
+  info :: Type.get_info(TIColor);
+  comptime_assert(info.is_enum(), "should be enum");
+  variant_count :: match(info, .Enum(v) => v.len(), _ => usize(0));
+  comptime_assert((variant_count == usize(3)), "Color should have 3 variants");
+};
+
+test "TypeInfo compound: Pointer pointee", {
+  PtrT :: *(i32);
+  ptr_info :: Type.get_info(PtrT);
+  comptime_assert(ptr_info.is_pointer(), "should be pointer");
+  pointee_is_i32 :: match(ptr_info, .Ptr(p) => __yo_are_types_compatible(p, i32), _ => false);
+  comptime_assert(pointee_is_i32, "pointer pointee should be i32");
+};
+
+test "TypeInfo compound: Function info", {
+  FnType :: (fn(x : i32, y : i32) -> bool);
+  fn_info :: Type.get_info(FnType);
+  comptime_assert(fn_info.is_function(), "should be function");
+  param_count :: match(fn_info, .Function(fi) => fi.params.len(), _ => usize(0));
+  comptime_assert((param_count == usize(2)), "function should have 2 params");
+  ret_is_bool :: match(fn_info, .Function(fi) => __yo_are_types_compatible(fi.return_type, bool), _ => false);
+  comptime_assert(ret_is_bool, "return type should be bool");
+};
+
+test "TypeInfo compound: Struct kind - NewType", {
+  MyNewType :: newtype(value : i32);
+  info :: Type.get_info(MyNewType);
+  comptime_assert(info.is_struct(), "newtype should be struct");
+  is_newtype_kind :: match(info, .Struct(_, k) => match(k, .NewType => true, _ => false), _ => false);
+  comptime_assert(is_newtype_kind, "should be NewType kind");
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+  comptime_assert((field_count == usize(1)), "newtype should have 1 field");
+};
+
+test "TypeInfo compound: Struct kind - Object", {
+  MyObj :: object(x : i32, y : i32);
+  info :: Type.get_info(MyObj);
+  comptime_assert(info.is_struct(), "object should be struct");
+  is_object_kind :: match(info, .Struct(_, k) => match(k, .Object => true, _ => false), _ => false);
+  comptime_assert(is_object_kind, "should be Object kind");
+};
+
+test "TypeInfo compound: ComptimeList element type", {
+  CLType :: ComptimeList(i32);
+  info :: Type.get_info(CLType);
+  comptime_assert(info.is_comptime(), "ComptimeList should be comptime");
+  elem_is_i32 :: match(info, .ComptimeList(e) => __yo_are_types_compatible(e, i32), _ => false);
+  comptime_assert(elem_is_i32, "ComptimeList element should be i32");
+};
+
+// ============================================================
+// Type.eq / Type.neq (exact type equality)
+// ============================================================
+
+test "Type.eq: same primitive types", {
+  comptime_assert(Type.eq(i32, i32), "i32 should equal i32");
+  comptime_assert(Type.eq(bool, bool), "bool should equal bool");
+  comptime_assert(Type.eq(u8, u8), "u8 should equal u8");
+  comptime_assert(Type.eq(f64, f64), "f64 should equal f64");
+};
+
+test "Type.neq: different primitive types", {
+  comptime_assert(Type.neq(i32, u32), "i32 != u32");
+  comptime_assert(Type.neq(i32, bool), "i32 != bool");
+  comptime_assert(Type.neq(u8, i8), "u8 != i8");
+  comptime_assert(Type.neq(f32, f64), "f32 != f64");
+};
+
+test "Type.eq: struct types", {
+  A :: struct(x : i32);
+  comptime_assert(Type.eq(A, A), "A should equal itself");
+  B :: struct(x : i32);
+  comptime_assert(Type.neq(A, B), "different structs with same fields should not be equal");
+};
+
+test "Type.eq: generic type applications", {
+  comptime_assert(Type.eq(Option(i32), Option(i32)), "Option(i32) == Option(i32)");
+  comptime_assert(Type.neq(Option(i32), Option(u32)), "Option(i32) != Option(u32)");
+};
+
+test "Type.eq: enum types", {
+  E1 :: enum(A, B);
+  comptime_assert(Type.eq(E1, E1), "enum should equal itself");
+  E2 :: enum(A, B, C);
+  comptime_assert(Type.neq(E1, E2), "enums with different variants should not be equal");
+  E3 :: enum(A, B);
+  comptime_assert(Type.neq(E1, E3), "different enums with same structure should not be equal");
+};

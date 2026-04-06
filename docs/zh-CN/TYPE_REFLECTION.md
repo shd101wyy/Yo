@@ -316,18 +316,56 @@ derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Ex
 
 完整的 derive 系统文档，请参阅 [DERIVE_TRAITS.md](./DERIVE_TRAITS.md)。
 
+## Type 方法
+
+`Type` 类型提供用于编译时类型分析的静态方法：
+
+| 方法                            | 描述                                     |
+| ------------------------------- | ---------------------------------------- |
+| `Type.get_info(T)`              | 返回类型 `T` 的 `TypeInfo` 枚举          |
+| `Type.eq(A, B)`                 | 精确类型相等（名义类型——需要相同的定义） |
+| `Type.neq(A, B)`                | 类型不等（`Type.eq` 的取反）             |
+| `Type.is_compatible_with(A, B)` | 宽松类型兼容性（允许隐式转换）           |
+| `Type.impls(T, Marker)`         | 检查类型 `T` 是否实现了标记 trait        |
+| `Type.contains_rc_type(T)`      | 检查类型是否包含引用计数字段             |
+| `Type.can_form_rc_cycle(T)`     | 检查类型是否可能形成引用计数循环         |
+
+### 类型相等 vs 类型兼容
+
+```rust
+// Type.eq — 精确匹配，名义类型
+comptime_assert(Type.eq(i32, i32), "same type");
+
+A :: struct(x : i32);
+B :: struct(x : i32);
+comptime_assert(Type.neq(A, B), "different definitions, not equal");
+
+// Type.is_compatible_with — 允许隐式转换
+// comptime_int 与 i32 兼容，但它们不相等
+```
+
+`Type.eq` 使用 `__yo_are_types_equal`（精确匹配，不允许隐式转换）。`Type.is_compatible_with` 使用 `__yo_are_types_compatible`（允许 `comptime_int` → `i32` 等隐式转换）。
+
 ## 内建函数
 
-| 内建函数                                     | 描述                         |
-| -------------------------------------------- | ---------------------------- |
-| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`   |
-| `__yo_are_types_compatible(A, B)`            | 检查类型 `A` 和 `B` 是否兼容 |
-| `__yo_type_field_count(T)`                   | 结构体/枚举的字段数          |
-| `__yo_type_get_field_name(T, i)`             | 索引 `i` 处的字段名          |
-| `__yo_type_get_field_type(T, i)`             | 索引 `i` 处的字段类型        |
-| `__yo_type_variant_count(T)`                 | 枚举变体数                   |
-| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段         |
-| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                 |
+| 内建函数                                     | 描述                                     |
+| -------------------------------------------- | ---------------------------------------- |
+| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`               |
+| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）           |
+| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型） |
+| `__yo_type_is_struct(T)`                     | 检查 `T` 是否为结构体                    |
+| `__yo_type_is_enum(T)`                       | 检查 `T` 是否为枚举                      |
+| `__yo_type_field_count(T)`                   | 结构体/枚举的字段数                      |
+| `__yo_type_get_name(T)`                      | 类型名作为 `comptime_string`             |
+| `__yo_type_get_field_name(T, i)`             | 索引 `i` 处的字段名                      |
+| `__yo_type_get_field_type(T, i)`             | 索引 `i` 处的字段类型                    |
+| `__yo_type_variant_count(T)`                 | 枚举变体数                               |
+| `__yo_type_get_variant_name(T, i)`           | 索引 `i` 处的变体名                      |
+| `__yo_type_get_variant_field_count(T, i)`    | 变体 `i` 的字段数                        |
+| `__yo_type_get_variant_field_name(T, i, j)`  | 变体 `i` 中字段 `j` 的名称               |
+| `__yo_type_get_variant_field_type(T, i, j)`  | 变体 `i` 中字段 `j` 的类型               |
+| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                     |
+| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                             |
 
 ## 设计文档
 

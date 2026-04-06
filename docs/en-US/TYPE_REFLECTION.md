@@ -316,16 +316,54 @@ derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Ex
 
 For the full derive system documentation, see [DERIVE_TRAITS.md](./DERIVE_TRAITS.md).
 
+## Type Methods
+
+The `Type` type provides static methods for compile-time type analysis:
+
+| Method                          | Description                                              |
+| ------------------------------- | -------------------------------------------------------- |
+| `Type.get_info(T)`              | Returns `TypeInfo` enum for type `T`                     |
+| `Type.eq(A, B)`                 | Exact type equality (nominal — same definition required) |
+| `Type.neq(A, B)`                | Type inequality (negation of `Type.eq`)                  |
+| `Type.is_compatible_with(A, B)` | Loose type compatibility (allows coercion)               |
+| `Type.impls(T, Marker)`         | Checks if type `T` implements a marker trait             |
+| `Type.contains_rc_type(T)`      | Checks if type contains reference-counted fields         |
+| `Type.can_form_rc_cycle(T)`     | Checks if type can form reference counting cycles        |
+
+### Type Equality vs Compatibility
+
+```rust
+// Type.eq — exact match, nominal typing
+comptime_assert(Type.eq(i32, i32), "same type");
+
+A :: struct(x : i32);
+B :: struct(x : i32);
+comptime_assert(Type.neq(A, B), "different definitions, not equal");
+
+// Type.is_compatible_with — allows coercion
+// comptime_int is compatible with i32, but they are not equal
+```
+
+`Type.eq` uses `__yo_are_types_equal` (exact match, no coercion). `Type.is_compatible_with` uses `__yo_are_types_compatible` (allows implicit coercion like `comptime_int` → `i32`).
+
 ## Builtin Functions
 
 | Builtin                                      | Description                                |
 | -------------------------------------------- | ------------------------------------------ |
 | `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`            |
-| `__yo_are_types_compatible(A, B)`            | Checks if types `A` and `B` are compatible |
+| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion) |
+| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal) |
+| `__yo_type_is_struct(T)`                     | Checks if `T` is a struct                  |
+| `__yo_type_is_enum(T)`                       | Checks if `T` is an enum                   |
 | `__yo_type_field_count(T)`                   | Number of fields in struct/enum            |
+| `__yo_type_get_name(T)`                      | Type name as `comptime_string`             |
 | `__yo_type_get_field_name(T, i)`             | Field name at index `i`                    |
 | `__yo_type_get_field_type(T, i)`             | Field type at index `i`                    |
 | `__yo_type_variant_count(T)`                 | Number of enum variants                    |
+| `__yo_type_get_variant_name(T, i)`           | Variant name at index `i`                  |
+| `__yo_type_get_variant_field_count(T, i)`    | Number of fields in variant `i`            |
+| `__yo_type_get_variant_field_name(T, i, j)`  | Field `j` name in variant `i`              |
+| `__yo_type_get_variant_field_type(T, i, j)`  | Field `j` type in variant `i`              |
 | `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields              |
 | `__yo_type_map_variants(T, mapper)`          | Map over enum variants                     |
 
