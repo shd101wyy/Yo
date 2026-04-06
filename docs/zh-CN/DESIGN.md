@@ -2922,7 +2922,7 @@ derive(Point, MyEq);  // 使用注册的 derive_rule
 
 类型反射内建函数使派生规则能够在编译时检查类型：
 
-- `Type.get_tag(T)` — 返回 `TypeTag` 枚举变体（`Struct`、`Enum`、`I32`、`Bool` 等）
+- `Type.get_info(T)` — 返回携带丰富结构元数据的 `TypeInfo` 枚举变体
 - `__yo_type_field_count(T)` — 结构体字段数量
 - `__yo_type_get_field_name(T, i)` — 索引处的字段名称
 - `__yo_type_get_field_type(T, i)` — 索引处的字段类型
@@ -2933,49 +2933,48 @@ derive(Point, MyEq);  // 使用注册的 derive_rule
 
 ## 类型反射（Type Reflection）
 
-Yo 通过 `TypeTag` 枚举和 `Type.get_tag()` 提供编译时类型反射。`TypeTag` 枚举镜像了编译器内部的类型标签，为用户提供精确的编译时类型识别。
+Yo 通过 `TypeInfo` 枚举和 `Type.get_info()` 提供编译时类型反射。与简单的类型标签系统不同，`TypeInfo` 携带丰富的结构元数据——结构体字段、枚举变体、函数参数等。
 
 ```rust
-TypeTag :: enum(
-  // 基本类型
-  Unit, Bool, Usize, Isize,
-  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
-  // 编译时类型
-  ComptimeInt, ComptimeFloat, ComptimeString,
-  // C 兼容类型
-  Char, Short, UShort, Int, UInt, Long, ULong, LongLong, ULongLong, LongDouble,
-  // 其他
-  Void, Type, Array, Tuple, Struct, Enum, Union, Function,
-  SomeType, Slice, Module, Trait, Ptr, Iso, Arc, Dyn,
-  Expr, ComptimeList, EffectsRow, TypeApplication
-);
+info :: Type.get_info(i32);
+comptime_assert(info.is_primitive(), "i32 is primitive");
+comptime_assert(info.is_integer(), "i32 is an integer");
+
+info2 :: Type.get_info(Point);
+comptime_assert(info2.is_struct(), "Point is a struct");
 ```
 
-用法：
+复合变体携带可通过 `match` 提取的元数据：
 
 ```rust
-tag :: Type.get_tag(i32);
-comptime_assert(tag.is_primitive(), "i32 is primitive");
-comptime_assert(tag.is_integer(), "i32 is an integer");
+// 提取数组元素类型和长度
+arr_info :: Type.get_info([i32; 3]);
+elem :: match(arr_info, .Array(e, _) => e, _ => unit);
+len :: match(arr_info, .Array(_, l) => l, _ => 0);
+comptime_assert((len == 3), "array length is 3");
 
-tag2 :: Type.get_tag(Point);
-comptime_assert(tag2.is_struct(), "Point is a struct");
+// 检查结构体字段
+pt_info :: Type.get_info(Point);
+field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
+comptime_assert((field_count == usize(2)), "Point has 2 fields");
 
-// 基于精确类型标签的 match 分发
+// 基于类型信息的 match 分发
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
-  match(Type.get_tag(T),
+  match(Type.get_info(T),
     .I32 => "32-bit signed integer",
-    .Struct => "struct type",
-    .Enum => "enum type",
+    .Struct(_, _) => "struct type",
+    .Enum(_) => "enum type",
     _ => "other type"
   )
 );
 ```
 
-`TypeTag` 上的守卫方法：
+`TypeInfo` 上的守卫方法：
 
 - **结构性**：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_slice()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_module()`、`is_void()`
 - **数值性**：`is_primitive()`、`is_integer()`、`is_float()`、`is_numeric()`、`is_comptime()`
+
+完整的 TypeInfo 枚举定义、元数据结构体和详细用法，请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
 
 ## 编译时求值
 

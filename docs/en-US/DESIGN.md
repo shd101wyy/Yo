@@ -2922,7 +2922,7 @@ derive(Point, MyEq);  // Uses the registered derive_rule
 
 Type reflection builtins enable derive rules to inspect types at compile time:
 
-- `Type.get_tag(T)` — returns a `TypeTag` enum variant (`Struct`, `Enum`, `I32`, `Bool`, etc.)
+- `Type.get_info(T)` — returns a `TypeInfo` enum variant with rich structural metadata
 - `__yo_type_field_count(T)` — number of struct fields
 - `__yo_type_get_field_name(T, i)` — field name at index
 - `__yo_type_get_field_type(T, i)` — field type at index
@@ -2933,49 +2933,48 @@ For the full design including variadic comptime parameters, derive_rule storage,
 
 ## Type Reflection
 
-Yo provides compile-time type reflection through the `TypeTag` enum and `Type.get_tag()`. The `TypeTag` enum mirrors the compiler's internal type tags, giving users precise type identification at compile time.
+Yo provides compile-time type reflection through the `TypeInfo` enum and `Type.get_info()`. Unlike simple type tag systems, `TypeInfo` carries rich structural metadata — struct fields, enum variants, function parameters, and more.
 
 ```rust
-TypeTag :: enum(
-  // Primitives
-  Unit, Bool, Usize, Isize,
-  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
-  // Compile-time types
-  ComptimeInt, ComptimeFloat, ComptimeString,
-  // C-compatible types
-  Char, Short, UShort, Int, UInt, Long, ULong, LongLong, ULongLong, LongDouble,
-  // Other
-  Void, Type, Array, Tuple, Struct, Enum, Union, Function,
-  SomeType, Slice, Module, Trait, Ptr, Iso, Arc, Dyn,
-  Expr, ComptimeList, EffectsRow, TypeApplication
-);
+info :: Type.get_info(i32);
+comptime_assert(info.is_primitive(), "i32 is primitive");
+comptime_assert(info.is_integer(), "i32 is an integer");
+
+info2 :: Type.get_info(Point);
+comptime_assert(info2.is_struct(), "Point is a struct");
 ```
 
-Usage:
+Compound variants carry metadata that can be extracted via `match`:
 
 ```rust
-tag :: Type.get_tag(i32);
-comptime_assert(tag.is_primitive(), "i32 is primitive");
-comptime_assert(tag.is_integer(), "i32 is an integer");
+// Extract array element type and length
+arr_info :: Type.get_info([i32; 3]);
+elem :: match(arr_info, .Array(e, _) => e, _ => unit);
+len :: match(arr_info, .Array(_, l) => l, _ => 0);
+comptime_assert((len == 3), "array length is 3");
 
-tag2 :: Type.get_tag(Point);
-comptime_assert(tag2.is_struct(), "Point is a struct");
+// Inspect struct fields
+pt_info :: Type.get_info(Point);
+field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
+comptime_assert((field_count == usize(2)), "Point has 2 fields");
 
-// Match dispatch on exact type tag
+// Match dispatch on type info
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
-  match(Type.get_tag(T),
+  match(Type.get_info(T),
     .I32 => "32-bit signed integer",
-    .Struct => "struct type",
-    .Enum => "enum type",
+    .Struct(_, _) => "struct type",
+    .Enum(_) => "enum type",
     _ => "other type"
   )
 );
 ```
 
-Guard methods on `TypeTag`:
+Guard methods on `TypeInfo`:
 
 - **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`
 - **Numeric**: `is_primitive()`, `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
+
+For the full TypeInfo enum definition, metadata structs, and detailed usage, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).
 
 ## Compile-Time Evaluation
 
