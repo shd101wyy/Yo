@@ -151,10 +151,11 @@ impl(bool, MyEq(bool)(my_eq : ((self, other) -> (self == other))));
 // 注册 MyEq 的派生规则
 my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
   {
+    info :: Type.get_info(T);
     eq_body :: cond(
-      __yo_type_is_struct(T) => cond(
-        (__yo_type_field_count(T) == 0) => quote(true),
-        true => __yo_type_join_fields(
+      info.is_struct() => cond(
+        (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
+        true => Type.join_fields(
           T,
           (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
             quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
@@ -191,11 +192,11 @@ derive(Point, MyEq(Point));
 
 ### 枚举的派生规则
 
-对于无字段枚举，使用 `__yo_type_map_variants` 生成 match 分支：
+对于无字段枚举，使用 `Type.map_variants` 生成 match 分支：
 
 ```rust
-__yo_type_is_enum(T) => {
-  match_branches :: __yo_type_map_variants(
+info.is_enum() => {
+  match_branches :: Type.map_variants(
     T,
     (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
       quote(
