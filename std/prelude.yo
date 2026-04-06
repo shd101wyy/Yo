@@ -4004,6 +4004,14 @@ impl(Type,
 
   variant_count : (fn(comptime(self): Type) -> comptime(comptime_int))({
     return __yo_type_variant_count(self);
+  }),
+
+  eq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
+    return __yo_are_types_equal(a, b);
+  }),
+
+  neq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
+    return !((__yo_are_types_equal(a, b)));
   })
 );
 impl(Type, ComptimeToString(

@@ -209,6 +209,72 @@ export function evaluateYoAreTypesCompatible({
   return expr;
 }
 
+export function evaluateYoAreTypesEqual({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  const args = expr.args;
+  const typeArgA = args[0]!;
+  const typeArgB = args[1]!;
+
+  const evaluatedA = evaluateExpression({
+    expr: typeArgA,
+    env,
+    context: {
+      ...context,
+      expectedType: undefined,
+      SelfType: undefined,
+    },
+  });
+  if (!isTypeValue(evaluatedA.$?.value)) {
+    throw formatErrorMessage({
+      token: typeArgA.token,
+      errorMessage: `Expected type, got:\n${exprToString(typeArgA)}`,
+    });
+  }
+  const typeA = evaluatedA.$.value.value;
+  env = evaluatedA.$.env;
+
+  const evaluatedB = evaluateExpression({
+    expr: typeArgB,
+    env,
+    context: {
+      ...context,
+      expectedType: undefined,
+      SelfType: undefined,
+    },
+  });
+  if (!isTypeValue(evaluatedB.$?.value)) {
+    throw formatErrorMessage({
+      token: typeArgB.token,
+      errorMessage: `Expected type, got:\n${exprToString(typeArgB)}`,
+    });
+  }
+  const typeB = evaluatedB.$.value.value;
+  env = evaluatedB.$.env;
+
+  // Check if the types are exactly equal (exact match)
+  const equal = areTypesCompatible(
+    { type: typeA, env },
+    { type: typeB, env },
+    true // requireExactMatch
+  );
+
+  const booleanValue = createBooleanValue(equal);
+  expr.$ = {
+    env,
+    type: booleanValue.type,
+    value: booleanValue,
+    pathCollection: [],
+  };
+  return expr;
+}
+
 export function evaluateYoTypeContainsRcType({
   expr,
   env,

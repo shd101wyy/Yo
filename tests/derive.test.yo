@@ -691,3 +691,38 @@ test "TypeInfo compound: ComptimeList element type", {
   elem_is_i32 :: match(info, .ComptimeList(e) => __yo_are_types_compatible(e, i32), _ => false);
   comptime_assert(elem_is_i32, "ComptimeList element should be i32");
 };
+
+// === Type.eq / Type.neq tests ===
+
+test "Type.eq: same primitive types", {
+  comptime_assert(Type.eq(i32, i32), "i32 should equal i32");
+  comptime_assert(Type.eq(bool, bool), "bool should equal bool");
+  comptime_assert(Type.eq(u8, u8), "u8 should equal u8");
+  comptime_assert(Type.eq(f64, f64), "f64 should equal f64");
+};
+
+test "Type.neq: different primitive types", {
+  comptime_assert(Type.neq(i32, u32), "i32 != u32");
+  comptime_assert(Type.neq(i32, bool), "i32 != bool");
+  comptime_assert(Type.neq(u8, i8), "u8 != i8");
+  comptime_assert(Type.neq(f32, f64), "f32 != f64");
+};
+
+test "Type.eq: struct types", {
+  A :: struct(x : i32);
+  comptime_assert(Type.eq(A, A), "A should equal itself");
+  B :: struct(x : i32);
+  comptime_assert(Type.neq(A, B), "different structs with same fields should not be equal");
+};
+
+test "Type.eq: generic type applications", {
+  comptime_assert(Type.eq(Option(i32), Option(i32)), "Option(i32) == Option(i32)");
+  comptime_assert(Type.neq(Option(i32), Option(u32)), "Option(i32) != Option(u32)");
+};
+
+test "Type.eq: enum types", {
+  E1 :: enum(A, B);
+  comptime_assert(Type.eq(E1, E1), "enum should equal itself");
+  E2 :: enum(A, B, C);
+  comptime_assert(Type.neq(E1, E2), "enums with different variants should not be equal");
+};

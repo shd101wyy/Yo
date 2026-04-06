@@ -135,6 +135,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
+- [Derive Traits](#derive-traits)
+  - [Built-in derives](#built-in-derives)
+  - [User-defined derive rules with `derive_rule`](#user-defined-derive-rules-with-derive_rule)
+- [Type Reflection](#type-reflection)
 - [Compile-Time Evaluation](#compile-time-evaluation)
   - [Compile-Time Variables](#compile-time-variables)
   - [Compile-Time Arithmetic](#compile-time-arithmetic)
@@ -2917,19 +2921,6 @@ derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)
 Point :: struct(x : i32, y : i32);
 derive(Point, MyEq);  // Uses the registered derive_rule
 ```
-
-### Type reflection for derive rules
-
-Type reflection builtins enable derive rules to inspect types at compile time:
-
-- `Type.get_info(T)` — returns a `TypeInfo` enum variant with rich structural metadata
-- `__yo_type_field_count(T)` — number of struct fields
-- `__yo_type_get_field_name(T, i)` — field name at index
-- `__yo_type_get_field_type(T, i)` — field type at index
-- `__yo_type_variant_count(T)` — number of enum variants
-- `__yo_type_join_fields(T, mapper, combiner)` — map over fields and combine with an operator
-
-For the full design including variadic comptime parameters, derive_rule storage, generic type support with `forall`/`where`, and all type reflection builtins, see [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md).
 
 ## Type Reflection
 

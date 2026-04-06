@@ -135,6 +135,10 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [测试文件](#测试文件)
 - [元编程](#元编程)
   - [宏函数](#宏函数)
+- [派生特征（Derive Traits）](#派生特征derive-traits)
+  - [内置派生](#内置派生)
+  - [用户自定义派生规则（`derive_rule`）](#用户自定义派生规则derive_rule)
+- [类型反射（Type Reflection）](#类型反射type-reflection)
 - [编译时求值](#编译时求值)
   - [编译时变量](#编译时变量)
   - [编译时算术](#编译时算术)
@@ -2917,19 +2921,6 @@ derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)
 Point :: struct(x : i32, y : i32);
 derive(Point, MyEq);  // 使用注册的 derive_rule
 ```
-
-### 用于派生规则的类型反射
-
-类型反射内建函数使派生规则能够在编译时检查类型：
-
-- `Type.get_info(T)` — 返回携带丰富结构元数据的 `TypeInfo` 枚举变体
-- `__yo_type_field_count(T)` — 结构体字段数量
-- `__yo_type_get_field_name(T, i)` — 索引处的字段名称
-- `__yo_type_get_field_type(T, i)` — 索引处的字段类型
-- `__yo_type_variant_count(T)` — 枚举变体数量
-- `__yo_type_join_fields(T, mapper, combiner)` — 遍历字段并用运算符组合
-
-完整设计包括可变参数编译时参数、derive_rule 存储、带有 `forall`/`where` 的泛型类型支持以及所有类型反射内建函数，请参阅 [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md)。
 
 ## 类型反射（Type Reflection）
 

@@ -1135,6 +1135,7 @@ export const BuiltinFunctions = {
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
+  __yo_are_types_equal: ["__yo_are_types_equal"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
 
   // Type reflection builtins

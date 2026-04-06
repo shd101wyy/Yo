@@ -76,6 +76,7 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
+  evaluateYoAreTypesEqual,
   evaluateYoTypeCanFormRcCycle,
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
@@ -972,6 +973,15 @@ ${exprToString(expr)}`,
     ) {
       // __yo_are_types_compatible
       return evaluateYoAreTypesCompatible({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_are_types_equal, 2)
+    ) {
+      // __yo_are_types_equal — exact type match
+      return evaluateYoAreTypesEqual({
         expr,
         env,
         context: { ...context },
