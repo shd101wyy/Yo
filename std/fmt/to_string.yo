@@ -244,3 +244,128 @@ impl(rune, ToString(
 ));
 
 // TODO: Array to_string implementation?
+
+// --- derive_rule for ToString ---
+// Local helpers (not exported from prelude, so defined locally)
+__ts_s2 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string) -> comptime(comptime_string))((a + b));
+__ts_s3 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string) -> comptime(comptime_string))(
+  ((a + b) + c)
+);
+__ts_s4 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string) -> comptime(comptime_string))(
+  (((a + b) + c) + d)
+);
+__ts_s5 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string, comptime(e) : comptime_string) -> comptime(comptime_string))(
+  ((((a + b) + c) + d) + e)
+);
+__ts_fold_range :: (fn(
+  comptime(n) : comptime_int,
+  comptime(init) : comptime_string,
+  comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : comptime_int) -> comptime(comptime_string))
+) -> comptime(comptime_string))(
+  cond(
+    (n == 0) => init,
+    (n == 1) => f(init, 0),
+    true => f(recur((n - 1), init, f), (n - 1))
+  )
+);
+
+// Helper: join string parts with + operator, left-to-right parenthesized
+__derive_join_plus :: (fn(comptime(parts) : comptime_string, comptime(new_part) : comptime_string) -> comptime(comptime_string))(
+  cond(
+    (parts == "") => new_part,
+    true => __ts_s5("(", parts, " + ", new_part, ")")
+  )
+);
+
+__derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    type_name :: __yo_type_get_name(T);
+    cond(
+      __yo_type_is_struct(T) => {
+        fc :: __yo_type_field_count(T);
+        cond(
+          (fc == 0) => {
+            code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> String.from(\"", __ts_s2(type_name, "()\"))\n))"));
+            code.to_expr()
+          },
+          true => {
+            body :: __ts_fold_range(fc, __ts_s3("String.from(\"", type_name, "(\")" ),
+              (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+                {
+                  fname :: __yo_type_get_field_name(T, fi);
+                  with_sep :: cond(
+                    (fi == 0) => a,
+                    true => __derive_join_plus(a, "String.from(\", \")")
+                  );
+                  __derive_join_plus(with_sep, __ts_s3("(&(self.*.", fname, ")).to_string()"))
+                }
+              )
+            );
+            full_body :: __derive_join_plus(body, "String.from(\")\")");
+            code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> ", __ts_s2(full_body, ")\n))"));
+            code.to_expr()
+          }
+        )
+      },
+      __yo_type_is_enum(T) => {
+        vc :: __yo_type_variant_count(T);
+        ts_branches :: __ts_fold_range(vc, "",
+          (fn(comptime(acc) : comptime_string, comptime(vi) : comptime_int) -> comptime(comptime_string))(
+            {
+              vn :: __yo_type_get_variant_name(T, vi);
+              fc :: __yo_type_get_variant_field_count(T, vi);
+              branch :: cond(
+                (fc == 0) =>
+                  __ts_s5(".", vn, " => String.from(\"", type_name, __ts_s3(".", vn, "\")")),
+                true => {
+                  bindings :: __ts_fold_range(fc, "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+                      {
+                        fname :: __yo_type_get_variant_field_name(T, vi, fi);
+                        cond(
+                          (a == "") => __ts_s2("__v_", fname),
+                          true => __ts_s3(a, ", __v_", fname)
+                        )
+                      }
+                    )
+                  );
+                  body :: __ts_fold_range(fc,
+                    __ts_s5("String.from(\"", type_name, ".", vn, "(\")" ),
+                    (fn(comptime(a) : comptime_string, comptime(fi) : comptime_int) -> comptime(comptime_string))(
+                      {
+                        fname :: __yo_type_get_variant_field_name(T, vi, fi);
+                        with_sep :: cond(
+                          (fi == 0) => a,
+                          true => __derive_join_plus(a, "String.from(\", \")")
+                        );
+                        __derive_join_plus(with_sep, __ts_s3("(&(__v_", fname, ")).to_string()"))
+                      }
+                    )
+                  );
+                  full_body :: __derive_join_plus(body, "String.from(\")\")");
+                  __ts_s4(".", vn, __ts_s3("(", bindings, ") => "), full_body)
+                }
+              );
+              cond(
+                (acc == "") => branch,
+                true => __ts_s3(acc, ",\n    ", branch)
+              )
+            }
+          )
+        );
+        code :: __ts_s4(
+          __ts_s3("impl(", type_name, ", ToString(\n  to_string : ((self) -> match(self.*,\n    "),
+          ts_branches,
+          "\n  ))\n",
+          "))"
+        );
+        code.to_expr()
+      },
+      true => {
+        code :: __ts_s4("impl(", type_name, ", ToString(\n  to_string : ((self) -> String.from(\"", __ts_s2(type_name, "\"))\n))"));
+        code.to_expr()
+      }
+    )
+  }
+);
+derive_rule(ToString, __derive_tostring);
