@@ -4088,7 +4088,7 @@ VariantInfo :: struct(
   name : comptime_string,
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,
-  _variant_index : comptime_int
+  _variant_index : usize
 );
 impl(VariantInfo, Comptime());
 export VariantInfo;
@@ -4273,7 +4273,7 @@ impl(Type,
   get_enum_variants : (fn(comptime(self): Type) -> comptime(ComptimeList(VariantInfo)))({
     info :: __yo_type_get_info(self);
     comptime_assert(info.is_enum(), "Type.get_enum_variants: expected an enum type");
-    match(info, .Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, 0)))
+    match(info, .Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, usize(0))))
   })
 );
 

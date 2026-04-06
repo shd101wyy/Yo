@@ -2134,7 +2134,7 @@ function createVariantInfoValue(
   env = fieldsTmp.env;
 
   const escapedName = JSON.stringify(variantName);
-  const code = `VariantInfo(${escapedName}, ${fieldsTmp.name}, ${tempEnumTypeName}, ${variantIndex})`;
+  const code = `VariantInfo(${escapedName}, ${fieldsTmp.name}, ${tempEnumTypeName}, usize(${variantIndex}))`;
   const callExpr = generateExprFromCode(code);
   const result = evaluateExpression({
     expr: callExpr,

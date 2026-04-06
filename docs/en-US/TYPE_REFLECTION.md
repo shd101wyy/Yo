@@ -181,7 +181,7 @@ VariantInfo :: struct(
   name : comptime_string,
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,        // internal: parent enum type
-  _variant_index : comptime_int  // internal: variant index
+  _variant_index : usize  // internal: variant index
 );
 ```
 
