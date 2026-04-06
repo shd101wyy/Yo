@@ -354,49 +354,6 @@ function processTraitArg({
   whereArg?: FnCallExpr;
   targetTypeExpr: Expr;
 }): Environment {
-  // First try: bare trait name (backwards compatibility for built-in traits)
-  const bareName = traitArgExpr.token?.value;
-  if (
-    bareName &&
-    DERIVABLE_TRAITS.has(bareName) &&
-    !exprIsFunctionCall(traitArgExpr)
-  ) {
-    // Check if a registered derive rule exists for this bare name
-    const bareEvaluated = evaluateExpression({
-      expr: traitArgExpr,
-      env: envForTraitEval,
-      context: { ...context },
-    });
-    if (
-      bareEvaluated.$ &&
-      isFunctionValue(bareEvaluated.$.value) &&
-      bareEvaluated.$.value.deriveRule
-    ) {
-      return callRegisteredDeriveRule({
-        deriveRule: bareEvaluated.$.value.deriveRule,
-        targetType,
-        env,
-        context,
-        token: traitArgExpr.token,
-        traitParams: [],
-        forallArg,
-        whereArg,
-        targetTypeExpr,
-      });
-    }
-    return deriveTraitForType({
-      traitName: bareName as DerivableTraitName,
-      targetType,
-      typeName,
-      env,
-      context,
-      token: traitArgExpr.token,
-      forallPrefix,
-      whereSuffix,
-      hasForall,
-    });
-  }
-
   // Evaluate the trait argument (use envForTraitEval which has forall vars in scope)
   const evaluated = evaluateExpression({
     expr: traitArgExpr,
@@ -521,17 +478,12 @@ function processTraitArg({
     }
 
     const funcName = funcVal.funcName;
+
+    // Built-in parameterized traits (Eq, Ord) require explicit type args
     if (funcName && DERIVABLE_TRAITS.has(funcName)) {
-      return deriveTraitForType({
-        traitName: funcName as DerivableTraitName,
-        targetType,
-        typeName,
-        env,
-        context,
+      throw formatErrorMessage({
         token: traitArgExpr.token,
-        forallPrefix,
-        whereSuffix,
-        hasForall,
+        errorMessage: `derive: '${funcName}' requires explicit type arguments. Use '${funcName}(${typeName})' instead of bare '${funcName}'.`,
       });
     }
 

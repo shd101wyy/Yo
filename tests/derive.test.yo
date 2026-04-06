@@ -1,10 +1,10 @@
-// Tests for derive(Type, Trait) — auto-generated trait implementations
+// Tests for derive(Type, Trait(Type)) — auto-generated trait implementations
 open import "std/string";
 open import "std/fmt";
 
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq);
+derive(Point, Eq(Point));
 
 // === Test derive Eq for struct ===
 test "derive Eq for struct", {
@@ -20,7 +20,7 @@ test "derive Eq for struct", {
 
 // === Test derive Eq for empty struct ===
 Empty :: struct();
-derive(Empty, Eq);
+derive(Empty, Eq(Empty));
 
 test "derive Eq for empty struct", {
   e1 := Empty();
@@ -30,7 +30,7 @@ test "derive Eq for empty struct", {
 
 // === Test derive Eq for single-field struct ===
 Wrapper :: struct(value : i32);
-derive(Wrapper, Eq);
+derive(Wrapper, Eq(Wrapper));
 
 test "derive Eq for single-field struct", {
   w1 := Wrapper(i32(42));
@@ -68,7 +68,7 @@ test "derive Clone for struct", {
 };
 
 // === Test derive Ord for struct ===
-derive(Point, Ord);
+derive(Point, Ord(Point));
 
 test "derive Ord for struct", {
   p1 := Point(i32(1), i32(2));
@@ -103,7 +103,7 @@ test "derive ToString for struct", {
 
 // === Test multiple derives in one call ===
 Color :: struct(r : i32, g : i32, b : i32);
-derive(Color, Eq, Hash, Clone, Ord, ToString);
+derive(Color, Eq(Color), Hash, Clone, Ord(Color), ToString);
 
 test "multiple derives in one call", {
   c1 := Color(i32(255), i32(0), i32(0));
@@ -131,7 +131,7 @@ test "multiple derives in one call", {
 
 // === Test derive for struct with bool fields ===
 Flags :: struct(a : bool, b : bool);
-derive(Flags, Eq, Hash, Clone);
+derive(Flags, Eq(Flags), Hash, Clone);
 
 test "derive for struct with bool fields", {
   f1 := Flags(true, false);
@@ -147,7 +147,7 @@ test "derive for struct with bool fields", {
 
 // === Test derive Eq for fieldless enum ===
 Direction :: enum(North, South, East, West);
-derive(Direction, Eq);
+derive(Direction, Eq(Direction));
 
 test "derive Eq for fieldless enum", {
   d1 := Direction.North;
@@ -180,7 +180,7 @@ test "derive Clone for fieldless enum", {
 };
 
 // === Test derive Ord for fieldless enum ===
-derive(Direction, Ord);
+derive(Direction, Ord(Direction));
 
 test "derive Ord for fieldless enum", {
   assert((Direction.North < Direction.South), "North < South");
@@ -202,7 +202,7 @@ Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32)
 );
-derive(Shape, Eq, Hash, Clone, ToString);
+derive(Shape, Eq(Shape), Hash, Clone, ToString);
 
 test "derive Eq for enum with fields", {
   s1 := Shape.Circle(i32(5));
@@ -235,7 +235,7 @@ test "derive ToString for enum with fields", {
 
 // === Test derive for struct containing derived struct ===
 Line :: struct(start : Point, end_ : Point);
-derive(Line, Eq, Clone);
+derive(Line, Eq(Line), Clone);
 
 test "derive for nested struct", {
   l1 := Line(Point(i32(0), i32(0)), Point(i32(1), i32(1)));
@@ -265,11 +265,11 @@ test "derive with explicit trait arg Eq(Type)", {
   assert((v1 != v3), "explicit trait arg: not equal");
 };
 
-// Test: mix of explicit and bare trait args
+// Test: multiple explicit trait args
 Vec3 :: struct(x : i32, y : i32, z : i32);
 derive(Vec3, Eq(Vec3), Hash, Clone);
 
-test "derive with mixed explicit and bare trait args", {
+test "derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
   v2 := (&v1).clone();
   assert((v1 == v2), "mixed args: clone equals original");
@@ -347,7 +347,7 @@ test "type reflection __yo_type_get_variant_field_type", {
 
 EvalPoint :: struct(a : i32, b : i32);
 
-comptime_eval("derive(EvalPoint, Eq)");
+comptime_eval("derive(EvalPoint, Eq(EvalPoint))");
 
 test "comptime_eval derive", {
   ep1 := EvalPoint(i32(5), i32(10));
