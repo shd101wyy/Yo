@@ -1155,7 +1155,6 @@ export const BuiltinFunctions = {
   // Expr-based type iteration builtins (for derive rules)
   __yo_type_join_fields: ["__yo_type_join_fields"],
   __yo_type_map_variants: ["__yo_type_map_variants"],
-  __yo_type_join_variants: ["__yo_type_join_variants"],
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],

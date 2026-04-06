@@ -1822,7 +1822,7 @@ export function evaluateTypeJoinFields({
 
     const { exprValue, env: env3 } = callMapperWithArg({
       env,
-      context,
+      context: { ...context, expectedType: undefined },
       mapperVarName,
       argValue: fieldInfoValue,
       argType: fieldInfoValue.type,
@@ -1890,9 +1890,10 @@ export function evaluateTypeMapVariants({
   env = typeArg.$.env;
   const targetType = typeArg.$.value.value;
 
-  // SomeType → return UnknownValue
+  // SomeType → return UnknownValue with ComptimeList(Expr) type
   if (isSomeType(targetType)) {
-    const value = createUnknownValue(createExprType(), { env, context });
+    const dummyListValue = createExprListValue([]);
+    const value = createUnknownValue(dummyListValue.type, { env, context });
     expr.$ = { env, type: value.type, value, pathCollection: [] };
     return expr;
   }
@@ -1949,7 +1950,7 @@ export function evaluateTypeMapVariants({
 
     const { exprValue, env: env3 } = callMapperWithArg({
       env,
-      context,
+      context: { ...context, expectedType: undefined },
       mapperVarName,
       argValue: variantInfoValue,
       argType: variantInfoValue.type,
@@ -1967,144 +1968,6 @@ export function evaluateTypeMapVariants({
     env,
     type: listExprValue.type,
     value: listExprValue,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/**
- * __yo_type_join_variants(T, mapper, combiner) -> comptime(Expr)
- *
- * Like map_variants but combines results with a binary combiner operator.
- */
-export function evaluateTypeJoinVariants({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  expectExprToBeFunctionCallOf(
-    expr,
-    BuiltinFunctions.__yo_type_join_variants,
-    3
-  );
-
-  // Evaluate T
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_join_variants: first argument must be a Type`,
-    });
-  }
-  env = typeArg.$.env;
-  const targetType = typeArg.$.value.value;
-
-  if (isSomeType(targetType)) {
-    const value = createUnknownValue(createExprType(), { env, context });
-    expr.$ = { env, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isEnumType(targetType)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_join_variants: expected an enum type, got: ${typeToString(targetType)}`,
-    });
-  }
-
-  // Evaluate mapper
-  const mapperArg = evaluateExpression({
-    expr: expr.args[1]!,
-    env,
-    context: { ...context },
-  });
-  if (!mapperArg.$ || !isFunctionValue(mapperArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[1]!.token,
-      errorMessage: `__yo_type_join_variants: second argument must be a function`,
-    });
-  }
-  env = mapperArg.$.env;
-  const mapperValue = mapperArg.$.value;
-  const mapperVarName = `__derive_vjmap_${generateVarialeId(env.modulePath, "dvjm")}`;
-
-  // Evaluate combiner
-  const combinerArg = evaluateExpression({
-    expr: expr.args[2]!,
-    env,
-    context: { ...context },
-  });
-  if (!combinerArg.$ || !isExprValue(combinerArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[2]!.token,
-      errorMessage: `__yo_type_join_variants: third argument must be a quoted expression`,
-    });
-  }
-  env = combinerArg.$.env;
-  const combinerExpr = combinerArg.$.value.value;
-
-  const enumType = targetType as EnumType;
-
-  // Push temp frame
-  env = pushEnvFrame(env);
-
-  env = addComptimeTempVar({
-    env,
-    name: mapperVarName,
-    type: mapperArg.$.type,
-    value: mapperValue,
-  });
-
-  const resultExprs: Expr[] = [];
-
-  for (let i = 0; i < enumType.variants.length; i++) {
-    const variant = enumType.variants[i]!;
-    const { value: variantInfoValue, env: env2 } = createVariantInfoValue(
-      env,
-      variant.name,
-      variant.fields ?? [],
-      targetType,
-      i,
-      context
-    );
-    env = env2;
-
-    const { exprValue, env: env3 } = callMapperWithArg({
-      env,
-      context,
-      mapperVarName,
-      argValue: variantInfoValue,
-      argType: variantInfoValue.type,
-      token: expr.args[1]!.token,
-    });
-    env = env3;
-    resultExprs.push(exprValue);
-  }
-
-  env = popEnvFrame(env, true);
-
-  if (resultExprs.length === 0) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `__yo_type_join_variants: enum has no variants`,
-    });
-  }
-
-  const combinedExpr = combineExprsWithOperator(resultExprs, combinerExpr);
-  const exprValue = createExprValue(combinedExpr);
-
-  expr.$ = {
-    env,
-    type: exprValue.type,
-    value: exprValue,
     pathCollection: [],
   };
   return expr;

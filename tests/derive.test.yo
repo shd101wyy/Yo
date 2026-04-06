@@ -320,7 +320,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     eq_body :: cond(
       info.is_struct() => cond(
         (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
-        true => __yo_type_join_fields(
+        true => Type.join_fields(
           T,
           (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
             quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
@@ -329,7 +329,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         )
       ),
       info.is_enum() => {
-        match_branches :: __yo_type_map_variants(
+        match_branches :: Type.map_variants(
           T,
           (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
             cond(

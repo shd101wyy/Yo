@@ -3992,11 +3992,12 @@ impl(Type,
 
   neq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
     return !((__yo_are_types_equal(a, b)));
+  }),
+
+  to_comptime_string : (fn(comptime(self): Type) -> comptime(comptime_string))({
+    return __yo_type_to_comptime_string(self);
   })
 );
-impl(Type, ComptimeToString(
-  to_comptime_string : (self -> __yo_type_to_comptime_string(self))
-));
 _Type :: Type;
 export Type : _Type;
 
@@ -4287,6 +4288,20 @@ impl(FieldInfo,
 );
 export FieldInfo;
 
+// Type methods that depend on FieldInfo/VariantInfo types
+MapFieldsFn :: (fn(comptime(_) : FieldInfo) -> comptime(Expr));
+MapVariantsFn :: (fn(comptime(_) : VariantInfo) -> comptime(Expr));
+
+impl(Type,
+  join_fields : (fn(comptime(self): Type, comptime(mapper): MapFieldsFn, comptime(combiner): Expr) -> comptime(Expr))({
+    return __yo_type_join_fields(self, mapper, combiner);
+  }),
+
+  map_variants : (fn(comptime(self): Type, comptime(mapper): MapVariantsFn) -> comptime(ComptimeList(Expr)))({
+    return __yo_type_map_variants(self, mapper);
+  })
+);
+
 // Variable
 Var :: impl({
   print_info :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
@@ -4547,7 +4562,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       info.is_struct() => {
         eq_body :: cond(
           (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
-          true => __yo_type_join_fields(
+          true => Type.join_fields(
             T,
             (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
               quote((lhs.(#(field.name.to_expr())) == rhs.(#(field.name.to_expr()))))
@@ -4649,7 +4664,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       info.is_struct() => {
         fields :: Type.get_struct_fields(T);
         fc :: fields.len();
-        type_name :: __yo_type_to_comptime_string(T);
+        type_name :: Type.to_comptime_string(T);
         cloned_fields :: __yo_comptime_fold_range(fc, "",
           (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
             {

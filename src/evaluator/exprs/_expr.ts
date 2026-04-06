@@ -87,7 +87,6 @@ import {
   evaluateComptimeStringToExpr,
   evaluateTypeJoinFields,
   evaluateTypeMapVariants,
-  evaluateTypeJoinVariants,
 } from "../builtins/type-fns";
 import { evaluateDerive } from "../builtins/derive";
 import { evaluateDeriveRule } from "../builtins/derive-rule";
@@ -1041,10 +1040,6 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_map_variants, 2)
     ) {
       return evaluateTypeMapVariants({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_join_variants, 3)
-    ) {
-      return evaluateTypeJoinVariants({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.derive_rule, 2)) {
       return evaluateDeriveRule({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.derive)) {
