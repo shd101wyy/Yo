@@ -199,6 +199,138 @@ derive_field_count :: (fn(comptime(T) : Type) -> comptime(unit)) {
 };
 ```
 
+## `derive_rule` — User-Registrable Derive Rules
+
+`derive_rule` lets trait authors register how their traits should be derived. Once registered, `derive(Type, MyTrait)` works exactly like the built-in traits.
+
+### Defining a Derive Rule
+
+A derive rule is a comptime function with signature:
+
+```rust
+fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+```
+
+- `T` — the target type being derived for
+- `ctx` — a `DeriveContext` struct with `target` (Expr), `forall_params`, `where_clause`
+- `trait_params` — trait constructor arguments as a list of Exprs
+
+The function returns an `Expr` (via `quote`) representing the `impl` block to generate.
+
+### Example: Struct Equality
+
+```rust
+// Define a custom equality trait
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    my_eq : (fn(self : Self, other : Rhs) -> bool)
+  )
+);
+
+// Provide base impls
+impl(i32, MyEq(i32)(my_eq : ((self, other) -> (self == other))));
+impl(bool, MyEq(bool)(my_eq : ((self, other) -> (self == other))));
+
+// Register derive rule for MyEq
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    eq_body :: cond(
+      __yo_type_is_struct(T) => cond(
+        (__yo_type_field_count(T) == 0) => quote(true),
+        true => __yo_type_join_fields(
+          T,
+          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+          ),
+          quote(&&)
+        )
+      ),
+      true => quote(false)
+    );
+    ctx.make_impl(quote(
+      MyEq(...#(trait_params))(
+        my_eq : ((self, other) -> #(eq_body))
+      )
+    ))
+  }
+);
+
+derive_rule(MyEq, my_derive_eq);
+
+// Now derive works for any struct
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq(Point));
+// p1.my_eq(p2) works!
+```
+
+### DeriveContext
+
+`DeriveContext` (defined in `std/prelude.yo`) provides:
+
+- `target : Expr` — the raw target type expression for splicing
+- `forall_params : Option(Expr)` — optional forall clause from the derive call
+- `where_clause : Option(Expr)` — optional where clause
+- `make_impl(trait_body : Expr) -> Expr` — constructs the complete `impl(...)` expression with proper forall/where wrapping
+
+### Key Builtins for Derive Rules
+
+| Builtin                                        | Purpose                                 |
+| ---------------------------------------------- | --------------------------------------- |
+| `__yo_type_is_struct(T)`                       | Check if T is a struct                  |
+| `__yo_type_is_enum(T)`                         | Check if T is an enum                   |
+| `__yo_type_field_count(T)`                     | Number of fields in struct              |
+| `__yo_type_join_fields(T, mapper, combiner)`   | Iterate fields, combine with operator   |
+| `__yo_type_map_variants(T, mapper)`            | Map enum variants to Expr list          |
+| `__yo_type_join_variants(T, mapper, combiner)` | Iterate variants, combine with operator |
+| `"str".to_expr()`                              | Convert comptime_string to Expr         |
+| `quote(&&)`                                    | Quote an operator as Expr               |
+
+### Enum Derive Rules
+
+For fieldless enums, use `__yo_type_map_variants` to generate match branches:
+
+```rust
+__yo_type_is_enum(T) => {
+  match_branches :: __yo_type_map_variants(
+    T,
+    (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+      quote(
+        .(#(variant.name.to_expr())) => match(other,
+          .(#(variant.name.to_expr())) => true,
+          _ => false
+        )
+      )
+    )
+  );
+  quote(match(self, ...#(match_branches)))
+}
+```
+
+### Generic Derive with forall/where
+
+Derive rules work with generic types using `forall` and `where`:
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(first : A, second : B)
+);
+
+derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+```
+
+The `DeriveContext.make_impl` method automatically includes the forall/where clauses in the generated impl.
+
+### Rule Lookup Order
+
+When `derive(Type, Trait)` is called:
+
+1. **Registered derive rule** (via `derive_rule`) — checked first
+2. **Built-in derive** (Eq, Hash, Clone, Ord, ToString) — fallback
+3. **Comptime function** — if the trait name resolves to a comptime fn
+4. **Error** — if none of the above match
+
+Registered rules always take priority over built-in derives.
+
 ## Variadic Comptime Parameters
 
 `derive` uses variadic comptime parameters internally, allowing any number of trait arguments:

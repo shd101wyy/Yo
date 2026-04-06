@@ -199,6 +199,138 @@ derive_field_count :: (fn(comptime(T) : Type) -> comptime(unit)) {
 };
 ```
 
+## `derive_rule` — 用户注册的派生规则
+
+`derive_rule` 允许特征作者注册其特征的派生方式。注册后，`derive(Type, MyTrait)` 就像内建特征一样工作。
+
+### 定义派生规则
+
+派生规则是一个编译期函数，签名为：
+
+```rust
+fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+```
+
+- `T` — 正在派生的目标类型
+- `ctx` — `DeriveContext` 结构体，包含 `target`（Expr）、`forall_params`、`where_clause`
+- `trait_params` — 特征构造函数参数的 Expr 列表
+
+函数返回一个 `Expr`（通过 `quote`），表示要生成的 `impl` 代码块。
+
+### 示例：结构体相等性
+
+```rust
+// 定义自定义相等特征
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    my_eq : (fn(self : Self, other : Rhs) -> bool)
+  )
+);
+
+// 提供基础实现
+impl(i32, MyEq(i32)(my_eq : ((self, other) -> (self == other))));
+impl(bool, MyEq(bool)(my_eq : ((self, other) -> (self == other))));
+
+// 注册 MyEq 的派生规则
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    eq_body :: cond(
+      __yo_type_is_struct(T) => cond(
+        (__yo_type_field_count(T) == 0) => quote(true),
+        true => __yo_type_join_fields(
+          T,
+          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+          ),
+          quote(&&)
+        )
+      ),
+      true => quote(false)
+    );
+    ctx.make_impl(quote(
+      MyEq(...#(trait_params))(
+        my_eq : ((self, other) -> #(eq_body))
+      )
+    ))
+  }
+);
+
+derive_rule(MyEq, my_derive_eq);
+
+// 现在 derive 可以用于任何结构体
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq(Point));
+// p1.my_eq(p2) 可以使用！
+```
+
+### DeriveContext
+
+`DeriveContext`（定义在 `std/prelude.yo` 中）提供：
+
+- `target : Expr` — 用于拼接的原始目标类型表达式
+- `forall_params : Option(Expr)` — 来自 derive 调用的可选 forall 子句
+- `where_clause : Option(Expr)` — 可选 where 子句
+- `make_impl(trait_body : Expr) -> Expr` — 构造完整的 `impl(...)` 表达式，自动包含 forall/where
+
+### 派生规则的关键内建函数
+
+| 内建函数                                       | 用途                           |
+| ---------------------------------------------- | ------------------------------ |
+| `__yo_type_is_struct(T)`                       | 检查 T 是否为结构体            |
+| `__yo_type_is_enum(T)`                         | 检查 T 是否为枚举              |
+| `__yo_type_field_count(T)`                     | 结构体的字段数                 |
+| `__yo_type_join_fields(T, mapper, combiner)`   | 迭代字段，用运算符组合         |
+| `__yo_type_map_variants(T, mapper)`            | 将枚举变体映射为 Expr 列表     |
+| `__yo_type_join_variants(T, mapper, combiner)` | 迭代变体，用运算符组合         |
+| `"str".to_expr()`                              | 将 comptime_string 转换为 Expr |
+| `quote(&&)`                                    | 将运算符引用为 Expr            |
+
+### 枚举的派生规则
+
+对于无字段枚举，使用 `__yo_type_map_variants` 生成 match 分支：
+
+```rust
+__yo_type_is_enum(T) => {
+  match_branches :: __yo_type_map_variants(
+    T,
+    (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+      quote(
+        .(#(variant.name.to_expr())) => match(other,
+          .(#(variant.name.to_expr())) => true,
+          _ => false
+        )
+      )
+    )
+  );
+  quote(match(self, ...#(match_branches)))
+}
+```
+
+### 泛型 derive 与 forall/where
+
+派生规则支持使用 `forall` 和 `where` 的泛型类型：
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(first : A, second : B)
+);
+
+derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+```
+
+`DeriveContext.make_impl` 方法会自动在生成的 impl 中包含 forall/where 子句。
+
+### 规则查找顺序
+
+当调用 `derive(Type, Trait)` 时：
+
+1. **已注册的派生规则**（通过 `derive_rule`）— 首先检查
+2. **内建派生**（Eq、Hash、Clone、Ord、ToString）— 后备
+3. **编译期函数** — 如果特征名称解析为编译期函数
+4. **错误** — 如果以上都不匹配
+
+已注册的规则始终优先于内建派生。
+
 ## 可变参数编译期参数
 
 `derive` 在内部使用可变参数编译期参数，允许任意数量的特征参数：

@@ -4,9 +4,10 @@
 
 Yo currently requires users to manually write `impl` blocks for common traits like `Eq`, `Hash`, `Clone`, `Ord`, and `ToString` for every struct and enum type. This is tedious and error-prone, especially for structs with many fields. Rust solves this with `#[derive(Eq, Hash, Clone, ...)]`; Yo needs an equivalent — and unlike Rust, Yo should let users define their own derive rules using comptime functions without a proc-macro system.
 
-## Status — Phase 1 Complete ✅, Phase 2 In Progress
+## Status — Phase 1 Complete ✅, Phase 2 Complete ✅
 
 Phase 1 (built-in derives + infrastructure) complete: 33 tests in `tests/derive.test.yo`, 10 in `tests/variadic_comptime.test.yo`.
+Phase 2 (derive_rule with Expr-based macros) complete: 41 tests in `tests/derive.test.yo`.
 
 ### Phase 1 — What's implemented:
 
