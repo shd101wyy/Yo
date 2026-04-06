@@ -352,20 +352,17 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 ## 内建函数
 
-| 内建函数                                     | 描述                                           |
-| -------------------------------------------- | ---------------------------------------------- |
-| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`                     |
-| `__yo_type_get_fields(T)`                    | 返回结构体字段的 `ComptimeList(TypeFieldInfo)` |
-| `__yo_type_get_variants(T)`                  | 返回枚举变体的 `ComptimeList(VariantInfo)`     |
-| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）                 |
-| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型）       |
-| `__yo_type_field_count(T)`                   | 结构体字段数                                   |
-| `__yo_type_to_comptime_string(T)`            | 类型名作为 `comptime_string`                   |
-| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                           |
-| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                                   |
-| `__yo_type_impls(T, Marker)`                 | 检查类型是否实现了标记 trait                   |
-| `__yo_type_contains_rc_type(T)`              | 检查是否包含引用计数字段                       |
-| `__yo_type_can_form_rc_cycle(T)`             | 检查是否可能形成引用计数循环                   |
+| 内建函数                                     | 描述                                     |
+| -------------------------------------------- | ---------------------------------------- |
+| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`               |
+| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）           |
+| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型） |
+| `__yo_type_to_comptime_string(T)`            | 类型名作为 `comptime_string`             |
+| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                     |
+| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                             |
+| `__yo_type_impls(T, Marker)`                 | 检查类型是否实现了标记 trait             |
+| `__yo_type_contains_rc_type(T)`              | 检查是否包含引用计数字段                 |
+| `__yo_type_can_form_rc_cycle(T)`             | 检查是否可能形成引用计数循环             |
 
 ## 设计文档
 

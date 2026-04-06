@@ -14,7 +14,6 @@ import { generateExprFromCode, generateExprsFromCode } from "../../parser";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createBooleanType,
-  createComptimeIntType,
   createComptimeStringType,
   createExprType,
 } from "../../types/creators";
@@ -55,7 +54,6 @@ import {
 import { VUnit } from "../../unit-value";
 import {
   createBooleanValue,
-  createComptimeIntValue,
   createComptimeStringValue,
   createExprValue,
   createTypeValue,
@@ -558,74 +556,8 @@ function evaluateTypeArg({
   return { type: arg.$.value.value, env: arg.$.env };
 }
 
-/** __yo_type_get_tag(T) -> comptime(TypeTag)
- *
- * Maps a Type to its TypeTag enum variant (1:1 with compiler's internal TypeTag).
- */
-export function evaluateYoTypeGetTag({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_get_tag",
-  });
-
-  if (isSomeType(type)) {
-    // During validation, return UnknownValue with the TypeTag enum type.
-    // Look up TypeTag from the env to get the correct enum type.
-    const typeTagExpr = generateExprFromCode("TypeTag.Struct");
-    const typeTagResult = evaluateExpression({
-      expr: typeTagExpr,
-      env: nextEnv,
-      context: { ...context, forceCompileTimeBindings: true },
-    });
-    if (typeTagResult.$) {
-      const value = createUnknownValue(typeTagResult.$.type, {
-        env: nextEnv,
-        context,
-      });
-      expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    }
-    return expr;
-  }
-
-  // Map TypeTag to TypeTag variant name (1:1 mapping)
-  const variantName = typeTagToVariantName(type.tag);
-  const code = `TypeTag.${variantName}`;
-  const tagExpr = generateExprFromCode(code);
-  const result = evaluateExpression({
-    expr: tagExpr,
-    env: nextEnv,
-    context: { ...context, forceCompileTimeBindings: true },
-  });
-
-  if (!result.$ || !result.$.value) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `__yo_type_get_tag: failed to create TypeTag.${variantName}`,
-    });
-  }
-
-  expr.$ = {
-    env: nextEnv,
-    type: result.$.type,
-    value: result.$.value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
 /**
- * Maps compiler TypeTag string value to Yo TypeTag enum variant name.
- * This is a 1:1 mapping — the Yo TypeTag enum mirrors the compiler's internal TypeTag.
+ * Maps compiler TypeTag string value to Yo TypeInfo enum variant name.
  */
 function typeTagToVariantName(tag: string): string {
   switch (tag) {
@@ -1468,49 +1400,6 @@ function bindTempTraitInfoList(
   return bindComptimeList(env, values, "TraitInfo", "trl_" + prefix, context);
 }
 
-/** __yo_type_field_count(T) -> comptime(comptime_int) */
-export function evaluateYoTypeFieldCount({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  const { type, env: nextEnv } = evaluateTypeArg({
-    expr,
-    env,
-    context,
-    builtinName: "__yo_type_field_count",
-  });
-
-  if (isSomeType(type)) {
-    const value = createUnknownValue(createComptimeIntType(), {
-      env: nextEnv,
-      context,
-    });
-    expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
-    return expr;
-  }
-
-  if (!isStructType(type)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_field_count: expected a struct type, got: ${typeToString(type)}`,
-    });
-  }
-
-  const value = createComptimeIntValue(BigInt(type.fields.length));
-  expr.$ = {
-    env: nextEnv,
-    type: value.type,
-    value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
 // ============================================================
 // comptime_eval
 // ============================================================
@@ -2267,168 +2156,4 @@ function createVariantInfoValue(
  */
 function createExprListValue(elements: Value[]) {
   return createComptimeListValueFn(createExprType(), elements);
-}
-
-/**
- * __yo_type_get_fields(T) -> ComptimeList(TypeFieldInfo)
- *
- * Returns the struct fields of T as a ComptimeList(TypeFieldInfo).
- * Panics if T is not a struct type.
- */
-export function evaluateYoTypeGetFields({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_fields, 1);
-
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_fields: argument must be a Type`,
-    });
-  }
-  env = typeArg.$.env;
-  const targetType = typeArg.$.value.value;
-
-  if (isSomeType(targetType) || isTypeHierarchyType(targetType)) {
-    // Return UnknownValue with correct ComptimeList(TypeFieldInfo) type
-    const dummyExpr = generateExprFromCode(
-      'comptime_list(TypeFieldInfo("_", unit))'
-    );
-    const dummyResult = evaluateExpression({
-      expr: dummyExpr,
-      env,
-      context: { ...context, forceCompileTimeBindings: true },
-    });
-    if (dummyResult.$ && dummyResult.$.value) {
-      const value = createUnknownValue(dummyResult.$.type, { env, context });
-      expr.$ = { env, type: value.type, value, pathCollection: [] };
-    }
-    return expr;
-  }
-
-  if (!isStructType(targetType)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_fields: expected a struct type, got: ${typeToString(targetType)}`,
-    });
-  }
-
-  const structType = targetType as StructType;
-  const result = bindTempTypeFieldList(env, structType.fields, context);
-  env = result.env;
-
-  // Evaluate the bound list variable to get its value
-  const listExpr = generateExprFromCode(result.name);
-  const listResult = evaluateExpression({
-    expr: listExpr,
-    env,
-    context: { ...context, forceCompileTimeBindings: true },
-  });
-
-  if (!listResult.$ || !listResult.$.value) {
-    throw new Error(`__yo_type_get_fields: failed to evaluate field list`);
-  }
-
-  expr.$ = {
-    env: listResult.$.env,
-    type: listResult.$.type,
-    value: listResult.$.value,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/**
- * __yo_type_get_variants(T) -> ComptimeList(VariantInfo)
- *
- * Returns the enum variants of T as a ComptimeList(VariantInfo).
- * Panics if T is not an enum type.
- */
-export function evaluateYoTypeGetVariants({
-  expr,
-  env,
-  context,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FnCallExpr {
-  expectExprToBeFunctionCallOf(
-    expr,
-    BuiltinFunctions.__yo_type_get_variants,
-    1
-  );
-
-  const typeArg = evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: { ...context },
-  });
-  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variants: argument must be a Type`,
-    });
-  }
-  env = typeArg.$.env;
-  const targetType = typeArg.$.value.value;
-
-  if (isSomeType(targetType) || isTypeHierarchyType(targetType)) {
-    // Return UnknownValue with correct ComptimeList(VariantInfo) type
-    const dummyExpr = generateExprFromCode(
-      'comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, 0))'
-    );
-    const dummyResult = evaluateExpression({
-      expr: dummyExpr,
-      env,
-      context: { ...context, forceCompileTimeBindings: true },
-    });
-    if (dummyResult.$ && dummyResult.$.value) {
-      const value = createUnknownValue(dummyResult.$.type, { env, context });
-      expr.$ = { env, type: value.type, value, pathCollection: [] };
-    }
-    return expr;
-  }
-
-  if (!isEnumType(targetType)) {
-    throw formatErrorMessage({
-      token: expr.args[0]!.token,
-      errorMessage: `__yo_type_get_variants: expected an enum type, got: ${typeToString(targetType)}`,
-    });
-  }
-
-  const enumType = targetType as EnumType;
-  const result = bindTempVariantInfoList(env, enumType, context);
-  env = result.env;
-
-  // Evaluate the bound list variable to get its value
-  const listExpr = generateExprFromCode(result.name);
-  const listResult = evaluateExpression({
-    expr: listExpr,
-    env,
-    context: { ...context, forceCompileTimeBindings: true },
-  });
-
-  if (!listResult.$ || !listResult.$.value) {
-    throw new Error(`__yo_type_get_variants: failed to evaluate variant list`);
-  }
-
-  expr.$ = {
-    env: listResult.$.env,
-    type: listResult.$.type,
-    value: listResult.$.value,
-    pathCollection: [],
-  };
-  return expr;
 }

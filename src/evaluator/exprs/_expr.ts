@@ -82,11 +82,7 @@ import {
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
-  evaluateYoTypeGetTag,
   evaluateYoTypeGetInfo,
-  evaluateYoTypeGetFields,
-  evaluateYoTypeGetVariants,
-  evaluateYoTypeFieldCount,
   evaluateComptimeEval,
   evaluateComptimeStringToExpr,
   evaluateTypeJoinFields,
@@ -1020,25 +1016,9 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_tag, 1)
-    ) {
-      return evaluateYoTypeGetTag({ expr, env, context: { ...context } });
-    } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_info, 1)
     ) {
       return evaluateYoTypeGetInfo({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_fields, 1)
-    ) {
-      return evaluateYoTypeGetFields({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_variants, 1)
-    ) {
-      return evaluateYoTypeGetVariants({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_field_count, 1)
-    ) {
-      return evaluateYoTypeFieldCount({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_eval, 1)) {
       return evaluateComptimeEval({ expr, env, context: { ...context } });
     } else if (

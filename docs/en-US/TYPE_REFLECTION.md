@@ -352,20 +352,17 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 ## Builtin Functions
 
-| Builtin                                      | Description                                             |
-| -------------------------------------------- | ------------------------------------------------------- |
-| `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`                         |
-| `__yo_type_get_fields(T)`                    | Returns `ComptimeList(TypeFieldInfo)` for struct fields |
-| `__yo_type_get_variants(T)`                  | Returns `ComptimeList(VariantInfo)` for enum variants   |
-| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion)              |
-| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal)              |
-| `__yo_type_field_count(T)`                   | Number of fields in struct                              |
-| `__yo_type_to_comptime_string(T)`            | Type name as `comptime_string`                          |
-| `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields                           |
-| `__yo_type_map_variants(T, mapper)`          | Map over enum variants                                  |
-| `__yo_type_impls(T, Marker)`                 | Checks if type implements a marker trait                |
-| `__yo_type_contains_rc_type(T)`              | Checks for reference-counted fields                     |
-| `__yo_type_can_form_rc_cycle(T)`             | Checks for potential RC cycles                          |
+| Builtin                                      | Description                                |
+| -------------------------------------------- | ------------------------------------------ |
+| `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`            |
+| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion) |
+| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal) |
+| `__yo_type_to_comptime_string(T)`            | Type name as `comptime_string`             |
+| `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields              |
+| `__yo_type_map_variants(T, mapper)`          | Map over enum variants                     |
+| `__yo_type_impls(T, Marker)`                 | Checks if type implements a marker trait   |
+| `__yo_type_contains_rc_type(T)`              | Checks for reference-counted fields        |
+| `__yo_type_can_form_rc_cycle(T)`             | Checks for potential RC cycles             |
 
 ## Design Document
 

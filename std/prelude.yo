@@ -4265,11 +4265,15 @@ impl(Type,
   }),
 
   get_struct_fields : (fn(comptime(self): Type) -> comptime(ComptimeList(TypeFieldInfo)))({
-    return __yo_type_get_fields(self);
+    info :: __yo_type_get_info(self);
+    comptime_assert(info.is_struct(), "Type.get_struct_fields: expected a struct type");
+    match(info, .Struct(f, _) => f, _ => comptime_list(TypeFieldInfo("_", unit)))
   }),
 
   get_enum_variants : (fn(comptime(self): Type) -> comptime(ComptimeList(VariantInfo)))({
-    return __yo_type_get_variants(self);
+    info :: __yo_type_get_info(self);
+    comptime_assert(info.is_enum(), "Type.get_enum_variants: expected an enum type");
+    match(info, .Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, 0)))
   })
 );
 
@@ -4542,7 +4546,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
     cond(
       info.is_struct() => {
         eq_body :: cond(
-          (__yo_type_field_count(T) == 0) => quote(true),
+          (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
           true => __yo_type_join_fields(
             T,
             (fn(comptime(field) : FieldInfo) -> comptime(Expr))(

@@ -319,7 +319,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     info :: Type.get_info(T);
     eq_body :: cond(
       info.is_struct() => cond(
-        (__yo_type_field_count(T) == 0) => quote(true),
+        (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
         true => __yo_type_join_fields(
           T,
           (fn(comptime(field) : FieldInfo) -> comptime(Expr))(

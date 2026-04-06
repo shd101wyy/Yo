@@ -1140,11 +1140,7 @@ export const BuiltinFunctions = {
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
 
   // Type reflection builtins
-  __yo_type_get_tag: ["__yo_type_get_tag"],
   __yo_type_get_info: ["__yo_type_get_info"],
-  __yo_type_get_fields: ["__yo_type_get_fields"],
-  __yo_type_field_count: ["__yo_type_field_count"],
-  __yo_type_get_variants: ["__yo_type_get_variants"],
 
   // comptime_eval builtin
   comptime_eval: ["comptime_eval"],
