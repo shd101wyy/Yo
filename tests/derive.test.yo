@@ -357,27 +357,6 @@ test "comptime_eval derive", {
   assert((ep1 != ep3), "comptime_eval: not equal");
 };
 
-// ============================================================
-// v2: User-defined derive via comptime function
-// ============================================================
-
-// A user-defined derive function that creates a simple `describe` method
-derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  name :: __yo_type_get_name(T);
-  code ::
-    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
-  comptime_eval(code);
-};
-
-DescPoint :: struct(x : i32, y : i32);
-derive(DescPoint, derive_describe);
-
-test "user-defined derive via comptime function", {
-  dp := DescPoint(i32(1), i32(2));
-  result := dp.describe();
-  assert((result == `DescPoint`), "user-defined derive should produce describe method");
-};
-
 // =============================================================================
 // === derive_rule tests (Phase 2) — user-defined derive rules via macros ===
 // =============================================================================

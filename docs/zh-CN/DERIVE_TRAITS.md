@@ -252,24 +252,6 @@ derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), 
 
 派生规则可以使用 `Type.get_info(T)` 和 `__yo_type_*` 内建函数在编译期检查类型。完整文档请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
 
-## 用户自定义派生（旧方式）
-
-在 `derive_rule` 出现之前，可以将自定义派生函数定义为签名为 `fn(comptime(T) : Type) -> comptime(unit)` 的编译期函数：
-
-```rust
-derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  name :: __yo_type_get_name(T);
-  code ::
-    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
-  comptime_eval(code);
-};
-
-MyStruct :: struct(x : i32, y : i32);
-derive(MyStruct, derive_describe);
-```
-
-这种方式可以工作，但不如 `derive_rule` 结构化。新代码建议使用 `derive_rule`。
-
 ## 设计文档
 
 完整的设计文档（包含实现细节）请参阅 [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md)。

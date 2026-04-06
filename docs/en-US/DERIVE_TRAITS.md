@@ -252,24 +252,6 @@ Registered rules always take priority over built-in derives.
 
 Derive rules can inspect types at compile time using `Type.get_info(T)` and the `__yo_type_*` builtins. See [TYPE_REFLECTION.md](./TYPE_REFLECTION.md) for the full documentation.
 
-## User-Defined Derives (Legacy)
-
-Before `derive_rule`, custom derives could be defined as comptime functions with signature `fn(comptime(T) : Type) -> comptime(unit)`:
-
-```rust
-derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  name :: __yo_type_get_name(T);
-  code ::
-    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
-  comptime_eval(code);
-};
-
-MyStruct :: struct(x : i32, y : i32);
-derive(MyStruct, derive_describe);
-```
-
-This approach works but is less structured than `derive_rule`. Use `derive_rule` for new code.
-
 ## Design Document
 
 For the full design including implementation details, see [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md).
