@@ -598,9 +598,9 @@ export function evaluateYoTypeIsEnum({
   return expr;
 }
 
-/** __yo_type_get_tag(T) -> comptime(TypeKind)
+/** __yo_type_get_tag(T) -> comptime(TypeTag)
  *
- * Maps a Type to its TypeKind enum variant.
+ * Maps a Type to its TypeTag enum variant (1:1 with compiler's internal TypeTag).
  */
 export function evaluateYoTypeGetTag({
   expr,
@@ -619,16 +619,16 @@ export function evaluateYoTypeGetTag({
   });
 
   if (isSomeType(type)) {
-    // During validation, return UnknownValue with the TypeKind enum type.
-    // Look up TypeKind from the env to get the correct enum type.
-    const typeKindExpr = generateExprFromCode("TypeKind.Struct");
-    const typeKindResult = evaluateExpression({
-      expr: typeKindExpr,
+    // During validation, return UnknownValue with the TypeTag enum type.
+    // Look up TypeTag from the env to get the correct enum type.
+    const typeTagExpr = generateExprFromCode("TypeTag.Struct");
+    const typeTagResult = evaluateExpression({
+      expr: typeTagExpr,
       env: nextEnv,
       context: { ...context, forceCompileTimeBindings: true },
     });
-    if (typeKindResult.$) {
-      const value = createUnknownValue(typeKindResult.$.type, {
+    if (typeTagResult.$) {
+      const value = createUnknownValue(typeTagResult.$.type, {
         env: nextEnv,
         context,
       });
@@ -637,12 +637,12 @@ export function evaluateYoTypeGetTag({
     return expr;
   }
 
-  // Map TypeTag to TypeKind variant name
-  const variantName = typeTagToTypeKindVariant(type.tag);
-  const code = `TypeKind.${variantName}`;
-  const kindExpr = generateExprFromCode(code);
+  // Map TypeTag to TypeTag variant name (1:1 mapping)
+  const variantName = typeTagToVariantName(type.tag);
+  const code = `TypeTag.${variantName}`;
+  const tagExpr = generateExprFromCode(code);
   const result = evaluateExpression({
-    expr: kindExpr,
+    expr: tagExpr,
     env: nextEnv,
     context: { ...context, forceCompileTimeBindings: true },
   });
@@ -650,7 +650,7 @@ export function evaluateYoTypeGetTag({
   if (!result.$ || !result.$.value) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `__yo_type_get_tag: failed to create TypeKind.${variantName}`,
+      errorMessage: `__yo_type_get_tag: failed to create TypeTag.${variantName}`,
     });
   }
 
@@ -664,66 +664,107 @@ export function evaluateYoTypeGetTag({
 }
 
 /**
- * Maps compiler TypeTag to user-facing TypeKind variant name.
+ * Maps compiler TypeTag string value to Yo TypeTag enum variant name.
+ * This is a 1:1 mapping — the Yo TypeTag enum mirrors the compiler's internal TypeTag.
  */
-function typeTagToTypeKindVariant(tag: string): string {
+function typeTagToVariantName(tag: string): string {
   switch (tag) {
+    case TypeTag.Unit:
+      return "Unit";
+    case TypeTag.Bool:
+      return "Bool";
+    case TypeTag.Usize:
+      return "Usize";
+    case TypeTag.Isize:
+      return "Isize";
+    case TypeTag.U8:
+      return "U8";
+    case TypeTag.I8:
+      return "I8";
+    case TypeTag.U16:
+      return "U16";
+    case TypeTag.I16:
+      return "I16";
+    case TypeTag.U32:
+      return "U32";
+    case TypeTag.I32:
+      return "I32";
+    case TypeTag.U64:
+      return "U64";
+    case TypeTag.I64:
+      return "I64";
+    case TypeTag.F32:
+      return "F32";
+    case TypeTag.F64:
+      return "F64";
+    case TypeTag.ComptimeInt:
+      return "ComptimeInt";
+    case TypeTag.ComptimeFloat:
+      return "ComptimeFloat";
+    case TypeTag.ComptimeString:
+      return "ComptimeString";
+    case TypeTag.Char:
+      return "Char";
+    case TypeTag.Short:
+      return "Short";
+    case TypeTag.UShort:
+      return "UShort";
+    case TypeTag.Int:
+      return "Int";
+    case TypeTag.UInt:
+      return "UInt";
+    case TypeTag.Long:
+      return "Long";
+    case TypeTag.ULong:
+      return "ULong";
+    case TypeTag.LongLong:
+      return "LongLong";
+    case TypeTag.ULongLong:
+      return "ULongLong";
+    case TypeTag.LongDouble:
+      return "LongDouble";
+    case TypeTag.Void:
+      return "Void";
+    case TypeTag.Type:
+      return "Type";
+    case TypeTag.Array:
+      return "Array";
+    case TypeTag.Tuple:
+      return "Tuple";
     case TypeTag.Struct:
       return "Struct";
     case TypeTag.Enum:
       return "Enum";
     case TypeTag.Union:
       return "Union";
-    case TypeTag.Tuple:
-      return "Tuple";
-    case TypeTag.Array:
-      return "Array";
-    case TypeTag.Slice:
-      return "Slice";
     case TypeTag.Function:
       return "Function";
-    case TypeTag.Ptr:
-      return "Pointer";
-    case TypeTag.Trait:
-      return "Trait";
+    case TypeTag.SomeType:
+      return "SomeType";
+    case TypeTag.Slice:
+      return "Slice";
     case TypeTag.Module:
       return "Module";
-    case TypeTag.Void:
-    case TypeTag.Unit:
-      return "Void";
-
-    // All primitive types map to Primitive
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Char:
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble:
-      return "Primitive";
-
-    // Everything else
+    case TypeTag.Trait:
+      return "Trait";
+    case TypeTag.Ptr:
+      return "Ptr";
+    case TypeTag.Iso:
+      return "Iso";
+    case TypeTag.Arc:
+      return "Arc";
+    case TypeTag.Dyn:
+      return "Dyn";
+    case TypeTag.Expr:
+      return "Expr";
+    case TypeTag.ComptimeList:
+      return "ComptimeList";
+    case TypeTag.EffectsRow:
+      return "EffectsRow";
+    case TypeTag.TypeApplication:
+      return "TypeApplication";
     default:
-      return "Other";
+      throw new Error(`Unknown TypeTag: ${tag}`);
   }
 }
 

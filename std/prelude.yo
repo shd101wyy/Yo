@@ -4012,67 +4012,161 @@ impl(Type, ComptimeToString(
 _Type :: Type;
 export Type : _Type;
 
-// TypeKind — compile-time enum representing the category of a type
-TypeKind :: enum(
-  Struct,
-  Enum,
-  Union,
-  Tuple,
-  Array,
-  Slice,
-  Function,
-  Pointer,
-  Trait,
-  Module,
+// TypeTag — compile-time enum representing the tag of a type (mirrors compiler's internal TypeTag)
+TypeTag :: enum(
+  // Primitive numeric types
+  Unit,
+  Bool,
+  Usize, Isize,
+  U8, I8, U16, I16, U32, I32, U64, I64,
+  F32, F64,
+
+  // Compile-time types
+  ComptimeInt, ComptimeFloat, ComptimeString,
+
+  // C-compatible types
+  Char, Short, UShort, Int, UInt,
+  Long, ULong, LongLong, ULongLong, LongDouble,
+
+  // Void
   Void,
-  Primitive,
-  Other
+
+  // Type universe
+  Type,
+
+  // Compound types
+  Array, Tuple, Struct, Enum, Union, Function,
+
+  // Generic placeholder
+  SomeType,
+
+  // Slice (fat pointer)
+  Slice,
+
+  // Module & Trait
+  Module, Trait,
+
+  // Pointer types
+  Ptr, Iso, Arc,
+
+  // Dynamic dispatch
+  Dyn,
+
+  // Metaprogramming
+  Expr, ComptimeList,
+
+  // Effects
+  EffectsRow,
+
+  // HKT
+  TypeApplication
 );
-impl(TypeKind, Comptime());
-impl(TypeKind,
-  is_struct : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+impl(TypeTag, Comptime());
+impl(TypeTag,
+  is_struct : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Struct => true, _ => false)
   ),
-  is_enum : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_enum : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Enum => true, _ => false)
   ),
-  is_union : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_union : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Union => true, _ => false)
   ),
-  is_tuple : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_tuple : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Tuple => true, _ => false)
   ),
-  is_array : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_array : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Array => true, _ => false)
   ),
-  is_slice : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_slice : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Slice => true, _ => false)
   ),
-  is_function : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_function : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Function => true, _ => false)
   ),
-  is_pointer : (fn(comptime(self) : TypeKind) -> comptime(bool))(
-    match(self, .Pointer => true, _ => false)
+  is_pointer : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self, .Ptr => true, _ => false)
   ),
-  is_trait : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_trait : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Trait => true, _ => false)
   ),
-  is_module : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_module : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Module => true, _ => false)
   ),
-  is_void : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+  is_void : (fn(comptime(self) : TypeTag) -> comptime(bool))(
     match(self, .Void => true, _ => false)
   ),
-  is_primitive : (fn(comptime(self) : TypeKind) -> comptime(bool))(
-    match(self, .Primitive => true, _ => false)
+  is_primitive : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self,
+      .Bool => true,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .F32 => true, .F64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      .LongDouble => true,
+      _ => false
+    )
+  ),
+  is_integer : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      _ => false
+    )
+  ),
+  is_float : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self,
+      .F32 => true, .F64 => true,
+      .LongDouble => true,
+      _ => false
+    )
+  ),
+  is_comptime : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self,
+      .ComptimeInt => true, .ComptimeFloat => true, .ComptimeString => true,
+      _ => false
+    )
+  ),
+  is_numeric : (fn(comptime(self) : TypeTag) -> comptime(bool))(
+    match(self,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .F32 => true, .F64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      .LongDouble => true,
+      .ComptimeInt => true, .ComptimeFloat => true,
+      _ => false
+    )
   )
 );
-export TypeKind;
+export TypeTag;
 
-// Type.get_kind() — returns TypeKind for the given type
-// Defined after TypeKind so the return type is available
+// Type.get_tag() — returns TypeTag for the given type
+// Defined after TypeTag so the return type is available
 impl(Type,
-  get_kind : (fn(comptime(self): Type) -> comptime(TypeKind))({
+  get_tag : (fn(comptime(self): Type) -> comptime(TypeTag))({
     return __yo_type_get_tag(self);
   })
 );

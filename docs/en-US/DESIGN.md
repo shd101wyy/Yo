@@ -2922,7 +2922,7 @@ derive(Point, MyEq);  // Uses the registered derive_rule
 
 Type reflection builtins enable derive rules to inspect types at compile time:
 
-- `Type.get_kind(T)` — returns a `TypeKind` enum variant (`Struct`, `Enum`, `Primitive`, etc.)
+- `Type.get_tag(T)` — returns a `TypeTag` enum variant (`Struct`, `Enum`, `I32`, `Bool`, etc.)
 - `__yo_type_field_count(T)` — number of struct fields
 - `__yo_type_get_field_name(T, i)` — field name at index
 - `__yo_type_get_field_type(T, i)` — field type at index
@@ -2933,36 +2933,49 @@ For the full design including variadic comptime parameters, derive_rule storage,
 
 ## Type Reflection
 
-Yo provides compile-time type reflection through the `TypeKind` enum and `Type.get_kind()`:
+Yo provides compile-time type reflection through the `TypeTag` enum and `Type.get_tag()`. The `TypeTag` enum mirrors the compiler's internal type tags, giving users precise type identification at compile time.
 
 ```rust
-TypeKind :: enum(
-  Struct, Enum, Union, Tuple, Array, Slice,
-  Function, Pointer, Trait, Module, Void, Primitive, Other
+TypeTag :: enum(
+  // Primitives
+  Unit, Bool, Usize, Isize,
+  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
+  // Compile-time types
+  ComptimeInt, ComptimeFloat, ComptimeString,
+  // C-compatible types
+  Char, Short, UShort, Int, UInt, Long, ULong, LongLong, ULongLong, LongDouble,
+  // Other
+  Void, Type, Array, Tuple, Struct, Enum, Union, Function,
+  SomeType, Slice, Module, Trait, Ptr, Iso, Arc, Dyn,
+  Expr, ComptimeList, EffectsRow, TypeApplication
 );
 ```
 
 Usage:
 
 ```rust
-k :: Type.get_kind(i32);
-comptime_assert(k.is_primitive(), "i32 is primitive");
+tag :: Type.get_tag(i32);
+comptime_assert(tag.is_primitive(), "i32 is primitive");
+comptime_assert(tag.is_integer(), "i32 is an integer");
 
-k2 :: Type.get_kind(Point);
-comptime_assert(k2.is_struct(), "Point is a struct");
+tag2 :: Type.get_tag(Point);
+comptime_assert(tag2.is_struct(), "Point is a struct");
 
-// Match dispatch on type kind
+// Match dispatch on exact type tag
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
-  match(Type.get_kind(T),
+  match(Type.get_tag(T),
+    .I32 => "32-bit signed integer",
     .Struct => "struct type",
     .Enum => "enum type",
-    .Primitive => "primitive type",
     _ => "other type"
   )
 );
 ```
 
-`TypeKind` provides guard methods: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`, `is_primitive()`.
+Guard methods on `TypeTag`:
+
+- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`
+- **Numeric**: `is_primitive()`, `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
 
 ## Compile-Time Evaluation
 

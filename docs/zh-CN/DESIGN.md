@@ -2922,7 +2922,7 @@ derive(Point, MyEq);  // 使用注册的 derive_rule
 
 类型反射内建函数使派生规则能够在编译时检查类型：
 
-- `Type.get_kind(T)` — 返回 `TypeKind` 枚举变体（`Struct`、`Enum`、`Primitive` 等）
+- `Type.get_tag(T)` — 返回 `TypeTag` 枚举变体（`Struct`、`Enum`、`I32`、`Bool` 等）
 - `__yo_type_field_count(T)` — 结构体字段数量
 - `__yo_type_get_field_name(T, i)` — 索引处的字段名称
 - `__yo_type_get_field_type(T, i)` — 索引处的字段类型
@@ -2933,36 +2933,49 @@ derive(Point, MyEq);  // 使用注册的 derive_rule
 
 ## 类型反射（Type Reflection）
 
-Yo 通过 `TypeKind` 枚举和 `Type.get_kind()` 提供编译时类型反射：
+Yo 通过 `TypeTag` 枚举和 `Type.get_tag()` 提供编译时类型反射。`TypeTag` 枚举镜像了编译器内部的类型标签，为用户提供精确的编译时类型识别。
 
 ```rust
-TypeKind :: enum(
-  Struct, Enum, Union, Tuple, Array, Slice,
-  Function, Pointer, Trait, Module, Void, Primitive, Other
+TypeTag :: enum(
+  // 基本类型
+  Unit, Bool, Usize, Isize,
+  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
+  // 编译时类型
+  ComptimeInt, ComptimeFloat, ComptimeString,
+  // C 兼容类型
+  Char, Short, UShort, Int, UInt, Long, ULong, LongLong, ULongLong, LongDouble,
+  // 其他
+  Void, Type, Array, Tuple, Struct, Enum, Union, Function,
+  SomeType, Slice, Module, Trait, Ptr, Iso, Arc, Dyn,
+  Expr, ComptimeList, EffectsRow, TypeApplication
 );
 ```
 
 用法：
 
 ```rust
-k :: Type.get_kind(i32);
-comptime_assert(k.is_primitive(), "i32 is primitive");
+tag :: Type.get_tag(i32);
+comptime_assert(tag.is_primitive(), "i32 is primitive");
+comptime_assert(tag.is_integer(), "i32 is an integer");
 
-k2 :: Type.get_kind(Point);
-comptime_assert(k2.is_struct(), "Point is a struct");
+tag2 :: Type.get_tag(Point);
+comptime_assert(tag2.is_struct(), "Point is a struct");
 
-// 基于类型类别的 match 分发
+// 基于精确类型标签的 match 分发
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
-  match(Type.get_kind(T),
+  match(Type.get_tag(T),
+    .I32 => "32-bit signed integer",
     .Struct => "struct type",
     .Enum => "enum type",
-    .Primitive => "primitive type",
     _ => "other type"
   )
 );
 ```
 
-`TypeKind` 提供守卫方法：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_slice()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_module()`、`is_void()`、`is_primitive()`。
+`TypeTag` 上的守卫方法：
+
+- **结构性**：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_slice()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_module()`、`is_void()`
+- **数值性**：`is_primitive()`、`is_integer()`、`is_float()`、`is_numeric()`、`is_comptime()`
 
 ## 编译时求值
 

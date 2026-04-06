@@ -4,11 +4,11 @@
 
 Yo currently requires users to manually write `impl` blocks for common traits like `Eq`, `Hash`, `Clone`, `Ord`, and `ToString` for every struct and enum type. This is tedious and error-prone, especially for structs with many fields. Rust solves this with `#[derive(Eq, Hash, Clone, ...)]`; Yo needs an equivalent — and unlike Rust, Yo should let users define their own derive rules using comptime functions without a proc-macro system.
 
-## Status — Phase 1 Complete ✅, Phase 2 Complete ✅, TypeKind Complete ✅
+## Status — Phase 1 Complete ✅, Phase 2 Complete ✅, TypeTag Complete ✅
 
 Phase 1 (built-in derives + infrastructure) complete: 33 tests in `tests/derive.test.yo`, 10 in `tests/variadic_comptime.test.yo`.
 Phase 2 (derive_rule with Expr-based macros) complete: 41 tests in `tests/derive.test.yo`.
-TypeKind (type reflection enum) complete: 47 tests in `tests/derive.test.yo`.
+TypeTag (type reflection enum) complete: 48 tests in `tests/derive.test.yo`.
 
 ### Phase 1 — What's implemented:
 
@@ -1001,94 +1001,64 @@ derive(Empty, derive_Default);
 e :: Empty.default();
 ```
 
-### Phase 4: Type Reflection — TypeKind Enum ✅
+### Phase 4: Type Reflection — TypeTag Enum ✅
 
-Implement user-facing `TypeKind` enum for compile-time type categorization, plus `__yo_type_*` builtins for type inspection.
+Implement user-facing `TypeTag` enum for compile-time type identification, plus `__yo_type_*` builtins for type inspection.
 
 **Implementation files**: `src/evaluator/builtins/type-fns.ts`, `std/prelude.yo`
 
-#### TypeKind enum in prelude.yo (actual implementation)
+#### TypeTag enum in prelude.yo
 
-Rather than exposing the compiler's internal `TypeTag` (40+ variants), we provide a simplified `TypeKind` enum (13 variants) that groups related types into user-friendly categories:
+The `TypeTag` enum mirrors the compiler's internal `TypeTag` 1:1 (40+ variants), giving users precise type identification:
 
 ```rust
-TypeKind :: enum(
-  Struct,
-  Enum,
-  Union,
-  Tuple,
-  Array,
-  Slice,
-  Function,
-  Pointer,
-  Trait,
-  Module,
-  Void,
-  Primitive,
-  Other
+TypeTag :: enum(
+  Unit, Bool, Usize, Isize,
+  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
+  ComptimeInt, ComptimeFloat, ComptimeString,
+  Char, Short, UShort, Int, UInt,
+  Long, ULong, LongLong, ULongLong, LongDouble,
+  Void, Type,
+  Array, Tuple, Struct, Enum, Union, Function,
+  SomeType, Slice, Module, Trait,
+  Ptr, Iso, Arc, Dyn,
+  Expr, ComptimeList, EffectsRow, TypeApplication
 );
 ```
 
-Guard methods are implemented via `impl(TypeKind, ...)`:
+Guard methods are implemented via `impl(TypeTag, ...)`:
 
-```rust
-impl(TypeKind,
-  is_struct : ((fn(self : Self) -> comptime(bool))(match(self, .Struct => true, _ => false))),
-  is_enum : ((fn(self : Self) -> comptime(bool))(match(self, .Enum => true, _ => false))),
-  is_union : ((fn(self : Self) -> comptime(bool))(match(self, .Union => true, _ => false))),
-  is_tuple : ((fn(self : Self) -> comptime(bool))(match(self, .Tuple => true, _ => false))),
-  is_array : ((fn(self : Self) -> comptime(bool))(match(self, .Array => true, _ => false))),
-  is_slice : ((fn(self : Self) -> comptime(bool))(match(self, .Slice => true, _ => false))),
-  is_function : ((fn(self : Self) -> comptime(bool))(match(self, .Function => true, _ => false))),
-  is_pointer : ((fn(self : Self) -> comptime(bool))(match(self, .Pointer => true, _ => false))),
-  is_trait : ((fn(self : Self) -> comptime(bool))(match(self, .Trait => true, _ => false))),
-  is_module : ((fn(self : Self) -> comptime(bool))(match(self, .Module => true, _ => false))),
-  is_void : ((fn(self : Self) -> comptime(bool))(match(self, .Void => true, _ => false))),
-  is_primitive : ((fn(self : Self) -> comptime(bool))(match(self, .Primitive => true, _ => false)))
-);
-```
+- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`
+- **Numeric**: `is_primitive()` (all numeric + bool + C types), `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
 
-`Type.get_kind(T)` static method:
+`Type.get_tag(T)` static method:
 
 ```rust
 impl(Type,
-  get_kind : (fn(comptime(self) : Type) -> comptime(TypeKind))({
+  get_tag : (fn(comptime(self) : Type) -> comptime(TypeTag))({
     return __yo_type_get_tag(self);
   })
 );
 ```
 
-#### TypeTag → TypeKind mapping
-
-The `__yo_type_get_tag(T)` builtin maps the compiler's internal `TypeTag` to `TypeKind`:
-
-| Internal TypeTag(s)                                                                                                                 | TypeKind variant |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| Bool, U8–U64, I8–I64, F32, F64, Usize, Isize, Char, Short, Int, Long, etc.                                                          | `Primitive`      |
-| Struct                                                                                                                              | `Struct`         |
-| Enum                                                                                                                                | `Enum`           |
-| Union                                                                                                                               | `Union`          |
-| Tuple                                                                                                                               | `Tuple`          |
-| Array                                                                                                                               | `Array`          |
-| Slice                                                                                                                               | `Slice`          |
-| Function                                                                                                                            | `Function`       |
-| Ptr                                                                                                                                 | `Pointer`        |
-| Trait                                                                                                                               | `Trait`          |
-| Module                                                                                                                              | `Module`         |
-| Unit, Void                                                                                                                          | `Void`           |
-| SomeType, Type, Expr, ComptimeList, EffectsRow, TypeApplication, Arc, Iso, Dyn, Literal, ComptimeInt, ComptimeFloat, ComptimeString | `Other`          |
-
 #### Usage in derive_rule
 
 ```rust
 derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
-  k :: Type.get_kind(T);
+  tag :: Type.get_tag(T);
   cond(
-    k.is_struct() => { /* struct derive logic */ },
-    k.is_enum() => { /* enum derive logic */ },
+    tag.is_struct() => { /* struct derive logic */ },
+    tag.is_enum() => { /* enum derive logic */ },
     true => comptime_assert(false, "MyTrait can only be derived for struct or enum types")
   );
 });
+
+// Exact tag matching:
+match(Type.get_tag(T),
+  .I32 => "32-bit signed integer",
+  .Struct => "struct type",
+  _ => "other"
+);
 ```
 
 #### FieldInfo struct for field reflection
@@ -1119,7 +1089,7 @@ VariantInfo :: struct(
 ```rust
 extern "Yo",
   // === Type kind queries ===
-  __yo_type_get_tag : (fn(comptime(T) : Type) -> comptime(TypeKind)),
+  __yo_type_get_tag : (fn(comptime(T) : Type) -> comptime(TypeTag)),
   __yo_type_is_struct : (fn(comptime(T) : Type) -> comptime(bool)),
   __yo_type_is_enum : (fn(comptime(T) : Type) -> comptime(bool)),
   __yo_type_is_union : (fn(comptime(T) : Type) -> comptime(bool)),
@@ -1159,7 +1129,7 @@ extern "Yo",
 
 | Yo Builtin                           | TypeScript Implementation                                                  |
 | ------------------------------------ | -------------------------------------------------------------------------- |
-| `__yo_type_get_tag(T)`               | Maps `type.tag` to `TypeKind` enum variant via `typeTagToTypeKindVariant`  |
+| `__yo_type_get_tag(T)`               | Maps `type.tag` to `TypeTag` enum variant via `typeTagToVariantName` (1:1) |
 | `__yo_type_is_struct(T)`             | `isStructType(type)` from `src/types/guards.ts`                            |
 | `__yo_type_is_enum(T)`               | `isEnumType(type)`                                                         |
 | `__yo_type_get_name(T)`              | `type.typeName` or `typeToString(type)`                                    |
@@ -1173,24 +1143,24 @@ extern "Yo",
 | `__yo_type_get_variant_fields(T, i)` | `enumType.variants[i].fields`                                              |
 | `comptime_eval(code)`                | `generateExprFromCode(code)` + `evaluateExpression`                        |
 
-| Builtin                            | Returns              | Purpose                |
-| ---------------------------------- | -------------------- | ---------------------- |
-| `Type.get_kind(T)`                 | `comptime(TypeKind)` | Type categorization    |
-| `__yo_type_get_name(T)`            | `comptime_string`    | Type name for code gen |
-| `__yo_type_is_struct(T)`           | `comptime(bool)`     | Validation             |
-| `__yo_type_is_enum(T)`             | `comptime(bool)`     | Validation             |
-| `__yo_type_field_count(T)`         | `comptime_int`       | Iteration bounds       |
-| `__yo_type_get_field_name(T, i)`   | `comptime_string`    | Field access in code   |
-| `__yo_type_get_field_type(T, i)`   | `comptime(Type)`     | Type checking          |
-| `__yo_type_variant_count(T)`       | `comptime_int`       | Enum iteration         |
-| `__yo_type_get_variant_name(T, i)` | `comptime_string`    | Variant matching       |
+| Builtin                            | Returns             | Purpose                |
+| ---------------------------------- | ------------------- | ---------------------- |
+| `Type.get_tag(T)`                  | `comptime(TypeTag)` | Type identification    |
+| `__yo_type_get_name(T)`            | `comptime_string`   | Type name for code gen |
+| `__yo_type_is_struct(T)`           | `comptime(bool)`    | Validation             |
+| `__yo_type_is_enum(T)`             | `comptime(bool)`    | Validation             |
+| `__yo_type_field_count(T)`         | `comptime_int`      | Iteration bounds       |
+| `__yo_type_get_field_name(T, i)`   | `comptime_string`   | Field access in code   |
+| `__yo_type_get_field_type(T, i)`   | `comptime(Type)`    | Type checking          |
+| `__yo_type_variant_count(T)`       | `comptime_int`      | Enum iteration         |
+| `__yo_type_get_variant_name(T, i)` | `comptime_string`   | Variant matching       |
 
 **Prelude additions:**
 
-- `TypeKind` enum (13 user-friendly categories, not a mirror of internal `TypeTag`)
+- `TypeTag` enum (1:1 mirror of compiler's internal `TypeTag`, 40+ variants)
 - `FieldInfo` struct, `VariantInfo` struct
-- `Type.get_kind(T)` static method
-- Guard methods on `TypeKind` (is_struct, is_enum, etc.)
+- `Type.get_tag(T)` static method
+- Guard methods on `TypeTag` (is_struct, is_enum, is_integer, is_float, is_numeric, etc.)
 - `extern "Yo"` declarations for all builtins
 
 ### Phase 5: Testing
