@@ -24,6 +24,7 @@ import type {
   TraitType,
   Type,
 } from "../../types/definitions";
+import { TypeTag } from "../../types/tags";
 import {
   isEnumType,
   isStructType,
@@ -595,6 +596,135 @@ export function evaluateYoTypeIsEnum({
     pathCollection: [],
   };
   return expr;
+}
+
+/** __yo_type_get_tag(T) -> comptime(TypeKind)
+ *
+ * Maps a Type to its TypeKind enum variant.
+ */
+export function evaluateYoTypeGetTag({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  const { type, env: nextEnv } = evaluateTypeArg({
+    expr,
+    env,
+    context,
+    builtinName: "__yo_type_get_tag",
+  });
+
+  if (isSomeType(type)) {
+    // During validation, return UnknownValue with the TypeKind enum type.
+    // Look up TypeKind from the env to get the correct enum type.
+    const typeKindExpr = generateExprFromCode("TypeKind.Struct");
+    const typeKindResult = evaluateExpression({
+      expr: typeKindExpr,
+      env: nextEnv,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (typeKindResult.$) {
+      const value = createUnknownValue(typeKindResult.$.type, {
+        env: nextEnv,
+        context,
+      });
+      expr.$ = { env: nextEnv, type: value.type, value, pathCollection: [] };
+    }
+    return expr;
+  }
+
+  // Map TypeTag to TypeKind variant name
+  const variantName = typeTagToTypeKindVariant(type.tag);
+  const code = `TypeKind.${variantName}`;
+  const kindExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: kindExpr,
+    env: nextEnv,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `__yo_type_get_tag: failed to create TypeKind.${variantName}`,
+    });
+  }
+
+  expr.$ = {
+    env: nextEnv,
+    type: result.$.type,
+    value: result.$.value,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Maps compiler TypeTag to user-facing TypeKind variant name.
+ */
+function typeTagToTypeKindVariant(tag: string): string {
+  switch (tag) {
+    case TypeTag.Struct:
+      return "Struct";
+    case TypeTag.Enum:
+      return "Enum";
+    case TypeTag.Union:
+      return "Union";
+    case TypeTag.Tuple:
+      return "Tuple";
+    case TypeTag.Array:
+      return "Array";
+    case TypeTag.Slice:
+      return "Slice";
+    case TypeTag.Function:
+      return "Function";
+    case TypeTag.Ptr:
+      return "Pointer";
+    case TypeTag.Trait:
+      return "Trait";
+    case TypeTag.Module:
+      return "Module";
+    case TypeTag.Void:
+    case TypeTag.Unit:
+      return "Void";
+
+    // All primitive types map to Primitive
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Char:
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble:
+      return "Primitive";
+
+    // Everything else
+    default:
+      return "Other";
+  }
 }
 
 /** __yo_type_get_name(T) -> comptime(comptime_string) */

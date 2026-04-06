@@ -4012,6 +4012,71 @@ impl(Type, ComptimeToString(
 _Type :: Type;
 export Type : _Type;
 
+// TypeKind — compile-time enum representing the category of a type
+TypeKind :: enum(
+  Struct,
+  Enum,
+  Union,
+  Tuple,
+  Array,
+  Slice,
+  Function,
+  Pointer,
+  Trait,
+  Module,
+  Void,
+  Primitive,
+  Other
+);
+impl(TypeKind, Comptime());
+impl(TypeKind,
+  is_struct : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Struct => true, _ => false)
+  ),
+  is_enum : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Enum => true, _ => false)
+  ),
+  is_union : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Union => true, _ => false)
+  ),
+  is_tuple : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Tuple => true, _ => false)
+  ),
+  is_array : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Array => true, _ => false)
+  ),
+  is_slice : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Slice => true, _ => false)
+  ),
+  is_function : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Function => true, _ => false)
+  ),
+  is_pointer : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Pointer => true, _ => false)
+  ),
+  is_trait : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Trait => true, _ => false)
+  ),
+  is_module : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Module => true, _ => false)
+  ),
+  is_void : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Void => true, _ => false)
+  ),
+  is_primitive : (fn(comptime(self) : TypeKind) -> comptime(bool))(
+    match(self, .Primitive => true, _ => false)
+  )
+);
+export TypeKind;
+
+// Type.get_kind() — returns TypeKind for the given type
+// Defined after TypeKind so the return type is available
+impl(Type,
+  get_kind : (fn(comptime(self): Type) -> comptime(TypeKind))({
+    return __yo_type_get_tag(self);
+  })
+);
+
 // FieldInfo — compile-time struct field metadata for derive rules
 FieldInfo :: struct(name : comptime_string, field_type : Type);
 impl(FieldInfo, Comptime());
