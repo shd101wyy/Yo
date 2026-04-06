@@ -27,6 +27,7 @@ import {
   type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  exprIsAtom,
   type FnCallExpr,
   exprToString,
 } from "../../expr";
@@ -45,6 +46,7 @@ import {
   createExprValue,
   createTypeValue,
   createComptimeListValue,
+  createUnknownValue,
   isExprValue,
   isTypeValue,
   isFunctionValue,
@@ -54,6 +56,7 @@ import type { FunctionValue } from "../../function-value";
 import { VUnit } from "../../unit-value";
 import { PlaceholderToken } from "../../token";
 import { createExprType } from "../../types/creators";
+import { createType0 } from "../../types/creators";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
@@ -114,6 +117,74 @@ export function evaluateDerive({
   ) {
     forallArg = args[argIndex]! as FnCallExpr;
     argIndex++;
+
+    // Introduce forall type variables into the env so that target type
+    // expressions like Pair(A, B) can be evaluated
+    env = pushEnvFrame(env);
+    for (const paramExpr of forallArg.args) {
+      let paramName: string;
+      let paramTypeExpr: Expr | undefined;
+
+      if (
+        exprIsFunctionCall(paramExpr) &&
+        exprIsFunctionCallOf(paramExpr, ":", 2)
+      ) {
+        const nameExpr = paramExpr.args[0]!;
+        if (!exprIsAtom(nameExpr)) {
+          throw formatErrorMessage({
+            token: nameExpr.token,
+            errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
+          });
+        }
+        paramName = nameExpr.token.value;
+        paramTypeExpr = paramExpr.args[1]!;
+      } else if (exprIsAtom(paramExpr)) {
+        paramName = paramExpr.token.value;
+      } else {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Expected parameter name for forall parameter, got: ${exprToString(paramExpr)}`,
+        });
+      }
+
+      // Evaluate optional type annotation
+      let paramType: Type | undefined;
+      if (paramTypeExpr) {
+        const evaluatedType = evaluateExpression({
+          expr: paramTypeExpr,
+          env,
+          context: { ...context },
+        });
+        if (evaluatedType.$?.env) {
+          env = evaluatedType.$.env;
+        }
+        if (evaluatedType.$ && isTypeValue(evaluatedType.$.value)) {
+          paramType = evaluatedType.$.value.value;
+        }
+      }
+
+      const effectiveType = paramType || createType0();
+      const unknownOrTypeValue = createUnknownValue(effectiveType, {
+        variableName: paramName,
+        env,
+        context,
+      });
+
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: paramName,
+          type: effectiveType,
+          isCompileTimeOnly: true,
+          value: [unknownOrTypeValue],
+          token: paramExpr.token,
+          initializedAtToken: paramExpr.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+        },
+      });
+      env = nextEnv;
+    }
   }
 
   // Check for where(...) before target type
@@ -139,6 +210,9 @@ export function evaluateDerive({
       errorMessage: `derive requires a target type.`,
     });
   }
+
+  // Save the target type expression BEFORE evaluating (for derive rules)
+  const targetTypeExpr = args[argIndex]!;
 
   const typeArgExpr = evaluateExpression({
     expr: args[argIndex]!,
@@ -194,9 +268,6 @@ export function evaluateDerive({
     });
   }
 
-  // Save the raw target type expression for derive rules
-  const targetTypeExpr = args[argIndex - 1]!;
-
   // Collect trait arguments (everything remaining)
   const traitArgs = args.slice(argIndex);
   if (traitArgs.length === 0) {
@@ -212,12 +283,23 @@ export function evaluateDerive({
   const hasForall = !!forallArg;
 
   // Process each trait argument
+  // Pop the forall env frame before processing trait args.
+  // Each trait arg's processing will re-introduce forall vars as needed
+  // (e.g., the generated impl(forall(A,B), ...) expression handles it).
+  // We keep a reference to the env WITH forall vars for evaluating trait arg exprs.
+  const envWithForall = env;
+  if (forallArg) {
+    env = popEnvFrame(env);
+  }
+  const envWithoutForall = env;
+
   for (const traitArgExpr of traitArgs) {
     env = processTraitArg({
       traitArgExpr,
       targetType,
       typeName,
-      env,
+      env: envWithoutForall,
+      envForTraitEval: forallArg ? envWithForall : envWithoutForall,
       context,
       forallPrefix,
       whereSuffix,
@@ -250,6 +332,7 @@ function processTraitArg({
   targetType,
   typeName,
   env,
+  envForTraitEval,
   context,
   forallPrefix,
   whereSuffix,
@@ -262,6 +345,7 @@ function processTraitArg({
   targetType: StructType | EnumType;
   typeName: string;
   env: Environment;
+  envForTraitEval: Environment;
   context: EvaluatorContext;
   forallPrefix: string;
   whereSuffix: string;
@@ -280,7 +364,7 @@ function processTraitArg({
     // Check if a registered derive rule exists for this bare name
     const bareEvaluated = evaluateExpression({
       expr: traitArgExpr,
-      env,
+      env: envForTraitEval,
       context: { ...context },
     });
     if (
@@ -291,7 +375,7 @@ function processTraitArg({
       return callRegisteredDeriveRule({
         deriveRule: bareEvaluated.$.value.deriveRule,
         targetType,
-        env: bareEvaluated.$.env,
+        env,
         context,
         token: traitArgExpr.token,
         traitParams: [],
@@ -313,10 +397,10 @@ function processTraitArg({
     });
   }
 
-  // Evaluate the trait argument
+  // Evaluate the trait argument (use envForTraitEval which has forall vars in scope)
   const evaluated = evaluateExpression({
     expr: traitArgExpr,
-    env,
+    env: envForTraitEval,
     context: { ...context },
   });
 
@@ -327,7 +411,9 @@ function processTraitArg({
     });
   }
 
-  env = evaluated.$.env;
+  // Don't update env from evaluated.$.env — it comes from envForTraitEval
+  // which may contain forall variables. Keep using env (without forall)
+  // for impl generation, since the generated impl introduces its own forall.
 
   // Case 1: Evaluated to a TraitType → check registered rule, then built-in
   if (isTraitType(evaluated.$.type)) {

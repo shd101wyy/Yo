@@ -1337,7 +1337,13 @@ function exprToCompactString(expr: Expr): string {
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            printed = `${expr.func.token.value}${exprToCompactString(expr.args[0]!)}`;
+            let arg = exprToCompactString(expr.args[0]!);
+            // Wrap arg in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., .(#(x)) vs .#(x))
+            if (exprIsFunctionCall(expr.args[0]!)) {
+              arg = `(${arg})`;
+            }
+            printed = `${expr.func.token.value}${arg}`;
           } else {
             printed = `${expr.func.token.value}(${exprToCompactString(expr.args[0]!)})`;
           }
@@ -1427,7 +1433,13 @@ function exprToPrettyString(
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            return `${expr.func.token.value}${exprToPrettyString(expr.args[0]!, config)}`;
+            let arg = exprToPrettyString(expr.args[0]!, config);
+            // Wrap arg in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., .(#(x)) vs .#(x))
+            if (exprIsFunctionCall(expr.args[0]!)) {
+              arg = `(${arg})`;
+            }
+            return `${expr.func.token.value}${arg}`;
           } else {
             const arg = exprToPrettyString(expr.args[0]!, config);
             return `${expr.func.token.value}(${arg})`;

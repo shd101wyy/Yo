@@ -397,19 +397,40 @@ impl(bool, MyEq(bool)(
   my_eq : ((self, other) -> (self == other))
 ));
 
-// Register derive rule for MyEq: field-wise equality
+// Register derive rule for MyEq: field-wise equality (structs and fieldless enums)
 my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
   {
-    n :: __yo_type_field_count(T);
     eq_body :: cond(
-      (n == 0) => quote(true),
-      true => __yo_type_join_fields(
-        T,
-        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
-        ),
-        quote(&&)
-      )
+      __yo_type_is_struct(T) => cond(
+        (__yo_type_field_count(T) == 0) => quote(true),
+        true => __yo_type_join_fields(
+          T,
+          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+          ),
+          quote(&&)
+        )
+      ),
+      __yo_type_is_enum(T) => {
+        match_branches :: __yo_type_map_variants(
+          T,
+          (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+            cond(
+              (variant.field_count == 0) => quote(
+                .(#(variant.name.to_expr())) => match(other,
+                  .(#(variant.name.to_expr())) => true,
+                  _ => false
+                )
+              ),
+              true => quote(
+                _ => false
+              )
+            )
+          )
+        );
+        quote(match(self, ...#(match_branches)))
+      },
+      true => quote(false)
     );
     ctx.make_impl(quote(
       MyEq(...#(trait_params))(
@@ -465,4 +486,59 @@ test "derive_rule MyEq for mixed-type struct", {
   r3 := DRRecord(i32(1), false);
   assert(r1.my_eq(r2), "equal records should be equal");
   assert(!(r1.my_eq(r3)), "different records should not be equal");
+};
+
+// Test: derive_rule for fieldless enum
+DRColor :: enum(Red, Green, Blue);
+derive(DRColor, MyEq(DRColor));
+
+test "derive_rule MyEq for fieldless enum", {
+  r := DRColor.Red;
+  g := DRColor.Green;
+  r2 := DRColor.Red;
+  assert(r.my_eq(r2), "Red should equal Red");
+  assert(!(r.my_eq(g)), "Red should not equal Green");
+  assert(!(g.my_eq(DRColor.Blue)), "Green should not equal Blue");
+};
+
+// ========== Test: generic derive_rule with forall/where ==========
+
+// Generic struct type constructor
+DRPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(first : A, second : B)
+);
+
+// Generic derive with forall/where
+derive(forall(T1, T2), DRPair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(DRPair(T1, T2)));
+
+test "derive_rule MyEq for generic struct with forall/where", {
+  p1 := DRPair(i32, i32)(i32(1), i32(2));
+  p2 := DRPair(i32, i32)(i32(1), i32(2));
+  p3 := DRPair(i32, i32)(i32(1), i32(3));
+  assert(p1.my_eq(p2), "equal pairs should be equal");
+  assert(!(p1.my_eq(p3)), "different pairs should not be equal");
+};
+
+test "derive_rule MyEq for generic struct with mixed types", {
+  m1 := DRPair(i32, bool)(i32(42), true);
+  m2 := DRPair(i32, bool)(i32(42), true);
+  m3 := DRPair(i32, bool)(i32(42), false);
+  assert(m1.my_eq(m2), "equal mixed pairs should be equal");
+  assert(!(m1.my_eq(m3)), "different mixed pairs should not be equal");
+};
+
+// ========== Test: built-in derive with forall/where ==========
+
+DRGenericBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+
+derive(forall(T), DRGenericBox(T), where((T <: Eq(T))), Eq(DRGenericBox(T)));
+
+test "built-in derive Eq for generic struct with forall/where", {
+  b1 := DRGenericBox(i32)(i32(10));
+  b2 := DRGenericBox(i32)(i32(10));
+  b3 := DRGenericBox(i32)(i32(20));
+  assert((b1 == b2), "equal boxes should be equal");
+  assert(!(b1 == b3), "different boxes should not be equal");
 };
