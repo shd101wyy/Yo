@@ -322,17 +322,20 @@ For the full derive system documentation, see [DERIVE_TRAITS.md](./DERIVE_TRAITS
 
 The `Type` type provides static methods for compile-time type analysis:
 
-| Method                          | Description                                              |
-| ------------------------------- | -------------------------------------------------------- |
-| `Type.get_info(T)`              | Returns `TypeInfo` enum for type `T`                     |
-| `Type.get_struct_fields(T)`     | Returns `ComptimeList(TypeFieldInfo)` for struct `T`     |
-| `Type.get_enum_variants(T)`     | Returns `ComptimeList(VariantInfo)` for enum `T`         |
-| `Type.eq(A, B)`                 | Exact type equality (nominal — same definition required) |
-| `Type.neq(A, B)`                | Type inequality (negation of `Type.eq`)                  |
-| `Type.is_compatible_with(A, B)` | Loose type compatibility (allows coercion)               |
-| `Type.impls(T, Marker)`         | Checks if type `T` implements a marker trait             |
-| `Type.contains_rc_type(T)`      | Checks if type contains reference-counted fields         |
-| `Type.can_form_rc_cycle(T)`     | Checks if type can form reference counting cycles        |
+| Method                            | Description                                              |
+| --------------------------------- | -------------------------------------------------------- |
+| `Type.get_info(T)`                | Returns `TypeInfo` enum for type `T`                     |
+| `Type.get_struct_fields(T)`       | Returns `ComptimeList(TypeFieldInfo)` for struct `T`     |
+| `Type.get_enum_variants(T)`       | Returns `ComptimeList(VariantInfo)` for enum `T`         |
+| `Type.to_comptime_string(T)`      | Returns type name as `comptime_string`                   |
+| `Type.join_fields(T, mapper, op)` | Map struct fields to `Expr` and combine with binary op   |
+| `Type.map_variants(T, mapper)`    | Map enum variants to `ComptimeList(Expr)`                |
+| `Type.eq(A, B)`                   | Exact type equality (nominal — same definition required) |
+| `Type.neq(A, B)`                  | Type inequality (negation of `Type.eq`)                  |
+| `Type.is_compatible_with(A, B)`   | Loose type compatibility (allows coercion)               |
+| `Type.impls(T, Marker)`           | Checks if type `T` implements a marker trait             |
+| `Type.contains_rc_type(T)`        | Checks if type contains reference-counted fields         |
+| `Type.can_form_rc_cycle(T)`       | Checks if type can form reference counting cycles        |
 
 ### Type Equality vs Compatibility
 
@@ -348,21 +351,43 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 // comptime_int is compatible with i32, but they are not equal
 ```
 
-`Type.eq` uses `__yo_are_types_equal` (exact match, no coercion). `Type.is_compatible_with` uses `__yo_are_types_compatible` (allows implicit coercion like `comptime_int` → `i32`).
+`Type.eq` uses exact match with no coercion. `Type.is_compatible_with` allows implicit coercion like `comptime_int` → `i32`.
 
-## Builtin Functions
+### Type.join_fields
 
-| Builtin                                      | Description                                |
-| -------------------------------------------- | ------------------------------------------ |
-| `__yo_type_get_info(T)`                      | Returns `TypeInfo` for type `T`            |
-| `__yo_are_types_compatible(A, B)`            | Loose type compatibility (allows coercion) |
-| `__yo_are_types_equal(A, B)`                 | Exact type equality (no coercion, nominal) |
-| `__yo_type_to_comptime_string(T)`            | Type name as `comptime_string`             |
-| `__yo_type_join_fields(T, mapper, combiner)` | Map and combine struct fields              |
-| `__yo_type_map_variants(T, mapper)`          | Map over enum variants                     |
-| `__yo_type_impls(T, Marker)`                 | Checks if type implements a marker trait   |
-| `__yo_type_contains_rc_type(T)`              | Checks for reference-counted fields        |
-| `__yo_type_can_form_rc_cycle(T)`             | Checks for potential RC cycles             |
+Map each field of a struct to an `Expr` and combine them with a binary operator:
+
+```rust
+// Example: generate equality check for all fields
+eq_body :: Type.join_fields(
+  Point,
+  (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+    quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+  ),
+  quote(&&)
+);
+```
+
+### Type.map_variants
+
+Map each variant of an enum to an `Expr`, returning `ComptimeList(Expr)`:
+
+```rust
+branches :: Type.map_variants(
+  Color,
+  (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+    quote(.(#(variant.name.to_expr())) => true)
+  )
+);
+```
+
+## FieldInfo Methods
+
+| Method                 | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `field.name`           | Field name as `comptime_string`                        |
+| `field.field_type`     | Field type as `Type`                                   |
+| `field.name.to_expr()` | Convert field name to `Expr` (via `FieldInfo.to_expr`) |
 
 ## Design Document
 

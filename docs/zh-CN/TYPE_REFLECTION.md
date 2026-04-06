@@ -322,17 +322,20 @@ derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Ex
 
 `Type` 类型提供用于编译时类型分析的静态方法：
 
-| 方法                            | 描述                                            |
-| ------------------------------- | ----------------------------------------------- |
-| `Type.get_info(T)`              | 返回类型 `T` 的 `TypeInfo` 枚举                 |
-| `Type.get_struct_fields(T)`     | 返回结构体 `T` 的 `ComptimeList(TypeFieldInfo)` |
-| `Type.get_enum_variants(T)`     | 返回枚举 `T` 的 `ComptimeList(VariantInfo)`     |
-| `Type.eq(A, B)`                 | 精确类型相等（名义类型——需要相同的定义）        |
-| `Type.neq(A, B)`                | 类型不等（`Type.eq` 的取反）                    |
-| `Type.is_compatible_with(A, B)` | 宽松类型兼容性（允许隐式转换）                  |
-| `Type.impls(T, Marker)`         | 检查类型 `T` 是否实现了标记 trait               |
-| `Type.contains_rc_type(T)`      | 检查类型是否包含引用计数字段                    |
-| `Type.can_form_rc_cycle(T)`     | 检查类型是否可能形成引用计数循环                |
+| 方法                              | 描述                                            |
+| --------------------------------- | ----------------------------------------------- |
+| `Type.get_info(T)`                | 返回类型 `T` 的 `TypeInfo` 枚举                 |
+| `Type.get_struct_fields(T)`       | 返回结构体 `T` 的 `ComptimeList(TypeFieldInfo)` |
+| `Type.get_enum_variants(T)`       | 返回枚举 `T` 的 `ComptimeList(VariantInfo)`     |
+| `Type.to_comptime_string(T)`      | 返回类型名作为 `comptime_string`                |
+| `Type.join_fields(T, mapper, op)` | 映射结构体字段为 `Expr` 并用二元运算符组合      |
+| `Type.map_variants(T, mapper)`    | 映射枚举变体为 `ComptimeList(Expr)`             |
+| `Type.eq(A, B)`                   | 精确类型相等（名义类型——需要相同的定义）        |
+| `Type.neq(A, B)`                  | 类型不等（`Type.eq` 的取反）                    |
+| `Type.is_compatible_with(A, B)`   | 宽松类型兼容性（允许隐式转换）                  |
+| `Type.impls(T, Marker)`           | 检查类型 `T` 是否实现了标记 trait               |
+| `Type.contains_rc_type(T)`        | 检查类型是否包含引用计数字段                    |
+| `Type.can_form_rc_cycle(T)`       | 检查类型是否可能形成引用计数循环                |
 
 ### 类型相等 vs 类型兼容
 
@@ -348,21 +351,43 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 // comptime_int 与 i32 兼容，但它们不相等
 ```
 
-`Type.eq` 使用 `__yo_are_types_equal`（精确匹配，不允许隐式转换）。`Type.is_compatible_with` 使用 `__yo_are_types_compatible`（允许 `comptime_int` → `i32` 等隐式转换）。
+`Type.eq` 使用精确匹配，不允许隐式转换。`Type.is_compatible_with` 允许 `comptime_int` → `i32` 等隐式转换。
 
-## 内建函数
+### Type.join_fields
 
-| 内建函数                                     | 描述                                     |
-| -------------------------------------------- | ---------------------------------------- |
-| `__yo_type_get_info(T)`                      | 返回类型 `T` 的 `TypeInfo`               |
-| `__yo_are_types_compatible(A, B)`            | 宽松类型兼容性（允许隐式转换）           |
-| `__yo_are_types_equal(A, B)`                 | 精确类型相等（不允许隐式转换，名义类型） |
-| `__yo_type_to_comptime_string(T)`            | 类型名作为 `comptime_string`             |
-| `__yo_type_join_fields(T, mapper, combiner)` | 映射并组合结构体字段                     |
-| `__yo_type_map_variants(T, mapper)`          | 映射枚举变体                             |
-| `__yo_type_impls(T, Marker)`                 | 检查类型是否实现了标记 trait             |
-| `__yo_type_contains_rc_type(T)`              | 检查是否包含引用计数字段                 |
-| `__yo_type_can_form_rc_cycle(T)`             | 检查是否可能形成引用计数循环             |
+将结构体的每个字段映射为 `Expr`，并用二元运算符组合：
+
+```rust
+// 示例：为所有字段生成相等检查
+eq_body :: Type.join_fields(
+  Point,
+  (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+    quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+  ),
+  quote(&&)
+);
+```
+
+### Type.map_variants
+
+将枚举的每个变体映射为 `Expr`，返回 `ComptimeList(Expr)`：
+
+```rust
+branches :: Type.map_variants(
+  Color,
+  (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+    quote(.(#(variant.name.to_expr())) => true)
+  )
+);
+```
+
+## FieldInfo 方法
+
+| 方法                   | 描述                                              |
+| ---------------------- | ------------------------------------------------- |
+| `field.name`           | 字段名，类型为 `comptime_string`                  |
+| `field.field_type`     | 字段类型，类型为 `Type`                           |
+| `field.name.to_expr()` | 将字段名转换为 `Expr`（通过 `FieldInfo.to_expr`） |
 
 ## 设计文档
 
