@@ -893,6 +893,10 @@ impl(comptime_string,
 
   slice : (fn(comptime(self): comptime_string, comptime(start): comptime_int, comptime(end): comptime_int) -> comptime(comptime_string))(
     __yo_comptime_string_slice(self, start, end)
+  ),
+
+  to_expr : (fn(comptime(self): comptime_string) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self)
   )
 );
 _comptime_string :: comptime_string;
@@ -3976,6 +3980,30 @@ impl(Type,
 
   impls : (fn(comptime(self): Type, comptime(marker): Trait) -> comptime(bool))({
     return __yo_type_impls(self, marker);
+  }),
+
+  is_struct : (fn(comptime(self): Type) -> comptime(bool))({
+    return __yo_type_is_struct(self);
+  }),
+
+  is_enum : (fn(comptime(self): Type) -> comptime(bool))({
+    return __yo_type_is_enum(self);
+  }),
+
+  field_count : (fn(comptime(self): Type) -> comptime(comptime_int))({
+    return __yo_type_field_count(self);
+  }),
+
+  get_name : (fn(comptime(self): Type) -> comptime(comptime_string))({
+    return __yo_type_get_name(self);
+  }),
+
+  get_field_name : (fn(comptime(self): Type, comptime(index): comptime_int) -> comptime(comptime_string))({
+    return __yo_type_get_field_name(self, index);
+  }),
+
+  variant_count : (fn(comptime(self): Type) -> comptime(comptime_int))({
+    return __yo_type_variant_count(self);
   })
 );
 impl(Type, ComptimeToString(
@@ -3983,6 +4011,27 @@ impl(Type, ComptimeToString(
 ));
 _Type :: Type;
 export Type : _Type;
+
+// FieldInfo — compile-time struct field metadata for derive rules
+FieldInfo :: struct(name : comptime_string, field_type : Type);
+impl(FieldInfo, Comptime());
+impl(FieldInfo,
+  to_expr : (fn(comptime(self): FieldInfo) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self.name)
+  )
+);
+export FieldInfo;
+
+// VariantInfo — compile-time enum variant metadata for derive rules
+VariantInfo :: struct(
+  name : comptime_string,
+  field_count : comptime_int,
+  _enum_type : Type,
+  _variant_index : comptime_int
+);
+impl(VariantInfo, Comptime());
+export VariantInfo;
+
 
 // Variable
 Var :: impl({
@@ -4167,6 +4216,42 @@ export
   ?,
   (?*)
 ;
+
+
+// DeriveContext — context passed to derive rule functions (needs Option)
+DeriveContext :: struct(
+  target : Expr,
+  forall_params : Option(Expr),
+  where_clause : Option(Expr)
+);
+impl(DeriveContext, Comptime());
+
+impl(DeriveContext,
+  make_impl : (fn(comptime(self) : DeriveContext, comptime(trait_body) : Expr) -> comptime(Expr))(
+    cond(
+      self.forall_params.comptime_is_some() => cond(
+        self.where_clause.comptime_is_some() =>
+          quote(impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(self.where_clause.comptime_unwrap()),
+            unquote(trait_body)
+          )),
+        true =>
+          quote(impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(trait_body)
+          ))
+      ),
+      true => quote(impl(
+        unquote(self.target),
+        unquote(trait_body)
+      ))
+    )
+  )
+);
+export DeriveContext;
 
 
 /// === Result ===

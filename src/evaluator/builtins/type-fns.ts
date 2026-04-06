@@ -1,19 +1,29 @@
 import type { Environment } from "../../env";
+import { addVariableToEnv, pushEnvFrame, popEnvFrame } from "../../env";
+import { generateVarialeId } from "../../utils";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
+  ExprTag,
   expectExprToBeFunctionCallOf,
   exprToString,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { generateExprsFromCode } from "../../parser";
+import { generateExprFromCode, generateExprsFromCode } from "../../parser";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createBooleanType,
   createComptimeIntType,
   createComptimeStringType,
+  createExprType,
 } from "../../types/creators";
-import type { TraitType, Type } from "../../types/definitions";
+import type {
+  EnumType,
+  StructType,
+  TraitType,
+  Type,
+} from "../../types/definitions";
 import {
   isEnumType,
   isStructType,
@@ -31,15 +41,21 @@ import {
   createBooleanValue,
   createComptimeIntValue,
   createComptimeStringValue,
+  createExprValue,
   createTypeValue,
   createUnknownValue,
+  createComptimeListValue as createComptimeListValueFn,
   isComptimeIntValue,
   isComptimeStringValue,
+  isExprValue,
+  isFunctionValue,
   isTypeValue,
+  type Value,
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
+import { PlaceholderToken } from "../../token";
 
 export function evaluateYoTypeToString({
   expr,
@@ -1211,4 +1227,636 @@ export function evaluateComptimeEval({
     pathCollection: [],
   };
   return expr;
+}
+
+// ============================================================================
+// Phase 2 derive_rule builtins
+// ============================================================================
+
+/** __yo_comptime_string_to_expr(code : comptime_string) -> comptime(Expr) */
+export function evaluateComptimeStringToExpr({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_comptime_string_to_expr,
+    1
+  );
+
+  const arg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+
+  if (!arg.$ || !isComptimeStringValue(arg.$.value)) {
+    if (arg.$?.value && isComptimeStringValue(arg.$.value) === false) {
+      // Unknown value (e.g., SomeType) → return UnknownValue(Expr)
+      const value = createUnknownValue(createExprType(), {
+        env: arg.$.env,
+        context,
+      });
+      expr.$ = { env: arg.$.env, type: value.type, value, pathCollection: [] };
+      return expr;
+    }
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_comptime_string_to_expr: expected a comptime_string argument`,
+    });
+  }
+
+  const codeString = arg.$.value.value;
+  const parsedExpr = generateExprFromCode(codeString);
+  const exprValue = createExprValue(parsedExpr);
+
+  expr.$ = {
+    env: arg.$.env,
+    type: exprValue.type,
+    value: exprValue,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Helper: add a comptime-only temp variable to the env.
+ * Returns the updated env.
+ */
+function addComptimeTempVar({
+  env,
+  name,
+  type,
+  value,
+}: {
+  env: Environment;
+  name: string;
+  type: Type;
+  value: Value;
+}): Environment {
+  const result = addVariableToEnv({
+    env,
+    variable: {
+      name,
+      type,
+      value: [value],
+      isCompileTimeOnly: true,
+      isOwningTheRcValue: false,
+      initializedAtToken: PlaceholderToken,
+      consumedAtToken: undefined,
+      token: PlaceholderToken,
+    },
+  });
+  return result.env;
+}
+
+/**
+ * Helper: create a FieldInfo struct value for a given struct field.
+ * Looks up the FieldInfo type from the env, or creates one on the fly.
+ */
+function createFieldInfoValue(
+  env: Environment,
+  fieldName: string,
+  fieldType: Type,
+  context: EvaluatorContext
+): { value: Value; env: Environment } {
+  // Create the FieldInfo struct value by evaluating FieldInfo("name", Type)
+  // We bind the field_type to a temp var since typeToString might not roundtrip
+  const tempTypeName = `__derive_ft_${generateVarialeId(env.modulePath, "dft")}`;
+  env = addComptimeTempVar({
+    env,
+    name: tempTypeName,
+    type: createTypeValue(fieldType).type,
+    value: createTypeValue(fieldType),
+  });
+
+  // Escape the field name for code generation
+  const escapedName = JSON.stringify(fieldName);
+  const code = `FieldInfo(${escapedName}, ${tempTypeName})`;
+  const callExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw new Error(`Failed to create FieldInfo for field "${fieldName}"`);
+  }
+
+  return { value: result.$.value, env: result.$.env };
+}
+
+/**
+ * Helper: call a mapper function with an argument value.
+ * The mapper is bound to a temp var, the argument is bound to a temp var,
+ * then we evaluate `mapper(arg)` and return the result.
+ */
+function callMapperWithArg({
+  env,
+  context,
+  mapperVarName,
+  argValue,
+  argType,
+  token,
+}: {
+  env: Environment;
+  context: EvaluatorContext;
+  mapperVarName: string;
+  argValue: Value;
+  argType: Type;
+  token: Expr["token"];
+}): { exprValue: Expr; env: Environment } {
+  const argVarName = `__derive_arg_${generateVarialeId(env.modulePath, "da")}`;
+  env = addComptimeTempVar({
+    env,
+    name: argVarName,
+    type: argType,
+    value: argValue,
+  });
+
+  const callCode = `${mapperVarName}(${argVarName})`;
+  const callExpr = generateExprFromCode(callCode);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !isExprValue(result.$.value)) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `derive mapper function must return comptime(Expr), got: ${result.$ ? exprToString(result) : "nothing"}`,
+    });
+  }
+
+  return { exprValue: result.$.value.value, env: result.$.env };
+}
+
+/**
+ * Helper: combine a list of Expr values with a binary operator Expr (left-associative).
+ * e.g., [a, b, c] with op && → ((a && b) && c)
+ */
+function combineExprsWithOperator(exprs: Expr[], combinerExpr: Expr): Expr {
+  if (exprs.length === 0) {
+    throw new Error("combineExprsWithOperator: empty exprs list");
+  }
+  if (exprs.length === 1) {
+    return exprs[0]!;
+  }
+
+  let result = exprs[0]!;
+  for (let i = 1; i < exprs.length; i++) {
+    result = {
+      tag: ExprTag.FnCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: combinerExpr.token,
+      },
+      args: [result, exprs[i]!],
+      isInfix: true,
+      token: combinerExpr.token,
+    };
+  }
+  return result;
+}
+
+/**
+ * __yo_type_join_fields(T, mapper, combiner) -> comptime(Expr)
+ *
+ * Iterates struct fields. For each field, calls mapper(FieldInfo) to get an Expr.
+ * Combines all Exprs with the combiner operator (left-associative).
+ */
+export function evaluateTypeJoinFields({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_join_fields, 3);
+
+  // Evaluate T
+  const typeArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_join_fields: first argument must be a Type`,
+    });
+  }
+  env = typeArg.$.env;
+  const targetType = typeArg.$.value.value;
+
+  // SomeType → return UnknownValue(Expr)
+  if (isSomeType(targetType)) {
+    const value = createUnknownValue(createExprType(), { env, context });
+    expr.$ = { env, type: value.type, value, pathCollection: [] };
+    return expr;
+  }
+
+  if (!isStructType(targetType)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_join_fields: expected a struct type, got: ${typeToString(targetType)}`,
+    });
+  }
+
+  // Evaluate mapper (should be a function value)
+  const mapperArg = evaluateExpression({
+    expr: expr.args[1]!,
+    env,
+    context: { ...context },
+  });
+  if (!mapperArg.$ || !isFunctionValue(mapperArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[1]!.token,
+      errorMessage: `__yo_type_join_fields: second argument must be a function`,
+    });
+  }
+  env = mapperArg.$.env;
+  const mapperValue = mapperArg.$.value;
+  const mapperVarName = `__derive_mapper_${generateVarialeId(env.modulePath, "dm")}`;
+
+  // Evaluate combiner (should be an Expr)
+  const combinerArg = evaluateExpression({
+    expr: expr.args[2]!,
+    env,
+    context: { ...context },
+  });
+  if (!combinerArg.$ || !isExprValue(combinerArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[2]!.token,
+      errorMessage: `__yo_type_join_fields: third argument must be a quoted expression (e.g., quote(&&))`,
+    });
+  }
+  env = combinerArg.$.env;
+  const combinerExpr = combinerArg.$.value.value;
+
+  // Push a new env frame for temp variables
+  env = pushEnvFrame(env);
+
+  // Bind the mapper to a temp var
+  env = addComptimeTempVar({
+    env,
+    name: mapperVarName,
+    type: mapperArg.$.type,
+    value: mapperValue,
+  });
+
+  const resultExprs: Expr[] = [];
+  const structType = targetType as StructType;
+
+  for (let i = 0; i < structType.fields.length; i++) {
+    const field = structType.fields[i]!;
+    const { value: fieldInfoValue, env: env2 } = createFieldInfoValue(
+      env,
+      field.label,
+      field.type,
+      context
+    );
+    env = env2;
+
+    const { exprValue, env: env3 } = callMapperWithArg({
+      env,
+      context,
+      mapperVarName,
+      argValue: fieldInfoValue,
+      argType: fieldInfoValue.type,
+      token: expr.args[1]!.token,
+    });
+    env = env3;
+    resultExprs.push(exprValue);
+  }
+
+  // Pop the temp frame
+  env = popEnvFrame(env, true);
+
+  if (resultExprs.length === 0) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `__yo_type_join_fields: struct has no fields`,
+    });
+  }
+
+  const combinedExpr = combineExprsWithOperator(resultExprs, combinerExpr);
+  const exprValue = createExprValue(combinedExpr);
+
+  expr.$ = {
+    env,
+    type: exprValue.type,
+    value: exprValue,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * __yo_type_map_variants(T, mapper) -> comptime(ComptimeList(Expr))
+ *
+ * Iterates enum variants. For each variant, calls mapper(VariantInfo) to get an Expr.
+ * Returns a ComptimeList(Expr) for use with unquote_splicing.
+ */
+export function evaluateTypeMapVariants({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_type_map_variants,
+    2
+  );
+
+  // Evaluate T
+  const typeArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_map_variants: first argument must be a Type`,
+    });
+  }
+  env = typeArg.$.env;
+  const targetType = typeArg.$.value.value;
+
+  // SomeType → return UnknownValue
+  if (isSomeType(targetType)) {
+    const value = createUnknownValue(createExprType(), { env, context });
+    expr.$ = { env, type: value.type, value, pathCollection: [] };
+    return expr;
+  }
+
+  if (!isEnumType(targetType)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_map_variants: expected an enum type, got: ${typeToString(targetType)}`,
+    });
+  }
+
+  // Evaluate mapper
+  const mapperArg = evaluateExpression({
+    expr: expr.args[1]!,
+    env,
+    context: { ...context },
+  });
+  if (!mapperArg.$ || !isFunctionValue(mapperArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[1]!.token,
+      errorMessage: `__yo_type_map_variants: second argument must be a function`,
+    });
+  }
+  env = mapperArg.$.env;
+  const mapperValue = mapperArg.$.value;
+  const mapperVarName = `__derive_vmap_${generateVarialeId(env.modulePath, "dvm")}`;
+
+  const enumType = targetType as EnumType;
+
+  // Push temp frame
+  env = pushEnvFrame(env);
+
+  // Bind mapper
+  env = addComptimeTempVar({
+    env,
+    name: mapperVarName,
+    type: mapperArg.$.type,
+    value: mapperValue,
+  });
+
+  const resultExprs: Value[] = [];
+
+  for (let i = 0; i < enumType.variants.length; i++) {
+    const variant = enumType.variants[i]!;
+    const { value: variantInfoValue, env: env2 } = createVariantInfoValue(
+      env,
+      variant.name,
+      variant.fields?.length ?? 0,
+      targetType,
+      i,
+      context
+    );
+    env = env2;
+
+    const { exprValue, env: env3 } = callMapperWithArg({
+      env,
+      context,
+      mapperVarName,
+      argValue: variantInfoValue,
+      argType: variantInfoValue.type,
+      token: expr.args[1]!.token,
+    });
+    env = env3;
+    resultExprs.push(createExprValue(exprValue));
+  }
+
+  // Pop temp frame
+  env = popEnvFrame(env, true);
+
+  const listExprValue = createExprListValue(resultExprs);
+  expr.$ = {
+    env,
+    type: listExprValue.type,
+    value: listExprValue,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * __yo_type_join_variants(T, mapper, combiner) -> comptime(Expr)
+ *
+ * Like map_variants but combines results with a binary combiner operator.
+ */
+export function evaluateTypeJoinVariants({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_type_join_variants,
+    3
+  );
+
+  // Evaluate T
+  const typeArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!typeArg.$ || !isTypeValue(typeArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_join_variants: first argument must be a Type`,
+    });
+  }
+  env = typeArg.$.env;
+  const targetType = typeArg.$.value.value;
+
+  if (isSomeType(targetType)) {
+    const value = createUnknownValue(createExprType(), { env, context });
+    expr.$ = { env, type: value.type, value, pathCollection: [] };
+    return expr;
+  }
+
+  if (!isEnumType(targetType)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_type_join_variants: expected an enum type, got: ${typeToString(targetType)}`,
+    });
+  }
+
+  // Evaluate mapper
+  const mapperArg = evaluateExpression({
+    expr: expr.args[1]!,
+    env,
+    context: { ...context },
+  });
+  if (!mapperArg.$ || !isFunctionValue(mapperArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[1]!.token,
+      errorMessage: `__yo_type_join_variants: second argument must be a function`,
+    });
+  }
+  env = mapperArg.$.env;
+  const mapperValue = mapperArg.$.value;
+  const mapperVarName = `__derive_vjmap_${generateVarialeId(env.modulePath, "dvjm")}`;
+
+  // Evaluate combiner
+  const combinerArg = evaluateExpression({
+    expr: expr.args[2]!,
+    env,
+    context: { ...context },
+  });
+  if (!combinerArg.$ || !isExprValue(combinerArg.$.value)) {
+    throw formatErrorMessage({
+      token: expr.args[2]!.token,
+      errorMessage: `__yo_type_join_variants: third argument must be a quoted expression`,
+    });
+  }
+  env = combinerArg.$.env;
+  const combinerExpr = combinerArg.$.value.value;
+
+  const enumType = targetType as EnumType;
+
+  // Push temp frame
+  env = pushEnvFrame(env);
+
+  env = addComptimeTempVar({
+    env,
+    name: mapperVarName,
+    type: mapperArg.$.type,
+    value: mapperValue,
+  });
+
+  const resultExprs: Expr[] = [];
+
+  for (let i = 0; i < enumType.variants.length; i++) {
+    const variant = enumType.variants[i]!;
+    const { value: variantInfoValue, env: env2 } = createVariantInfoValue(
+      env,
+      variant.name,
+      variant.fields?.length ?? 0,
+      targetType,
+      i,
+      context
+    );
+    env = env2;
+
+    const { exprValue, env: env3 } = callMapperWithArg({
+      env,
+      context,
+      mapperVarName,
+      argValue: variantInfoValue,
+      argType: variantInfoValue.type,
+      token: expr.args[1]!.token,
+    });
+    env = env3;
+    resultExprs.push(exprValue);
+  }
+
+  env = popEnvFrame(env, true);
+
+  if (resultExprs.length === 0) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `__yo_type_join_variants: enum has no variants`,
+    });
+  }
+
+  const combinedExpr = combineExprsWithOperator(resultExprs, combinerExpr);
+  const exprValue = createExprValue(combinedExpr);
+
+  expr.$ = {
+    env,
+    type: exprValue.type,
+    value: exprValue,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Helper: create a VariantInfo struct value for a given enum variant.
+ */
+function createVariantInfoValue(
+  env: Environment,
+  variantName: string,
+  fieldCount: number,
+  enumType: Type,
+  variantIndex: number,
+  context: EvaluatorContext
+): { value: Value; env: Environment } {
+  const tempEnumTypeName = `__derive_et_${generateVarialeId(env.modulePath, "det")}`;
+  env = addComptimeTempVar({
+    env,
+    name: tempEnumTypeName,
+    type: createTypeValue(enumType).type,
+    value: createTypeValue(enumType),
+  });
+
+  const escapedName = JSON.stringify(variantName);
+  const code = `VariantInfo(${escapedName}, ${fieldCount}, ${tempEnumTypeName}, ${variantIndex})`;
+  const callExpr = generateExprFromCode(code);
+  const result = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!result.$ || !result.$.value) {
+    throw new Error(
+      `Failed to create VariantInfo for variant "${variantName}"`
+    );
+  }
+
+  return { value: result.$.value, env: result.$.env };
+}
+
+/**
+ * Helper: create a ComptimeListValue from a list of Values.
+ */
+function createExprListValue(elements: Value[]) {
+  return createComptimeListValueFn(createExprType(), elements);
 }

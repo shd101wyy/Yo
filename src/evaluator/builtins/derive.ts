@@ -14,6 +14,13 @@
  */
 
 import type { Environment } from "../../env";
+import {
+  addVariableToEnv,
+  pushEnvFrame,
+  popEnvFrame,
+  getVariablesFromEnv,
+} from "../../env";
+import { generateVarialeId } from "../../utils";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -34,9 +41,19 @@ import type {
 } from "../../types/definitions";
 import { isEnumType, isStructType, isTraitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
-import { isTypeValue, isFunctionValue } from "../../value";
+import {
+  createExprValue,
+  createTypeValue,
+  createComptimeListValue,
+  isExprValue,
+  isTypeValue,
+  isFunctionValue,
+  type Value,
+} from "../../value";
 import type { FunctionValue } from "../../function-value";
 import { VUnit } from "../../unit-value";
+import { PlaceholderToken } from "../../token";
+import { createExprType } from "../../types/creators";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
@@ -177,6 +194,9 @@ export function evaluateDerive({
     });
   }
 
+  // Save the raw target type expression for derive rules
+  const targetTypeExpr = args[argIndex - 1]!;
+
   // Collect trait arguments (everything remaining)
   const traitArgs = args.slice(argIndex);
   if (traitArgs.length === 0) {
@@ -202,6 +222,9 @@ export function evaluateDerive({
       forallPrefix,
       whereSuffix,
       hasForall,
+      forallArg,
+      whereArg,
+      targetTypeExpr,
     });
   }
 
@@ -231,6 +254,9 @@ function processTraitArg({
   forallPrefix,
   whereSuffix,
   hasForall,
+  forallArg,
+  whereArg,
+  targetTypeExpr,
 }: {
   traitArgExpr: Expr;
   targetType: StructType | EnumType;
@@ -240,14 +266,40 @@ function processTraitArg({
   forallPrefix: string;
   whereSuffix: string;
   hasForall: boolean;
+  forallArg?: FnCallExpr;
+  whereArg?: FnCallExpr;
+  targetTypeExpr: Expr;
 }): Environment {
-  // First try: bare trait name (backwards compatibility)
+  // First try: bare trait name (backwards compatibility for built-in traits)
   const bareName = traitArgExpr.token?.value;
   if (
     bareName &&
     DERIVABLE_TRAITS.has(bareName) &&
     !exprIsFunctionCall(traitArgExpr)
   ) {
+    // Check if a registered derive rule exists for this bare name
+    const bareEvaluated = evaluateExpression({
+      expr: traitArgExpr,
+      env,
+      context: { ...context },
+    });
+    if (
+      bareEvaluated.$ &&
+      isFunctionValue(bareEvaluated.$.value) &&
+      bareEvaluated.$.value.deriveRule
+    ) {
+      return callRegisteredDeriveRule({
+        deriveRule: bareEvaluated.$.value.deriveRule,
+        targetType,
+        env: bareEvaluated.$.env,
+        context,
+        token: traitArgExpr.token,
+        traitParams: [],
+        forallArg,
+        whereArg,
+        targetTypeExpr,
+      });
+    }
     return deriveTraitForType({
       traitName: bareName as DerivableTraitName,
       targetType,
@@ -277,11 +329,30 @@ function processTraitArg({
 
   env = evaluated.$.env;
 
-  // Case 1: Evaluated to a TraitType → built-in derive dispatch
+  // Case 1: Evaluated to a TraitType → check registered rule, then built-in
   if (isTraitType(evaluated.$.type)) {
     const traitType = evaluated.$.type;
-    const traitName = getBaseTraitName(traitType);
 
+    // Check for registered derive rule on the trait type itself or its constructor
+    const deriveRule =
+      traitType.deriveRule ?? traitType.functionValue?.deriveRule;
+    if (deriveRule) {
+      // Extract trait constructor args from the call expression (e.g., MyEq(Point) → [Point])
+      const traitParams = extractTraitParams(traitArgExpr);
+      return callRegisteredDeriveRule({
+        deriveRule,
+        targetType,
+        env,
+        context,
+        token: traitArgExpr.token,
+        traitParams,
+        forallArg,
+        whereArg,
+        targetTypeExpr,
+      });
+    }
+
+    const traitName = getBaseTraitName(traitType);
     if (traitName && DERIVABLE_TRAITS.has(traitName)) {
       return deriveTraitForType({
         traitName: traitName as DerivableTraitName,
@@ -298,15 +369,32 @@ function processTraitArg({
 
     throw formatErrorMessage({
       token: traitArgExpr.token,
-      errorMessage: `derive: trait '${traitName ?? typeToString(traitType)}' does not have a built-in derive. Provide a derive function instead.`,
+      errorMessage: `derive: trait '${traitName ?? typeToString(traitType)}' does not have a derive rule. Use derive_rule() to register one, or provide a derive function.`,
     });
   }
 
   // Case 2: TypeValue containing a TraitType (e.g., Hash evaluates to Type(Trait))
   if (isTypeValue(evaluated.$.value) && isTraitType(evaluated.$.value.value)) {
     const traitType = evaluated.$.value.value;
-    const traitName = getBaseTraitName(traitType);
 
+    const deriveRule =
+      traitType.deriveRule ?? traitType.functionValue?.deriveRule;
+    if (deriveRule) {
+      const traitParams = extractTraitParams(traitArgExpr);
+      return callRegisteredDeriveRule({
+        deriveRule,
+        targetType,
+        env,
+        context,
+        token: traitArgExpr.token,
+        traitParams,
+        forallArg,
+        whereArg,
+        targetTypeExpr,
+      });
+    }
+
+    const traitName = getBaseTraitName(traitType);
     if (traitName && DERIVABLE_TRAITS.has(traitName)) {
       return deriveTraitForType({
         traitName: traitName as DerivableTraitName,
@@ -323,15 +411,30 @@ function processTraitArg({
 
     throw formatErrorMessage({
       token: traitArgExpr.token,
-      errorMessage: `derive: trait '${traitName ?? typeToString(traitType)}' does not have a built-in derive. Provide a derive function instead.`,
+      errorMessage: `derive: trait '${traitName ?? typeToString(traitType)}' does not have a derive rule. Use derive_rule() to register one, or provide a derive function.`,
     });
   }
 
-  // Case 3: FunctionValue (bare trait fn like Eq without args) → use funcName
+  // Case 3: FunctionValue (bare trait fn like Eq without args) → check rule, then built-in, then user-defined
   if (isFunctionValue(evaluated.$.value)) {
     const funcVal = evaluated.$.value;
-    const funcName = funcVal.funcName;
 
+    // Check for registered derive rule
+    if (funcVal.deriveRule) {
+      return callRegisteredDeriveRule({
+        deriveRule: funcVal.deriveRule,
+        targetType,
+        env,
+        context,
+        token: traitArgExpr.token,
+        traitParams: [],
+        forallArg,
+        whereArg,
+        targetTypeExpr,
+      });
+    }
+
+    const funcName = funcVal.funcName;
     if (funcName && DERIVABLE_TRAITS.has(funcName)) {
       return deriveTraitForType({
         traitName: funcName as DerivableTraitName,
@@ -412,8 +515,277 @@ function callUserDerive({
 }
 
 /**
- * Get the string name of a type.
+ * Extract trait constructor arguments as raw Exprs from a call expression.
+ * e.g., `MyEq(Point)` → [PointExpr]
+ * For bare names like `MyEq`, returns [].
  */
+function extractTraitParams(traitArgExpr: Expr): Expr[] {
+  if (exprIsFunctionCall(traitArgExpr)) {
+    const fnCall = traitArgExpr as FnCallExpr;
+    return fnCall.args ?? [];
+  }
+  return [];
+}
+
+/**
+ * Call a registered derive rule function.
+ *
+ * The derive rule has signature:
+ *   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+ *
+ * We construct:
+ *   1. T = the target type value
+ *   2. ctx = DeriveContext struct value (target, forall_params, where_clause)
+ *   3. trait_params = ComptimeList(Expr) of the trait's type arguments
+ *
+ * Then call the function, get back an Expr, and evaluate it.
+ */
+function callRegisteredDeriveRule({
+  deriveRule,
+  targetType,
+  env,
+  context,
+  token,
+  traitParams,
+  forallArg,
+  whereArg,
+  targetTypeExpr,
+}: {
+  deriveRule: FunctionValue;
+  targetType: StructType | EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+  token: Expr["token"];
+  traitParams: Expr[];
+  forallArg?: FnCallExpr;
+  whereArg?: FnCallExpr;
+  targetTypeExpr: Expr;
+}): Environment {
+  // We need to bind values to temp variables and generate a call expression.
+  env = pushEnvFrame(env);
+
+  // 1. Bind the target type
+  const typeVarName = `__derive_T_${generateVarialeId(env.modulePath, "dT")}`;
+  const typeVal = createTypeValue(targetType);
+  env = addComptimeVar(env, typeVarName, typeVal.type, typeVal);
+
+  // 2. Bind the derive rule function
+  const ruleFnName =
+    deriveRule.funcName ??
+    `__derive_rule_${generateVarialeId(env.modulePath, "dr")}`;
+  // Only bind if not already accessible by name
+  if (!deriveRule.funcName) {
+    env = addComptimeVar(env, ruleFnName, deriveRule.type, deriveRule);
+  }
+
+  // 3. Create the target Expr value
+  const targetExprVal = createExprValue(targetTypeExpr);
+  const targetExprVarName = `__derive_te_${generateVarialeId(env.modulePath, "dte")}`;
+  env = addComptimeVar(
+    env,
+    targetExprVarName,
+    targetExprVal.type,
+    targetExprVal
+  );
+
+  // 4. Create forall_params and where_clause as Option(Expr)
+  const forallExprVarName = `__derive_fp_${generateVarialeId(env.modulePath, "dfp")}`;
+  {
+    const tmpName = `__derive_fp_tmp_${generateVarialeId(env.modulePath, "dfpt")}`;
+    let optCode: string;
+    if (forallArg) {
+      const forallExprVal = createExprValue(forallArg);
+      const optVarName = `__derive_fpe_${generateVarialeId(env.modulePath, "dfpe")}`;
+      env = addComptimeVar(env, optVarName, forallExprVal.type, forallExprVal);
+      optCode = `((${tmpName} : Option(Expr)) = .Some(${optVarName}))`;
+    } else {
+      optCode = `((${tmpName} : Option(Expr)) = .None)`;
+    }
+    const optExpr = generateExprFromCode(optCode);
+    const optResult = evaluateExpression({
+      expr: optExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (optResult.$) {
+      env = optResult.$.env;
+      const vars = getVariablesFromEnv(env, tmpName);
+      const optVar = vars[vars.length - 1];
+      if (optVar && optVar.value && optVar.value[0]) {
+        env = addComptimeVar(
+          env,
+          forallExprVarName,
+          optVar.type,
+          optVar.value[0]
+        );
+      }
+    }
+  }
+
+  const whereExprVarName = `__derive_wp_${generateVarialeId(env.modulePath, "dwp")}`;
+  {
+    const tmpName = `__derive_wp_tmp_${generateVarialeId(env.modulePath, "dwpt")}`;
+    let optCode: string;
+    if (whereArg) {
+      const whereExprVal = createExprValue(whereArg);
+      const optVarName = `__derive_wpe_${generateVarialeId(env.modulePath, "dwpe")}`;
+      env = addComptimeVar(env, optVarName, whereExprVal.type, whereExprVal);
+      optCode = `((${tmpName} : Option(Expr)) = .Some(${optVarName}))`;
+    } else {
+      optCode = `((${tmpName} : Option(Expr)) = .None)`;
+    }
+    const optExpr = generateExprFromCode(optCode);
+    const optResult = evaluateExpression({
+      expr: optExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+    if (optResult.$) {
+      env = optResult.$.env;
+      const vars = getVariablesFromEnv(env, tmpName);
+      const optVar = vars[vars.length - 1];
+      if (optVar && optVar.value && optVar.value[0]) {
+        env = addComptimeVar(
+          env,
+          whereExprVarName,
+          optVar.type,
+          optVar.value[0]
+        );
+      }
+    }
+  }
+
+  // 5. Create DeriveContext
+  const ctxVarName = `__derive_ctx_${generateVarialeId(env.modulePath, "dctx")}`;
+  const ctxCode = `DeriveContext(${targetExprVarName}, ${forallExprVarName}, ${whereExprVarName})`;
+  const ctxExpr = generateExprFromCode(ctxCode);
+  const ctxResult = evaluateExpression({
+    expr: ctxExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!ctxResult.$ || !ctxResult.$.value) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `derive: failed to create DeriveContext`,
+    });
+  }
+  env = ctxResult.$.env;
+  env = addComptimeVar(env, ctxVarName, ctxResult.$.type, ctxResult.$.value);
+
+  // 6. Create trait_params as quoted Exprs
+  // For each trait param, quote it and add to a temp list
+  const paramVarNames: string[] = [];
+  for (let i = 0; i < traitParams.length; i++) {
+    const paramExprVal = createExprValue(traitParams[i]!);
+    const pvName = `__derive_tp_${generateVarialeId(env.modulePath, "dtp")}`;
+    env = addComptimeVar(env, pvName, paramExprVal.type, paramExprVal);
+    paramVarNames.push(pvName);
+  }
+
+  // Build ComptimeList(Expr) from params
+  const traitParamsVarName = `__derive_tps_${generateVarialeId(env.modulePath, "dtps")}`;
+  if (paramVarNames.length > 0) {
+    const listCode = `comptime_list(${paramVarNames.join(", ")})`;
+    const listExpr = generateExprFromCode(listCode);
+    const listResult = evaluateExpression({
+      expr: listExpr,
+      env,
+      context: { ...context, forceCompileTimeBindings: true },
+    });
+
+    if (!listResult.$ || !listResult.$.value) {
+      throw formatErrorMessage({
+        token,
+        errorMessage: `derive: failed to create trait params list`,
+      });
+    }
+    env = listResult.$.env;
+    env = addComptimeVar(
+      env,
+      traitParamsVarName,
+      listResult.$.type,
+      listResult.$.value
+    );
+  } else {
+    // Empty list — create directly via TypeScript
+    const exprType = createExprType();
+    const emptyList = createComptimeListValue(exprType, []);
+    env = addComptimeVar(env, traitParamsVarName, emptyList.type, emptyList);
+  }
+
+  // 7. Call the derive rule function
+  const callCode = `${ruleFnName}(${typeVarName}, ${ctxVarName}, ${traitParamsVarName})`;
+  const callExpr = generateExprFromCode(callCode);
+  const callResult = evaluateExpression({
+    expr: callExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: true },
+  });
+
+  if (!callResult.$ || !callResult.$.value) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `derive: derive rule function failed`,
+    });
+  }
+  env = callResult.$.env;
+
+  // The result should be an Expr — evaluate it
+  if (!isExprValue(callResult.$.value)) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `derive: derive rule must return comptime(Expr), got something else`,
+    });
+  }
+
+  const resultExpr = callResult.$.value.value;
+
+  // Pop the temp frame
+  env = popEnvFrame(env, true);
+
+  // Evaluate the returned Expr in the original env
+  const implResult = evaluateExpression({
+    expr: resultExpr,
+    env,
+    context: { ...context, forceCompileTimeBindings: false },
+  });
+
+  if (!implResult.$) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `derive: failed to evaluate derive rule output`,
+    });
+  }
+
+  return implResult.$.env;
+}
+
+/**
+ * Helper: add a comptime-only variable to the env.
+ */
+function addComptimeVar(
+  env: Environment,
+  name: string,
+  type: Type,
+  value: Value
+): Environment {
+  const result = addVariableToEnv({
+    env,
+    variable: {
+      name,
+      type,
+      value: [value],
+      isCompileTimeOnly: true,
+      isOwningTheRcValue: false,
+      initializedAtToken: PlaceholderToken,
+      consumedAtToken: undefined,
+      token: PlaceholderToken,
+    },
+  });
+  return result.env;
+}
 function getTypeName(type: StructType | EnumType): string | undefined {
   return type.typeName;
 }

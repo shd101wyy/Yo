@@ -52,11 +52,18 @@ export function processUnquotesInExpr({
           ...context,
         },
       });
-      if (
-        !evaluatedArg.$ ||
-        !isExprType(evaluatedArg.$.type) ||
-        !evaluatedArg.$.value
-      ) {
+      if (!evaluatedArg.$ || !evaluatedArg.$.value) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected expression type for "unquote" argument, got:\n${exprToString(arg)}`,
+        });
+      }
+      // If the type is not Expr but value is unknown, return the original expr
+      // (this happens during function body validation when params are unknown)
+      if (!isExprType(evaluatedArg.$.type)) {
+        if (isUnknownValue(evaluatedArg.$.value)) {
+          return expr;
+        }
         throw formatErrorMessage({
           token: arg.token,
           errorMessage: `Expected expression type for "unquote" argument, got:\n${exprToString(arg)}`,
@@ -89,22 +96,25 @@ export function processUnquotesInExpr({
       for (let i = 0; i < args.length; i++) {
         const arg = args[i]!;
 
-        // Handle unquote_splicing
-        if (
+        // Handle unquote_splicing: either ...#(x) (single token) or ...(#(x)) (two tokens)
+        const isUnquoteSplicing =
           exprIsFunctionCall(arg) &&
-          exprIsFunctionCallOf(arg, BuiltinKeywords.unquote_splicing)
-        ) {
+          exprIsFunctionCallOf(arg, BuiltinKeywords.unquote_splicing);
+        // Also handle ...(#(x)) parsed as spread(unquote(x))
+        const isSpreadUnquote =
+          !isUnquoteSplicing &&
+          exprIsFunctionCall(arg) &&
+          exprIsFunctionCallOf(arg, "...") &&
+          arg.args.length === 1 &&
+          exprIsFunctionCall(arg.args[0]!) &&
+          exprIsFunctionCallOf(arg.args[0]!, BuiltinKeywords.unquote);
+        if (isUnquoteSplicing || isSpreadUnquote) {
           let unquoteSplicingArgs: Expr[] | undefined = undefined;
-
-          // Evaluate the unquote_splicing arguments
-          // and flatten them into the newArgs array
-          if (arg.args.length !== 1) {
-            throw formatErrorMessage({
-              token: arg.token,
-              errorMessage: `Expected exactly one argument for "unquote_splicing", got ${arg.args.length}`,
-            });
-          }
-          const unquoteSplicingArg = arg.args[0]!;
+          // For ...(#(x)), the inner arg is the unquote's argument
+          const fnCallArg = arg as FnCallExpr;
+          const unquoteSplicingArg = isSpreadUnquote
+            ? (fnCallArg.args[0] as FnCallExpr).args[0]!
+            : fnCallArg.args[0]!;
           const evaluatedUnquoteSplicingArg = evaluateExpression({
             expr: unquoteSplicingArg,
             env,
@@ -114,7 +124,6 @@ export function processUnquotesInExpr({
           });
           if (
             !evaluatedUnquoteSplicingArg.$ ||
-            !isExprListType(evaluatedUnquoteSplicingArg.$.type) ||
             !evaluatedUnquoteSplicingArg.$.value
           ) {
             throw formatErrorMessage({
@@ -122,24 +131,36 @@ export function processUnquotesInExpr({
               errorMessage: `Expected ExprList for "unquote_splicing" argument, got:\n${exprToString(unquoteSplicingArg)}`,
             });
           }
-
-          const exprListValue = evaluatedUnquoteSplicingArg.$.value;
-          if (isExprListValue(exprListValue)) {
-            if (exprListValue.elements.every((el) => isExprValue(el))) {
-              unquoteSplicingArgs = exprListValue.elements.map(
-                (el) => el.value
-              );
+          // If the type is not ExprList but value is unknown, return the original arg unchanged
+          // (this happens during function body validation when params are unknown)
+          if (!isExprListType(evaluatedUnquoteSplicingArg.$.type)) {
+            if (isUnknownValue(evaluatedUnquoteSplicingArg.$.value)) {
+              newArgs.push(arg);
+            } else {
+              throw formatErrorMessage({
+                token: unquoteSplicingArg.token,
+                errorMessage: `Expected ExprList for "unquote_splicing" argument, got:\n${exprToString(unquoteSplicingArg)}`,
+              });
             }
           } else {
-            // TODO: exprListValue is unknown value.
-          }
-          if (unquoteSplicingArgs) {
-            unquoteSplicingArgs.forEach((_arg) => {
-              newArgs.push(_arg);
-            });
-          } else {
-            // Meet unknown value, we just ignore it
-            newArgs.push(arg);
+            const exprListValue = evaluatedUnquoteSplicingArg.$.value;
+            if (isExprListValue(exprListValue)) {
+              if (exprListValue.elements.every((el) => isExprValue(el))) {
+                unquoteSplicingArgs = exprListValue.elements.map(
+                  (el) => el.value
+                );
+              }
+            } else {
+              // exprListValue is unknown value — keep original
+            }
+            if (unquoteSplicingArgs) {
+              unquoteSplicingArgs.forEach((_arg) => {
+                newArgs.push(_arg);
+              });
+            } else {
+              // Meet unknown value, we just ignore it
+              newArgs.push(arg);
+            }
           }
         } else {
           newArgs.push(

@@ -1159,6 +1159,15 @@ export const BuiltinFunctions = {
 
   // Derive traits builtin
   derive: ["derive"],
+  derive_rule: ["derive_rule"],
+
+  // comptime_string to Expr conversion
+  __yo_comptime_string_to_expr: ["__yo_comptime_string_to_expr"],
+
+  // Expr-based type iteration builtins (for derive rules)
+  __yo_type_join_fields: ["__yo_type_join_fields"],
+  __yo_type_map_variants: ["__yo_type_map_variants"],
+  __yo_type_join_variants: ["__yo_type_join_variants"],
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
@@ -1347,6 +1356,11 @@ function exprToCompactString(expr: Expr): string {
               ? `(${rhs})`
               : rhs;
           if (expr.func.token.value === ".") {
+            // Wrap RHS in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., self.(#(x)) vs self.#(x))
+            if (exprIsFunctionCall(expr.args[1]!)) {
+              rhs = `(${rhs})`;
+            }
             printed = `(${lhs}.${rhs})`;
           } else {
             printed = `${lhs} ${expr.func.token.value} ${rhs}`;
@@ -1436,6 +1450,9 @@ function exprToPrettyString(
               : rhs;
 
           if (expr.func.token.value === ".") {
+            if (exprIsFunctionCall(expr.args[1]!)) {
+              rhs = `(${rhs})`;
+            }
             return `(${lhs}.${rhs})`;
           } else {
             // For arrow operator and other infix operators, wrap the result in parentheses

@@ -1,24 +1,89 @@
 open import "std/fmt";
-open import "std/string";
-open import "std/collections/array_list";
 
-// Test: indexing a function call result (temporary)
-test_index_temp :: (fn() -> unit)({
-  get_list :: (fn() -> ArrayList(u8))({
-    (list : ArrayList(u8)) = ArrayList(u8).new();
-    list.push(u8(1));
-    list.push(u8(2));
-    list.push(u8(3));
-    list
-  });
-  // Index directly into function return value
-  (ch : u8) = get_list()(usize(1));
-  assert((ch == u8(2)), "should be 2");
-  println("index-temp test passed");
-});
+// ========== Custom derive_rule test ==========
 
-main :: (fn() -> unit)({
-  test_index_temp();
-});
+// Define a custom trait MyEq
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    eq : (fn(self : Self, other : Rhs) -> bool)
+  )
+);
 
+impl(i32, MyEq(i32)(
+  eq : ((self, other) -> (self == other))
+));
+
+impl(bool, MyEq(bool)(
+  eq : ((self, other) -> (self == other))
+));
+
+// Register derive rule for MyEq: field-wise equality
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    n :: __yo_type_field_count(T);
+    eq_body :: cond(
+      (n == 0) => quote(true),
+      true => __yo_type_join_fields(
+        T,
+        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+          quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+        ),
+        quote(&&)
+      )
+    );
+    ctx.make_impl(quote(
+      MyEq(...#(trait_params))(
+        eq : ((self, other) -> #(eq_body))
+      )
+    ))
+  }
+);
+
+derive_rule(MyEq, my_derive_eq);
+
+// Test 1: 2-field struct
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq(Point));
+
+// Test 2: 3-field struct
+Vec3 :: struct(x : i32, y : i32, z : i32);
+derive(Vec3, MyEq(Vec3));
+
+// Test 3: empty struct
+Empty :: struct();
+derive(Empty, MyEq(Empty));
+
+// Test 4: mixed types
+Record :: struct(id : i32, active : bool);
+derive(Record, MyEq(Record));
+
+main :: (fn() -> unit) {
+  // Test 1: Point eq
+  p1 := Point(1, 2);
+  p2 := Point(1, 2);
+  p3 := Point(1, 3);
+  assert(p1.eq(p2), "Point eq true");
+  assert(!(p1.eq(p3)), "Point eq false");
+
+  // Test 2: Vec3 eq
+  v1 := Vec3(1, 2, 3);
+  v2 := Vec3(1, 2, 3);
+  v3 := Vec3(1, 2, 4);
+  assert(v1.eq(v2), "Vec3 eq true");
+  assert(!(v1.eq(v3)), "Vec3 eq false");
+
+  // Test 3: Empty eq
+  e1 := Empty();
+  e2 := Empty();
+  assert(e1.eq(e2), "Empty eq true");
+
+  // Test 4: Record eq
+  r1 := Record(1, true);
+  r2 := Record(1, true);
+  r3 := Record(1, false);
+  assert(r1.eq(r2), "Record eq true");
+  assert(!(r1.eq(r3)), "Record eq false");
+
+  println(`All derive_rule tests passed!`);
+};
 export main;

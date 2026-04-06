@@ -377,3 +377,92 @@ test "user-defined derive via comptime function", {
   result := dp.describe();
   assert((result == `DescPoint`), "user-defined derive should produce describe method");
 };
+
+// =============================================================================
+// === derive_rule tests (Phase 2) — user-defined derive rules via macros ===
+// =============================================================================
+
+// Define a custom equality trait
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(
+    my_eq : (fn(self : Self, other : Rhs) -> bool)
+  )
+);
+
+impl(i32, MyEq(i32)(
+  my_eq : ((self, other) -> (self == other))
+));
+
+impl(bool, MyEq(bool)(
+  my_eq : ((self, other) -> (self == other))
+));
+
+// Register derive rule for MyEq: field-wise equality
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    n :: __yo_type_field_count(T);
+    eq_body :: cond(
+      (n == 0) => quote(true),
+      true => __yo_type_join_fields(
+        T,
+        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+        ),
+        quote(&&)
+      )
+    );
+    ctx.make_impl(quote(
+      MyEq(...#(trait_params))(
+        my_eq : ((self, other) -> #(eq_body))
+      )
+    ))
+  }
+);
+
+derive_rule(MyEq, my_derive_eq);
+
+// Test: derive_rule for 2-field struct
+DRPoint :: struct(x : i32, y : i32);
+derive(DRPoint, MyEq(DRPoint));
+
+test "derive_rule MyEq for 2-field struct", {
+  p1 := DRPoint(i32(1), i32(2));
+  p2 := DRPoint(i32(1), i32(2));
+  p3 := DRPoint(i32(1), i32(3));
+  assert(p1.my_eq(p2), "equal points should be equal");
+  assert(!(p1.my_eq(p3)), "different points should not be equal");
+};
+
+// Test: derive_rule for 3-field struct
+DRVec3 :: struct(x : i32, y : i32, z : i32);
+derive(DRVec3, MyEq(DRVec3));
+
+test "derive_rule MyEq for 3-field struct", {
+  v1 := DRVec3(i32(1), i32(2), i32(3));
+  v2 := DRVec3(i32(1), i32(2), i32(3));
+  v3 := DRVec3(i32(1), i32(2), i32(4));
+  assert(v1.my_eq(v2), "equal vec3 should be equal");
+  assert(!(v1.my_eq(v3)), "different vec3 should not be equal");
+};
+
+// Test: derive_rule for empty struct
+DREmpty :: struct();
+derive(DREmpty, MyEq(DREmpty));
+
+test "derive_rule MyEq for empty struct", {
+  e1 := DREmpty();
+  e2 := DREmpty();
+  assert(e1.my_eq(e2), "empty structs should be equal");
+};
+
+// Test: derive_rule for mixed-type struct
+DRRecord :: struct(id : i32, active : bool);
+derive(DRRecord, MyEq(DRRecord));
+
+test "derive_rule MyEq for mixed-type struct", {
+  r1 := DRRecord(i32(1), true);
+  r2 := DRRecord(i32(1), true);
+  r3 := DRRecord(i32(1), false);
+  assert(r1.my_eq(r2), "equal records should be equal");
+  assert(!(r1.my_eq(r3)), "different records should not be equal");
+};

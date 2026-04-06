@@ -672,6 +672,15 @@ export interface TraitType extends Type {
    * Used in where clauses to constrain associated types.
    */
   associatedTypeConstraints?: { label: string; constraintType: Type }[];
+
+  /**
+   * When set, this trait has a registered derive rule.
+   * Used by `derive_rule(TraitConstructor, DeriveFn)` to store the user-defined
+   * derive function on parameterless traits.
+   * The derive rule function has signature:
+   *   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+   */
+  deriveRule?: FunctionValue;
 }
 
 /**
