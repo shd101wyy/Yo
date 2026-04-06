@@ -2,11 +2,13 @@
 
 `derive` 是一个编译期内建函数，可以自动为结构体和枚举类型生成特征实现。它的功能类似于 Rust 的 `#[derive(...)]` 属性，但使用函数调用语法。
 
+所有五个标准可派生特征（Eq、Hash、Clone、Ord、ToString）都是**自宿主的**——它们的派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。
+
 ## 基本用法
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 main :: (fn() -> unit) {
   p1 := Point(i32(1), i32(2));
@@ -16,17 +18,17 @@ main :: (fn() -> unit) {
 export main;
 ```
 
-`derive` 接受一个类型作为第一个参数，后面跟一个或多个特征名称。它会为每个特征生成 `impl` 代码块。
+`derive` 接受一个类型作为第一个参数，后面跟一个或多个特征表达式。参数化特征如 `Eq` 和 `Ord` 需要显式类型参数（例如 `Eq(Point)`）。无参数特征如 `Hash`、`Clone` 和 `ToString` 可以直接使用名称。
 
-## 内建可派生特征
+## 标准可派生特征
 
 ### Eq
 
-生成结构化相等比较。当所有字段相等时，两个值相等。
+生成结构化相等比较。当所有字段相等时，两个值相等。需要显式类型参数：`Eq(Type)`。
 
 ```rust
 Color :: struct(r : u8, g : u8, b : u8);
-derive(Color, Eq);
+derive(Color, Eq(Color));
 
 // 现在可以使用 == 和 !=
 assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same color");
@@ -36,14 +38,14 @@ assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same col
 
 ```rust
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
-derive(Shape, Eq);
+derive(Shape, Eq(Shape));
 
 assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 ```
 
 ### Hash
 
-通过使用 `hash_combine` 组合所有字段的哈希值来生成哈希函数。对于枚举类型，变体索引也会包含在哈希中。
+通过使用 FNV 风格哈希组合（`h * 31 + field_hash`）组合所有字段的哈希值来生成哈希函数。对于枚举类型，变体索引也会包含在哈希中。
 
 ```rust
 derive(Point, Hash);
@@ -63,19 +65,19 @@ p2 := p.clone();
 
 ### Ord
 
-生成字典序排序，从左到右比较字段。返回 `Ordering`（`.Less`、`.Equal`、`.Greater`）。对于枚举类型，先按变体索引排序，再按字段值排序。
+生成字典序排序，从左到右比较字段。需要显式类型参数：`Ord(Type)`。对于枚举类型，先按判别值排序，再按字段值排序。
 
 ```rust
-derive(Point, Ord);
+derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
 p2 := Point(i32(1), i32(3));
-assert((p1.compare(p2) == .Less), "p1 < p2");
+assert((p1 < p2), "p1 < p2");
 ```
 
 ### ToString
 
-生成字符串表示。结构体产生 `TypeName(field1, field2, ...)` 格式。枚举产生 `TypeName.Variant(field1, ...)` 格式。
+生成字符串表示。结构体产生 `TypeName(field1, field2, ...)` 格式。枚举产生 `TypeName.Variant` 或 `TypeName.Variant(field1, ...)` 格式。
 
 ```rust
 derive(Point, ToString);
@@ -89,49 +91,34 @@ p := Point(i32(1), i32(2));
 可以在一次调用中使用可变编译期参数派生多个特征：
 
 ```rust
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 ```
 
 这等同于为每个特征分别调用 `derive`。
 
-## 显式特征参数
-
-可以使用 `Trait(Type)` 语法传递显式特征类型参数：
-
-```rust
-Vec2 :: struct(x : f64, y : f64);
-derive(Vec2, Eq(Vec2));
-```
-
-裸特征名称（`Eq`）和显式特征类型参数（`Eq(Vec2)`）都支持，并且可以混合使用：
-
-```rust
-derive(Vec2, Eq(Vec2), Hash, Clone);
-```
-
 ## 枚举支持
 
-所有内建派生都适用于枚举类型，包括带字段的枚举：
+所有标准派生都适用于枚举类型，包括带字段的枚举：
 
 ```rust
 // 无字段枚举
 Direction :: enum(North, South, East, West);
-derive(Direction, Eq, Hash, Clone, Ord, ToString);
+derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
 
 // 带字段枚举
-Result :: enum(Ok(value : i32), Err(msg : str));
-derive(Result, Eq, Clone, ToString);
+Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
+derive(Shape, Eq(Shape), Clone, ToString);
 ```
 
-对于无字段枚举，相等性和排序基于变体索引。对于带字段枚举，先检查变体，然后比较字段。
+对于无字段枚举，相等性和排序基于变体判别值。对于带字段枚举，先检查变体，然后比较字段。
 
 ## 要求
 
-结构体或枚举中的每个字段类型必须已经实现了要派生的特征。例如，要 `derive(Point, Eq)`，类型 `i32`（用于 `x` 和 `y`）必须实现 `Eq`。内建类型（`i32`、`u8`、`bool`、`str`、`String` 等）实现了所有标准特征。
+结构体或枚举中的每个字段类型必须已经实现了要派生的特征。例如，要 `derive(Point, Eq(Point))`，类型 `i32`（用于 `x` 和 `y`）必须实现 `Eq`。内建类型（`i32`、`u8`、`bool`、`str`、`String` 等）实现了所有标准特征。
 
 ## `derive_rule` — 用户注册的派生规则
 
-`derive_rule` 允许特征作者注册其特征的派生方式。注册后，`derive(Type, MyTrait)` 就像内建特征一样工作。
+`derive_rule` 允许特征作者注册其特征的派生方式。注册后，`derive(Type, MyTrait(Type))` 就像标准特征一样工作。
 
 ### 定义派生规则
 
@@ -145,7 +132,7 @@ fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : C
 - `ctx` — `DeriveContext` 结构体，包含 `target`（Expr）、`forall_params`、`where_clause`
 - `trait_params` — 特征构造函数参数的 Expr 列表
 
-函数返回一个 `Expr`（通过 `quote`），表示要生成的 `impl` 代码块。
+函数返回一个 `Expr`（通过 `quote` 或 `.to_expr()`），表示要生成的 `impl` 代码块。
 
 ### 示例：结构体相等性
 
@@ -241,12 +228,18 @@ derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), 
 
 当调用 `derive(Type, Trait)` 时：
 
-1. **已注册的派生规则**（通过 `derive_rule`）— 首先检查
-2. **内建派生**（Eq、Hash、Clone、Ord、ToString）— 后备
-3. **编译期函数** — 如果特征名称解析为编译期函数
-4. **错误** — 如果以上都不匹配
+1. **已注册的派生规则**（通过 `derive_rule`）— 在特征类型或其构造函数上首先检查
+2. **编译期函数** — 如果特征参数解析为编译期函数
+3. **错误** — 如果以上都不匹配
 
-已注册的规则始终优先于内建派生。
+### 自宿主标准派生
+
+所有五个标准特征都使用相同的 `derive_rule` 机制：
+
+- **Eq、Clone、Hash、Ord** — 派生规则定义在 `std/prelude.yo` 中
+- **ToString** — 派生规则定义在 `std/fmt/to_string.yo` 中（ToString 特征定义所在）
+
+这些实现使用基于字符串的代码生成，通过 `comptime_string` 和 `.to_expr()` 在编译期构建 impl 代码块。
 
 ## 类型反射
 

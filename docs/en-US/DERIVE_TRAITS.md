@@ -2,11 +2,13 @@
 
 `derive` is a compile-time builtin that automatically generates trait implementations for struct and enum types. It works similarly to Rust's `#[derive(...)]` attribute but uses function call syntax.
 
+All five standard derivable traits (Eq, Hash, Clone, Ord, ToString) are **self-hosted** — their derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler.
+
 ## Basic Usage
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 main :: (fn() -> unit) {
   p1 := Point(i32(1), i32(2));
@@ -16,17 +18,17 @@ main :: (fn() -> unit) {
 export main;
 ```
 
-`derive` accepts a type as the first argument followed by one or more trait names. It generates `impl` blocks for each trait.
+`derive` accepts a type as the first argument followed by one or more trait expressions. Parameterized traits like `Eq` and `Ord` require explicit type arguments (e.g., `Eq(Point)`). Parameterless traits like `Hash`, `Clone`, and `ToString` can be passed as bare names.
 
-## Built-in Derivable Traits
+## Standard Derivable Traits
 
 ### Eq
 
-Generates structural equality comparison. Two values are equal if all their fields are equal.
+Generates structural equality comparison. Two values are equal if all their fields are equal. Requires explicit type argument: `Eq(Type)`.
 
 ```rust
 Color :: struct(r : u8, g : u8, b : u8);
-derive(Color, Eq);
+derive(Color, Eq(Color));
 
 // Now you can use == and !=
 assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same color");
@@ -36,14 +38,14 @@ For enums, equality checks the variant tag first, then compares fields if the va
 
 ```rust
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
-derive(Shape, Eq);
+derive(Shape, Eq(Shape));
 
 assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 ```
 
 ### Hash
 
-Generates a hash function by combining the hashes of all fields using `hash_combine`. For enums, the variant index is included in the hash.
+Generates a hash function by combining the hashes of all fields using FNV-style hash combining (`h * 31 + field_hash`). For enums, the variant index is included in the hash.
 
 ```rust
 derive(Point, Hash);
@@ -63,19 +65,19 @@ p2 := p.clone();
 
 ### Ord
 
-Generates lexicographic ordering by comparing fields left-to-right. Returns `Ordering` (`.Less`, `.Equal`, `.Greater`). For enums, variants are ordered by their index, then by field values.
+Generates lexicographic ordering by comparing fields left-to-right. Requires explicit type argument: `Ord(Type)`. For enums, variants are ordered by their discriminant, then by field values.
 
 ```rust
-derive(Point, Ord);
+derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
 p2 := Point(i32(1), i32(3));
-assert((p1.compare(p2) == .Less), "p1 < p2");
+assert((p1 < p2), "p1 < p2");
 ```
 
 ### ToString
 
-Generates a string representation. Structs produce `TypeName(field1, field2, ...)` format. Enums produce `TypeName.Variant(field1, ...)` format.
+Generates a string representation. Structs produce `TypeName(field1, field2, ...)` format. Enums produce `TypeName.Variant` or `TypeName.Variant(field1, ...)` format.
 
 ```rust
 derive(Point, ToString);
@@ -89,49 +91,34 @@ p := Point(i32(1), i32(2));
 You can derive multiple traits in a single call using variadic comptime parameters:
 
 ```rust
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 ```
 
 This is equivalent to calling `derive` separately for each trait.
 
-## Explicit Trait Arguments
-
-You can pass explicit trait type arguments using `Trait(Type)` syntax:
-
-```rust
-Vec2 :: struct(x : f64, y : f64);
-derive(Vec2, Eq(Vec2));
-```
-
-Both bare trait names (`Eq`) and explicit trait type arguments (`Eq(Vec2)`) are supported and can be mixed:
-
-```rust
-derive(Vec2, Eq(Vec2), Hash, Clone);
-```
-
 ## Enum Support
 
-All built-in derives work with enums, including enums with fields:
+All standard derives work with enums, including enums with fields:
 
 ```rust
 // Fieldless enum
 Direction :: enum(North, South, East, West);
-derive(Direction, Eq, Hash, Clone, Ord, ToString);
+derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
 
 // Enum with fields
-Result :: enum(Ok(value : i32), Err(msg : str));
-derive(Result, Eq, Clone, ToString);
+Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
+derive(Shape, Eq(Shape), Clone, ToString);
 ```
 
-For fieldless enums, equality and ordering are based on the variant index. For enums with fields, the variant is checked first, then fields are compared.
+For fieldless enums, equality and ordering are based on the variant discriminant. For enums with fields, the variant is checked first, then fields are compared.
 
 ## Requirements
 
-Each field type in the struct or enum must already implement the trait being derived. For example, to `derive(Point, Eq)`, the types `i32` (used for `x` and `y`) must implement `Eq`. Built-in types (`i32`, `u8`, `bool`, `str`, `String`, etc.) implement all standard traits.
+Each field type in the struct or enum must already implement the trait being derived. For example, to `derive(Point, Eq(Point))`, the types `i32` (used for `x` and `y`) must implement `Eq`. Built-in types (`i32`, `u8`, `bool`, `str`, `String`, etc.) implement all standard traits.
 
 ## `derive_rule` — User-Registrable Derive Rules
 
-`derive_rule` lets trait authors register how their traits should be derived. Once registered, `derive(Type, MyTrait)` works exactly like the built-in traits.
+`derive_rule` lets trait authors register how their traits should be derived. Once registered, `derive(Type, MyTrait(Type))` works exactly like the standard traits.
 
 ### Defining a Derive Rule
 
@@ -145,7 +132,7 @@ fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : C
 - `ctx` — a `DeriveContext` struct with `target` (Expr), `forall_params`, `where_clause`
 - `trait_params` — trait constructor arguments as a list of Exprs
 
-The function returns an `Expr` (via `quote`) representing the `impl` block to generate.
+The function returns an `Expr` (via `quote` or `.to_expr()`) representing the `impl` block to generate.
 
 ### Example: Struct Equality
 
@@ -241,12 +228,18 @@ The `DeriveContext.make_impl` method automatically includes the forall/where cla
 
 When `derive(Type, Trait)` is called:
 
-1. **Registered derive rule** (via `derive_rule`) — checked first
-2. **Built-in derive** (Eq, Hash, Clone, Ord, ToString) — fallback
-3. **Comptime function** — if the trait name resolves to a comptime fn
-4. **Error** — if none of the above match
+1. **Registered derive rule** (via `derive_rule`) — checked first on the trait type or its constructor function
+2. **Comptime function** — if the trait argument evaluates to a comptime function
+3. **Error** — if none of the above match
 
-Registered rules always take priority over built-in derives.
+### Self-Hosted Standard Derives
+
+All five standard traits use the same `derive_rule` mechanism:
+
+- **Eq, Clone, Hash, Ord** — derive rules defined in `std/prelude.yo`
+- **ToString** — derive rule defined in `std/fmt/to_string.yo` (where the ToString trait is defined)
+
+These implementations use string-based code generation with `comptime_string` and `.to_expr()` to build impl blocks at compile time.
 
 ## Type Reflection
 
