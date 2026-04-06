@@ -86,7 +86,7 @@ p := Point(i32(1), i32(2));
 
 ## Multiple Traits
 
-You can derive multiple traits in a single call:
+You can derive multiple traits in a single call using variadic comptime parameters:
 
 ```rust
 derive(Point, Eq, Hash, Clone, Ord, ToString);
@@ -128,76 +128,6 @@ For fieldless enums, equality and ordering are based on the variant index. For e
 ## Requirements
 
 Each field type in the struct or enum must already implement the trait being derived. For example, to `derive(Point, Eq)`, the types `i32` (used for `x` and `y`) must implement `Eq`. Built-in types (`i32`, `u8`, `bool`, `str`, `String`, etc.) implement all standard traits.
-
-## Type Reflection Builtins
-
-Yo provides compile-time type reflection builtins used internally by `derive` and available for user-defined derives:
-
-| Builtin                                     | Description                                            |
-| ------------------------------------------- | ------------------------------------------------------ |
-| `__yo_type_is_struct(T)`                    | Returns `true` if T is a struct type                   |
-| `__yo_type_is_enum(T)`                      | Returns `true` if T is an enum type                    |
-| `__yo_type_get_name(T)`                     | Returns the type name as a `comptime_string`           |
-| `__yo_type_field_count(T)`                  | Returns the number of struct fields                    |
-| `__yo_type_get_field_name(T, i)`            | Returns the name of the i-th field                     |
-| `__yo_type_get_field_type(T, i)`            | Returns the type of the i-th field                     |
-| `__yo_type_variant_count(T)`                | Returns the number of enum variants                    |
-| `__yo_type_get_variant_name(T, i)`          | Returns the name of the i-th variant                   |
-| `__yo_type_get_variant_field_count(T, i)`   | Returns the number of fields in the i-th variant       |
-| `__yo_type_get_variant_field_name(T, i, j)` | Returns the name of the j-th field in the i-th variant |
-| `__yo_type_get_variant_field_type(T, i, j)` | Returns the type of the j-th field in the i-th variant |
-
-All builtins are compile-time only and work with `comptime(T) : Type` parameters.
-
-## `comptime_eval`
-
-The `comptime_eval` builtin parses and evaluates a `comptime_string` as Yo code at compile time:
-
-```rust
-comptime_eval("derive(MyType, Eq)");
-```
-
-This is the foundation for user-defined derive functions — they build code strings using type reflection and evaluate them with `comptime_eval`.
-
-## User-Defined Derives
-
-You can define your own derive functions as comptime functions with signature `fn(comptime(T) : Type) -> comptime(unit)`:
-
-```rust
-// Define a custom derive that generates a `describe` method
-derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  name :: __yo_type_get_name(T);
-  code ::
-    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
-  comptime_eval(code);
-};
-
-// Use it
-MyStruct :: struct(x : i32, y : i32);
-derive(MyStruct, derive_describe);
-
-// Now MyStruct has a .describe() method
-s := MyStruct(i32(1), i32(2));
-s.describe(); // returns "MyStruct"
-```
-
-### How It Works
-
-1. **Type reflection** — Use `__yo_type_*` builtins to inspect the type's structure
-2. **Code generation** — Build an `impl(T, ...)` code string using string concatenation
-3. **Evaluation** — Call `comptime_eval(code)` to inject the generated impl
-
-The generated code should use `T` (the type parameter, which is in scope) rather than the type name for the type position in `impl`. The type name can be used in string literals (e.g., for display purposes).
-
-### Example: Generating Field-Aware Code
-
-```rust
-// A derive that generates a field_count method
-derive_field_count :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  count :: __yo_type_field_count(T);
-  comptime_eval(("impl(T, field_count : (fn(self : Self) -> i32)( i32(" + count) + ")))");
-};
-```
 
 ## `derive_rule` — User-Registrable Derive Rules
 
@@ -272,19 +202,6 @@ derive(Point, MyEq(Point));
 - `where_clause : Option(Expr)` — optional where clause
 - `make_impl(trait_body : Expr) -> Expr` — constructs the complete `impl(...)` expression with proper forall/where wrapping
 
-### Key Builtins for Derive Rules
-
-| Builtin                                        | Purpose                                 |
-| ---------------------------------------------- | --------------------------------------- |
-| `__yo_type_is_struct(T)`                       | Check if T is a struct                  |
-| `__yo_type_is_enum(T)`                         | Check if T is an enum                   |
-| `__yo_type_field_count(T)`                     | Number of fields in struct              |
-| `__yo_type_join_fields(T, mapper, combiner)`   | Iterate fields, combine with operator   |
-| `__yo_type_map_variants(T, mapper)`            | Map enum variants to Expr list          |
-| `__yo_type_join_variants(T, mapper, combiner)` | Iterate variants, combine with operator |
-| `"str".to_expr()`                              | Convert comptime_string to Expr         |
-| `quote(&&)`                                    | Quote an operator as Expr               |
-
 ### Enum Derive Rules
 
 For fieldless enums, use `__yo_type_map_variants` to generate match branches:
@@ -331,12 +248,81 @@ When `derive(Type, Trait)` is called:
 
 Registered rules always take priority over built-in derives.
 
-## Variadic Comptime Parameters
+## Type Reflection
 
-`derive` uses variadic comptime parameters internally, allowing any number of trait arguments:
+Derive rules can use two levels of type reflection:
+
+### TypeInfo (Recommended)
+
+`Type.get_info(T)` returns a `TypeInfo` enum with rich structural metadata:
 
 ```rust
-derive(Point, Eq, Hash, Clone, Ord, ToString);  // 5 traits in one call
+info :: Type.get_info(T);
+comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
+
+// Extract struct fields
+field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+
+// Check struct kind (Struct, Object, NewType)
+is_newtype :: match(info,
+  .Struct(_, k) => match(k, .NewType => true, _ => false),
+  _ => false
+);
 ```
 
-This feature is also available for user code. See the variadic comptime parameters documentation for details.
+For the full TypeInfo documentation, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).
+
+### Low-Level Builtins
+
+These builtins are used internally by `derive` and are available for derive rules:
+
+| Builtin                                        | Description                                            |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| `__yo_type_is_struct(T)`                       | Returns `true` if T is a struct type                   |
+| `__yo_type_is_enum(T)`                         | Returns `true` if T is an enum type                    |
+| `__yo_type_get_name(T)`                        | Returns the type name as a `comptime_string`           |
+| `__yo_type_field_count(T)`                     | Returns the number of struct fields                    |
+| `__yo_type_get_field_name(T, i)`               | Returns the name of the i-th field                     |
+| `__yo_type_get_field_type(T, i)`               | Returns the type of the i-th field                     |
+| `__yo_type_variant_count(T)`                   | Returns the number of enum variants                    |
+| `__yo_type_get_variant_name(T, i)`             | Returns the name of the i-th variant                   |
+| `__yo_type_get_variant_field_count(T, i)`      | Returns the number of fields in the i-th variant       |
+| `__yo_type_get_variant_field_name(T, i, j)`    | Returns the name of the j-th field in the i-th variant |
+| `__yo_type_get_variant_field_type(T, i, j)`    | Returns the type of the j-th field in the i-th variant |
+| `__yo_type_join_fields(T, mapper, combiner)`   | Map over fields and combine with an operator           |
+| `__yo_type_map_variants(T, mapper)`            | Map enum variants to Expr list                         |
+| `__yo_type_join_variants(T, mapper, combiner)` | Iterate variants, combine with operator                |
+
+### Macro Builtins
+
+| Builtin                     | Description                            |
+| --------------------------- | -------------------------------------- |
+| `quote(expr)`               | Quote an expression as `Expr`          |
+| `#(expr)` / `unquote(expr)` | Splice an `Expr` into a quote          |
+| `.(#(expr))`                | Property access splicing               |
+| `...#(list)`                | Spread a `ComptimeList(Expr)`          |
+| `quote(&&)`                 | Quote an operator as `Expr`            |
+| `"str".to_expr()`           | Convert `comptime_string` to `Expr`    |
+| `comptime_eval("code")`     | Parse and evaluate a string as Yo code |
+
+## User-Defined Derives (Legacy)
+
+Before `derive_rule`, custom derives could be defined as comptime functions with signature `fn(comptime(T) : Type) -> comptime(unit)`:
+
+```rust
+derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
+  name :: __yo_type_get_name(T);
+  code ::
+    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
+  comptime_eval(code);
+};
+
+MyStruct :: struct(x : i32, y : i32);
+derive(MyStruct, derive_describe);
+```
+
+This approach works but is less structured than `derive_rule`. Use `derive_rule` for new code.
+
+## Design Document
+
+For the full design including implementation details, see [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md).

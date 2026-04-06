@@ -86,7 +86,7 @@ p := Point(i32(1), i32(2));
 
 ## 多个特征
 
-可以在一次调用中派生多个特征：
+可以在一次调用中使用可变编译期参数派生多个特征：
 
 ```rust
 derive(Point, Eq, Hash, Clone, Ord, ToString);
@@ -128,76 +128,6 @@ derive(Result, Eq, Clone, ToString);
 ## 要求
 
 结构体或枚举中的每个字段类型必须已经实现了要派生的特征。例如，要 `derive(Point, Eq)`，类型 `i32`（用于 `x` 和 `y`）必须实现 `Eq`。内建类型（`i32`、`u8`、`bool`、`str`、`String` 等）实现了所有标准特征。
-
-## 类型反射内建函数
-
-Yo 提供了编译期类型反射内建函数，由 `derive` 内部使用，也可用于用户自定义派生：
-
-| 内建函数                                    | 描述                                   |
-| ------------------------------------------- | -------------------------------------- |
-| `__yo_type_is_struct(T)`                    | 如果 T 是结构体类型则返回 `true`       |
-| `__yo_type_is_enum(T)`                      | 如果 T 是枚举类型则返回 `true`         |
-| `__yo_type_get_name(T)`                     | 返回类型名称，类型为 `comptime_string` |
-| `__yo_type_field_count(T)`                  | 返回结构体字段数量                     |
-| `__yo_type_get_field_name(T, i)`            | 返回第 i 个字段的名称                  |
-| `__yo_type_get_field_type(T, i)`            | 返回第 i 个字段的类型                  |
-| `__yo_type_variant_count(T)`                | 返回枚举变体数量                       |
-| `__yo_type_get_variant_name(T, i)`          | 返回第 i 个变体的名称                  |
-| `__yo_type_get_variant_field_count(T, i)`   | 返回第 i 个变体的字段数量              |
-| `__yo_type_get_variant_field_name(T, i, j)` | 返回第 i 个变体的第 j 个字段的名称     |
-| `__yo_type_get_variant_field_type(T, i, j)` | 返回第 i 个变体的第 j 个字段的类型     |
-
-所有内建函数都是编译期专用的，与 `comptime(T) : Type` 参数一起使用。
-
-## `comptime_eval`
-
-`comptime_eval` 内建函数在编译时将 `comptime_string` 解析并执行为 Yo 代码：
-
-```rust
-comptime_eval("derive(MyType, Eq)");
-```
-
-这是用户自定义派生函数的基础——它们使用类型反射构建代码字符串，然后用 `comptime_eval` 执行。
-
-## 用户自定义派生
-
-可以将自定义派生函数定义为签名为 `fn(comptime(T) : Type) -> comptime(unit)` 的编译期函数：
-
-```rust
-// 定义一个生成 `describe` 方法的自定义派生
-derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  name :: __yo_type_get_name(T);
-  code ::
-    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
-  comptime_eval(code);
-};
-
-// 使用它
-MyStruct :: struct(x : i32, y : i32);
-derive(MyStruct, derive_describe);
-
-// 现在 MyStruct 有了 .describe() 方法
-s := MyStruct(i32(1), i32(2));
-s.describe(); // 返回 "MyStruct"
-```
-
-### 工作原理
-
-1. **类型反射** — 使用 `__yo_type_*` 内建函数检查类型的结构
-2. **代码生成** — 使用字符串拼接构建 `impl(T, ...)` 代码字符串
-3. **执行** — 调用 `comptime_eval(code)` 注入生成的 impl
-
-生成的代码应该在 `impl` 的类型位置使用 `T`（类型参数，在作用域内），而不是类型名称。类型名称可以在字符串字面量中使用（例如用于显示目的）。
-
-### 示例：生成感知字段的代码
-
-```rust
-// 生成 field_count 方法的派生
-derive_field_count :: (fn(comptime(T) : Type) -> comptime(unit)) {
-  count :: __yo_type_field_count(T);
-  comptime_eval(("impl(T, field_count : (fn(self : Self) -> i32)( i32(" + count) + ")))");
-};
-```
 
 ## `derive_rule` — 用户注册的派生规则
 
@@ -272,19 +202,6 @@ derive(Point, MyEq(Point));
 - `where_clause : Option(Expr)` — 可选 where 子句
 - `make_impl(trait_body : Expr) -> Expr` — 构造完整的 `impl(...)` 表达式，自动包含 forall/where
 
-### 派生规则的关键内建函数
-
-| 内建函数                                       | 用途                           |
-| ---------------------------------------------- | ------------------------------ |
-| `__yo_type_is_struct(T)`                       | 检查 T 是否为结构体            |
-| `__yo_type_is_enum(T)`                         | 检查 T 是否为枚举              |
-| `__yo_type_field_count(T)`                     | 结构体的字段数                 |
-| `__yo_type_join_fields(T, mapper, combiner)`   | 迭代字段，用运算符组合         |
-| `__yo_type_map_variants(T, mapper)`            | 将枚举变体映射为 Expr 列表     |
-| `__yo_type_join_variants(T, mapper, combiner)` | 迭代变体，用运算符组合         |
-| `"str".to_expr()`                              | 将 comptime_string 转换为 Expr |
-| `quote(&&)`                                    | 将运算符引用为 Expr            |
-
 ### 枚举的派生规则
 
 对于无字段枚举，使用 `__yo_type_map_variants` 生成 match 分支：
@@ -331,12 +248,81 @@ derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), 
 
 已注册的规则始终优先于内建派生。
 
-## 可变参数编译期参数
+## 类型反射
 
-`derive` 在内部使用可变参数编译期参数，允许任意数量的特征参数：
+派生规则可以使用两个层次的类型反射：
+
+### TypeInfo（推荐）
+
+`Type.get_info(T)` 返回一个 `TypeInfo` 枚举，包含丰富的结构化元数据：
 
 ```rust
-derive(Point, Eq, Hash, Clone, Ord, ToString);  // 一次调用中 5 个特征
+info :: Type.get_info(T);
+comptime_assert(info.is_struct(), "MyTrait 只能为结构体派生");
+
+// 提取结构体字段
+field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
+
+// 检查结构体类型（Struct、Object、NewType）
+is_newtype :: match(info,
+  .Struct(_, k) => match(k, .NewType => true, _ => false),
+  _ => false
+);
 ```
 
-此功能也可用于用户代码。详细信息请参阅可变参数编译期参数文档。
+完整的 TypeInfo 文档请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
+
+### 底层内建函数
+
+这些内建函数由 `derive` 内部使用，也可用于派生规则：
+
+| 内建函数                                       | 描述                                   |
+| ---------------------------------------------- | -------------------------------------- |
+| `__yo_type_is_struct(T)`                       | 如果 T 是结构体类型则返回 `true`       |
+| `__yo_type_is_enum(T)`                         | 如果 T 是枚举类型则返回 `true`         |
+| `__yo_type_get_name(T)`                        | 返回类型名称，类型为 `comptime_string` |
+| `__yo_type_field_count(T)`                     | 返回结构体字段数量                     |
+| `__yo_type_get_field_name(T, i)`               | 返回第 i 个字段的名称                  |
+| `__yo_type_get_field_type(T, i)`               | 返回第 i 个字段的类型                  |
+| `__yo_type_variant_count(T)`                   | 返回枚举变体数量                       |
+| `__yo_type_get_variant_name(T, i)`             | 返回第 i 个变体的名称                  |
+| `__yo_type_get_variant_field_count(T, i)`      | 返回第 i 个变体的字段数量              |
+| `__yo_type_get_variant_field_name(T, i, j)`    | 返回第 i 个变体的第 j 个字段的名称     |
+| `__yo_type_get_variant_field_type(T, i, j)`    | 返回第 i 个变体的第 j 个字段的类型     |
+| `__yo_type_join_fields(T, mapper, combiner)`   | 迭代字段，用运算符组合                 |
+| `__yo_type_map_variants(T, mapper)`            | 将枚举变体映射为 Expr 列表             |
+| `__yo_type_join_variants(T, mapper, combiner)` | 迭代变体，用运算符组合                 |
+
+### 宏内建函数
+
+| 内建函数                    | 描述                               |
+| --------------------------- | ---------------------------------- |
+| `quote(expr)`               | 将表达式引用为 `Expr`              |
+| `#(expr)` / `unquote(expr)` | 在 quote 中拼接 `Expr`             |
+| `.(#(expr))`                | 属性访问拼接                       |
+| `...#(list)`                | 展开 `ComptimeList(Expr)`          |
+| `quote(&&)`                 | 将运算符引用为 `Expr`              |
+| `"str".to_expr()`           | 将 `comptime_string` 转换为 `Expr` |
+| `comptime_eval("code")`     | 将字符串解析并作为 Yo 代码执行     |
+
+## 用户自定义派生（旧方式）
+
+在 `derive_rule` 出现之前，可以将自定义派生函数定义为签名为 `fn(comptime(T) : Type) -> comptime(unit)` 的编译期函数：
+
+```rust
+derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
+  name :: __yo_type_get_name(T);
+  code ::
+    (("impl(T, describe : (fn(self : Self) -> String)(  `" + name) + "`))");
+  comptime_eval(code);
+};
+
+MyStruct :: struct(x : i32, y : i32);
+derive(MyStruct, derive_describe);
+```
+
+这种方式可以工作，但不如 `derive_rule` 结构化。新代码建议使用 `derive_rule`。
+
+## 设计文档
+
+完整的设计文档（包含实现细节）请参阅 [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md)。
