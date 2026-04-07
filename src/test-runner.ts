@@ -474,11 +474,32 @@ function runSingleTest(
     const useAsan = asanFlags.flags.length > 0;
 
     const compileArgs = isMSVC
-      ? ["/Od", "/W4", testCPath, `/Fe${testOutputPath}`]
+      ? [
+          "/Od",
+          "/W4",
+          "/wd4100",
+          "/wd4101",
+          "/wd4189",
+          "/wd4505",
+          testCPath,
+          `/Fe${testOutputPath}`,
+        ]
       : [
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
-          ...(isEmcc ? ["-w"] : ["-Wall", "-Wextra"]),
+          ...(isEmcc
+            ? ["-w"]
+            : [
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-variable",
+                "-Wno-unused-parameter",
+                "-Wno-unused-function",
+                "-Wno-unused-but-set-variable",
+                "-Wno-unused-label",
+                "-Wno-unused-value",
+                "-Wno-parentheses-equality",
+              ]),
           isEmcc ? "-O2" : "-O0",
           ...asanFlags.flags,
           testCPath,

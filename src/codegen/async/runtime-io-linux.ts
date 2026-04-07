@@ -308,7 +308,7 @@ static int32_t __yo_sync_gethostname(char* name, size_t len) {
     return -errno;
   }
   if (len > 0) {
-    name[len - 1] = '\0';
+    name[len - 1] = '\\0';
   }
   return 0;
 }

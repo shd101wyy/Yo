@@ -1149,7 +1149,7 @@ static int32_t __yo_sync_gethostname(char* name, size_t len) {
   if (result == SOCKET_ERROR) {
     return -(int32_t)WSAGetLastError();
   }
-  name[len - 1] = '\0';
+  name[len - 1] = '\\0';
   return 0;
 }
 
