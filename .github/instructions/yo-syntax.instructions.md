@@ -2,6 +2,7 @@
 applyTo: "**/*.yo"
 description: "Use when writing or editing Yo language code. Covers critical syntax rules: curly brace semantics, cond/match parentheses, function definitions, parsing ambiguities, and expression vs block distinctions."
 ---
+
 # Yo Language Syntax Rules
 
 ## Curly braces `{...}` behave differently based on separators

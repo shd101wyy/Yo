@@ -2,6 +2,7 @@
 applyTo: "**/*.yo, std/**"
 description: "Use when making design decisions about the Yo language, writing std library code, or working with Yo types. Covers type conventions, rune, Box, str vs String, Pointer, SomeType, and platform-specific code."
 ---
+
 # Yo Language Design Decisions
 
 ## Type naming conventions
@@ -20,7 +21,7 @@ description: "Use when making design decisions about the Yo language, writing st
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
-- Template string returns `String` type (utf-8 encoded `object` type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.  
+- Template string returns `String` type (utf-8 encoded `object` type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
@@ -28,6 +29,7 @@ description: "Use when making design decisions about the Yo language, writing st
 ## Box and box
 
 Implemented in `prelude.yo`:
+
 ```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
@@ -54,6 +56,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 ## Platform-specific code
 
 Use `process.yo` module `platform` and `Platform`:
+
 ```rust
 AF_INET6 :: cond(
   (platform == Platform.Darwin) => i32(30),
@@ -90,6 +93,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
 ```
 
 This applies to all parameters and return types in comptime-only APIs:
+
 - Parameters: `comptime(name) : comptime_string`
 - Return: `-> comptime(Step)`, `-> comptime(unit)`, `-> comptime(str)`
 
@@ -131,12 +135,14 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
 `JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
 
 ### API
+
 ```rust
 handle := io.spawn(task, using(io, raise));  // → JoinHandle(T)
 result := handle.await(using(io));            // → Option(T)
 ```
 
 ### Semantics
+
 - `io.spawn(task, using(io, effects...))` cold-starts the future, injects effect handlers, returns a `JoinHandle(T)`.
 - `handle.await(using(io))` polls the spawned future until completion or abort, returns `Option(T)`:
   - `.Some(result)` — task completed normally
@@ -145,11 +151,13 @@ result := handle.await(using(io));            // → Option(T)
 - `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
 
 ### Definition (in prelude.yo)
+
 ```rust
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(__future : *(T))
 ;
 ```
+
 The `*(T)` field is required so the type parameter `T` appears in the struct fields, enabling the type synthesizer to extract `T` bindings during generic impl matching.
 
 ## Traits with associated types
@@ -200,6 +208,7 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot) use `Output` as an **associated type** in the trait body — the same pattern as the `Index` trait. The `Output` is NOT a function parameter.
 
 Binary operator traits take `Rhs` as a type parameter:
+
 ```rust
 Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
@@ -210,6 +219,7 @@ Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
 ```
 
 Unary operator traits (Negate, BitNot) are parameterless:
+
 ```rust
 Negate :: trait(
   Output : Type,
@@ -218,6 +228,7 @@ Negate :: trait(
 ```
 
 Comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`:
+
 ```rust
 ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -229,6 +240,7 @@ ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 ```
 
 Impls must provide `Output : Type` explicitly:
+
 ```rust
 impl(i32, Add(i32)(
   Output : i32,
@@ -338,6 +350,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 ```
 
 Key semantics:
+
 - `-> recur(ConcreteType)` after variant fields specifies what type the constructor produces
 - When omitted, defaults to the unconstrained type parameters (regular enum behavior)
 - Match type refinement: in `match(v, .IntVal(i) => i, .BoolVal(b) => b)`, each branch refines T to the variant's declared type
@@ -354,6 +367,7 @@ Key semantics:
 `reEvaluateFunctionType` in `src/evaluator/values/impl.ts` re-evaluates a function type's parameter/return type expressions with concrete substitutions during generic impl specialization.
 
 Key invariants:
+
 - The **returned `env`** must have the same frame count as `specializedEnv` (the caller's specialization env). Using `functionType.env` (the original definition scope) adds extra frames from impl field list evaluation, breaking the frame-level check in `assignment.ts`.
 - The **re-evaluation env** (`reEvalEnv`) can differ from the returned env — it's used only for evaluating type expressions and can include extra scope (HKT variables like `F`).
 - Variables from `functionType.env` that don't exist in `specializedEnv` (e.g., `F` from HKT trait scopes) must be merged into the returned env because `exprs.typeExpr` still references original expressions.
@@ -361,11 +375,11 @@ Key invariants:
 
 ### When to use `specializedEnv` vs `functionType.env`
 
-| Purpose | Use |
-|---|---|
-| Returned function type's `env` field | `specializedEnv` (correct frame count) + merged missing vars |
+| Purpose                                                        | Use                                                             |
+| -------------------------------------------------------------- | --------------------------------------------------------------- |
+| Returned function type's `env` field                           | `specializedEnv` (correct frame count) + merged missing vars    |
 | Re-evaluating type expressions inside `reEvaluateFunctionType` | `reEvalEnv` (built from `functionType.env`, has all scope vars) |
-| Frame-level checks in `assignment.ts` | Compared against `functionType.env.frames.length` |
+| Frame-level checks in `assignment.ts`                          | Compared against `functionType.env.frames.length`               |
 
 ### Standard library module organization (`std/`)
 
@@ -428,13 +442,13 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 ### Array/Slice builtins
 
-| Runtime builtin | Comptime builtin | Purpose |
-|---|---|---|
-| `__yo_array_index` | `__yo_comptime_array_index` | Element access |
-| `__yo_slice_index` | `__yo_comptime_slice_index` | Element access |
-| `__yo_array_index_range` | `__yo_comptime_array_index_range` | Range slicing |
+| Runtime builtin                    | Comptime builtin                            | Purpose                 |
+| ---------------------------------- | ------------------------------------------- | ----------------------- |
+| `__yo_array_index`                 | `__yo_comptime_array_index`                 | Element access          |
+| `__yo_slice_index`                 | `__yo_comptime_slice_index`                 | Element access          |
+| `__yo_array_index_range`           | `__yo_comptime_array_index_range`           | Range slicing           |
 | `__yo_array_index_range_inclusive` | `__yo_comptime_array_index_range_inclusive` | Inclusive range slicing |
-| `__yo_slice_index_range` | `__yo_comptime_slice_index_range` | Range slicing |
+| `__yo_slice_index_range`           | `__yo_comptime_slice_index_range`           | Range slicing           |
 | `__yo_slice_index_range_inclusive` | `__yo_comptime_slice_index_range_inclusive` | Inclusive range slicing |
 
 Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builtins handle bounds checking, value extraction, and `arrayElementRef` for mutation.
@@ -442,6 +456,7 @@ Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builti
 ### comptime_string indexing
 
 `comptime_string` supports indexing via `ComptimeIndex`:
+
 - `"Hello"(0)` → `"H"` (single character as comptime_string)
 - `"Hello"(0..3)` → `"Hel"` (range slicing)
 - `"Hello"(0..=2)` → `"Hel"` (inclusive range slicing)
@@ -451,6 +466,7 @@ Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__y
 ### Self.Output resolution in generic impls
 
 When a type has multiple Index impls (e.g., `Index(usize)` and `Index(Range(usize))`), `Self.Output` is resolved by:
+
 1. `extractTraitTypeArgsFromImplExpr` extracts associated type field expressions from impl body args (e.g., `Output : T`)
 2. The re-evaluation loop in `findMethodsFromGenericImpls` evaluates these expressions with concrete substitutions
 3. `property-access.ts` checks the env for `Output` before calling `findAssociatedTypeFromGenericImpls` (which would be ambiguous)
@@ -458,5 +474,6 @@ When a type has multiple Index impls (e.g., `Index(usize)` and `Index(Range(usiz
 ### arrayElementRef for comptime mutation
 
 Comptime array indexing returns an `arrayElementRef` that enables:
+
 - `arr(0) = val` — compile-time mutation via `assignment.ts`
 - `&(arr(0))` — compile-time pointer creation via `ptr-fns.ts`
