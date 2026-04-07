@@ -807,6 +807,7 @@ export const BuiltinFunctions = {
   __yo_comptime_list_length: ["__yo_comptime_list_length"],
   __yo_comptime_list_element_type: ["__yo_comptime_list_element_type"],
   __yo_comptime_list_get: ["__yo_comptime_list_get"],
+  __yo_comptime_list_index: ["__yo_comptime_list_index"],
 
   // comptime_int related functions
   /// 2 args

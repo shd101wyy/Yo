@@ -27,11 +27,14 @@ import {
   createUnknownValue,
   isArrayValue,
   isComptimeIntValue,
+  isComptimeListValue,
   isComptimeStringValue,
   isNumberValue,
+  isPtrValue,
   isSliceValue,
   isStructValue,
   isUnknownValue,
+  type ComptimeListValue,
   type StructValue,
   type Value,
 } from "../../value";
@@ -228,6 +231,110 @@ function computeElementReturnType(selfType: Type): Type {
     return createPtrType((selfType as ComptimeListType).childType);
   }
   return selfType;
+}
+
+/**
+ * Evaluate comptime list element indexing builtin:
+ * __yo_comptime_list_index(self, idx)
+ *
+ * Similar to __yo_comptime_array_index but for ComptimeList types.
+ * Returns the element value with comptimeRef set for mutation support.
+ */
+function evaluateComptimeListIndex({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  const selfExpr = expr.args[0]!;
+  const idxExpr = expr.args[1]!;
+
+  const evaluatedSelf = evaluateExpression({
+    expr: selfExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedSelf.$) {
+    throw formatErrorMessage({
+      token: selfExpr.token,
+      errorMessage: `Failed to evaluate self for comptime list index`,
+    });
+  }
+  env = evaluatedSelf.$.env;
+
+  const evaluatedIdx = evaluateExpression({
+    expr: idxExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedIdx.$) {
+    throw formatErrorMessage({
+      token: idxExpr.token,
+      errorMessage: `Failed to evaluate index for comptime list index`,
+    });
+  }
+  env = evaluatedIdx.$.env;
+
+  const selfValue = evaluatedSelf.$.value;
+
+  // Resolve ComptimeListValue: either directly or inside a PtrValue
+  let listValue: ComptimeListValue | undefined;
+  if (isComptimeListValue(selfValue)) {
+    listValue = selfValue;
+  } else if (
+    selfValue &&
+    isPtrValue(selfValue) &&
+    isComptimeListValue(selfValue.targetValue[0])
+  ) {
+    listValue = selfValue.targetValue[0] as ComptimeListValue;
+  }
+
+  if (listValue) {
+    const elementType = listValue.type.childType;
+
+    if (evaluatedIdx.$.value && isNumberValue(evaluatedIdx.$.value)) {
+      const index = extractIndex(evaluatedIdx.$.value.value);
+      if (index < 0 || index >= listValue.elements.length) {
+        throw formatErrorMessage({
+          token: idxExpr.token,
+          errorMessage: `ComptimeList index out of bounds: ${index}. Expected index in range [0, ${listValue.elements.length - 1}].`,
+        });
+      }
+      const value = listValue.elements[index]!;
+
+      expr.$ = {
+        env,
+        type: elementType,
+        value,
+        pathCollection: [],
+        comptimeRef: { kind: "comptime_list", listValue, index },
+      };
+      return expr;
+    }
+
+    // Unknown index — return unknown value
+    expr.$ = {
+      env,
+      type: elementType,
+      value: createUnknownValue(elementType, { env, context }),
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  // Self is not a known comptime value — compute fallback type with UnknownValue
+  const selfType = evaluatedSelf.$.type;
+  const fallbackType = computeElementReturnType(selfType);
+  expr.$ = {
+    env,
+    type: fallbackType,
+    value: createUnknownValue(fallbackType, { env, context }),
+    pathCollection: [],
+  };
+  return expr;
 }
 
 /**
@@ -582,6 +689,9 @@ export function evaluateYoComptimeIndexFunctions({
   }
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index)) {
     return evaluateComptimeElementIndex({ expr, env, context, isSlice: true });
+  }
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index)) {
+    return evaluateComptimeListIndex({ expr, env, context });
   }
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index_range)

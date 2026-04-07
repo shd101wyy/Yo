@@ -31,7 +31,6 @@ import {
   createFunctionType,
   createPtrType,
   createTypeApplicationType,
-  createUsizeType,
 } from "../../types/creators";
 import type {
   ArrayType,
@@ -71,11 +70,8 @@ import {
   createStructValue,
   createTypeValue,
   createUnknownValue,
-  isComptimeListValue,
-  isComptimeStringValue,
   isExprValue,
   isFunctionValue,
-  isNumberValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
@@ -1385,51 +1381,47 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               };
             }
           }
-          // array or slice — unified through Index trait + inline comptime dispatch
+          // array, slice, ComptimeList, comptime_string, or any type with Index impl
+          // — unified through Index trait dispatch
           else if (
-            // array
             isArrayType(functionToCall.type) ||
-            // slice
-            isSliceType(functionToCall.type)
-          ) {
-            const arrayType = functionToCall.type as ArrayType | SliceType;
-
-            // Index trait dispatch: handles both comptime and runtime indexing
-            // For comptime values, tryToCallWithIndexTrait dispatches through
-            // comptime helpers to compute actual values with arrayElementRef.
-            if (
+            isSliceType(functionToCall.type) ||
+            (!isTypeValue(value) &&
               hasIndexImpl({
                 concreteType: functionToCall.type,
                 argExprs: argsToUse,
                 callerEnv: env,
                 _context: context,
-              })
-            ) {
-              try {
-                const result = tryToCallWithIndexTrait({
-                  expr,
-                  valueType: functionToCall.type,
-                  selfValue: functionToCall.value,
-                  argExprs: argsToUse,
-                  callerEnv: env,
-                  context: { ...context },
-                });
-                return {
-                  ...functionToCall,
-                  result: {
-                    kind: "index",
-                    result,
-                  },
-                };
-              } catch {
-                // Index dispatch failed (e.g., generic Slice(T) where T is
-                // a type parameter). Fall through to the fallback path.
-              }
+              }))
+          ) {
+            try {
+              const result = tryToCallWithIndexTrait({
+                expr,
+                valueType: functionToCall.type,
+                selfValue: functionToCall.value,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "index",
+                  result,
+                },
+              };
+            } catch {
+              // Index dispatch failed (e.g., generic Slice(T) where T is
+              // a type parameter). Fall through to the fallback path.
             }
 
-            // Fallback for generic types (Slice(T) where T is a type parameter):
+            // Fallback for generic types (Slice(T)/Array(T,N) where T is a type parameter):
             // return element type with unknown value
-            {
+            if (
+              isArrayType(functionToCall.type) ||
+              isSliceType(functionToCall.type)
+            ) {
+              const arrayType = functionToCall.type as ArrayType | SliceType;
               const returnType = arrayType.childType;
               return {
                 ...functionToCall,
@@ -1446,72 +1438,18 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 },
               };
             }
-          }
-          // ComptimeList element access: list(index) where list is a comptime list value
-          else if (
-            isComptimeListType(functionToCall.type) &&
-            isComptimeListValue(functionToCall.value) &&
-            argsToUse.length === 1
-          ) {
-            const listValue = functionToCall.value;
-            const argExpr = argsToUse[0]!;
-            const evaluatedArgExpr = evaluateExpression({
-              expr: argExpr,
-              env,
-              context: {
-                ...context,
-                expectedType: { type: createUsizeType(), env },
+
+            // For non-array/slice types, re-throw as error
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: formatErrorMessage({
+                  token: func.token,
+                  errorMessage: `Index trait dispatch failed for type: ${typeToString(functionToCall.type)}`,
+                }),
               },
-            });
-            if (!evaluatedArgExpr.$) {
-              throw formatErrorMessage({
-                token: argExpr.token,
-                errorMessage: `Failed to evaluate ComptimeList index`,
-              });
-            }
-            const callerEnv = evaluatedArgExpr.$.env;
-
-            if (isNumberValue(evaluatedArgExpr.$.value)) {
-              const indexValue = evaluatedArgExpr.$.value.value;
-              const index =
-                typeof indexValue === "bigint"
-                  ? Number(indexValue)
-                  : indexValue;
-              if (index < 0 || index >= listValue.elements.length) {
-                throw formatErrorMessage({
-                  token: argExpr.token,
-                  errorMessage: `ComptimeList index out of bounds: ${index}. Expected index in range [0, ${listValue.elements.length - 1}].`,
-                });
-              }
-              const elementValue = listValue.elements[index]!;
-              const elementType = listValue.type.childType;
-              return {
-                ...functionToCall,
-                result: {
-                  kind: "index" as const,
-                  result: {
-                    value: elementValue,
-                    type: elementType,
-                    ptrType: createPtrType(elementType),
-                    indexMethodType: undefined,
-                    indexMethodValue: undefined,
-                    callerEnv,
-                    index,
-                    comptimeRef: {
-                      kind: "comptime_list" as const,
-                      listValue,
-                      index,
-                    },
-                  },
-                },
-              };
-            }
-
-            // Runtime index not supported for ComptimeList
-            throw formatErrorMessage({
-              token: argExpr.token,
-              errorMessage: `ComptimeList indexing requires a compile-time index`,
-            });
+            };
           }
           // numeric type conversion (i32, u8, f64, etc.)
           else if (
@@ -1690,76 +1628,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "arc-value",
-                  result,
-                },
-              };
-            } catch (error) {
-              return {
-                ...functionToCall,
-                result: {
-                  kind: "error",
-                  error: error as Error | YoError,
-                },
-              };
-            }
-          }
-          // comptime_string indexing: "hello"(0), "hello"(0..3), etc.
-          // Uses Index trait dispatch with comptime string helpers.
-          else if (
-            !isTypeValue(value) &&
-            isComptimeStringType(functionToCall.type) &&
-            isComptimeStringValue(functionToCall.value) &&
-            argsToUse.length === 1
-          ) {
-            try {
-              const result = tryToCallWithIndexTrait({
-                expr,
-                valueType: functionToCall.type,
-                selfValue: functionToCall.value,
-                argExprs: argsToUse,
-                callerEnv: env,
-                context: { ...context },
-              });
-              return {
-                ...functionToCall,
-                result: {
-                  kind: "index",
-                  result,
-                },
-              };
-            } catch (error) {
-              return {
-                ...functionToCall,
-                result: {
-                  kind: "error",
-                  error: error as Error | YoError,
-                },
-              };
-            }
-          }
-          // Index trait dispatch: value(arg) where value's type implements Index
-          else if (
-            !isTypeValue(value) &&
-            hasIndexImpl({
-              concreteType: functionToCall.type,
-              argExprs: argsToUse,
-              callerEnv: env,
-              _context: context,
-            })
-          ) {
-            try {
-              const result = tryToCallWithIndexTrait({
-                expr,
-                valueType: functionToCall.type,
-                selfValue: functionToCall.value,
-                argExprs: argsToUse,
-                callerEnv: env,
-                context: { ...context },
-              });
-              return {
-                ...functionToCall,
-                result: {
-                  kind: "index",
                   result,
                 },
               };

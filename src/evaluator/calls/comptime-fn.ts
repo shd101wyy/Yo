@@ -49,7 +49,12 @@ export function evaluateComptimeFunctionCall({
   callerEnv: Environment;
   calleeEnv: Environment;
   context: EvaluatorContext;
-}): { value: Value; callerEnv: Environment; calleeEnv: Environment } {
+}): {
+  value: Value;
+  callerEnv: Environment;
+  calleeEnv: Environment;
+  comptimeRef?: import("../../expr").ComptimeRef;
+} {
   // During CTFE capability analysis, we don't actually execute the function.
   // We just verify that the call is valid and return an UnknownValue.
   // This prevents infinite recursion and allows nested CTFE functions to work.
@@ -272,5 +277,6 @@ export function evaluateComptimeFunctionCall({
     value: returnValue,
     callerEnv,
     calleeEnv,
+    comptimeRef: evaluatedFunctionBody.$.comptimeRef,
   };
 }

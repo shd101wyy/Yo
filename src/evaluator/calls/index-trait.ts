@@ -611,8 +611,9 @@ function tryComptimeCustomTypeIndex({
       };
     }
 
-    // Return value is not a PtrValue (e.g., UnknownValue during validation)
-    // Just return it with the output type
+    // Return value is not a PtrValue (e.g., UnknownValue during validation,
+    // or builtin functions like __yo_comptime_list_index that return the element directly)
+    // Propagate comptimeRef from the comptime function call if available.
     const runtimeMethod = findIndexMethod({
       concreteType: valueType,
       argType,
@@ -626,6 +627,7 @@ function tryComptimeCustomTypeIndex({
       indexMethodType: runtimeMethod?.type,
       indexMethodValue: runtimeMethod?.value,
       callerEnv,
+      comptimeRef: result.comptimeRef,
     };
   } catch (e) {
     // ComptimeIndex evaluation failed — fall through to runtime
