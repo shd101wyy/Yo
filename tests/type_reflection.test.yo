@@ -219,6 +219,27 @@ test "TypeInfo compound: Function info", {
   comptime_assert(ret_is_bool, "return type should be bool");
 };
 
+test "TypeInfo compound: Function info includes variadic params", {
+  VariadicFn :: (fn(comptime(x) : i32, ...(comptime(rest) : ComptimeList(Type))) -> comptime(usize));
+  fn_info :: Type.get_info(VariadicFn);
+  comptime_assert(fn_info.is_function(), "should be function");
+
+  param_count :: match(fn_info, .Function(fi) => fi.params.len(), _ => usize(0));
+  comptime_assert((param_count == usize(2)), "function should include the variadic param");
+
+  variadic_name :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).name, _ => "");
+  comptime_assert((variadic_name == "rest"), "variadic param name should be rest");
+
+  is_variadic :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).is_variadic, _ => false);
+  comptime_assert(is_variadic, "variadic flag should be true");
+
+  is_comptime :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).is_comptime, _ => false);
+  comptime_assert(is_comptime, "variadic comptime flag should be true");
+
+  type_is_list :: match(fn_info, .Function(fi) => Type.eq(fi.params.get(usize(1)).param_type, ComptimeList(Type)), _ => false);
+  comptime_assert(type_is_list, "variadic param type should be ComptimeList(Type)");
+};
+
 test "TypeInfo compound: Struct kind - NewType", {
   MyNewType :: newtype(value : i32);
   info :: Type.get_info(MyNewType);
@@ -285,4 +306,3 @@ test "Type.eq: enum types", {
 };
 
 // ============================================================
-

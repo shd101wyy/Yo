@@ -1107,7 +1107,12 @@ function bindTempFunctionInfo(
   const name = `__ti_fni_${generateVarialeId(env.modulePath, "tifni")}`;
 
   // Build params list
-  const paramsTmp = bindTempParamInfoList(env, fnType.parameters, context);
+  const paramsTmp = bindTempParamInfoList(
+    env,
+    fnType.parameters,
+    fnType.variadicParameter,
+    context
+  );
   env = paramsTmp.env;
 
   // Return type
@@ -1160,17 +1165,20 @@ function bindTempFunctionInfo(
 function bindTempParamInfoList(
   env: Environment,
   params: FunctionParameter[],
+  variadicParam: FunctionParameter | undefined,
   context: EvaluatorContext
 ): { name: string; env: Environment } {
   const paramValues: Value[] = [];
-  for (const param of params) {
+  const allParams = variadicParam ? [...params, variadicParam] : params;
+
+  for (const param of allParams) {
     const ptTmp = bindTempType(env, param.type, context);
     env = ptTmp.env;
 
     const escapedName = JSON.stringify(param.label);
     const isComptime = param.isCompileTimeOnly ? "true" : "false";
     const isQuote = param.isQuote ? "true" : "false";
-    const isVariadic = "false";
+    const isVariadic = param === variadicParam ? "true" : "false";
 
     const code = `ParamInfo(${escapedName}, ${ptTmp.name}, ${isComptime}, ${isQuote}, ${isVariadic})`;
     const callExpr = generateExprFromCode(code);

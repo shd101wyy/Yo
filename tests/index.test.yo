@@ -570,6 +570,38 @@ test "Point comptime Index mutation", {
   comptime_assert((p2(usize(1)) == i32(4)), "p2(1) should still be 4");
 };
 
+StrictPoint :: struct(x : i32, y : i32);
+
+impl(StrictPoint, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      (idx == usize(1)) => &(self.y),
+      true => panic("StrictPoint: index out of bounds")
+    )
+  )
+));
+
+impl(StrictPoint, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      (idx == usize(1)) => &(self.y),
+      true => {
+        comptime_assert(false, "StrictPoint: index out of bounds");
+        &(self.x)
+      }
+    )
+  )
+));
+
+test "StrictPoint comptime Index propagates errors", {
+  p :: StrictPoint(i32(1), i32(2));
+  comptime_expect_error(p(usize(2)));
+};
+
 // === Generic struct Index + ComptimeIndex ===
 
 GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(

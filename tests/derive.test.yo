@@ -359,6 +359,20 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
 
 derive_rule(MyEq, my_derive_eq);
 
+UsesEq :: trait(
+  uses_eq : (fn(self : Self, other : Self) -> bool)
+);
+
+__derive_uses_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  ctx.make_impl(quote(
+    UsesEq(
+      uses_eq : ((self, other) -> (self == other))
+    )
+  ))
+);
+
+derive_rule(UsesEq, __derive_uses_eq);
+
 // Test: derive_rule for 2-field struct
 DRPoint :: struct(x : i32, y : i32);
 derive(DRPoint, MyEq(DRPoint));
@@ -416,6 +430,17 @@ test "derive_rule MyEq for fieldless enum", {
   assert(r.my_eq(r2), "Red should equal Red");
   assert(!(r.my_eq(g)), "Red should not equal Green");
   assert(!(g.my_eq(DRColor.Blue)), "Green should not equal Blue");
+};
+
+UsesEqPoint :: struct(x : i32, y : i32);
+derive(UsesEqPoint, Eq(UsesEqPoint), UsesEq);
+
+test "multiple derives in one call share accumulated impl env", {
+  p1 := UsesEqPoint(i32(1), i32(2));
+  p2 := UsesEqPoint(i32(1), i32(2));
+  p3 := UsesEqPoint(i32(2), i32(3));
+  assert(p1.uses_eq(p2), "UsesEq derive should see Eq derived earlier in the same call");
+  assert(!(p1.uses_eq(p3)), "UsesEq derive should use the derived Eq implementation");
 };
 
 // ========== Test: generic derive_rule with forall/where ==========

@@ -527,93 +527,73 @@ function tryComptimeCustomTypeIndex({
     ...context,
     isValidatingFunctionDefinition: undefined,
   };
-  try {
-    const result = evaluateComptimeFunctionCall({
-      functionCalleeExpr: expr.func,
-      functionType: fnType,
-      functionValue: fnValue,
-      argValues: {
-        forallArgs: [],
-        args: [
-          {
-            value: selfPtrValue,
-            parameterType: selfParam.type,
-            argType: selfPtrType,
-          },
-          {
-            value: argValue,
-            parameterType: idxParam.type,
-            argType,
-          },
-        ],
-        variadicArgs: [],
-      },
-      callerEnv,
-      calleeEnv,
-      context: comptimeContext,
-    });
+  const result = evaluateComptimeFunctionCall({
+    functionCalleeExpr: expr.func,
+    functionType: fnType,
+    functionValue: fnValue,
+    argValues: {
+      forallArgs: [],
+      args: [
+        {
+          value: selfPtrValue,
+          parameterType: selfParam.type,
+          argType: selfPtrType,
+        },
+        {
+          value: argValue,
+          parameterType: idxParam.type,
+          argType,
+        },
+      ],
+      variadicArgs: [],
+    },
+    callerEnv,
+    calleeEnv,
+    context: comptimeContext,
+  });
 
-    const returnValue = result.value;
+  const returnValue = result.value;
 
-    // The ComptimeIndex method returns *(Output). Deref to get the value.
-    const ptrReturnType = fnType.return.type;
-    if (!isPtrType(ptrReturnType)) {
-      return undefined;
-    }
-    const outputType = ptrReturnType.childType;
+  // A matched ComptimeIndex impl with concrete comptime inputs should surface
+  // its evaluation errors instead of silently downgrading to runtime dispatch.
+  const ptrReturnType = fnType.return.type;
+  if (!isPtrType(ptrReturnType)) {
+    return undefined;
+  }
+  const outputType = ptrReturnType.childType;
 
-    // If the return is a PtrValue, deref it to get the actual value
-    if (isPtrValue(returnValue)) {
-      const target = returnValue.targetValue[0];
-      let dereferencedValue: Value;
-      let comptimeRef: ComptimeRef | undefined;
+  // If the return is a PtrValue, deref it to get the actual value
+  if (isPtrValue(returnValue)) {
+    const target = returnValue.targetValue[0];
+    let dereferencedValue: Value;
+    let comptimeRef: ComptimeRef | undefined;
 
-      if (isArrayValue(target)) {
-        dereferencedValue = target.elements[returnValue.targetIndex]!;
-        comptimeRef = {
-          kind: "array",
-          arrayValue: target,
-          index: returnValue.targetIndex,
-        };
-      } else if (isStructValue(target)) {
-        dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
-        comptimeRef = {
-          kind: "struct",
-          structValue: target,
-          fieldIndex: returnValue.targetIndex,
-        };
-      } else if (isTupleValue(target)) {
-        dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
-        comptimeRef = {
-          kind: "tuple",
-          tupleValue: target,
-          fieldIndex: returnValue.targetIndex,
-        };
-      } else {
-        dereferencedValue = target;
-      }
-
-      // Also find the runtime Index method for codegen
-      const runtimeMethod = findIndexMethod({
-        concreteType: valueType,
-        argType,
-        env: callerEnv,
-      });
-
-      return {
-        value: dereferencedValue,
-        type: outputType,
-        ptrType: ptrReturnType,
-        indexMethodType: runtimeMethod?.type,
-        indexMethodValue: runtimeMethod?.value,
-        callerEnv,
-        comptimeRef,
+    if (isArrayValue(target)) {
+      dereferencedValue = target.elements[returnValue.targetIndex]!;
+      comptimeRef = {
+        kind: "array",
+        arrayValue: target,
+        index: returnValue.targetIndex,
       };
+    } else if (isStructValue(target)) {
+      dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
+      comptimeRef = {
+        kind: "struct",
+        structValue: target,
+        fieldIndex: returnValue.targetIndex,
+      };
+    } else if (isTupleValue(target)) {
+      dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
+      comptimeRef = {
+        kind: "tuple",
+        tupleValue: target,
+        fieldIndex: returnValue.targetIndex,
+      };
+    } else {
+      dereferencedValue = target;
     }
 
-    // Return value is not a PtrValue (e.g., UnknownValue during validation,
-    // or builtin functions like __yo_comptime_list_index that return the element directly)
-    // Propagate comptimeRef from the comptime function call if available.
+    // Also find the runtime Index method for codegen
     const runtimeMethod = findIndexMethod({
       concreteType: valueType,
       argType,
@@ -621,18 +601,34 @@ function tryComptimeCustomTypeIndex({
     });
 
     return {
-      value: returnValue,
+      value: dereferencedValue,
       type: outputType,
       ptrType: ptrReturnType,
       indexMethodType: runtimeMethod?.type,
       indexMethodValue: runtimeMethod?.value,
       callerEnv,
-      comptimeRef: result.comptimeRef,
+      comptimeRef,
     };
-  } catch (e) {
-    // ComptimeIndex evaluation failed — fall through to runtime
-    return undefined;
   }
+
+  // Return value is not a PtrValue (e.g., UnknownValue during validation,
+  // or builtin functions like __yo_comptime_list_index that return the element directly)
+  // Propagate comptimeRef from the comptime function call if available.
+  const runtimeMethod = findIndexMethod({
+    concreteType: valueType,
+    argType,
+    env: callerEnv,
+  });
+
+  return {
+    value: returnValue,
+    type: outputType,
+    ptrType: ptrReturnType,
+    indexMethodType: runtimeMethod?.type,
+    indexMethodValue: runtimeMethod?.value,
+    callerEnv,
+    comptimeRef: result.comptimeRef,
+  };
 }
 
 /**
