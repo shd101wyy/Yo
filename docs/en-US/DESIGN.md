@@ -135,6 +135,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
+- [Derive Traits](#derive-traits)
+  - [Built-in derives](#built-in-derives)
+  - [User-defined derive rules with `derive_rule`](#user-defined-derive-rules-with-derive_rule)
+- [Type Reflection](#type-reflection)
 - [Compile-Time Evaluation](#compile-time-evaluation)
   - [Compile-Time Variables](#compile-time-variables)
   - [Compile-Time Arithmetic](#compile-time-arithmetic)
@@ -2867,6 +2871,101 @@ unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
     if(not(unquote(condition)), unquote(do))
 ;
 ```
+
+## Derive Traits
+
+Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but using function-call syntax. The `derive` function generates `impl` blocks for common traits automatically based on a type's structure.
+
+### Built-in derives
+
+Five traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, and `ToString`. They work for both structs and enums:
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Eq, Hash, Clone, Ord, ToString);
+
+// Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
+main :: (fn() -> unit) {
+  p1 := Point(1, 2);
+  p2 := Point(1, 2);
+  assert((p1 == p2), "equal");
+  assert((p1.to_string() == `Point(1, 2)`), "to_string");
+};
+export main;
+```
+
+### User-defined derive rules with `derive_rule`
+
+Trait authors can register custom derive rules using `derive_rule`. This uses Yo's quote/unquote macro system to generate `impl` blocks at compile time:
+
+```rust
+MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
+  trait(eq : (fn(self : T, other : T) -> bool))
+);
+
+derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+  eq_body :: __yo_type_join_fields(
+    T,
+    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
+      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    ),
+    quote(&&)
+  );
+  quote(
+    impl(unquote(target), MyEq(unquote(target))(
+      eq : ((self, other) => unquote(eq_body))
+    ))
+  )
+});
+
+Point :: struct(x : i32, y : i32);
+derive(Point, MyEq);  // Uses the registered derive_rule
+```
+
+## Type Reflection
+
+Yo provides compile-time type reflection through the `TypeInfo` enum and `Type.get_info()`. Unlike simple type tag systems, `TypeInfo` carries rich structural metadata — struct fields, enum variants, function parameters, and more.
+
+```rust
+info :: Type.get_info(i32);
+comptime_assert(info.is_primitive(), "i32 is primitive");
+comptime_assert(info.is_integer(), "i32 is an integer");
+
+info2 :: Type.get_info(Point);
+comptime_assert(info2.is_struct(), "Point is a struct");
+```
+
+Compound variants carry metadata that can be extracted via `match`:
+
+```rust
+// Extract array element type and length
+arr_info :: Type.get_info([i32; 3]);
+elem :: match(arr_info, .Array(e, _) => e, _ => unit);
+len :: match(arr_info, .Array(_, l) => l, _ => 0);
+comptime_assert((len == 3), "array length is 3");
+
+// Inspect struct fields
+pt_info :: Type.get_info(Point);
+field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
+comptime_assert((field_count == usize(2)), "Point has 2 fields");
+
+// Match dispatch on type info
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+  match(Type.get_info(T),
+    .I32 => "32-bit signed integer",
+    .Struct(_, _) => "struct type",
+    .Enum(_) => "enum type",
+    _ => "other type"
+  )
+);
+```
+
+Guard methods on `TypeInfo`:
+
+- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_module()`, `is_void()`
+- **Numeric**: `is_primitive()`, `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
+
+For the full TypeInfo enum definition, metadata structs, and detailed usage, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).
 
 ## Compile-Time Evaluation
 

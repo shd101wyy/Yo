@@ -10,12 +10,14 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createUsizeType } from "../../types/creators";
 import { isComptimeListType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
+import { randomId } from "../../utils";
 import {
   createComptimeListValue,
   createNumberValue,
   createTypeValue,
   createUnknownValue,
   isComptimeListValue,
+  isNumberValue,
   isTypeValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -76,6 +78,7 @@ export function evaluateYoComptimeListCar({
     env: evaluatedArgExpr.$.env,
     type: comptimeListType.childType,
     value: createUnknownValue(comptimeListType.childType, {
+      variableName: `__comptime_list_car_${randomId(env.modulePath)}`,
       env: evaluatedArgExpr.$.env,
       context,
     }), // Will be updated later
@@ -551,5 +554,101 @@ export function evaluateYoComptimeListElementType({
     pathCollection: [],
     isAccessingProperty: false,
   };
+  return expr;
+}
+
+/**
+ * __yo_comptime_list_get(list, index) -> element
+ *
+ * Returns the element at the given comptime_int index in a ComptimeList.
+ */
+export function evaluateYoComptimeListGet({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_comptime_list_get,
+    2
+  );
+
+  // Evaluate list argument
+  const listArg = evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: { ...context },
+  });
+  if (!listArg.$) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_comptime_list_get: failed to evaluate list argument`,
+    });
+  }
+  if (!isComptimeListType(listArg.$.type)) {
+    throw formatErrorMessage({
+      token: expr.args[0]!.token,
+      errorMessage: `__yo_comptime_list_get: first argument must be a ComptimeList, got: ${typeToString(listArg.$.type)}`,
+    });
+  }
+  env = listArg.$.env;
+  const comptimeListType = listArg.$
+    .type as import("../../types/definitions").ComptimeListType;
+
+  // Default result with UnknownValue (for when called during type checking)
+  expr.$ = {
+    env,
+    type: comptimeListType.childType,
+    value: createUnknownValue(comptimeListType.childType, {
+      variableName: `__comptime_list_get_${randomId(env.modulePath)}`,
+      env,
+      context,
+    }),
+    pathCollection: [],
+    isAccessingProperty: false,
+  };
+
+  // If we have a concrete list value and index, resolve the actual element
+  if (isComptimeListValue(listArg.$.value)) {
+    const listValue = listArg.$.value;
+
+    // Evaluate index argument
+    const indexArg = evaluateExpression({
+      expr: expr.args[1]!,
+      env,
+      context: { ...context },
+    });
+    if (!indexArg.$) {
+      throw formatErrorMessage({
+        token: expr.args[1]!.token,
+        errorMessage: `__yo_comptime_list_get: failed to evaluate index argument`,
+      });
+    }
+    if (isNumberValue(indexArg.$.value)) {
+      env = indexArg.$.env;
+      const index = Number(indexArg.$.value.value);
+
+      if (index < 0 || index >= listValue.elements.length) {
+        throw formatErrorMessage({
+          token: expr.args[1]!.token,
+          errorMessage: `__yo_comptime_list_get: index ${index} out of bounds for list of length ${listValue.elements.length}`,
+        });
+      }
+
+      const element = listValue.elements[index]!;
+      expr.$ = {
+        env,
+        type: element.type,
+        value: element,
+        pathCollection: [],
+        isAccessingProperty: false,
+      };
+    }
+  }
+
   return expr;
 }

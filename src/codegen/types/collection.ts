@@ -454,6 +454,17 @@ export function collectType(type: Type, context: CodeGenContext): void {
       for (const field of type.fields) {
         if (field.assignedValue && isFunctionValue(field.assignedValue)) {
           const functionValue = field.assignedValue;
+
+          // Skip compile-time-only functions — they never generate C code and their
+          // parameter/return types (e.g. TypeInfo, ComptimeList) should not be collected
+          const ft = functionValue.type;
+          const allParamsComptime = ft.parameters.every(
+            (p) => p.isCompileTimeOnly
+          );
+          if (allParamsComptime && ft.return.isCompileTimeOnly) {
+            continue;
+          }
+
           if (!context.functions[functionValue.funcId]) {
             context.functions[functionValue.funcId] = {
               value: functionValue,

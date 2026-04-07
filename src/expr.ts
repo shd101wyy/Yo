@@ -25,6 +25,9 @@ import {
 } from "./utils";
 import {
   type ArrayValue,
+  type ComptimeListValue,
+  type StructValue,
+  type TupleValue,
   isTypeValue,
   type TraitValue,
   type Value,
@@ -42,6 +45,17 @@ import { ValueTag } from "./value-tag";
  */
 export type Path = string[];
 export type PathCollection = Path[];
+
+/**
+ * Unified compile-time element/field reference for mutation and pointer creation.
+ * Used by assignment.ts for compile-time mutation (`arr(0) = value`) and by
+ * ptr-fns.ts for compile-time pointer creation (`&(arr(0))`).
+ */
+export type ComptimeRef =
+  | { kind: "array"; arrayValue: ArrayValue; index: number }
+  | { kind: "comptime_list"; listValue: ComptimeListValue; index: number }
+  | { kind: "struct"; structValue: StructValue; fieldIndex: number }
+  | { kind: "tuple"; tupleValue: TupleValue; fieldIndex: number };
 
 /*
  * Check if `path1` contains `path2`.
@@ -387,15 +401,16 @@ export interface EvaluatedExprData {
   sourceVariable?: Variable;
 
   /**
-   * For array element access expressions (arr(i)), this stores a reference to the
-   * ArrayValue and the index. This allows taking the address of array elements.
+   * Unified compile-time element/field reference for mutation and pointer creation.
+   * Enables compile-time operations like `arr(0) = value`, `p(0) = value`, `&(arr(0))`.
    *
-   * Example: For `arr(0)` in `&(arr(0))`, this stores { arrayValue, index: 0 }
+   * Discriminated by `kind`:
+   * - `"array"`: Array/slice element — mutates `arrayValue.elements[index]`
+   * - `"comptime_list"`: ComptimeList element — mutates `listValue.elements[index]`
+   * - `"struct"`: Struct field via ComptimeIndex — mutates `structValue.fields[fieldIndex]`
+   * - `"tuple"`: Tuple field via ComptimeIndex — mutates `tupleValue.fields[fieldIndex]`
    */
-  arrayElementRef?: {
-    arrayValue: ArrayValue;
-    index: number;
-  };
+  comptimeRef?: ComptimeRef;
 
   /**
    * For Index trait dispatch expressions (value(i)), this stores the pointer type
@@ -791,6 +806,12 @@ export const BuiltinFunctions = {
   __yo_comptime_list_append: ["__yo_comptime_list_append"],
   __yo_comptime_list_length: ["__yo_comptime_list_length"],
   __yo_comptime_list_element_type: ["__yo_comptime_list_element_type"],
+  __yo_comptime_list_get: ["__yo_comptime_list_get"],
+  __yo_comptime_list_index: ["__yo_comptime_list_index"],
+  __yo_comptime_list_index_range: ["__yo_comptime_list_index_range"],
+  __yo_comptime_list_index_range_inclusive: [
+    "__yo_comptime_list_index_range_inclusive",
+  ],
 
   // comptime_int related functions
   /// 2 args
@@ -1135,7 +1156,25 @@ export const BuiltinFunctions = {
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
+  __yo_are_types_equal: ["__yo_are_types_equal"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
+
+  // Type reflection builtins
+  __yo_type_get_info: ["__yo_type_get_info"],
+
+  // comptime_eval builtin
+  comptime_eval: ["comptime_eval"],
+
+  // Derive traits builtin
+  derive: ["derive"],
+  derive_rule: ["derive_rule"],
+
+  // comptime_string to Expr conversion
+  __yo_comptime_string_to_expr: ["__yo_comptime_string_to_expr"],
+
+  // Expr-based type iteration builtins (for derive rules)
+  __yo_type_join_fields: ["__yo_type_join_fields"],
+  __yo_type_map_variants: ["__yo_type_map_variants"],
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
@@ -1305,7 +1344,13 @@ function exprToCompactString(expr: Expr): string {
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            printed = `${expr.func.token.value}${exprToCompactString(expr.args[0]!)}`;
+            let arg = exprToCompactString(expr.args[0]!);
+            // Wrap arg in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., .(#(x)) vs .#(x))
+            if (exprIsFunctionCall(expr.args[0]!)) {
+              arg = `(${arg})`;
+            }
+            printed = `${expr.func.token.value}${arg}`;
           } else {
             printed = `${expr.func.token.value}(${exprToCompactString(expr.args[0]!)})`;
           }
@@ -1324,6 +1369,11 @@ function exprToCompactString(expr: Expr): string {
               ? `(${rhs})`
               : rhs;
           if (expr.func.token.value === ".") {
+            // Wrap RHS in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., self.(#(x)) vs self.#(x))
+            if (exprIsFunctionCall(expr.args[1]!)) {
+              rhs = `(${rhs})`;
+            }
             printed = `(${lhs}.${rhs})`;
           } else {
             printed = `${lhs} ${expr.func.token.value} ${rhs}`;
@@ -1390,7 +1440,13 @@ function exprToPrettyString(
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            return `${expr.func.token.value}${exprToPrettyString(expr.args[0]!, config)}`;
+            let arg = exprToPrettyString(expr.args[0]!, config);
+            // Wrap arg in parens if it's a function call to prevent
+            // reparsing ambiguity (e.g., .(#(x)) vs .#(x))
+            if (exprIsFunctionCall(expr.args[0]!)) {
+              arg = `(${arg})`;
+            }
+            return `${expr.func.token.value}${arg}`;
           } else {
             const arg = exprToPrettyString(expr.args[0]!, config);
             return `${expr.func.token.value}(${arg})`;
@@ -1413,6 +1469,9 @@ function exprToPrettyString(
               : rhs;
 
           if (expr.func.token.value === ".") {
+            if (exprIsFunctionCall(expr.args[1]!)) {
+              rhs = `(${rhs})`;
+            }
             return `(${lhs}.${rhs})`;
           } else {
             // For arrow operator and other infix operators, wrap the result in parentheses

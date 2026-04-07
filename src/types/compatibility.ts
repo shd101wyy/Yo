@@ -380,6 +380,21 @@ export function areTypesCompatible(
       return true;
     }
 
+    // Nominal check: if IDs differ and neither contains SomeType
+    // and they don't share a type constructor, they are incompatible.
+    if (
+      expected.type.id !== given.type.id &&
+      !typeContainsSomeType(expected.type) &&
+      !typeContainsSomeType(given.type) &&
+      !(
+        expected.type.functionValue &&
+        given.type.functionValue &&
+        expected.type.functionValue.funcId === given.type.functionValue.funcId
+      )
+    ) {
+      return false;
+    }
+
     // Check each variants
     if (expected.type.variants.length !== given.type.variants.length) {
       return false;

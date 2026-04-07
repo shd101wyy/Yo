@@ -887,11 +887,24 @@ export function evaluatePropertyAccess({
               }
               expr.$.value = fieldUnknown;
             } else {
+              // Deref PtrValue if accessing a field through a comptime pointer
+              let resolvedValue: Value = objectExprValue;
+              if (isPtrValue(objectExprValue)) {
+                const target = objectExprValue.targetValue[0]!;
+                if (isArrayValue(target)) {
+                  resolvedValue = target.elements[objectExprValue.targetIndex]!;
+                } else {
+                  // For struct/other pointers, the target IS the value.
+                  // Field selection is handled by tupleFieldIndex below.
+                  resolvedValue = target;
+                }
+              }
+
               let values: (Value | undefined)[] = [];
-              if (isTupleValue(objectExprValue)) {
-                values = objectExprValue.fields;
-              } else if (isStructValue(objectExprValue)) {
-                values = objectExprValue.fields;
+              if (isTupleValue(resolvedValue)) {
+                values = resolvedValue.fields;
+              } else if (isStructValue(resolvedValue)) {
+                values = resolvedValue.fields;
               }
 
               let value = values?.[tupleFieldIndex];
@@ -900,6 +913,24 @@ export function evaluatePropertyAccess({
               }
 
               expr.$.value = value;
+
+              // Set comptimeRef for comptime field access through a pointer.
+              // This enables mutation via assignment (p(0) = value) and &(self.x) in ComptimeIndex.
+              if (isPtrValue(objectExprValue)) {
+                if (isStructValue(resolvedValue)) {
+                  expr.$.comptimeRef = {
+                    kind: "struct",
+                    structValue: resolvedValue,
+                    fieldIndex: tupleFieldIndex,
+                  };
+                } else if (isTupleValue(resolvedValue)) {
+                  expr.$.comptimeRef = {
+                    kind: "tuple",
+                    tupleValue: resolvedValue,
+                    fieldIndex: tupleFieldIndex,
+                  };
+                }
+              }
             }
           }
 

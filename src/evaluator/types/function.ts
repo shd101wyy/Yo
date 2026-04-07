@@ -23,6 +23,7 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  createComptimeListType,
   createEffectsRowSomeType,
   createExprListType,
   createFunctionType,
@@ -2031,7 +2032,81 @@ export function evaluateFunctionParameters({
       if (exprIsFunctionCall(parameterExpr)) {
         const argExpr = parameterExpr.args[0]!;
         if (argExpr) {
+          // Type-annotated variadic: ...(something : Type)
+          // Parser produces :(lhs, rhs) with 2 args
           if (
+            exprIsFunctionCall(argExpr) &&
+            exprIsFunctionCallOf(argExpr, BuiltinKeywords.quote) &&
+            argExpr.args.length === 2
+          ) {
+            const lhsExpr_ = argExpr.args[0]!;
+            const typeExprNode = argExpr.args[1]!;
+
+            if (
+              exprIsFunctionCall(lhsExpr_) &&
+              exprIsFunctionCallOf(lhsExpr_, BuiltinKeywords.comptime)
+            ) {
+              // ...(comptime(name) : Type)
+              isCompileTimeOnly = true;
+              if (lhsExpr_.args.length !== 1) {
+                throw formatErrorMessage({
+                  token: lhsExpr_.token,
+                  errorMessage: `Expected one argument for "comptime", got ${lhsExpr_.args.length}`,
+                });
+              }
+              labelExpr = lhsExpr_.args[0]!;
+              parameterName = lhsExpr_.args[0]!.token.value;
+            } else if (
+              exprIsFunctionCall(lhsExpr_) &&
+              exprIsFunctionCallOf(lhsExpr_, BuiltinKeywords.quote)
+            ) {
+              // ...(:(name) : Type) — quote with explicit type
+              isCompileTimeOnly = true;
+              isQuote = true;
+              if (lhsExpr_.args.length !== 1) {
+                throw formatErrorMessage({
+                  token: lhsExpr_.token,
+                  errorMessage: `Expected one argument for "quote" (or ":"), got ${lhsExpr_.args.length}`,
+                });
+              }
+              labelExpr = lhsExpr_.args[0]!;
+              parameterName = lhsExpr_.args[0]!.token.value;
+            } else if (exprIsAtom(lhsExpr_) && isValidVariableName(lhsExpr_)) {
+              // ...(name : Type) — runtime variadic with type
+              labelExpr = lhsExpr_;
+              parameterName = lhsExpr_.token.value;
+            } else {
+              throw formatErrorMessage({
+                token: lhsExpr_.token,
+                errorMessage: `Expected a valid variable name for variadic parameter, got ${exprToString(lhsExpr_)}`,
+              });
+            }
+
+            // Evaluate the type expression
+            const evaluatedType = evaluateExpression({
+              expr: typeExprNode,
+              env,
+              context: { ...context },
+            });
+            if (!evaluatedType.$) {
+              throw formatErrorMessage({
+                token: typeExprNode.token,
+                errorMessage: `Failed to evaluate type expression: ${exprToString(typeExprNode)}`,
+              });
+            }
+            env = evaluatedType.$.env;
+            const typeValue = evaluatedType.$.value;
+            if (isTypeValue(typeValue)) {
+              parameterType = typeValue.value;
+            } else {
+              throw formatErrorMessage({
+                token: typeExprNode.token,
+                errorMessage: `Expected type for variadic parameter, got ${valueToString(typeValue)}`,
+              });
+            }
+          }
+          // ...(comptime(name)) without type annotation
+          else if (
             exprIsFunctionCall(argExpr) &&
             exprIsFunctionCallOf(argExpr, BuiltinKeywords.comptime)
           ) {
@@ -2039,22 +2114,16 @@ export function evaluateFunctionParameters({
             if (argExpr.args.length !== 1) {
               throw formatErrorMessage({
                 token: argExpr.token,
-                errorMessage: `Expected one argument for "comptime" , got ${argExpr.args.length}`,
+                errorMessage: `Expected one argument for "comptime", got ${argExpr.args.length}`,
               });
             }
             labelExpr = argExpr.args[0]!;
             parameterName = argExpr.args[0]!.token.value;
 
-            // TODO: Set the parameterType to VaList
-            parameterType = VUnit.type;
-
-            throw formatErrorMessage({
-              token: argExpr.token,
-              errorMessage: `...(comptime(param_name)) is not supported yet.`,
-            });
+            // Default to ComptimeList(Type) — variadic comptime params are typically types
+            parameterType = createComptimeListType(createType0());
           }
-          // macro
-          // we will use the ExprList as the type
+          // ...(quote(name)) or ...(:(name)) — macro/quote variadic (1 arg)
           else if (
             exprIsFunctionCall(argExpr) &&
             exprIsFunctionCallOf(argExpr, BuiltinKeywords.quote)

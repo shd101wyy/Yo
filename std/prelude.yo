@@ -256,7 +256,13 @@ extern "Yo",
   __yo_comptime_string_index_range :
     (fn(comptime(self): comptime_string, comptime(idx): Range(comptime_int)) -> comptime(comptime_string)),
   __yo_comptime_string_index_range_inclusive :
-    (fn(comptime(self): comptime_string, comptime(idx): RangeInclusive(comptime_int)) -> comptime(comptime_string))
+    (fn(comptime(self): comptime_string, comptime(idx): RangeInclusive(comptime_int)) -> comptime(comptime_string)),
+  __yo_comptime_list_index :
+    (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): usize, where(T <: Comptime)) -> comptime(*(T))),
+  __yo_comptime_list_index_range :
+    (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): Range(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))),
+  __yo_comptime_list_index_range_inclusive :
+    (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T))))
 ;
 
 ComptimeRangeOp :: trait(
@@ -685,6 +691,7 @@ Clone :: trait(
   clone : 
     fn(self: *(Self)) -> Self
 );
+export Clone;
 
 // === Isolation ===
 Isolation :: trait(
@@ -892,6 +899,10 @@ impl(comptime_string,
 
   slice : (fn(comptime(self): comptime_string, comptime(start): comptime_int, comptime(end): comptime_int) -> comptime(comptime_string))(
     __yo_comptime_string_slice(self, start, end)
+  ),
+
+  to_expr : (fn(comptime(self): comptime_string) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self)
   )
 );
 _comptime_string :: comptime_string;
@@ -3916,8 +3927,33 @@ impl(forall(T : Type), where(T <: Comptime), ComptimeList(T),
 
   len : (fn(comptime(self): Self) -> comptime(usize))(
     __yo_comptime_list_length(self)
+  ),
+
+  get : (fn(comptime(self): Self, comptime(index): usize) -> comptime(__yo_comptime_list_element_type(Self)))(
+    __yo_comptime_list_get(self, index)
   )
 );
+
+impl(forall(T : Type), where(T <: Comptime), ComptimeList(T), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    __yo_comptime_list_index(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), ComptimeList(T), ComptimeIndex(Range(usize))(
+  Output : ComptimeList(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): Range(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_list_index_range(self, idx)
+  )
+));
+
+impl(forall(T : Type), where(T <: Comptime), ComptimeList(T), ComptimeIndex(RangeInclusive(usize))(
+  Output : ComptimeList(T),
+  index : (fn(comptime(self): *(Self), comptime(idx): RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    __yo_comptime_list_index_range_inclusive(self, idx)
+  )
+));
 
 /// ExprList
 ExprList :: ComptimeList(Expr);
@@ -3975,13 +4011,323 @@ impl(Type,
 
   impls : (fn(comptime(self): Type, comptime(marker): Trait) -> comptime(bool))({
     return __yo_type_impls(self, marker);
+  }),
+
+  eq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
+    return __yo_are_types_equal(a, b);
+  }),
+
+  neq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
+    return !((__yo_are_types_equal(a, b)));
+  }),
+
+  to_comptime_string : (fn(comptime(self): Type) -> comptime(comptime_string))({
+    return __yo_type_to_comptime_string(self);
   })
 );
-impl(Type, ComptimeToString(
-  to_comptime_string : (self -> __yo_type_to_comptime_string(self))
-));
 _Type :: Type;
 export Type : _Type;
+
+// === Type Reflection Metadata Structs ===
+
+// StructKind — discriminant for struct flavors
+StructKind :: enum(Struct, Object, NewType);
+impl(StructKind, Comptime());
+export StructKind;
+
+// TypeFieldInfo — Yo representation of TypeField
+TypeFieldInfo :: struct(
+  name : comptime_string,
+  field_type : Type
+);
+impl(TypeFieldInfo, Comptime());
+impl(TypeFieldInfo,
+  to_expr : (fn(comptime(self): TypeFieldInfo) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self.name)
+  )
+);
+export TypeFieldInfo;
+
+// TraitInfo — lightweight trait reference
+TraitInfo :: struct(
+  trait_type : Type
+);
+impl(TraitInfo, Comptime());
+export TraitInfo;
+
+// TraitFieldInfo — trait field metadata
+TraitFieldInfo :: struct(
+  name : comptime_string,
+  field_type : Type,
+  is_associated_type : bool
+);
+impl(TraitFieldInfo, Comptime());
+export TraitFieldInfo;
+
+// ParamInfo — function parameter metadata
+ParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type,
+  is_comptime : bool,
+  is_quote : bool,
+  is_variadic : bool
+);
+impl(ParamInfo, Comptime());
+export ParamInfo;
+
+// ForallParamInfo — forall type parameter
+ForallParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type
+);
+impl(ForallParamInfo, Comptime());
+export ForallParamInfo;
+
+// ImplicitParamInfo — using/effect parameter
+ImplicitParamInfo :: struct(
+  name : comptime_string,
+  param_type : Type
+);
+impl(ImplicitParamInfo, Comptime());
+export ImplicitParamInfo;
+
+// FunctionInfo — shared function type metadata
+FunctionInfo :: struct(
+  params : ComptimeList(ParamInfo),
+  return_type : Type,
+  forall_params : ComptimeList(ForallParamInfo),
+  implicit_params : ComptimeList(ImplicitParamInfo),
+  is_closure : bool
+);
+impl(FunctionInfo, Comptime());
+export FunctionInfo;
+
+// TraitKind — discriminant for trait flavors
+TraitKind :: enum(
+  Future(child : Type, effects : ComptimeList(TraitInfo)),
+  Fn(call : FunctionInfo),
+  Normal
+);
+impl(TraitKind, Comptime());
+export TraitKind;
+
+// VariantInfo — enum variant metadata
+VariantInfo :: struct(
+  name : comptime_string,
+  fields : ComptimeList(TypeFieldInfo),
+  _enum_type : Type,
+  _variant_index : usize
+);
+impl(VariantInfo, Comptime());
+export VariantInfo;
+
+// TypeInfo — compile-time enum representing rich type metadata
+TypeInfo :: enum(
+  // Primitives (fieldless)
+  Unit, Bool,
+  Usize, Isize,
+  U8, I8, U16, I16, U32, I32, U64, I64,
+  F32, F64,
+
+  // C-compatible primitives (fieldless)
+  Char, Short, UShort, Int, UInt,
+  Long, ULong, LongLong, ULongLong, LongDouble,
+  Void,
+
+  // Compound types (with metadata)
+  Array(element : Type, length : comptime_int),
+  Slice(element : Type),
+  Tuple(fields : ComptimeList(TypeFieldInfo)),
+  Struct(
+    fields : ComptimeList(TypeFieldInfo),
+    kind : StructKind
+  ),
+  Enum(
+    variants : ComptimeList(VariantInfo)
+  ),
+  Union(
+    fields : ComptimeList(TypeFieldInfo)
+  ),
+  Function(info : FunctionInfo),
+  Ptr(pointee : Type),
+  Iso(child : Type),
+  Arc(child : Type),
+  Dyn(
+    required_traits : ComptimeList(TraitInfo),
+    negative_traits : ComptimeList(TraitInfo)
+  ),
+
+  // Meta types
+  Module(
+    fields : ComptimeList(TypeFieldInfo)
+  ),
+  Trait(
+    fields : ComptimeList(TraitFieldInfo),
+    kind : TraitKind
+  ),
+  Type(level : comptime_int),
+  Some(
+    name : comptime_string,
+    required_traits : ComptimeList(TraitInfo),
+    negative_traits : ComptimeList(TraitInfo),
+    resolved_type : Type
+  ),
+
+  // Comptime only
+  ComptimeInt, ComptimeFloat, ComptimeString,
+  ComptimeList(element : Type),
+
+  // Metaprogramming (fieldless)
+  Expr,
+  EffectsRow,
+  TypeApplication
+);
+impl(TypeInfo, Comptime());
+impl(TypeInfo,
+  is_struct : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Struct(_, _) => true, _ => false)
+  ),
+  is_enum : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Enum(_) => true, _ => false)
+  ),
+  is_union : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Union(_) => true, _ => false)
+  ),
+  is_tuple : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Tuple(_) => true, _ => false)
+  ),
+  is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Array(_, _) => true, _ => false)
+  ),
+  is_slice : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Slice(_) => true, _ => false)
+  ),
+  is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Function(_) => true, _ => false)
+  ),
+  is_pointer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Ptr(_) => true, _ => false)
+  ),
+  is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Trait(_, _) => true, _ => false)
+  ),
+  is_module : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Module(_) => true, _ => false)
+  ),
+  is_void : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Void => true, _ => false)
+  ),
+  is_primitive : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,
+      .Bool => true,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .F32 => true, .F64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      .LongDouble => true,
+      _ => false
+    )
+  ),
+  is_integer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      _ => false
+    )
+  ),
+  is_float : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,
+      .F32 => true, .F64 => true,
+      .LongDouble => true,
+      _ => false
+    )
+  ),
+  is_comptime : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,
+      .ComptimeInt => true, .ComptimeFloat => true, .ComptimeString => true,
+      .ComptimeList(_) => true, .Expr => true,
+      _ => false
+    )
+  ),
+  is_numeric : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,
+      .Usize => true, .Isize => true,
+      .U8 => true, .I8 => true,
+      .U16 => true, .I16 => true,
+      .U32 => true, .I32 => true,
+      .U64 => true, .I64 => true,
+      .F32 => true, .F64 => true,
+      .Char => true,
+      .Short => true, .UShort => true,
+      .Int => true, .UInt => true,
+      .Long => true, .ULong => true,
+      .LongLong => true, .ULongLong => true,
+      .LongDouble => true,
+      .ComptimeInt => true, .ComptimeFloat => true,
+      _ => false
+    )
+  )
+);
+export TypeInfo;
+
+// Type.get_info() — returns TypeInfo for the given type
+// Defined after TypeInfo so the return type is available
+impl(Type,
+  get_info : (fn(comptime(self): Type) -> comptime(TypeInfo))({
+    return __yo_type_get_info(self);
+  }),
+
+  get_struct_fields : (fn(comptime(self): Type) -> comptime(ComptimeList(TypeFieldInfo)))({
+    info :: __yo_type_get_info(self);
+    comptime_assert(info.is_struct(), "Type.get_struct_fields: expected a struct type");
+    match(info, .Struct(f, _) => f, _ => comptime_list(TypeFieldInfo("_", unit)))
+  }),
+
+  get_enum_variants : (fn(comptime(self): Type) -> comptime(ComptimeList(VariantInfo)))({
+    info :: __yo_type_get_info(self);
+    comptime_assert(info.is_enum(), "Type.get_enum_variants: expected an enum type");
+    match(info, .Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, usize(0))))
+  })
+);
+
+// FieldInfo — compile-time struct field metadata for derive rules (legacy alias)
+FieldInfo :: struct(name : comptime_string, field_type : Type);
+impl(FieldInfo, Comptime());
+impl(FieldInfo,
+  to_expr : (fn(comptime(self): FieldInfo) -> comptime(Expr))(
+    __yo_comptime_string_to_expr(self.name)
+  )
+);
+export FieldInfo;
+
+// Type methods that depend on FieldInfo/VariantInfo types
+MapFieldsFn :: (fn(comptime(_) : FieldInfo) -> comptime(Expr));
+MapVariantsFn :: (fn(comptime(_) : VariantInfo) -> comptime(Expr));
+
+impl(Type,
+  join_fields : (fn(comptime(self): Type, comptime(mapper): MapFieldsFn, comptime(combiner): Expr) -> comptime(Expr))({
+    return __yo_type_join_fields(self, mapper, combiner);
+  }),
+
+  map_variants : (fn(comptime(self): Type, comptime(mapper): MapVariantsFn) -> comptime(ComptimeList(Expr)))({
+    return __yo_type_map_variants(self, mapper);
+  })
+);
 
 // Variable
 Var :: impl({
@@ -4166,6 +4512,558 @@ export
   ?,
   (?*)
 ;
+
+
+// DeriveContext — context passed to derive rule functions (needs Option)
+DeriveContext :: struct(
+  target : Expr,
+  forall_params : Option(Expr),
+  where_clause : Option(Expr)
+);
+impl(DeriveContext, Comptime());
+
+impl(DeriveContext,
+  make_impl : (fn(comptime(self) : DeriveContext, comptime(trait_body) : Expr) -> comptime(Expr))(
+    cond(
+      self.forall_params.comptime_is_some() => cond(
+        self.where_clause.comptime_is_some() =>
+          quote(impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(self.where_clause.comptime_unwrap()),
+            unquote(trait_body)
+          )),
+        true =>
+          quote(impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(trait_body)
+          ))
+      ),
+      true => quote(impl(
+        unquote(self.target),
+        unquote(trait_body)
+      ))
+    )
+  )
+);
+export DeriveContext;
+
+// ============================================================
+// Built-in derive rules
+// ============================================================
+
+// Helper: fold over a range [0..n) at comptime
+__yo_comptime_fold_range :: (fn(
+  comptime(n) : usize,
+  comptime(init) : comptime_string,
+  comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : usize) -> comptime(comptime_string))
+) -> comptime(comptime_string))(
+  cond(
+    (n == usize(0)) => init,
+    (n == usize(1)) => f(init, usize(0)),
+    true => f(recur((n - usize(1)), init, f), (n - usize(1)))
+  )
+);
+
+// Helper: concat 2 strings
+__s2 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string) -> comptime(comptime_string))((a + b));
+// Helper: concat 3 strings
+__s3 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string) -> comptime(comptime_string))(
+  ((a + b) + c)
+);
+// Helper: concat 4 strings
+__s4 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string) -> comptime(comptime_string))(
+  (((a + b) + c) + d)
+);
+// Helper: concat 5 strings
+__s5 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string, comptime(e) : comptime_string) -> comptime(comptime_string))(
+  ((((a + b) + c) + d) + e)
+);
+
+// --- derive_rule for Eq ---
+__derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    info :: Type.get_info(T);
+    cond(
+      info.is_struct() => {
+        eq_body :: cond(
+          (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
+          true => Type.join_fields(
+            T,
+            (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+              quote((lhs.(#(field.name.to_expr())) == rhs.(#(field.name.to_expr()))))
+            ),
+            quote(&&)
+          )
+        );
+        ctx.make_impl(quote(
+          Eq(...#(trait_params))(
+            (==) : ((lhs, rhs) -> #(eq_body))
+          )
+        ))
+      },
+      info.is_enum() => {
+        variants :: Type.get_enum_variants(T);
+        vc :: variants.len();
+        eq_branches :: __yo_comptime_fold_range(vc, "",
+          (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))(
+            {
+              v :: variants.get(vi);
+              branch :: cond(
+                (v.fields.len() == 0) =>
+                  __s5(".", v.name, " => match(rhs, .", v.name, " => true, _ => false)"),
+                true => {
+                  lhs_bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        cond(
+                          (a == "") => __s2("__lhs_", fname),
+                          true => __s3(a, ", __lhs_", fname)
+                        )
+                      }
+                    )
+                  );
+                  rhs_bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        cond(
+                          (a == "") => __s2("__rhs_", fname),
+                          true => __s3(a, ", __rhs_", fname)
+                        )
+                      }
+                    )
+                  );
+                  eq_cmp :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        part :: __s4("(__lhs_", fname, " == __rhs_", fname);
+                        cond(
+                          (a == "") => __s2(part, ")"),
+                          true => __s5("(", a, " && ", __s2(part, ")"), ")")
+                        )
+                      }
+                    )
+                  );
+                  __s5(
+                    __s3(".", v.name, "("),
+                    lhs_bindings,
+                    __s3(") => match(rhs, .", v.name, "("),
+                    rhs_bindings,
+                    __s3(") => ", eq_cmp, ", _ => false)")
+                  )
+                }
+              );
+              cond(
+                (acc == "") => branch,
+                true => __s3(acc, ",\n    ", branch)
+              )
+            }
+          )
+        );
+        match_body :: __s3("match(lhs,\n    ", eq_branches, "\n  )");
+        ctx.make_impl(quote(
+          Eq(...#(trait_params))(
+            (==) : ((lhs, rhs) -> #(match_body.to_expr()))
+          )
+        ))
+      },
+      true => {
+        ctx.make_impl(quote(
+          Eq(...#(trait_params))(
+            (==) : ((lhs, rhs) -> true)
+          )
+        ))
+      }
+    )
+  }
+);
+derive_rule(Eq, __derive_eq);
+
+// --- derive_rule for Clone ---
+__derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    info :: Type.get_info(T);
+    cond(
+      info.is_struct() => {
+        fields :: Type.get_struct_fields(T);
+        fc :: fields.len();
+        type_name :: Type.to_comptime_string(T);
+        cloned_fields :: __yo_comptime_fold_range(fc, "",
+          (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+            {
+              fname :: fields.get(fi).name;
+              part :: __s3("(&(self.*.", fname, ")).clone()");
+              cond(
+                (a == "") => part,
+                true => __s3(a, ", ", part)
+              )
+            }
+          )
+        );
+        clone_body :: __s3(type_name, "(", __s2(cloned_fields, ")"));
+        ctx.make_impl(quote(
+          Clone(
+            clone : ((self) -> #(clone_body.to_expr()))
+          )
+        ))
+      },
+      info.is_enum() => {
+        variants :: Type.get_enum_variants(T);
+        vc :: variants.len();
+        clone_branches :: __yo_comptime_fold_range(vc, "",
+          (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))(
+            {
+              v :: variants.get(vi);
+              branch :: cond(
+                (v.fields.len() == 0) => __s4(".", v.name, " => .", v.name),
+                true => {
+                  bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        cond(
+                          (a == "") => __s2("__v_", fname),
+                          true => __s3(a, ", __v_", fname)
+                        )
+                      }
+                    )
+                  );
+                  cloned :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        cond(
+                          (a == "") => __s3("(&(__v_", fname, ")).clone()"),
+                          true => __s4(a, ", (&(__v_", fname, ")).clone()")
+                        )
+                      }
+                    )
+                  );
+                  __s5(
+                    __s3(".", v.name, "("),
+                    bindings,
+                    __s3(") => .", v.name, "("),
+                    cloned,
+                    ")"
+                  )
+                }
+              );
+              cond(
+                (acc == "") => branch,
+                true => __s3(acc, ",\n    ", branch)
+              )
+            }
+          )
+        );
+        match_body :: __s3("match(self.*,\n    ", clone_branches, "\n  )");
+        ctx.make_impl(quote(
+          Clone(
+            clone : ((self) -> #(match_body.to_expr()))
+          )
+        ))
+      },
+      true => {
+        ctx.make_impl(quote(
+          Clone(
+            clone : ((self) -> self.*)
+          )
+        ))
+      }
+    )
+  }
+);
+derive_rule(Clone, __derive_clone);
+
+// --- derive_rule for Hash ---
+__derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    info :: Type.get_info(T);
+    cond(
+      info.is_struct() => {
+        fields :: Type.get_struct_fields(T);
+        fc :: fields.len();
+        cond(
+          (fc == 0) => {
+            ctx.make_impl(quote(
+              Hash(
+                (hash) : ((self) -> u64(0))
+              )
+            ))
+          },
+          true => {
+            hash_stmts :: __yo_comptime_fold_range(fc, "",
+              (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                {
+                  fname :: fields.get(fi).name;
+                  cond(
+                    (fi == 0) => __s3("(h : u64) = (&(self.*.", fname, ")).hash()"),
+                    true => __s4(a, ";\n    h = ((h * u64(31)) + (&(self.*.", fname, ")).hash())")
+                  )
+                }
+              )
+            );
+            hash_body :: __s3("{\n    ", hash_stmts, ";\n    return h;\n  }");
+            ctx.make_impl(quote(
+              Hash(
+                (hash) : ((self) -> #(hash_body.to_expr()))
+              )
+            ))
+          }
+        )
+      },
+      info.is_enum() => {
+        variants :: Type.get_enum_variants(T);
+        vc :: variants.len();
+        hash_branches :: __yo_comptime_fold_range(vc, "",
+          (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))(
+            {
+              v :: variants.get(vi);
+              vi_str :: __yo_comptime_usize_to_comptime_string(vi);
+              branch :: cond(
+                (v.fields.len() == 0) => __s4(".", v.name, " => u64(", __s2(vi_str, ")")),
+                true => {
+                  bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        cond(
+                          (a == "") => __s2("__v_", fname),
+                          true => __s3(a, ", __v_", fname)
+                        )
+                      }
+                    )
+                  );
+                  hash_stmts :: __yo_comptime_fold_range(v.fields.len(), __s3("(h : u64) = u64(", vi_str, ")"),
+                    (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                      {
+                        fname :: v.fields.get(fi).name;
+                        __s4(a, "; h = ((h * u64(31)) + (&(__v_", fname, ")).hash())")
+                      }
+                    )
+                  );
+                  __s5(
+                    __s3(".", v.name, "("),
+                    bindings,
+                    ") => { ",
+                    __s2(hash_stmts, "; h"),
+                    "; }"
+                  )
+                }
+              );
+              cond(
+                (acc == "") => branch,
+                true => __s3(acc, ",\n    ", branch)
+              )
+            }
+          )
+        );
+        match_body :: __s3("match(self.*,\n    ", hash_branches, "\n  )");
+        ctx.make_impl(quote(
+          Hash(
+            (hash) : ((self) -> #(match_body.to_expr()))
+          )
+        ))
+      },
+      true => {
+        ctx.make_impl(quote(
+          Hash(
+            (hash) : ((self) -> u64(0))
+          )
+        ))
+      }
+    )
+  }
+);
+derive_rule(Hash, __derive_hash);
+
+// --- derive_rule for Ord ---
+// Helper: generate lexicographic comparison for struct fields
+__derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_string) -> comptime(comptime_string))(
+  {
+    fields :: Type.get_struct_fields(T);
+    fc :: fields.len();
+    cond(
+      (fc == 1) => {
+        fname :: fields.get(0).name;
+        __s5("(lhs.", fname, " ", op, __s3(" rhs.", fname, ")"))
+      },
+      true => {
+        branches :: __yo_comptime_fold_range(fc, "",
+          (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+            {
+              fname :: fields.get(fi).name;
+              branch :: cond(
+                (fi == (fc - 1)) =>
+                  __s5("true => (lhs.", fname, " ", op, __s3(" rhs.", fname, ")")),
+                true =>
+                  __s5("(lhs.", fname, " != rhs.", fname, __s5(") => (lhs.", fname, " ", op, __s3(" rhs.", fname, ")")))
+              );
+              cond(
+                (a == "") => branch,
+                true => __s3(a, ",\n      ", branch)
+              )
+            }
+          )
+        );
+        __s3("cond(\n      ", branches, "\n    )")
+      }
+    )
+  }
+);
+
+// Helper: generate lexicographic comparison for enum variant bindings
+__derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : comptime_string) -> comptime(comptime_string))(
+  {
+    cond(
+      (v.fields.len() == 1) => {
+        fname :: v.fields.get(0).name;
+        __s5("(__lhs_", fname, " ", op, __s3(" __rhs_", fname, ")"))
+      },
+      true => {
+        branches :: __yo_comptime_fold_range(v.fields.len(), "",
+          (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+            {
+              fname :: v.fields.get(fi).name;
+              branch :: cond(
+                (fi == (v.fields.len() - 1)) =>
+                  __s5("true => (__lhs_", fname, " ", op, __s3(" __rhs_", fname, ")")),
+                true =>
+                  __s5("(__lhs_", fname, " != __rhs_", fname, __s5(") => (__lhs_", fname, " ", op, __s3(" __rhs_", fname, ")")))
+              );
+              cond(
+                (a == "") => branch,
+                true => __s3(a, ",\n        ", branch)
+              )
+            }
+          )
+        );
+        __s3("cond(\n        ", branches, "\n      )")
+      }
+    )
+  }
+);
+
+__derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  {
+    info :: Type.get_info(T);
+    cond(
+      info.is_struct() => {
+        fields :: Type.get_struct_fields(T);
+        fc :: fields.len();
+        cond(
+          (fc == 0) => {
+            ctx.make_impl(quote(
+              Ord(...#(trait_params))(
+                (<) : ((lhs, rhs) -> false),
+                (<=) : ((lhs, rhs) -> true),
+                (>) : ((lhs, rhs) -> false),
+                (>=) : ((lhs, rhs) -> true)
+              )
+            ))
+          },
+          true => {
+            lt_body :: __derive_ord_struct_body(T, "<");
+            le_body :: __derive_ord_struct_body(T, "<=");
+            gt_body :: __derive_ord_struct_body(T, ">");
+            ge_body :: __derive_ord_struct_body(T, ">=");
+            ctx.make_impl(quote(
+              Ord(...#(trait_params))(
+                (<) : ((lhs, rhs) -> #(lt_body.to_expr())),
+                (<=) : ((lhs, rhs) -> #(le_body.to_expr())),
+                (>) : ((lhs, rhs) -> #(gt_body.to_expr())),
+                (>=) : ((lhs, rhs) -> #(ge_body.to_expr()))
+              )
+            ))
+          }
+        )
+      },
+      info.is_enum() => {
+        variants :: Type.get_enum_variants(T);
+        vc :: variants.len();
+        // Generate one operator's match branches
+        __gen_op_branches :: (fn(comptime(op) : comptime_string, comptime(eq_val) : comptime_string) -> comptime(comptime_string))(
+          {
+            branches :: __yo_comptime_fold_range(vc, "",
+              (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))(
+                {
+                  v :: variants.get(vi);
+                  branch :: cond(
+                    (v.fields.len() == 0) =>
+                      __s5(".", v.name, " => match(rhs, .", v.name, __s4(" => ", eq_val, ", _ => (i32(lhs) ", __s2(op, " i32(rhs)))"))),
+                    true => {
+                      lhs_bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                        (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                          {
+                            fname :: v.fields.get(fi).name;
+                            cond(
+                              (a == "") => __s2("__lhs_", fname),
+                              true => __s3(a, ", __lhs_", fname)
+                            )
+                          }
+                        )
+                      );
+                      rhs_bindings :: __yo_comptime_fold_range(v.fields.len(), "",
+                        (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
+                          {
+                            fname :: v.fields.get(fi).name;
+                            cond(
+                              (a == "") => __s2("__rhs_", fname),
+                              true => __s3(a, ", __rhs_", fname)
+                            )
+                          }
+                        )
+                      );
+                      field_cmp :: __derive_ord_variant_body(v, op);
+                      __s5(
+                        __s3(".", v.name, "("),
+                        lhs_bindings,
+                        __s3(") => match(rhs, .", v.name, "("),
+                        rhs_bindings,
+                        __s4(") => ", field_cmp, ", _ => (i32(lhs) ", __s2(op, " i32(rhs)))"))
+                      )
+                    }
+                  );
+                  cond(
+                    (acc == "") => branch,
+                    true => __s3(acc, ",\n      ", branch)
+                  )
+                }
+              )
+            );
+            __s3("match(lhs,\n      ", branches, "\n    )")
+          }
+        );
+        lt_match :: __gen_op_branches("<", "false");
+        le_match :: __gen_op_branches("<=", "true");
+        gt_match :: __gen_op_branches(">", "false");
+        ge_match :: __gen_op_branches(">=", "true");
+        ctx.make_impl(quote(
+          Ord(...#(trait_params))(
+            (<) : ((lhs, rhs) -> #(lt_match.to_expr())),
+            (<=) : ((lhs, rhs) -> #(le_match.to_expr())),
+            (>) : ((lhs, rhs) -> #(gt_match.to_expr())),
+            (>=) : ((lhs, rhs) -> #(ge_match.to_expr()))
+          )
+        ))
+      },
+      true => {
+        ctx.make_impl(quote(
+          Ord(...#(trait_params))(
+            (<) : ((lhs, rhs) -> false),
+            (<=) : ((lhs, rhs) -> true),
+            (>) : ((lhs, rhs) -> false),
+            (>=) : ((lhs, rhs) -> true)
+          )
+        ))
+      }
+    )
+  }
+);
+derive_rule(Ord, __derive_ord);
 
 
 /// === Result ===

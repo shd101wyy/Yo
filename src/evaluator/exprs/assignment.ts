@@ -939,10 +939,13 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       (evaluatedLhs.$ as { ptrTargetIndex?: number }).ptrTargetIndex ?? 0;
     if (ptrTargetValue && rhs.$?.value) {
       // Update the value - if targetValue[0] is an ArrayValue, update its element
+      // If targetValue[0] is a StructValue, update its field
       // Otherwise, update targetValue[0] directly
       const target = ptrTargetValue[0];
       if (isArrayValue(target)) {
         target.elements[ptrTargetIndex] = rhs.$.value;
+      } else if (isStructValue(target)) {
+        target.fields[ptrTargetIndex] = rhs.$.value;
       } else {
         ptrTargetValue[0] = rhs.$.value;
       }
@@ -951,13 +954,24 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       isCompileTimeOnlyAssignment = true;
     }
 
-    // Handle compile-time array/slice element assignment (arr(0) = value or s(0) = value)
-    // Check if the LHS expression has an arrayElementRef (set by function.ts for array/slice indexing)
-    const arrayElementRef = evaluatedLhs.$.arrayElementRef;
-    if (arrayElementRef && rhs.$?.value) {
-      // Update the element in the source array directly
-      arrayElementRef.arrayValue.elements[arrayElementRef.index] = rhs.$.value;
-      // Both LHS (array element) and RHS are compile-time known
+    // Handle compile-time element/field assignment via comptimeRef.
+    // Covers arrays, slices, comptime lists, structs, and tuples.
+    const comptimeRef = evaluatedLhs.$.comptimeRef;
+    if (comptimeRef && rhs.$?.value) {
+      switch (comptimeRef.kind) {
+        case "array":
+          comptimeRef.arrayValue.elements[comptimeRef.index] = rhs.$.value;
+          break;
+        case "comptime_list":
+          comptimeRef.listValue.elements[comptimeRef.index] = rhs.$.value;
+          break;
+        case "struct":
+          comptimeRef.structValue.fields[comptimeRef.fieldIndex] = rhs.$.value;
+          break;
+        case "tuple":
+          comptimeRef.tupleValue.fields[comptimeRef.fieldIndex] = rhs.$.value;
+          break;
+      }
       isCompileTimeOnlyAssignment = true;
     }
 

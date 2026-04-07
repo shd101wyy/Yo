@@ -25,6 +25,7 @@ import {
   evaluateYoComptimeListCdr,
   evaluateYoComptimeListCons,
   evaluateYoComptimeListElementType,
+  evaluateYoComptimeListGet,
   evaluateYoComptimeListLength,
 } from "../builtins/comptime-list-fns";
 import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime-numeric-fns";
@@ -76,11 +77,19 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
+  evaluateYoAreTypesEqual,
   evaluateYoTypeCanFormRcCycle,
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
+  evaluateYoTypeGetInfo,
+  evaluateComptimeEval,
+  evaluateComptimeStringToExpr,
+  evaluateTypeJoinFields,
+  evaluateTypeMapVariants,
 } from "../builtins/type-fns";
+import { evaluateDerive } from "../builtins/derive";
+import { evaluateDeriveRule } from "../builtins/derive-rule";
 import { evaluateTypeId } from "../builtins/typeid";
 import { evaluateVaStart } from "../builtins/va-start";
 import {
@@ -803,6 +812,15 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_get)
+    ) {
+      // __yo_comptime_list_get
+      return evaluateYoComptimeListGet({
+        expr,
+        env,
+        context: { ...context },
+      });
     }
     // All numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64, comptime_int, comptime_float)
     else if (
@@ -925,6 +943,15 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_comptime_string_index_range_inclusive
+      ) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_list_index_range
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_list_index_range_inclusive
       )
     ) {
       return evaluateYoComptimeIndexFunctions({
@@ -957,6 +984,15 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_are_types_equal, 2)
+    ) {
+      // __yo_are_types_equal — exact type match
+      return evaluateYoAreTypesEqual({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_rc_type, 1)
     ) {
       // __yo_type_contains_rc_type
@@ -983,6 +1019,41 @@ ${exprToString(expr)}`,
     ) {
       // __yo_type_impls - check if a type implements a marker module
       return evaluateYoTypeImpls({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_get_info, 1)
+    ) {
+      return evaluateYoTypeGetInfo({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_eval, 1)) {
+      return evaluateComptimeEval({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_to_expr,
+        1
+      )
+    ) {
+      return evaluateComptimeStringToExpr({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_join_fields, 3)
+    ) {
+      return evaluateTypeJoinFields({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_map_variants, 2)
+    ) {
+      return evaluateTypeMapVariants({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.derive_rule, 2)) {
+      return evaluateDeriveRule({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.derive)) {
+      // derive(Type, Trait1, Trait2, ...)
+      return evaluateDerive({
         expr,
         env,
         context: { ...context },

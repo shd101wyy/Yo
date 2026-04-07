@@ -15,7 +15,12 @@ import {
   isPtrType,
 } from "../../types/guards";
 import { convertComptimeTypeToRuntimeType } from "../../types/utils";
-import { createPtrValue, isTypeValue } from "../../value";
+import {
+  createPtrValue,
+  createUnknownValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -104,27 +109,52 @@ export function evaluateAddressCall({
 
     // Check if we can create a compile-time pointer first.
     // This requires the source expression to have a sourceVariable with a value array
-    // OR an arrayElementRef for array element access like &(arr(0)).
-    // We check arrayElementRef BEFORE indexTraitPtrType because comptime arrays
-    // set both properties, and arrayElementRef allows creating a comptime pointer
+    // OR a comptimeRef for element/field access like &(arr(0)) or &(point(0)).
+    // We check comptimeRef BEFORE indexTraitPtrType because comptime arrays
+    // set both properties, and comptimeRef allows creating a comptime pointer
     // whereas indexTraitPtrType would return a runtime-only pointer.
     const sourceVariable = evaluatedArgExpr.$.sourceVariable;
-    const arrayElementRef = evaluatedArgExpr.$.arrayElementRef;
+    const comptimeRef = evaluatedArgExpr.$.comptimeRef;
 
-    if (arrayElementRef) {
-      // Create a compile-time pointer to an array element
-      // Store the ArrayValue in targetValue[0], and use targetIndex to specify the element
-      const ptrValue = createPtrValue(
-        pointerType,
-        [arrayElementRef.arrayValue],
-        arrayElementRef.index
-      );
+    if (comptimeRef) {
+      let ptrValue;
+      switch (comptimeRef.kind) {
+        case "array":
+          ptrValue = createPtrValue(
+            pointerType,
+            [comptimeRef.arrayValue],
+            comptimeRef.index
+          );
+          break;
+        case "comptime_list":
+          ptrValue = createPtrValue(
+            pointerType,
+            [comptimeRef.listValue],
+            comptimeRef.index
+          );
+          break;
+        case "struct":
+          ptrValue = createPtrValue(
+            pointerType,
+            [comptimeRef.structValue],
+            comptimeRef.fieldIndex
+          );
+          break;
+        case "tuple":
+          ptrValue = createPtrValue(
+            pointerType,
+            [comptimeRef.tupleValue],
+            comptimeRef.fieldIndex
+          );
+          break;
+      }
 
       expr.$ = {
         env,
         type: pointerType,
         value: ptrValue,
         pathCollection: evaluatedArgExpr.$.pathCollection,
+        comptimeRef,
       };
     } else if (sourceVariable && sourceVariable.value) {
       // Create a compile-time pointer value that shares the value array with the source variable
@@ -148,6 +178,17 @@ export function evaluateAddressCall({
           value: undefined, // pointer is only available at runtime
           pathCollection: evaluatedArgExpr.$.pathCollection,
           isIndexTraitAddressOf: true,
+        };
+      } else if (isUnknownValue(evaluatedArgExpr.$.value)) {
+        // The argument is a comptime value (UnknownValue), so &(arg) should also
+        // be comptime. This handles cases like &(self.x) in ComptimeIndex impl
+        // validation where self is an unknown comptime pointer.
+        const ptrUnknown = createUnknownValue(pointerType, { env, context });
+        expr.$ = {
+          env,
+          type: pointerType,
+          value: ptrUnknown,
+          pathCollection: evaluatedArgExpr.$.pathCollection,
         };
       } else {
         expr.$ = {

@@ -145,6 +145,15 @@ export type FunctionValue = {
    * The codegen should NOT generate a separate C function for this closure.
    */
   isIoAsyncStateMachineClosure?: boolean;
+
+  /**
+   * When set, this function value has a registered derive rule.
+   * Used by `derive_rule(TraitConstructor, DeriveFn)` to store the user-defined
+   * derive function on the trait constructor's FunctionValue.
+   * The derive rule function has signature:
+   *   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+   */
+  deriveRule?: FunctionValue;
 };
 
 export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {

@@ -415,3 +415,293 @@ test "Comptime string inclusive range slicing", {
   comptime_assert((x(0..=2) == "Hel"), "inclusive slice");
   comptime_assert((x(0..=4) == "Hello"), "full inclusive slice");
 };
+
+// ============================================================
+// ComptimeList indexing via ComptimeIndex trait
+// ============================================================
+
+test "ComptimeList indexing: read elements", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  comptime_assert((l(0) == 1), "l(0) should be 1");
+  comptime_assert((l(1) == 2), "l(1) should be 2");
+  comptime_assert((l(2) == 3), "l(2) should be 3");
+};
+
+test "ComptimeList indexing: mutation", {
+  l :: ComptimeList(i32)(10, 20, 30);
+  comptime_assert((l(0) == 10), "l(0) should be 10");
+  l(0) = 99;
+  comptime_assert((l(0) == 99), "l(0) should be 99 after mutation");
+  comptime_assert((l(1) == 20), "l(1) should still be 20");
+  comptime_assert((l(2) == 30), "l(2) should still be 30");
+};
+
+test "ComptimeList indexing: multiple mutations", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  l(0) = 100;
+  l(1) = 200;
+  l(2) = 300;
+  comptime_assert((l(0) == 100), "l(0) should be 100");
+  comptime_assert((l(1) == 200), "l(1) should be 200");
+  comptime_assert((l(2) == 300), "l(2) should be 300");
+};
+
+test "ComptimeList indexing: range slicing", {
+  l :: ComptimeList(i32)(10, 20, 30, 40, 50);
+  sliced :: l((usize(1)..usize(4)));
+  comptime_assert((sliced.len() == usize(3)), "sliced length should be 3");
+  comptime_assert((sliced(0) == 20), "sliced(0) should be 20");
+  comptime_assert((sliced(1) == 30), "sliced(1) should be 30");
+  comptime_assert((sliced(2) == 40), "sliced(2) should be 40");
+};
+
+test "ComptimeList indexing: inclusive range slicing", {
+  l :: ComptimeList(i32)(10, 20, 30, 40, 50);
+  sliced :: l((usize(1)..=usize(3)));
+  comptime_assert((sliced.len() == usize(3)), "sliced length should be 3");
+  comptime_assert((sliced(0) == 20), "sliced(0) should be 20");
+  comptime_assert((sliced(1) == 30), "sliced(1) should be 30");
+  comptime_assert((sliced(2) == 40), "sliced(2) should be 40");
+};
+
+test "ComptimeList indexing: range slicing edge cases", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  // Full range
+  full :: l((usize(0)..usize(3)));
+  comptime_assert((full.len() == usize(3)), "full range length should be 3");
+  comptime_assert((full(0) == 1), "full(0) should be 1");
+  comptime_assert((full(2) == 3), "full(2) should be 3");
+  // Empty range
+  empty :: l((usize(1)..usize(1)));
+  comptime_assert((empty.len() == usize(0)), "empty range length should be 0");
+  // Single element range
+  single :: l((usize(0)..usize(1)));
+  comptime_assert((single.len() == usize(1)), "single range length should be 1");
+  comptime_assert((single(0) == 1), "single(0) should be 1");
+};
+
+// ============================================================
+// Comptime range variable indexing
+// ============================================================
+
+test "Comptime array slicing with range variable", {
+  arr :: [i32(10), i32(20), i32(30), i32(40), i32(50)];
+  range :: (usize(1)..usize(4));
+  s :: arr(range);
+  comptime_assert((s(usize(0)) == i32(20)), "slice[0] should be 20");
+  comptime_assert((s(usize(1)) == i32(30)), "slice[1] should be 30");
+  comptime_assert((s(usize(2)) == i32(40)), "slice[2] should be 40");
+};
+
+test "Comptime array slicing with inclusive range variable", {
+  arr :: [i32(10), i32(20), i32(30), i32(40), i32(50)];
+  range :: (usize(0)..=usize(2));
+  s :: arr(range);
+  comptime_assert((s(usize(0)) == i32(10)), "slice[0] should be 10");
+  comptime_assert((s(usize(1)) == i32(20)), "slice[1] should be 20");
+  comptime_assert((s(usize(2)) == i32(30)), "slice[2] should be 30");
+};
+
+test "Comptime slice re-slicing with range variable", {
+  arr :: [i32(1), i32(2), i32(3), i32(4), i32(5)];
+  s1 :: arr(usize(1)..usize(5));
+  range :: (usize(0)..usize(3));
+  s2 :: s1(range);
+  comptime_assert((s2(usize(0)) == i32(2)), "re-slice[0]");
+  comptime_assert((s2(usize(1)) == i32(3)), "re-slice[1]");
+  comptime_assert((s2(usize(2)) == i32(4)), "re-slice[2]");
+};
+
+test "Comptime string slicing with range variable", {
+  x :: "Hello World";
+  range :: (0..5);
+  comptime_assert((x(range) == "Hello"), "range var string slice");
+  range2 :: (6..=10);
+  comptime_assert((x(range2) == "World"), "inclusive range var string slice");
+};
+
+// === Custom struct Index + ComptimeIndex ===
+
+Point :: struct(x : i32, y : i32);
+
+impl(Point, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+impl(Point, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+test "Point runtime Index", {
+  p1 := Point(i32(1), i32(2));
+  assert((p1(usize(0)) == i32(1)), "p1(0) should be 1");
+  assert((p1(usize(1)) == i32(2)), "p1(1) should be 2");
+};
+
+test "Point runtime Index mutation", {
+  p1 := Point(i32(1), i32(2));
+  p1(usize(0)) = i32(10);
+  assert((p1(usize(0)) == i32(10)), "p1(0) should be 10 after mutation");
+  assert((p1(usize(1)) == i32(2)), "p1(1) should still be 2");
+};
+
+test "Point comptime Index", {
+  p2 :: Point(i32(3), i32(4));
+  comptime_assert((p2(usize(0)) == i32(3)), "p2(0) should be 3");
+  comptime_assert((p2(usize(1)) == i32(4)), "p2(1) should be 4");
+};
+
+test "Point comptime Index mutation", {
+  p2 :: Point(i32(3), i32(4));
+  p2(usize(0)) = i32(30);
+  comptime_assert((p2(usize(0)) == i32(30)), "p2(0) should be 30 after mutation");
+  comptime_assert((p2(usize(1)) == i32(4)), "p2(1) should still be 4");
+};
+
+StrictPoint :: struct(x : i32, y : i32);
+
+impl(StrictPoint, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      (idx == usize(1)) => &(self.y),
+      true => panic("StrictPoint: index out of bounds")
+    )
+  )
+));
+
+impl(StrictPoint, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      (idx == usize(1)) => &(self.y),
+      true => {
+        comptime_assert(false, "StrictPoint: index out of bounds");
+        &(self.x)
+      }
+    )
+  )
+));
+
+test "StrictPoint comptime Index propagates errors", {
+  p :: StrictPoint(i32(1), i32(2));
+  comptime_expect_error(p(usize(2)));
+};
+
+// === Generic struct Index + ComptimeIndex ===
+
+GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(x : T, y : T)
+);
+
+impl(forall(T), GenericPoint(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+impl(forall(T), where(T <: Comptime), GenericPoint(T), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+test "GenericPoint runtime Index", {
+  gp1 := GenericPoint(i32)(i32(5), i32(6));
+  assert((gp1(usize(0)) == i32(5)), "gp1(0) should be 5");
+  assert((gp1(usize(1)) == i32(6)), "gp1(1) should be 6");
+};
+
+test "GenericPoint runtime Index mutation", {
+  gp1 := GenericPoint(i32)(i32(5), i32(6));
+  gp1(usize(0)) = i32(50);
+  assert((gp1(usize(0)) == i32(50)), "gp1(0) should be 50 after mutation");
+  assert((gp1(usize(1)) == i32(6)), "gp1(1) should still be 6");
+};
+
+test "GenericPoint comptime Index", {
+  gp2 :: GenericPoint(i32)(i32(7), i32(8));
+  comptime_assert((gp2(usize(0)) == i32(7)), "gp2(0) should be 7");
+  comptime_assert((gp2(usize(1)) == i32(8)), "gp2(1) should be 8");
+};
+
+test "GenericPoint comptime Index mutation", {
+  gp2 :: GenericPoint(i32)(i32(7), i32(8));
+  gp2(usize(0)) = i32(70);
+  comptime_assert((gp2(usize(0)) == i32(70)), "gp2(0) should be 70 after mutation");
+  comptime_assert((gp2(usize(1)) == i32(8)), "gp2(1) should still be 8");
+};
+
+// === Tuple-like struct Index + ComptimeIndex ===
+// Note: Can't impl Index directly on built-in Tuple types (orphan rule).
+// Using a struct wrapper to test tuple-style positional indexing.
+
+Pair :: struct(first : i32, second : i32);
+
+impl(Pair, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.first),
+      true => &(self.second)
+    )
+  )
+));
+
+impl(Pair, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.first),
+      true => &(self.second)
+    )
+  )
+));
+
+test "Pair runtime Index", {
+  p := Pair(i32(10), i32(20));
+  assert((p(usize(0)) == i32(10)), "p(0) should be 10");
+  assert((p(usize(1)) == i32(20)), "p(1) should be 20");
+};
+
+test "Pair runtime Index mutation", {
+  p := Pair(i32(10), i32(20));
+  p(usize(0)) = i32(100);
+  assert((p(usize(0)) == i32(100)), "p(0) should be 100 after mutation");
+  assert((p(usize(1)) == i32(20)), "p(1) should still be 20");
+};
+
+test "Pair comptime Index", {
+  p :: Pair(i32(30), i32(40));
+  comptime_assert((p(usize(0)) == i32(30)), "p(0) should be 30");
+  comptime_assert((p(usize(1)) == i32(40)), "p(1) should be 40");
+};
+
+test "Pair comptime Index mutation", {
+  p :: Pair(i32(30), i32(40));
+  p(usize(0)) = i32(300);
+  comptime_assert((p(usize(0)) == i32(300)), "p(0) should be 300 after mutation");
+  comptime_assert((p(usize(1)) == i32(40)), "p(1) should still be 40");
+};

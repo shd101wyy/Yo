@@ -7,25 +7,39 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { Token } from "../../token";
-import { createPtrType, createSliceType } from "../../types/creators";
+import {
+  createComptimeListType,
+  createPtrType,
+  createSliceType,
+} from "../../types/creators";
 import type {
   ArrayType,
+  ComptimeListType,
   PtrType,
   SliceType,
   Type,
 } from "../../types/definitions";
-import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
 import {
+  isArrayType,
+  isComptimeListType,
+  isPtrType,
+  isSliceType,
+} from "../../types/guards";
+import {
+  createComptimeListValue,
   createComptimeStringValue,
   createSliceValue,
   createUnknownValue,
   isArrayValue,
   isComptimeIntValue,
+  isComptimeListValue,
   isComptimeStringValue,
   isNumberValue,
+  isPtrValue,
   isSliceValue,
   isStructValue,
   isUnknownValue,
+  type ComptimeListValue,
   type StructValue,
   type Value,
 } from "../../value";
@@ -128,7 +142,11 @@ function evaluateComptimeElementIndex({
         type: elementType,
         value,
         pathCollection: [],
-        arrayElementRef: { arrayValue: sourceArray, index: absoluteIndex },
+        comptimeRef: {
+          kind: "array",
+          arrayValue: sourceArray,
+          index: absoluteIndex,
+        },
       };
       return expr;
     }
@@ -162,7 +180,7 @@ function evaluateComptimeElementIndex({
         type: elementType,
         value,
         pathCollection: [],
-        arrayElementRef: { arrayValue, index },
+        comptimeRef: { kind: "array", arrayValue, index },
       };
       return expr;
     }
@@ -204,12 +222,265 @@ function computeElementReturnType(selfType: Type): Type {
     if (isSliceType(pointee)) {
       return createPtrType((pointee as SliceType).childType);
     }
+    if (isComptimeListType(pointee)) {
+      return createPtrType((pointee as ComptimeListType).childType);
+    }
   }
   if (isArrayType(selfType)) {
     return createPtrType((selfType as ArrayType).childType);
   }
   if (isSliceType(selfType)) {
     return createPtrType((selfType as SliceType).childType);
+  }
+  if (isComptimeListType(selfType)) {
+    return createPtrType((selfType as ComptimeListType).childType);
+  }
+  return selfType;
+}
+
+/**
+ * Evaluate comptime list element indexing builtin:
+ * __yo_comptime_list_index(self, idx)
+ *
+ * Similar to __yo_comptime_array_index but for ComptimeList types.
+ * Returns the element value with comptimeRef set for mutation support.
+ */
+function evaluateComptimeListIndex({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  const selfExpr = expr.args[0]!;
+  const idxExpr = expr.args[1]!;
+
+  const evaluatedSelf = evaluateExpression({
+    expr: selfExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedSelf.$) {
+    throw formatErrorMessage({
+      token: selfExpr.token,
+      errorMessage: `Failed to evaluate self for comptime list index`,
+    });
+  }
+  env = evaluatedSelf.$.env;
+
+  const evaluatedIdx = evaluateExpression({
+    expr: idxExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedIdx.$) {
+    throw formatErrorMessage({
+      token: idxExpr.token,
+      errorMessage: `Failed to evaluate index for comptime list index`,
+    });
+  }
+  env = evaluatedIdx.$.env;
+
+  const selfValue = evaluatedSelf.$.value;
+
+  // Resolve ComptimeListValue: either directly or inside a PtrValue
+  let listValue: ComptimeListValue | undefined;
+  if (isComptimeListValue(selfValue)) {
+    listValue = selfValue;
+  } else if (
+    selfValue &&
+    isPtrValue(selfValue) &&
+    isComptimeListValue(selfValue.targetValue[0])
+  ) {
+    listValue = selfValue.targetValue[0] as ComptimeListValue;
+  }
+
+  if (listValue) {
+    const elementType = listValue.type.childType;
+
+    if (evaluatedIdx.$.value && isNumberValue(evaluatedIdx.$.value)) {
+      const index = extractIndex(evaluatedIdx.$.value.value);
+      if (index < 0 || index >= listValue.elements.length) {
+        throw formatErrorMessage({
+          token: idxExpr.token,
+          errorMessage: `ComptimeList index out of bounds: ${index}. Expected index in range [0, ${listValue.elements.length - 1}].`,
+        });
+      }
+      const value = listValue.elements[index]!;
+
+      expr.$ = {
+        env,
+        type: elementType,
+        value,
+        pathCollection: [],
+        comptimeRef: { kind: "comptime_list", listValue, index },
+      };
+      return expr;
+    }
+
+    // Unknown index — return unknown value
+    expr.$ = {
+      env,
+      type: elementType,
+      value: createUnknownValue(elementType, { env, context }),
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  // Self is not a known comptime value — compute fallback type with UnknownValue
+  const selfType = evaluatedSelf.$.type;
+  const fallbackType = computeElementReturnType(selfType);
+  expr.$ = {
+    env,
+    type: fallbackType,
+    value: createUnknownValue(fallbackType, { env, context }),
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Evaluate comptime list range indexing builtins:
+ * - __yo_comptime_list_index_range(self, range)
+ * - __yo_comptime_list_index_range_inclusive(self, range)
+ *
+ * Returns a new ComptimeList containing elements from the specified range.
+ */
+function evaluateComptimeListRangeIndex({
+  expr,
+  env,
+  context,
+  isInclusive,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+  isInclusive: boolean;
+}): FnCallExpr {
+  const selfExpr = expr.args[0]!;
+  const idxExpr = expr.args[1]!;
+
+  const evaluatedSelf = evaluateExpression({
+    expr: selfExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedSelf.$) {
+    throw formatErrorMessage({
+      token: selfExpr.token,
+      errorMessage: `Failed to evaluate self for comptime list range index`,
+    });
+  }
+  env = evaluatedSelf.$.env;
+
+  const evaluatedIdx = evaluateExpression({
+    expr: idxExpr,
+    env,
+    context: { ...context },
+  });
+  if (!evaluatedIdx.$) {
+    throw formatErrorMessage({
+      token: idxExpr.token,
+      errorMessage: `Failed to evaluate range for comptime list range index`,
+    });
+  }
+  env = evaluatedIdx.$.env;
+
+  const selfValue = evaluatedSelf.$.value;
+  const rangeValue = evaluatedIdx.$.value;
+
+  // Range value is not a known comptime struct — return fallback
+  if (!rangeValue || isUnknownValue(rangeValue) || !isStructValue(rangeValue)) {
+    const selfType = evaluatedSelf.$.type;
+    const fallbackType = computeListRangeReturnType(selfType);
+    expr.$ = {
+      env,
+      type: fallbackType,
+      value: createUnknownValue(fallbackType, { env, context }),
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  const indices = extractRangeIndices(rangeValue, isInclusive);
+  if (!indices) {
+    throw formatErrorMessage({
+      token: idxExpr.token,
+      errorMessage: `Expected numeric start/end in Range for comptime list range index`,
+    });
+  }
+
+  const { start: startIndex, end: endIndex } = indices;
+
+  // Resolve ComptimeListValue: either directly or inside a PtrValue
+  let listValue: ComptimeListValue | undefined;
+  if (isComptimeListValue(selfValue)) {
+    listValue = selfValue;
+  } else if (
+    selfValue &&
+    isPtrValue(selfValue) &&
+    isComptimeListValue(selfValue.targetValue[0])
+  ) {
+    listValue = selfValue.targetValue[0] as ComptimeListValue;
+  }
+
+  if (listValue) {
+    const elementType = listValue.type.childType;
+    const resultType = createComptimeListType(elementType);
+
+    if (startIndex < 0 || startIndex > listValue.elements.length) {
+      throw formatErrorMessage({
+        token: idxExpr.token,
+        errorMessage: `ComptimeList range start out of bounds: ${startIndex}. Expected in range [0, ${listValue.elements.length}].`,
+      });
+    }
+    if (endIndex < startIndex || endIndex > listValue.elements.length) {
+      throw formatErrorMessage({
+        token: idxExpr.token,
+        errorMessage: `ComptimeList range end out of bounds: ${endIndex}. Expected in range [${startIndex}, ${listValue.elements.length}].`,
+      });
+    }
+
+    const slicedElements = listValue.elements.slice(startIndex, endIndex);
+    const newListValue = createComptimeListValue(elementType, slicedElements);
+
+    expr.$ = {
+      env,
+      type: resultType,
+      value: newListValue,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  // Self is not a known comptime value — compute fallback type
+  const selfType = evaluatedSelf.$.type;
+  const fallbackType = computeListRangeReturnType(selfType);
+  expr.$ = {
+    env,
+    type: fallbackType,
+    value: createUnknownValue(fallbackType, { env, context }),
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Compute the correct return type for ComptimeList range indexing.
+ * For *(ComptimeList(T)), returns *(ComptimeList(T)).
+ */
+function computeListRangeReturnType(selfType: Type): Type {
+  if (isPtrType(selfType)) {
+    const pointee = (selfType as PtrType).childType;
+    if (isComptimeListType(pointee)) {
+      return createPtrType(pointee);
+    }
+  }
+  if (isComptimeListType(selfType)) {
+    return createPtrType(selfType);
   }
   return selfType;
 }
@@ -566,6 +837,32 @@ export function evaluateYoComptimeIndexFunctions({
   }
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index)) {
     return evaluateComptimeElementIndex({ expr, env, context, isSlice: true });
+  }
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index)) {
+    return evaluateComptimeListIndex({ expr, env, context });
+  }
+  if (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index_range)
+  ) {
+    return evaluateComptimeListRangeIndex({
+      expr,
+      env,
+      context,
+      isInclusive: false,
+    });
+  }
+  if (
+    exprIsFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_comptime_list_index_range_inclusive
+    )
+  ) {
+    return evaluateComptimeListRangeIndex({
+      expr,
+      env,
+      context,
+      isInclusive: true,
+    });
   }
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index_range)
