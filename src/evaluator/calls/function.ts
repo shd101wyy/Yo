@@ -84,6 +84,7 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
+  isStructValue,
   type ComptimeStringValue,
   type Value,
   valueToString,
@@ -1415,174 +1416,149 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             if (hasComptimeValue && argsToUse.length === 1) {
               const argExpr = argsToUse[0]!;
 
-              // Check for range expression: arr(start..end) or arr(start..=end)
-              if (
-                exprIsFunctionCall(argExpr) &&
-                (exprIsFunctionCallOf(argExpr, "..") ||
-                  exprIsFunctionCallOf(argExpr, "..="))
-              ) {
-                const isInclusive = exprIsFunctionCallOf(argExpr, "..=");
+              // Evaluate the argument once — then dispatch based on its type
+              const evaluatedArgExpr = evaluateExpression({
+                expr: argExpr,
+                env,
+                context: {
+                  ...context,
+                  expectedType: undefined,
+                },
+              });
+              if (!evaluatedArgExpr.$) {
+                throw formatErrorMessage({
+                  token: argExpr.token,
+                  errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
+                });
+              }
+              const callerEnv = evaluatedArgExpr.$.env;
+              const argType = evaluatedArgExpr.$.type;
+              const argValue = evaluatedArgExpr.$.value;
+
+              // Check if argument is a Range/RangeInclusive type (struct with start/end fields)
+              const isRange =
+                isStructType(argType) &&
+                argType.fields.length === 2 &&
+                argType.fields[0]!.label === "start" &&
+                argType.fields[1]!.label === "end";
+
+              if (isRange) {
+                const isInclusive = (argType.typeName ?? "").includes(
+                  "RangeInclusive"
+                );
                 const sliceType = createSliceType(arrayType.childType);
-                const startExprNode = argExpr.args[0]!;
-                const endExprNode = argExpr.args[1]!;
 
-                const evaluatedStart = evaluateExpression({
-                  expr: startExprNode,
-                  env,
-                  context: {
-                    ...context,
-                    expectedType: { type: createUsizeType(), env },
-                  },
-                });
-                if (!evaluatedStart.$) {
-                  throw formatErrorMessage({
-                    token: startExprNode.token,
-                    errorMessage: `Failed to evaluate start expression:\n${exprToString(startExprNode)}`,
-                  });
-                }
-                let callerEnv = evaluatedStart.$.env;
+                // Extract start/end values from the range struct
+                if (isStructValue(argValue)) {
+                  const startVal = argValue.fields[0];
+                  const endVal = argValue.fields[1];
 
-                const evaluatedEnd = evaluateExpression({
-                  expr: endExprNode,
-                  env: callerEnv,
-                  context: {
-                    ...context,
-                    expectedType: { type: createUsizeType(), env: callerEnv },
-                  },
-                });
-                if (!evaluatedEnd.$) {
-                  throw formatErrorMessage({
-                    token: endExprNode.token,
-                    errorMessage: `Failed to evaluate end expression:\n${exprToString(endExprNode)}`,
-                  });
-                }
-                callerEnv = evaluatedEnd.$.env;
+                  if (
+                    startVal &&
+                    endVal &&
+                    isNumberValue(startVal) &&
+                    isNumberValue(endVal)
+                  ) {
+                    const startValue = startVal.value;
+                    const endValue = endVal.value;
+                    const startIndex =
+                      typeof startValue === "bigint"
+                        ? Number(startValue)
+                        : startValue;
+                    const endIndex =
+                      (typeof endValue === "bigint"
+                        ? Number(endValue)
+                        : endValue) + (isInclusive ? 1 : 0);
 
-                // If both indices are comptime, create a comptime slice
-                if (
-                  isNumberValue(evaluatedStart.$.value) &&
-                  isNumberValue(evaluatedEnd.$.value)
-                ) {
-                  const startValue = evaluatedStart.$.value.value;
-                  const endValue = evaluatedEnd.$.value.value;
-                  const startIndex =
-                    typeof startValue === "bigint"
-                      ? Number(startValue)
-                      : startValue;
-                  const endIndex =
-                    (typeof endValue === "bigint"
-                      ? Number(endValue)
-                      : endValue) + (isInclusive ? 1 : 0);
-
-                  if (arrayValue) {
-                    if (
-                      startIndex < 0 ||
-                      startIndex > arrayValue.elements.length
-                    ) {
-                      throw formatErrorMessage({
-                        token: startExprNode.token,
-                        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
-                      });
-                    }
-                    if (
-                      endIndex < startIndex ||
-                      endIndex > arrayValue.elements.length
-                    ) {
-                      throw formatErrorMessage({
-                        token: endExprNode.token,
-                        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
-                      });
-                    }
-                    const newSliceValue = createSliceValue(
-                      sliceType,
-                      [arrayValue],
-                      startIndex,
-                      endIndex
-                    );
-                    return {
-                      ...functionToCall,
-                      result: {
-                        kind: "index" as const,
+                    if (arrayValue) {
+                      if (
+                        startIndex < 0 ||
+                        startIndex > arrayValue.elements.length
+                      ) {
+                        throw formatErrorMessage({
+                          token: argExpr.token,
+                          errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
+                        });
+                      }
+                      if (
+                        endIndex < startIndex ||
+                        endIndex > arrayValue.elements.length
+                      ) {
+                        throw formatErrorMessage({
+                          token: argExpr.token,
+                          errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
+                        });
+                      }
+                      const newSliceValue = createSliceValue(
+                        sliceType,
+                        [arrayValue],
+                        startIndex,
+                        endIndex
+                      );
+                      return {
+                        ...functionToCall,
                         result: {
-                          value: newSliceValue,
-                          type: sliceType,
-                          ptrType: createPtrType(sliceType),
-                          indexMethodType: undefined,
-                          indexMethodValue: undefined,
-                          callerEnv,
+                          kind: "index" as const,
+                          result: {
+                            value: newSliceValue,
+                            type: sliceType,
+                            ptrType: createPtrType(sliceType),
+                            indexMethodType: undefined,
+                            indexMethodValue: undefined,
+                            callerEnv,
+                          },
                         },
-                      },
-                    };
-                  }
+                      };
+                    }
 
-                  if (sliceValue) {
-                    const sliceLength =
-                      sliceValue.endIndex - sliceValue.startIndex;
-                    if (startIndex < 0 || startIndex > sliceLength) {
-                      throw formatErrorMessage({
-                        token: startExprNode.token,
-                        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${sliceLength}].`,
-                      });
-                    }
-                    if (endIndex < startIndex || endIndex > sliceLength) {
-                      throw formatErrorMessage({
-                        token: endExprNode.token,
-                        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${sliceLength}].`,
-                      });
-                    }
-                    const absoluteStart = sliceValue.startIndex + startIndex;
-                    const absoluteEnd = sliceValue.startIndex + endIndex;
-                    const newSliceValue = createSliceValue(
-                      sliceType,
-                      sliceValue.sourceArray,
-                      absoluteStart,
-                      absoluteEnd
-                    );
-                    return {
-                      ...functionToCall,
-                      result: {
-                        kind: "index" as const,
+                    if (sliceValue) {
+                      const sliceLength =
+                        sliceValue.endIndex - sliceValue.startIndex;
+                      if (startIndex < 0 || startIndex > sliceLength) {
+                        throw formatErrorMessage({
+                          token: argExpr.token,
+                          errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${sliceLength}].`,
+                        });
+                      }
+                      if (endIndex < startIndex || endIndex > sliceLength) {
+                        throw formatErrorMessage({
+                          token: argExpr.token,
+                          errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${sliceLength}].`,
+                        });
+                      }
+                      const absoluteStart = sliceValue.startIndex + startIndex;
+                      const absoluteEnd = sliceValue.startIndex + endIndex;
+                      const newSliceValue = createSliceValue(
+                        sliceType,
+                        sliceValue.sourceArray,
+                        absoluteStart,
+                        absoluteEnd
+                      );
+                      return {
+                        ...functionToCall,
                         result: {
-                          value: newSliceValue,
-                          type: sliceType,
-                          ptrType: createPtrType(sliceType),
-                          indexMethodType: undefined,
-                          indexMethodValue: undefined,
-                          callerEnv,
+                          kind: "index" as const,
+                          result: {
+                            value: newSliceValue,
+                            type: sliceType,
+                            ptrType: createPtrType(sliceType),
+                            indexMethodType: undefined,
+                            indexMethodValue: undefined,
+                            callerEnv,
+                          },
                         },
-                      },
-                    };
+                      };
+                    }
                   }
                 }
 
                 // Runtime range indices — fall through to Index trait dispatch below
-              }
-
-              // Single element access with comptime index
-              if (
-                !exprIsFunctionCall(argExpr) ||
-                (!exprIsFunctionCallOf(argExpr, "..") &&
-                  !exprIsFunctionCallOf(argExpr, "..="))
-              ) {
-                const evaluatedArgExpr = evaluateExpression({
-                  expr: argExpr,
-                  env,
-                  context: {
-                    ...context,
-                    expectedType: { type: createUsizeType(), env },
-                  },
-                });
-                if (!evaluatedArgExpr.$) {
-                  throw formatErrorMessage({
-                    token: argExpr.token,
-                    errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
-                  });
-                }
-                const callerEnv = evaluatedArgExpr.$.env;
+              } else {
+                // Single element access with comptime index
                 const returnType = arrayType.childType;
 
-                if (isNumberValue(evaluatedArgExpr.$.value)) {
-                  const indexValue = evaluatedArgExpr.$.value.value;
+                if (isNumberValue(argValue)) {
+                  const indexValue = argValue.value;
                   const index =
                     typeof indexValue === "bigint"
                       ? Number(indexValue)
@@ -1651,7 +1627,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                       },
                     };
                   }
-                } else if (!evaluatedArgExpr.$.value) {
+                } else if (!argValue) {
                   // Runtime index into comptime array/slice: convert to runtime type
                   return {
                     ...functionToCall,
