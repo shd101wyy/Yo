@@ -587,3 +587,55 @@ test "GenericPoint comptime Index mutation", {
   comptime_assert((gp2(usize(0)) == i32(70)), "gp2(0) should be 70 after mutation");
   comptime_assert((gp2(usize(1)) == i32(8)), "gp2(1) should still be 8");
 };
+
+// === Tuple-like struct Index + ComptimeIndex ===
+// Note: Can't impl Index directly on built-in Tuple types (orphan rule).
+// Using a struct wrapper to test tuple-style positional indexing.
+
+Pair :: struct(first : i32, second : i32);
+
+impl(Pair, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.first),
+      true => &(self.second)
+    )
+  )
+));
+
+impl(Pair, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.first),
+      true => &(self.second)
+    )
+  )
+));
+
+test "Pair runtime Index", {
+  p := Pair(i32(10), i32(20));
+  assert((p(usize(0)) == i32(10)), "p(0) should be 10");
+  assert((p(usize(1)) == i32(20)), "p(1) should be 20");
+};
+
+test "Pair runtime Index mutation", {
+  p := Pair(i32(10), i32(20));
+  p(usize(0)) = i32(100);
+  assert((p(usize(0)) == i32(100)), "p(0) should be 100 after mutation");
+  assert((p(usize(1)) == i32(20)), "p(1) should still be 20");
+};
+
+test "Pair comptime Index", {
+  p :: Pair(i32(30), i32(40));
+  comptime_assert((p(usize(0)) == i32(30)), "p(0) should be 30");
+  comptime_assert((p(usize(1)) == i32(40)), "p(1) should be 40");
+};
+
+test "Pair comptime Index mutation", {
+  p :: Pair(i32(30), i32(40));
+  p(usize(0)) = i32(300);
+  comptime_assert((p(usize(0)) == i32(300)), "p(0) should be 300 after mutation");
+  comptime_assert((p(usize(1)) == i32(40)), "p(1) should still be 40");
+};
