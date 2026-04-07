@@ -26,6 +26,8 @@ import {
 import {
   type ArrayValue,
   type ComptimeListValue,
+  type StructValue,
+  type TupleValue,
   isTypeValue,
   type TraitValue,
   type Value,
@@ -43,6 +45,17 @@ import { ValueTag } from "./value-tag";
  */
 export type Path = string[];
 export type PathCollection = Path[];
+
+/**
+ * Unified compile-time element/field reference for mutation and pointer creation.
+ * Used by assignment.ts for compile-time mutation (`arr(0) = value`) and by
+ * ptr-fns.ts for compile-time pointer creation (`&(arr(0))`).
+ */
+export type ComptimeRef =
+  | { kind: "array"; arrayValue: ArrayValue; index: number }
+  | { kind: "comptime_list"; listValue: ComptimeListValue; index: number }
+  | { kind: "struct"; structValue: StructValue; fieldIndex: number }
+  | { kind: "tuple"; tupleValue: TupleValue; fieldIndex: number };
 
 /*
  * Check if `path1` contains `path2`.
@@ -388,24 +401,16 @@ export interface EvaluatedExprData {
   sourceVariable?: Variable;
 
   /**
-   * For array element access expressions (arr(i)), this stores a reference to the
-   * ArrayValue and the index. This allows taking the address of array elements.
+   * Unified compile-time element/field reference for mutation and pointer creation.
+   * Enables compile-time operations like `arr(0) = value`, `p(0) = value`, `&(arr(0))`.
    *
-   * Example: For `arr(0)` in `&(arr(0))`, this stores { arrayValue, index: 0 }
+   * Discriminated by `kind`:
+   * - `"array"`: Array/slice element — mutates `arrayValue.elements[index]`
+   * - `"comptime_list"`: ComptimeList element — mutates `listValue.elements[index]`
+   * - `"struct"`: Struct field via ComptimeIndex — mutates `structValue.fields[fieldIndex]`
+   * - `"tuple"`: Tuple field via ComptimeIndex — mutates `tupleValue.fields[fieldIndex]`
    */
-  arrayElementRef?: {
-    arrayValue: ArrayValue;
-    index: number;
-  };
-
-  /**
-   * For comptime list element access (list(i)), this stores a reference to the
-   * ComptimeListValue and the index, enabling compile-time mutation via assignment.
-   */
-  comptimeListElementRef?: {
-    listValue: ComptimeListValue;
-    index: number;
-  };
+  comptimeRef?: ComptimeRef;
 
   /**
    * For Index trait dispatch expressions (value(i)), this stores the pointer type

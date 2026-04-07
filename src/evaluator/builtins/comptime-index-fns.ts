@@ -134,7 +134,11 @@ function evaluateComptimeElementIndex({
         type: elementType,
         value,
         pathCollection: [],
-        arrayElementRef: { arrayValue: sourceArray, index: absoluteIndex },
+        comptimeRef: {
+          kind: "array",
+          arrayValue: sourceArray,
+          index: absoluteIndex,
+        },
       };
       return expr;
     }
@@ -168,7 +172,7 @@ function evaluateComptimeElementIndex({
         type: elementType,
         value,
         pathCollection: [],
-        arrayElementRef: { arrayValue, index },
+        comptimeRef: { kind: "array", arrayValue, index },
       };
       return expr;
     }

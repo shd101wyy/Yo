@@ -485,3 +485,105 @@ test "Comptime string slicing with range variable", {
   range2 :: (6..=10);
   comptime_assert((x(range2) == "World"), "inclusive range var string slice");
 };
+
+// === Custom struct Index + ComptimeIndex ===
+
+Point :: struct(x : i32, y : i32);
+
+impl(Point, Index(usize)(
+  Output : i32,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+impl(Point, ComptimeIndex(usize)(
+  Output : i32,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+test "Point runtime Index", {
+  p1 := Point(i32(1), i32(2));
+  assert((p1(usize(0)) == i32(1)), "p1(0) should be 1");
+  assert((p1(usize(1)) == i32(2)), "p1(1) should be 2");
+};
+
+test "Point runtime Index mutation", {
+  p1 := Point(i32(1), i32(2));
+  p1(usize(0)) = i32(10);
+  assert((p1(usize(0)) == i32(10)), "p1(0) should be 10 after mutation");
+  assert((p1(usize(1)) == i32(2)), "p1(1) should still be 2");
+};
+
+test "Point comptime Index", {
+  p2 :: Point(i32(3), i32(4));
+  comptime_assert((p2(usize(0)) == i32(3)), "p2(0) should be 3");
+  comptime_assert((p2(usize(1)) == i32(4)), "p2(1) should be 4");
+};
+
+test "Point comptime Index mutation", {
+  p2 :: Point(i32(3), i32(4));
+  p2(usize(0)) = i32(30);
+  comptime_assert((p2(usize(0)) == i32(30)), "p2(0) should be 30 after mutation");
+  comptime_assert((p2(usize(1)) == i32(4)), "p2(1) should still be 4");
+};
+
+// === Generic struct Index + ComptimeIndex ===
+
+GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(x : T, y : T)
+);
+
+impl(forall(T), GenericPoint(T), Index(usize)(
+  Output : T,
+  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+impl(forall(T), where(T <: Comptime), GenericPoint(T), ComptimeIndex(usize)(
+  Output : T,
+  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
+    cond(
+      (idx == usize(0)) => &(self.x),
+      true => &(self.y)
+    )
+  )
+));
+
+test "GenericPoint runtime Index", {
+  gp1 := GenericPoint(i32)(i32(5), i32(6));
+  assert((gp1(usize(0)) == i32(5)), "gp1(0) should be 5");
+  assert((gp1(usize(1)) == i32(6)), "gp1(1) should be 6");
+};
+
+test "GenericPoint runtime Index mutation", {
+  gp1 := GenericPoint(i32)(i32(5), i32(6));
+  gp1(usize(0)) = i32(50);
+  assert((gp1(usize(0)) == i32(50)), "gp1(0) should be 50 after mutation");
+  assert((gp1(usize(1)) == i32(6)), "gp1(1) should still be 6");
+};
+
+test "GenericPoint comptime Index", {
+  gp2 :: GenericPoint(i32)(i32(7), i32(8));
+  comptime_assert((gp2(usize(0)) == i32(7)), "gp2(0) should be 7");
+  comptime_assert((gp2(usize(1)) == i32(8)), "gp2(1) should be 8");
+};
+
+test "GenericPoint comptime Index mutation", {
+  gp2 :: GenericPoint(i32)(i32(7), i32(8));
+  gp2(usize(0)) = i32(70);
+  comptime_assert((gp2(usize(0)) == i32(70)), "gp2(0) should be 70 after mutation");
+  comptime_assert((gp2(usize(1)) == i32(8)), "gp2(1) should still be 8");
+};

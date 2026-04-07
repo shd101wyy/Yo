@@ -1,16 +1,10 @@
 import type { Environment, Variable } from "../env";
 import { YoError } from "../error";
-import type { Expr, FnCallExpr, PathCollection } from "../expr";
+import type { Expr, FnCallExpr, PathCollection, ComptimeRef } from "../expr";
 import type { FunctionValue } from "../function-value";
 import type { Token } from "../token";
 import type { FunctionType, TraitType, Type } from "../types/definitions";
-import type {
-  ArrayValue,
-  ComptimeListValue,
-  ModuleValue,
-  TraitValue,
-  Value,
-} from "../value";
+import type { ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -379,23 +373,9 @@ export interface IndexCallResult {
   index?: number;
 
   /**
-   * For compile-time arrays, stores a reference to the ArrayValue and index.
-   * Used by assignment.ts for compile-time array mutation and by ptr-fns.ts
-   * for &(arr(0)) pointer creation.
+   * Unified compile-time element/field reference for mutation and pointer creation.
    */
-  arrayElementRef?: {
-    arrayValue: ArrayValue;
-    index: number;
-  };
-
-  /**
-   * For compile-time ComptimeLists, stores a reference to the ComptimeListValue and index.
-   * Used by assignment.ts for compile-time list mutation (l(0) = value).
-   */
-  comptimeListElementRef?: {
-    listValue: ComptimeListValue;
-    index: number;
-  };
+  comptimeRef?: ComptimeRef;
 }
 
 export interface FunctionToCall {

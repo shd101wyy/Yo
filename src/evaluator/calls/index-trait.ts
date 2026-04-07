@@ -1,7 +1,13 @@
 import type { Environment } from "../../env";
-import { getVariablesFromEnv } from "../../env";
+import { addVariableToEnv, getVariablesFromEnv, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { type Expr, type FnCallExpr, exprToString } from "../../expr";
+import {
+  type Expr,
+  type FnCallExpr,
+  type ComptimeRef,
+  exprToString,
+} from "../../expr";
+import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createPtrType,
@@ -29,6 +35,7 @@ import {
 } from "../../types/utils";
 import type { ArrayValue, SliceValue, Value } from "../../value";
 import {
+  createPtrValue,
   createSliceValue,
   createTypeValue,
   createUnknownValue,
@@ -36,8 +43,10 @@ import {
   isComptimeStringValue,
   isFunctionValue,
   isNumberValue,
+  isPtrValue,
   isSliceValue,
   isStructValue,
+  isTupleValue,
   isTraitValue,
   isTypeValue,
   isUnknownValue,
@@ -257,6 +266,28 @@ export function tryToCallWithIndexTrait({
     return comptimeResult;
   }
 
+  // For comptime values of custom types (structs, enums, etc.), try ComptimeIndex dispatch.
+  // This handles types like Point that implement ComptimeIndex(usize).
+  if (
+    selfValue &&
+    !isUnknownValue(selfValue) &&
+    !arrayValue &&
+    !sliceValue &&
+    stringValue === undefined
+  ) {
+    const comptimeResult = tryComptimeCustomTypeIndex({
+      expr,
+      argExpr,
+      selfValue,
+      valueType,
+      callerEnv,
+      context,
+    });
+    if (comptimeResult) {
+      return comptimeResult;
+    }
+  }
+
   // Runtime path: evaluate the argument to get its type, find the Index method,
   // and return UnknownValue with method info for codegen.
   const evaluatedArgExpr = evaluateExpression({
@@ -354,6 +385,250 @@ function findIndexMethodSafe({
 
     return { fnType: indexMethod.type, value: indexMethod.value };
   } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Find a ComptimeIndex method for a type. ComptimeIndex methods are distinguished
+ * from Index methods by having comptime parameters.
+ * Returns the method's function type, value, and whether it's a comptime method.
+ */
+function findComptimeIndexMethod({
+  concreteType,
+  argType,
+  env,
+}: {
+  concreteType: Type;
+  argType: Type;
+  env: Environment;
+}): { type: FunctionType; value: Value | undefined } | undefined {
+  const methods = findAllIndexMethods({ concreteType, env });
+
+  for (const method of methods) {
+    const fnType = method.type;
+    if (fnType.parameters.length !== 2) continue;
+
+    const selfParam = fnType.parameters[0]!;
+    const idxParam = fnType.parameters[1]!;
+
+    // self must be a pointer type
+    if (!isPtrType(selfParam.type)) continue;
+
+    // idx type must be compatible with the argument type
+    if (
+      !areTypesCompatible({ type: idxParam.type, env }, { type: argType, env })
+    ) {
+      continue;
+    }
+
+    // Return type must be a pointer type
+    if (!isPtrType(fnType.return.type)) continue;
+
+    // Check if this is a comptime method (both self and idx have isCompileTimeOnly)
+    if (selfParam.isCompileTimeOnly && idxParam.isCompileTimeOnly) {
+      return method;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Try to dispatch through ComptimeIndex for custom types (structs, enums, etc.).
+ * When a comptime value like `p :: Point(3, 4)` is indexed with `p(0)`,
+ * this evaluates the ComptimeIndex method at compile time.
+ */
+function tryComptimeCustomTypeIndex({
+  expr,
+  argExpr,
+  selfValue,
+  valueType,
+  callerEnv,
+  context,
+}: {
+  expr: FnCallExpr;
+  argExpr: Expr;
+  selfValue: Value;
+  valueType: Type;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): IndexCallResult | undefined {
+  // Evaluate the argument
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env: callerEnv,
+    context: { ...context, expectedType: undefined },
+  });
+  if (!evaluatedArgExpr.$ || !evaluatedArgExpr.$.value) {
+    return undefined; // Runtime arg — fall through
+  }
+
+  const argType = evaluatedArgExpr.$.type;
+  const argValue = evaluatedArgExpr.$.value;
+  callerEnv = evaluatedArgExpr.$.env;
+
+  // Find a ComptimeIndex method (comptime parameters)
+  const comptimeMethod = findComptimeIndexMethod({
+    concreteType: valueType,
+    argType,
+    env: callerEnv,
+  });
+
+  if (!comptimeMethod || !isFunctionValue(comptimeMethod.value)) {
+    return undefined; // No ComptimeIndex impl — fall through to runtime
+  }
+
+  const fnType = comptimeMethod.type;
+  const fnValue = comptimeMethod.value;
+
+  // Create a comptime pointer to self for the first argument
+  const selfPtrType = createPtrType(valueType);
+  const selfPtrValue = createPtrValue(selfPtrType, [selfValue]);
+
+  // Set up the calleeEnv with parameter bindings.
+  // Use the function type's captured env as the base, then push a frame
+  // with self and idx parameter values bound.
+  let calleeEnv = pushEnvFrame(fnType.env);
+  const selfParam = fnType.parameters[0]!;
+  const idxParam = fnType.parameters[1]!;
+  const paramToken = expr.func.token ?? PlaceholderToken;
+  ({ env: calleeEnv } = addVariableToEnv({
+    env: calleeEnv,
+    variable: {
+      name: selfParam.label,
+      type: selfParam.type,
+      value: [selfPtrValue],
+      isCompileTimeOnly: true,
+      isOwningTheRcValue: false,
+      initializedAtToken: paramToken,
+      consumedAtToken: undefined,
+      token: paramToken,
+    },
+  }));
+  ({ env: calleeEnv } = addVariableToEnv({
+    env: calleeEnv,
+    variable: {
+      name: idxParam.label,
+      type: idxParam.type,
+      value: [argValue],
+      isCompileTimeOnly: true,
+      isOwningTheRcValue: false,
+      initializedAtToken: paramToken,
+      consumedAtToken: undefined,
+      token: paramToken,
+    },
+  }));
+
+  // Call the ComptimeIndex method as a comptime function.
+  // Override isValidatingFunctionDefinition so the body actually executes
+  // (we have concrete comptime values, not validation placeholders).
+  const comptimeContext = {
+    ...context,
+    isValidatingFunctionDefinition: undefined,
+  };
+  try {
+    const result = evaluateComptimeFunctionCall({
+      functionCalleeExpr: expr.func,
+      functionType: fnType,
+      functionValue: fnValue,
+      argValues: {
+        forallArgs: [],
+        args: [
+          {
+            value: selfPtrValue,
+            parameterType: selfParam.type,
+            argType: selfPtrType,
+          },
+          {
+            value: argValue,
+            parameterType: idxParam.type,
+            argType,
+          },
+        ],
+        variadicArgs: [],
+      },
+      callerEnv,
+      calleeEnv,
+      context: comptimeContext,
+    });
+
+    const returnValue = result.value;
+
+    // The ComptimeIndex method returns *(Output). Deref to get the value.
+    const ptrReturnType = fnType.return.type;
+    if (!isPtrType(ptrReturnType)) {
+      return undefined;
+    }
+    const outputType = ptrReturnType.childType;
+
+    // If the return is a PtrValue, deref it to get the actual value
+    if (isPtrValue(returnValue)) {
+      const target = returnValue.targetValue[0];
+      let dereferencedValue: Value;
+      let comptimeRef: ComptimeRef | undefined;
+
+      if (isArrayValue(target)) {
+        dereferencedValue = target.elements[returnValue.targetIndex]!;
+        comptimeRef = {
+          kind: "array",
+          arrayValue: target,
+          index: returnValue.targetIndex,
+        };
+      } else if (isStructValue(target)) {
+        dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
+        comptimeRef = {
+          kind: "struct",
+          structValue: target,
+          fieldIndex: returnValue.targetIndex,
+        };
+      } else if (isTupleValue(target)) {
+        dereferencedValue = target.fields[returnValue.targetIndex] ?? target;
+        comptimeRef = {
+          kind: "tuple",
+          tupleValue: target,
+          fieldIndex: returnValue.targetIndex,
+        };
+      } else {
+        dereferencedValue = target;
+      }
+
+      // Also find the runtime Index method for codegen
+      const runtimeMethod = findIndexMethod({
+        concreteType: valueType,
+        argType,
+        env: callerEnv,
+      });
+
+      return {
+        value: dereferencedValue,
+        type: outputType,
+        ptrType: ptrReturnType,
+        indexMethodType: runtimeMethod?.type,
+        indexMethodValue: runtimeMethod?.value,
+        callerEnv,
+        comptimeRef,
+      };
+    }
+
+    // Return value is not a PtrValue (e.g., UnknownValue during validation)
+    // Just return it with the output type
+    const runtimeMethod = findIndexMethod({
+      concreteType: valueType,
+      argType,
+      env: callerEnv,
+    });
+
+    return {
+      value: returnValue,
+      type: outputType,
+      ptrType: ptrReturnType,
+      indexMethodType: runtimeMethod?.type,
+      indexMethodValue: runtimeMethod?.value,
+      callerEnv,
+    };
+  } catch (e) {
+    // ComptimeIndex evaluation failed — fall through to runtime
     return undefined;
   }
 }
@@ -718,7 +993,6 @@ function tryComptimeElementAccess({
         });
       }
       const elementValue = arrayValue.elements[index]!;
-      const arrayElementRef = { arrayValue, index };
       return {
         value: elementValue,
         type: returnType,
@@ -727,7 +1001,7 @@ function tryComptimeElementAccess({
         indexMethodValue: undefined,
         callerEnv,
         index,
-        arrayElementRef,
+        comptimeRef: { kind: "array", arrayValue, index },
       };
     }
 
@@ -742,10 +1016,6 @@ function tryComptimeElementAccess({
       const absoluteIndex = sliceValue.startIndex + index;
       const sourceArray = sliceValue.sourceArray[0]!;
       const elementValue = sourceArray.elements[absoluteIndex]!;
-      const arrayElementRef = {
-        arrayValue: sourceArray,
-        index: absoluteIndex,
-      };
       return {
         value: elementValue,
         type: returnType,
@@ -754,7 +1024,11 @@ function tryComptimeElementAccess({
         indexMethodValue: undefined,
         callerEnv,
         index,
-        arrayElementRef,
+        comptimeRef: {
+          kind: "array",
+          arrayValue: sourceArray,
+          index: absoluteIndex,
+        },
       };
     }
   } else if (!argValue) {

@@ -34,8 +34,10 @@ import {
   createUsizeType,
 } from "../../types/creators";
 import type {
+  ArrayType,
   FunctionParameter,
   FunctionType,
+  SliceType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -1390,9 +1392,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             // slice
             isSliceType(functionToCall.type)
           ) {
-            const arrayType = functionToCall.type as
-              | import("../../types/definitions").ArrayType
-              | import("../../types/definitions").SliceType;
+            const arrayType = functionToCall.type as ArrayType | SliceType;
 
             // Index trait dispatch: handles both comptime and runtime indexing
             // For comptime values, tryToCallWithIndexTrait dispatches through
@@ -1485,10 +1485,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               }
               const elementValue = listValue.elements[index]!;
               const elementType = listValue.type.childType;
-              const comptimeListElementRef = {
-                listValue,
-                index,
-              };
               return {
                 ...functionToCall,
                 result: {
@@ -1501,7 +1497,11 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                     indexMethodValue: undefined,
                     callerEnv,
                     index,
-                    comptimeListElementRef,
+                    comptimeRef: {
+                      kind: "comptime_list" as const,
+                      listValue,
+                      index,
+                    },
                   },
                 },
               };
@@ -2698,8 +2698,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         indexMethodValue,
         callerEnv,
         index,
-        arrayElementRef,
-        comptimeListElementRef,
+        comptimeRef,
       } = getIndexCallResult(functionToCall);
 
       // Build pathCollection for compile-time array element access (assignment support)
@@ -2726,8 +2725,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         indexTraitPtrType: ptrType,
         indexMethodType: indexMethodType,
         indexMethodValue: indexMethodValue,
-        arrayElementRef: arrayElementRef,
-        comptimeListElementRef: comptimeListElementRef,
+        comptimeRef,
         isAccessingProperty: true,
       };
 

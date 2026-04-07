@@ -1701,6 +1701,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     deferredDropExpressions,
     consumedVariableDropExpressions,
     poppedEnvFrame: currentFrame,
+    // Propagate comptimeRef from the last expression so that
+    // &(begin(self.x)) can create compile-time pointers via ComptimeIndex.
+    comptimeRef: lastExpr.$.comptimeRef,
   };
 
   // Attach temp variable for the begin block result
