@@ -446,6 +446,40 @@ test "ComptimeList indexing: multiple mutations", {
   comptime_assert((l(2) == 300), "l(2) should be 300");
 };
 
+test "ComptimeList indexing: range slicing", {
+  l :: ComptimeList(i32)(10, 20, 30, 40, 50);
+  sliced :: l((usize(1)..usize(4)));
+  comptime_assert((sliced.len() == usize(3)), "sliced length should be 3");
+  comptime_assert((sliced(0) == 20), "sliced(0) should be 20");
+  comptime_assert((sliced(1) == 30), "sliced(1) should be 30");
+  comptime_assert((sliced(2) == 40), "sliced(2) should be 40");
+};
+
+test "ComptimeList indexing: inclusive range slicing", {
+  l :: ComptimeList(i32)(10, 20, 30, 40, 50);
+  sliced :: l((usize(1)..=usize(3)));
+  comptime_assert((sliced.len() == usize(3)), "sliced length should be 3");
+  comptime_assert((sliced(0) == 20), "sliced(0) should be 20");
+  comptime_assert((sliced(1) == 30), "sliced(1) should be 30");
+  comptime_assert((sliced(2) == 40), "sliced(2) should be 40");
+};
+
+test "ComptimeList indexing: range slicing edge cases", {
+  l :: ComptimeList(i32)(1, 2, 3);
+  // Full range
+  full :: l((usize(0)..usize(3)));
+  comptime_assert((full.len() == usize(3)), "full range length should be 3");
+  comptime_assert((full(0) == 1), "full(0) should be 1");
+  comptime_assert((full(2) == 3), "full(2) should be 3");
+  // Empty range
+  empty :: l((usize(1)..usize(1)));
+  comptime_assert((empty.len() == usize(0)), "empty range length should be 0");
+  // Single element range
+  single :: l((usize(0)..usize(1)));
+  comptime_assert((single.len() == usize(1)), "single range length should be 1");
+  comptime_assert((single(0) == 1), "single(0) should be 1");
+};
+
 // ============================================================
 // Comptime range variable indexing
 // ============================================================

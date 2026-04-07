@@ -944,7 +944,15 @@ ${exprToString(expr)}`,
         expr,
         BuiltinFunctions.__yo_comptime_string_index_range_inclusive
       ) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_list_index_range
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_list_index_range_inclusive
+      )
     ) {
       return evaluateYoComptimeIndexFunctions({
         expr: expr as FnCallExpr,
