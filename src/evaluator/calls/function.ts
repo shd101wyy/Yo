@@ -30,7 +30,6 @@ import {
   createExprType,
   createFunctionType,
   createPtrType,
-  createSliceType,
   createTypeApplicationType,
   createUsizeType,
 } from "../../types/creators";
@@ -62,15 +61,11 @@ import {
   isUnionType,
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
-import {
-  convertComptimeTypeToRuntimeType,
-  typeToString,
-} from "../../types/utils";
+import { typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createEnumValue,
-  createSliceValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
@@ -84,7 +79,6 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  isStructValue,
   type ComptimeStringValue,
   type Value,
   valueToString,
@@ -111,9 +105,12 @@ import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-ty
 import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { hasIndexImpl, tryToCallWithIndexTrait } from "./index-trait";
+import {
+  tryComptimeArraySliceIndex,
+  tryComptimeStringIndex,
+} from "./comptime-index";
 import { evaluateIsoValueCall } from "./iso";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
-import { computeComptimeStringIndex } from "../builtins/comptime-index-fns";
 import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
@@ -1414,259 +1411,22 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
 
             // Inline comptime dispatch: handles comptime array/slice with comptime indices
             if (hasComptimeValue && argsToUse.length === 1) {
-              const argExpr = argsToUse[0]!;
-
-              // Evaluate the argument once — then dispatch based on its type
-              const evaluatedArgExpr = evaluateExpression({
-                expr: argExpr,
+              const comptimeResult = tryComptimeArraySliceIndex({
+                argExpr: argsToUse[0]!,
+                arrayValue,
+                sliceValue,
+                arrayType,
                 env,
-                context: {
-                  ...context,
-                  expectedType: undefined,
-                },
+                context,
               });
-              if (!evaluatedArgExpr.$) {
-                throw formatErrorMessage({
-                  token: argExpr.token,
-                  errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
-                });
-              }
-              const callerEnv = evaluatedArgExpr.$.env;
-              const argType = evaluatedArgExpr.$.type;
-              const argValue = evaluatedArgExpr.$.value;
-
-              // Check if argument is a Range/RangeInclusive type (struct with start/end fields)
-              const isRange =
-                isStructType(argType) &&
-                argType.fields.length === 2 &&
-                argType.fields[0]!.label === "start" &&
-                argType.fields[1]!.label === "end";
-
-              if (isRange) {
-                const isInclusive = (argType.typeName ?? "").includes(
-                  "RangeInclusive"
-                );
-                const sliceType = createSliceType(arrayType.childType);
-
-                // Extract start/end values from the range struct
-                if (isStructValue(argValue)) {
-                  const startVal = argValue.fields[0];
-                  const endVal = argValue.fields[1];
-
-                  if (
-                    startVal &&
-                    endVal &&
-                    isNumberValue(startVal) &&
-                    isNumberValue(endVal)
-                  ) {
-                    const startValue = startVal.value;
-                    const endValue = endVal.value;
-                    const startIndex =
-                      typeof startValue === "bigint"
-                        ? Number(startValue)
-                        : startValue;
-                    const endIndex =
-                      (typeof endValue === "bigint"
-                        ? Number(endValue)
-                        : endValue) + (isInclusive ? 1 : 0);
-
-                    if (arrayValue) {
-                      if (
-                        startIndex < 0 ||
-                        startIndex > arrayValue.elements.length
-                      ) {
-                        throw formatErrorMessage({
-                          token: argExpr.token,
-                          errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
-                        });
-                      }
-                      if (
-                        endIndex < startIndex ||
-                        endIndex > arrayValue.elements.length
-                      ) {
-                        throw formatErrorMessage({
-                          token: argExpr.token,
-                          errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
-                        });
-                      }
-                      const newSliceValue = createSliceValue(
-                        sliceType,
-                        [arrayValue],
-                        startIndex,
-                        endIndex
-                      );
-                      return {
-                        ...functionToCall,
-                        result: {
-                          kind: "index" as const,
-                          result: {
-                            value: newSliceValue,
-                            type: sliceType,
-                            ptrType: createPtrType(sliceType),
-                            indexMethodType: undefined,
-                            indexMethodValue: undefined,
-                            callerEnv,
-                          },
-                        },
-                      };
-                    }
-
-                    if (sliceValue) {
-                      const sliceLength =
-                        sliceValue.endIndex - sliceValue.startIndex;
-                      if (startIndex < 0 || startIndex > sliceLength) {
-                        throw formatErrorMessage({
-                          token: argExpr.token,
-                          errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${sliceLength}].`,
-                        });
-                      }
-                      if (endIndex < startIndex || endIndex > sliceLength) {
-                        throw formatErrorMessage({
-                          token: argExpr.token,
-                          errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${sliceLength}].`,
-                        });
-                      }
-                      const absoluteStart = sliceValue.startIndex + startIndex;
-                      const absoluteEnd = sliceValue.startIndex + endIndex;
-                      const newSliceValue = createSliceValue(
-                        sliceType,
-                        sliceValue.sourceArray,
-                        absoluteStart,
-                        absoluteEnd
-                      );
-                      return {
-                        ...functionToCall,
-                        result: {
-                          kind: "index" as const,
-                          result: {
-                            value: newSliceValue,
-                            type: sliceType,
-                            ptrType: createPtrType(sliceType),
-                            indexMethodType: undefined,
-                            indexMethodValue: undefined,
-                            callerEnv,
-                          },
-                        },
-                      };
-                    }
-                  }
-                }
-
-                // Runtime range indices — fall through to Index trait dispatch below
-              } else {
-                // Single element access with comptime index
-                const returnType = arrayType.childType;
-
-                if (isNumberValue(argValue)) {
-                  const indexValue = argValue.value;
-                  const index =
-                    typeof indexValue === "bigint"
-                      ? Number(indexValue)
-                      : indexValue;
-
-                  if (arrayValue) {
-                    if (index < 0 || index >= arrayValue.elements.length) {
-                      throw formatErrorMessage({
-                        token: argExpr.token,
-                        errorMessage: `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`,
-                      });
-                    }
-                    const elementValue = arrayValue.elements[index]!;
-                    const arrayElementRef = {
-                      arrayValue,
-                      index,
-                    };
-                    return {
-                      ...functionToCall,
-                      result: {
-                        kind: "index" as const,
-                        result: {
-                          value: elementValue,
-                          type: returnType,
-                          ptrType: createPtrType(returnType),
-                          indexMethodType: undefined,
-                          indexMethodValue: undefined,
-                          callerEnv,
-                          index,
-                          arrayElementRef,
-                        },
-                      },
-                    };
-                  }
-
-                  if (sliceValue) {
-                    const sliceLength =
-                      sliceValue.endIndex - sliceValue.startIndex;
-                    if (index < 0 || index >= sliceLength) {
-                      throw formatErrorMessage({
-                        token: argExpr.token,
-                        errorMessage: `Slice index out of bounds: ${index}. Expected index in range [0, ${sliceLength - 1}].`,
-                      });
-                    }
-                    const absoluteIndex = sliceValue.startIndex + index;
-                    const sourceArray = sliceValue.sourceArray[0]!;
-                    const elementValue = sourceArray.elements[absoluteIndex]!;
-                    const arrayElementRef = {
-                      arrayValue: sourceArray,
-                      index: absoluteIndex,
-                    };
-                    return {
-                      ...functionToCall,
-                      result: {
-                        kind: "index" as const,
-                        result: {
-                          value: elementValue,
-                          type: returnType,
-                          ptrType: createPtrType(returnType),
-                          indexMethodType: undefined,
-                          indexMethodValue: undefined,
-                          callerEnv,
-                          index,
-                          arrayElementRef,
-                        },
-                      },
-                    };
-                  }
-                } else if (!argValue) {
-                  // Runtime index into comptime array/slice: convert to runtime type
-                  return {
-                    ...functionToCall,
-                    result: {
-                      kind: "index" as const,
-                      result: {
-                        value: undefined,
-                        type: convertComptimeTypeToRuntimeType({
-                          type: returnType,
-                          env: callerEnv,
-                        }),
-                        ptrType: createPtrType(returnType),
-                        indexMethodType: undefined,
-                        indexMethodValue: undefined,
-                        callerEnv,
-                      },
-                    },
-                  };
-                } else {
-                  // Unknown comptime value (e.g., UnknownValue)
-                  const unknownValue = createUnknownValue(returnType, {
-                    env: callerEnv,
-                    context,
-                  });
-                  return {
-                    ...functionToCall,
-                    result: {
-                      kind: "index" as const,
-                      result: {
-                        value: unknownValue,
-                        type: returnType,
-                        ptrType: createPtrType(returnType),
-                        indexMethodType: undefined,
-                        indexMethodValue: undefined,
-                        callerEnv,
-                      },
-                    },
-                  };
-                }
+              if (comptimeResult) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "index" as const,
+                    result: comptimeResult,
+                  },
+                };
               }
             }
 
@@ -1984,54 +1744,17 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             argsToUse.length === 1
           ) {
             try {
-              const argExpr = argsToUse[0]!;
-              const evaluatedArg = evaluateExpression({
-                expr: argExpr,
-                env,
-                context: { ...context, expectedType: undefined },
-              });
-              if (!evaluatedArg.$ || !evaluatedArg.$.value) {
-                throw formatErrorMessage({
-                  token: argExpr.token,
-                  errorMessage: `Failed to evaluate index argument for comptime string indexing`,
-                });
-              }
-              const argType = evaluatedArg.$.type;
-              const argValue = evaluatedArg.$.value;
-              const callerEnv = evaluatedArg.$.env;
-
-              // Determine if this is a range index
-              const isRange =
-                isStructType(argType) &&
-                argType.fields.length === 2 &&
-                argType.fields[0]!.label === "start" &&
-                argType.fields[1]!.label === "end";
-              const isInclusive =
-                isRange && (argType.typeName ?? "").includes("RangeInclusive");
-
-              const resultValue = computeComptimeStringIndex({
+              const result = tryComptimeStringIndex({
+                argExpr: argsToUse[0]!,
                 strValue: (functionToCall.value as ComptimeStringValue).value,
-                argValue,
-                token: argExpr.token,
-                isRange,
-                isInclusive,
+                env,
+                context,
               });
-
-              const resultType = resultValue.type;
-              const ptrResultType = createPtrType(resultType);
-
               return {
                 ...functionToCall,
                 result: {
                   kind: "index",
-                  result: {
-                    value: resultValue,
-                    type: resultType,
-                    ptrType: ptrResultType,
-                    indexMethodType: undefined,
-                    indexMethodValue: undefined,
-                    callerEnv,
-                  },
+                  result,
                 },
               };
             } catch (error) {
