@@ -632,7 +632,7 @@ function typeTagToVariantName(tag: string): string {
     case TypeTag.Function:
       return "Function";
     case TypeTag.SomeType:
-      return "SomeType";
+      return "Some";
     case TypeTag.Slice:
       return "Slice";
     case TypeTag.Module:

@@ -50,8 +50,8 @@ TypeInfo :: enum(
   Module(fields : ComptimeList(TypeFieldInfo)),
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),
   Type(level : comptime_int),
-  SomeType(name : comptime_string, required_traits : ComptimeList(TraitInfo),
-           negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
+  Some(name : comptime_string, required_traits : ComptimeList(TraitInfo),
+       negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
 
   // === Comptime only ===
   ComptimeInt, ComptimeFloat, ComptimeString,
