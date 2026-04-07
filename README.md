@@ -32,7 +32,8 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Contributing](#contributing)
   - [Setup](#setup)
 - [Editor Support](#editor-support)
-- [AI / GitHub Copilot Skills](#ai--github-copilot-skills)
+- [AI Agent Skills](#ai-agent-skills)
+  - [Using in your own project](#using-in-your-own-project)
 - [Star History](#star-history)
 - [License](#license)
 
@@ -313,9 +314,9 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
 
-## AI / GitHub Copilot Skills
+## AI Agent Skills
 
-This repository ships a set of **GitHub Copilot agent skill files** that teach AI agents how to write Yo programs. The skills are portable — you can copy the `.github/skills/` directory into any Yo project and agents will be able to use them there too.
+This repository ships a set of **agent skill files** that teach AI agents how to write Yo programs. The skills are portable — you can copy the `.github/skills/` directory into any Yo project and agents will be able to use them there too.
 
 | Skill                                                                | Description                                                                        |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -332,7 +333,7 @@ Copy the skills directory into your Yo project:
 cp -r .github/skills /path/to/your-yo-project/.github/
 ```
 
-Then in any GitHub Copilot agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
+Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
 
 ## Star History
 

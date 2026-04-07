@@ -32,6 +32,8 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [贡献](#贡献)
   - [环境设置](#环境设置)
 - [编辑器支持](#编辑器支持)
+- [AI Agent 技能包](#ai-agent-技能包)
+  - [在自己的项目中使用](#在自己的项目中使用)
 - [Star 历史](#star-历史)
 - [许可证](#许可证)
 
@@ -310,6 +312,27 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 - Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
   详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。
+
+## AI Agent 技能包
+
+本仓库内置了一套 **Agent 技能文件**，帮助 AI Agent 学习如何编写 Yo 程序。这些技能文件具有可移植性 —— 只需将 `.github/skills/` 目录复制到任意 Yo 项目中，Agent 即可在该项目中使用它们。
+
+| 技能                                                                       | 描述                                                             |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [`yo-syntax`](../../.github/skills/yo-syntax/SKILL.md)                     | 核心语言语法：花括号语义、cond/match、结构体、枚举、运算符、模块 |
+| [`yo-core-patterns`](../../.github/skills/yo-core-patterns/SKILL.md)       | 常用模式：类型、泛型、trait、错误处理、集合、迭代器              |
+| [`yo-async-effects`](../../.github/skills/yo-async-effects/SKILL.md)       | 异步/await、代数效应、Exception、IO、任务派生                    |
+| [`yo-project-workflow`](../../.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI 命令、`build.yo` 项目文件、依赖管理                     |
+
+### 在自己的项目中使用
+
+将技能目录复制到你的 Yo 项目中：
+
+```bash
+cp -r .github/skills /path/to/your-yo-project/.github/
+```
+
+之后在任意 AI Agent 会话中，通过技能名称（例如 `@yo-syntax`）调用该技能，即可为 Agent 提供关于 Yo 语言的上下文知识。
 
 ## Star 历史
 
