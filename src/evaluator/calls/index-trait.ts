@@ -1,6 +1,6 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { type Expr, exprToString, type FnCallExpr } from "../../expr";
+import { type Expr, type FnCallExpr, exprToString } from "../../expr";
 import type { FunctionType, TraitType, Type } from "../../types/definitions";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
@@ -13,13 +13,20 @@ import { typeToString } from "../../types/utils";
 import type { Value } from "../../value";
 import {
   createUnknownValue,
+  isArrayValue,
+  isComptimeStringValue,
   isFunctionValue,
+  isSliceValue,
   isTraitValue,
   isUnknownValue,
 } from "../../value";
 import type { EvaluatorContext, IndexCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { findMethodsFromGenericImpls } from "../values/impl";
+import {
+  tryComptimeArraySliceIndex,
+  tryComptimeStringIndex,
+} from "./comptime-index";
 
 /**
  * Find all methods named "index" on a concrete type, checking both
@@ -132,18 +139,24 @@ function findIndexMethod({
  *
  * Desugars: value(arg) → Index(typeof(arg)).index(&(value), arg).*
  *
- * Returns the auto-dereferenced result (Output type) and the pre-deref pointer type
- * for supporting &(value(arg)).
+ * For comptime values (arrays, slices, strings), this function directly
+ * computes the result using comptime indexing helpers, returning the
+ * computed value with arrayElementRef for mutation support.
+ *
+ * For runtime values, returns UnknownValue with method type info for codegen.
  */
 export function tryToCallWithIndexTrait({
   expr,
   valueType,
+  selfValue,
   argExprs,
   callerEnv,
   context,
 }: {
   expr: FnCallExpr;
   valueType: Type;
+  /** The compile-time value of self, if known. Enables comptime index dispatch. */
+  selfValue?: Value;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -157,7 +170,75 @@ export function tryToCallWithIndexTrait({
 
   const argExpr = argExprs[0]!;
 
-  // Evaluate the argument to get its type
+  // Check if self has a comptime value that can be indexed at compile time
+  const arrayValue =
+    selfValue && isArrayValue(selfValue) ? selfValue : undefined;
+  const sliceValue =
+    selfValue && isSliceValue(selfValue) ? selfValue : undefined;
+  const stringValue =
+    selfValue && isComptimeStringValue(selfValue) ? selfValue.value : undefined;
+  const hasComptimeValue = !!(
+    arrayValue ||
+    sliceValue ||
+    stringValue !== undefined
+  );
+
+  // For comptime array/slice values, try comptime dispatch first
+  if (
+    hasComptimeValue &&
+    (arrayValue || sliceValue) &&
+    (isArrayType(valueType) || isSliceType(valueType))
+  ) {
+    const comptimeResult = tryComptimeArraySliceIndex({
+      argExpr,
+      arrayValue,
+      sliceValue,
+      arrayType: valueType as
+        | import("../../types/definitions").ArrayType
+        | import("../../types/definitions").SliceType,
+      env: callerEnv,
+      context,
+    });
+    if (comptimeResult) {
+      // Enrich with Index method info for codegen (needed for runtime fallback paths)
+      const indexMethod = findIndexMethodSafe({
+        concreteType: valueType,
+        argExpr,
+        callerEnv,
+        context,
+      });
+      if (indexMethod) {
+        comptimeResult.indexMethodType = indexMethod.fnType;
+        comptimeResult.indexMethodValue = indexMethod.value;
+      }
+      return comptimeResult;
+    }
+  }
+
+  // For comptime string values, try comptime dispatch
+  if (stringValue !== undefined) {
+    const comptimeResult = tryComptimeStringIndex({
+      argExpr,
+      strValue: stringValue,
+      env: callerEnv,
+      context,
+    });
+    // Enrich with Index method info for codegen
+    const indexMethod = findIndexMethodSafe({
+      concreteType: valueType,
+      argExpr,
+      callerEnv,
+      context,
+    });
+    if (indexMethod) {
+      comptimeResult.indexMethodType = indexMethod.fnType;
+      comptimeResult.indexMethodValue = indexMethod.value;
+    }
+    return comptimeResult;
+  }
+
+  // Runtime path: evaluate the argument to get its type, find the Index method,
+  // and return UnknownValue with method info for codegen.
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env: callerEnv,
@@ -218,6 +299,43 @@ export function tryToCallWithIndexTrait({
     indexMethodValue: indexMethod.value,
     callerEnv,
   };
+}
+
+/**
+ * Helper to find the Index method for a type, evaluating the arg expression
+ * to get its type. Used to enrich comptime results with method info for codegen.
+ * Returns undefined if no method found (non-fatal).
+ */
+function findIndexMethodSafe({
+  concreteType,
+  argExpr,
+  callerEnv,
+  context,
+}: {
+  concreteType: Type;
+  argExpr: Expr;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): { fnType: FunctionType; value: Value | undefined } | undefined {
+  try {
+    const evaluatedArgExpr = evaluateExpression({
+      expr: argExpr,
+      env: callerEnv,
+      context: { ...context, expectedType: undefined },
+    });
+    if (!evaluatedArgExpr.$) return undefined;
+
+    const indexMethod = findIndexMethod({
+      concreteType,
+      argType: evaluatedArgExpr.$.type,
+      env: evaluatedArgExpr.$.env,
+    });
+    if (!indexMethod) return undefined;
+
+    return { fnType: indexMethod.type, value: indexMethod.value };
+  } catch {
+    return undefined;
+  }
 }
 
 /**

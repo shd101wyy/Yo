@@ -69,17 +69,14 @@ import {
   createStructValue,
   createTypeValue,
   createUnknownValue,
-  isArrayValue,
   isComptimeListValue,
   isComptimeStringValue,
   isExprValue,
   isFunctionValue,
   isNumberValue,
-  isSliceValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  type ComptimeStringValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -105,10 +102,6 @@ import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-ty
 import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { hasIndexImpl, tryToCallWithIndexTrait } from "./index-trait";
-import {
-  tryComptimeArraySliceIndex,
-  tryComptimeStringIndex,
-} from "./comptime-index";
 import { evaluateIsoValueCall } from "./iso";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
 import {
@@ -1397,40 +1390,13 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             // slice
             isSliceType(functionToCall.type)
           ) {
-            const functionToCallValue = functionToCall.value;
-            const arrayValue = isArrayValue(functionToCallValue)
-              ? functionToCallValue
-              : undefined;
-            const sliceValue = isSliceValue(functionToCallValue)
-              ? functionToCallValue
-              : undefined;
-            const hasComptimeValue = !!(arrayValue || sliceValue);
             const arrayType = functionToCall.type as
               | import("../../types/definitions").ArrayType
               | import("../../types/definitions").SliceType;
 
-            // Inline comptime dispatch: handles comptime array/slice with comptime indices
-            if (hasComptimeValue && argsToUse.length === 1) {
-              const comptimeResult = tryComptimeArraySliceIndex({
-                argExpr: argsToUse[0]!,
-                arrayValue,
-                sliceValue,
-                arrayType,
-                env,
-                context,
-              });
-              if (comptimeResult) {
-                return {
-                  ...functionToCall,
-                  result: {
-                    kind: "index" as const,
-                    result: comptimeResult,
-                  },
-                };
-              }
-            }
-
-            // Index trait dispatch: runtime arrays/slices, or comptime with runtime range indices
+            // Index trait dispatch: handles both comptime and runtime indexing
+            // For comptime values, tryToCallWithIndexTrait dispatches through
+            // comptime helpers to compute actual values with arrayElementRef.
             if (
               hasIndexImpl({
                 concreteType: functionToCall.type,
@@ -1443,6 +1409,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 const result = tryToCallWithIndexTrait({
                   expr,
                   valueType: functionToCall.type,
+                  selfValue: functionToCall.value,
                   argExprs: argsToUse,
                   callerEnv: env,
                   context: { ...context },
@@ -1737,6 +1704,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             }
           }
           // comptime_string indexing: "hello"(0), "hello"(0..3), etc.
+          // Uses Index trait dispatch with comptime string helpers.
           else if (
             !isTypeValue(value) &&
             isComptimeStringType(functionToCall.type) &&
@@ -1744,11 +1712,13 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             argsToUse.length === 1
           ) {
             try {
-              const result = tryComptimeStringIndex({
-                argExpr: argsToUse[0]!,
-                strValue: (functionToCall.value as ComptimeStringValue).value,
-                env,
-                context,
+              const result = tryToCallWithIndexTrait({
+                expr,
+                valueType: functionToCall.type,
+                selfValue: functionToCall.value,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
               });
               return {
                 ...functionToCall,
@@ -1781,6 +1751,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               const result = tryToCallWithIndexTrait({
                 expr,
                 valueType: functionToCall.type,
+                selfValue: functionToCall.value,
                 argExprs: argsToUse,
                 callerEnv: env,
                 context: { ...context },
