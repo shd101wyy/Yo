@@ -941,6 +941,9 @@ export function findMethodsFromGenericImpls({
   }
 
   const methods: { type: FunctionType; value: Value | undefined }[] = [];
+  // Track whether each method comes from an inherent (anonymous) impl.
+  // Inherent methods take priority over trait impl methods (like Rust).
+  const methodIsInherent: boolean[] = [];
 
   // Search through all trait types in the registry
   for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
@@ -958,6 +961,7 @@ export function findMethodsFromGenericImpls({
       // Found a matching impl - look for the method
       const traitType = impl.traitType;
       const traitValue = impl.traitValue;
+      const isInherentImpl = !traitType.typeName;
 
       const methodIndex = traitType.fields.findIndex(
         (f) => f.label === methodName && isFunctionType(f.type)
@@ -1131,6 +1135,7 @@ export function findMethodsFromGenericImpls({
               type: specializedType,
               value: specializedFunctionValue,
             });
+            methodIsInherent.push(isInherentImpl);
           } else if (hasUnknownTypes) {
             // We have unknown types (like unknown array length), so we can't fully specialize
             // the function body. However, we should still re-evaluate the function TYPE
@@ -1186,9 +1191,8 @@ export function findMethodsFromGenericImpls({
               specializedEnv,
               SelfType: match.substitutions.get("Self"),
             });
-
-            // Return the specialized type but undefined value (body will be specialized at call site)
             methods.push({ type: specializedType, value: undefined });
+            methodIsInherent.push(isInherentImpl);
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {
@@ -1199,6 +1203,7 @@ export function findMethodsFromGenericImpls({
               type: method.type,
               value: specializedFunctionValue,
             });
+            methodIsInherent.push(isInherentImpl);
           } else if (
             !isFunctionValue(originalValue) &&
             (match.substitutions.size > 0 || match.valueSubstitutions.size > 0)
@@ -1250,24 +1255,36 @@ export function findMethodsFromGenericImpls({
             });
 
             methods.push({ type: specializedType, value: originalValue });
+            methodIsInherent.push(isInherentImpl);
           } else {
             methods.push({ type: method.type, value: originalValue });
+            methodIsInherent.push(isInherentImpl);
           }
         }
       }
     }
   }
 
+  // Inherent (non-trait) impl methods take priority over trait impl methods.
+  // If we found the same method name from both inherent impls and trait impls,
+  // keep only the inherent impl versions to avoid ambiguity.
+  const hasInherent = methodIsInherent.some((v) => v);
+  const hasTraitImpl = methodIsInherent.some((v) => !v);
+  let filteredMethods = methods;
+  if (hasInherent && hasTraitImpl) {
+    filteredMethods = methods.filter((_, i) => methodIsInherent[i]);
+  }
+
   // Store result in cache for non-SomeType concrete types
   if (!isSomeType(concreteType)) {
     const cacheKey = typeToString(concreteType) + "\0" + methodName;
     genericImplMethodCache.set(cacheKey, {
-      result: methods,
+      result: filteredMethods,
       version: genericImplRegistryVersion,
     });
   }
 
-  return methods;
+  return filteredMethods;
 }
 
 /**
