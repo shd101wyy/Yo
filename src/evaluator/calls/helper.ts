@@ -522,7 +522,14 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
     isSomeType(parameterType) &&
     (getWhereClauseConstraintsForSomeType(calleeEnv, parameterType)
       ?.requiredTraits?.length ?? 0) > 0;
-  const bindingType = useConstrainedSomeType ? parameterType : argType;
+  // When using the constrained SomeType, clone it with resolvedConcreteType set
+  // to the concrete arg type. This lets codegen resolve the correct C type (e.g.,
+  // `str*` instead of `void**`) while preserving the SomeType identity for trait
+  // method dispatch. We must clone instead of mutating the original, because the
+  // parameterType is shared across all callers of this function type.
+  const bindingType = useConstrainedSomeType
+    ? { ...(parameterType as SomeType), resolvedConcreteType: argType }
+    : argType;
 
   const { env: nextEnv } = addVariableToEnv({
     env: calleeEnv,
