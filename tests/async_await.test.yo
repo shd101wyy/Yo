@@ -6,16 +6,16 @@ open import "std/fmt";
 // ---------------------------------------------------------------------------
 // 1. Basic lazy async – verify task doesn't run until awaited
 // ---------------------------------------------------------------------------
-test "Test lazy async", using(io : IO), {
+test "Test lazy async", using(my_io : IO), {
   b := Box(i32)(0);
 
-  task := io.async((using(io : IO))=> {
+  task := my_io.async((using(another_io : IO))=> {
     printf("Task started %d\n", b.*);
 
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    io.await(yield());
+    another_io.await(yield());
 
     printf("Task completed %d\n", b.*);
     assert(c.* == 10, "captured Box should still be 10");
@@ -25,7 +25,7 @@ test "Test lazy async", using(io : IO), {
   printf("Running main... %d\n", b.*);
   assert(b.* == 0, "b should be 0 before await (lazy)");
 
-  io.await(task);
+  my_io.await(task);
   assert(b.* == 1, "b should be 1 after task completes");
 };
 
