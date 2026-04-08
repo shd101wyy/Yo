@@ -40,6 +40,29 @@ description: "Use when running tests, setting up test files, or debugging test f
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
 - If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
 
+## Test syntax
+
+Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
+
+```rust
+test "my test", {
+  assert(true, "ok");
+};
+```
+
+**`io : IO` is automatically injected** into every test body — no `using` clause is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
+
+```rust
+test "Async test", {
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+  });
+  io.await(task);
+};
+```
+
+> **Note:** The old `test "name", using(io : IO), { body }` 3-argument form is no longer supported.
+
 ## Assertion builtins for Yo tests
 
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)

@@ -2679,7 +2679,8 @@ test "Test description", {
   assert(x == 2);
 };
 
-test "With effects", using(io : IO), {
+// IO 通过 `io` 自动注入到所有测试体中
+test "With effects", {
   io.await(sleep(u64(1000)));
 };
 ```

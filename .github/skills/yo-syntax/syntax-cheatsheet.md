@@ -336,13 +336,13 @@ test "Compile-time check", {
   comptime_expect_error({ x :: (1 / 0); });
 };
 
-test "Async test", using(io : IO), {
+test "Async test", {
   io.await(yield());
 };
 ```
 
-- `test "description", { body }` defines a runtime test
-- `test "description", using(io : IO), { body }` for async tests
+- `test "description", { body }` defines a test — `io : IO` is automatically available
+- All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — runtime assertion (always include a message)
 - `comptime_assert(condition)` — compile-time assertion
 - `comptime_expect_error(expr)` — verify code produces a compile error

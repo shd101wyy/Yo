@@ -170,8 +170,8 @@ main :: (fn(using(io : IO)) -> unit)({
 });
 export main;
 
-// 测试块同样接收 IO 效应
-test "my test", using(io : IO), {
+// 测试块自动提供 `io : IO`
+test "my test", {
   task := io.async((using(io : IO))=> { /* ... */ });
   io.await(task);
 };

@@ -2679,7 +2679,8 @@ test "Test description", {
   assert(x == 2);
 };
 
-test "With effects", using(io : IO), {
+// IO is implicitly available via `io` in all test bodies
+test "With effects", {
   io.await(sleep(u64(1000)));
 };
 ```

@@ -105,14 +105,14 @@ test "Compile-time check", {
   comptime_expect_error({ x :: (1 / 0); });
 };
 
-test "Async test", using(io : IO), {
+test "Async test", {
   { yield } :: import "std/async";
   io.await(yield());
 };
 ```
 
-- `test "name", { body }` defines a runtime test
-- `test "name", using(io : IO), { body }` for async tests
+- `test "name", { body }` defines a test — `io : IO` is automatically available
+- All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — always include a message string
 - `comptime_assert(expr)` — verified at compile time
 - `comptime_expect_error(expr)` — verify code produces a compile error

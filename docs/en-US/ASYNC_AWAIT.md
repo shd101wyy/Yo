@@ -170,8 +170,8 @@ main :: (fn(using(io : IO)) -> unit)({
 });
 export main;
 
-// Test blocks also receive IO effect
-test "my test", using(io : IO), {
+// Test blocks automatically have `io : IO` available
+test "my test", {
   task := io.async((using(io : IO))=> { /* ... */ });
   io.await(task);
 };
