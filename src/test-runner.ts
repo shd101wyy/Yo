@@ -334,6 +334,65 @@ export main;
 }
 
 /**
+ * Generate a batched Yo program containing all test functions,
+ * dispatched by the YO_TEST_INDEX environment variable.
+ * This allows compiling all tests in a file into a single binary,
+ * then running the binary multiple times (once per test).
+ */
+function generateBatchedTestProgram(
+  tests: StringifiedTestData[],
+  nonTestContent: string
+): string {
+  // Determine main's using clause — union of all tests' using clauses.
+  // In practice, this is always either "" or "using(io : IO)".
+  const uniqueUsings = [
+    ...new Set(tests.map((t) => t.usingString).filter((s) => s.length > 0)),
+  ];
+  const mainUsing = uniqueUsings.length > 0 ? uniqueUsings[0]! : "";
+
+  const lines: string[] = [];
+
+  // Non-test content (imports, helpers, etc.)
+  if (nonTestContent.trim().length > 0) {
+    lines.push(nonTestContent + ";");
+  }
+  lines.push("");
+
+  // Import process module for env var dispatch (unique name to avoid conflicts)
+  lines.push('__yo_batch_process :: import "std/process";');
+  lines.push("");
+
+  // Individual test functions
+  for (let i = 0; i < tests.length; i++) {
+    const test = tests[i]!;
+    const fnParams = test.usingString || "";
+    lines.push(`__yo_test_fn_${i} :: (fn(${fnParams}) -> unit) {`);
+    lines.push(`  ${test.bodyString};`);
+    lines.push("};");
+    lines.push("");
+  }
+
+  // Main function with env-var dispatch
+  lines.push(`main :: (fn(${mainUsing}) -> unit) {`);
+  lines.push("  match(__yo_batch_process.env.get(`YO_TEST_INDEX`),");
+  lines.push("    .Some(__yo_test_idx) => cond(");
+  for (let i = 0; i < tests.length; i++) {
+    lines.push(
+      "      (__yo_test_idx == `" + i + "`) => __yo_test_fn_" + i + "(),"
+    );
+  }
+  lines.push("      true => ()");
+  lines.push("    ),");
+  lines.push("    .None => ()");
+  lines.push("  );");
+  lines.push("};");
+  lines.push("");
+  lines.push("export main;");
+
+  return lines.join("\n");
+}
+
+/**
  * Compile and run a single test
  */
 function runSingleTest(
@@ -722,6 +781,391 @@ function runSingleTest(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Batched test compilation — compile all tests in a file into one binary
+// ---------------------------------------------------------------------------
+
+interface BatchCompileResult {
+  success: boolean;
+  binaryPath: string;
+  cleanup: () => void;
+  error?: string;
+  yoCompileMs?: number;
+  cCompileMs?: number;
+}
+
+/**
+ * Compile all tests in a file into a single binary.
+ * The binary reads YO_TEST_INDEX env var to dispatch to a test function.
+ * Caller MUST call cleanup() on the returned result when done.
+ */
+function compileBatchedBinary(
+  tests: StringifiedTestData[],
+  nonTestContent: string,
+  filePath: string,
+  cCompiler: string,
+  wasmTarget?: TargetInfo,
+  keepGeneratedFiles?: boolean
+): BatchCompileResult {
+  const program = generateBatchedTestProgram(tests, nonTestContent);
+  const originalDir = path.dirname(filePath);
+  const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const baseName = `.yo_test_batch_${uniqueId}`;
+  const testFilePath = path.join(originalDir, `${baseName}.yo`);
+
+  const compilerInfo = getCompilerInfo(cCompiler);
+  const { isMSVC, isWindows, isEmcc } = compilerInfo;
+  const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
+  const exeExtension = isWasi
+    ? ".wasm"
+    : isEmcc
+      ? ".js"
+      : isWindows
+        ? ".exe"
+        : "";
+  const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
+  const testCPath = path.join(originalDir, `${baseName}.c`);
+  const testWasmPath =
+    isEmcc && !isWasi ? path.join(originalDir, `${baseName}.wasm`) : undefined;
+  const testPdbPath = isWindows
+    ? path.join(originalDir, `${baseName}.pdb`)
+    : undefined;
+
+  const cleanup = () => {
+    if (keepGeneratedFiles) {
+      console.log(`  ${colors.dim}Keeping generated files:${colors.reset}`);
+      console.log(`    ${colors.dim}.yo file: ${testFilePath}${colors.reset}`);
+      console.log(`    ${colors.dim}.c file: ${testCPath}${colors.reset}`);
+      return;
+    }
+    const filesToClean = [testFilePath, testOutputPath, testCPath];
+    if (testPdbPath) filesToClean.push(testPdbPath);
+    if (testWasmPath) filesToClean.push(testWasmPath);
+    for (const file of filesToClean) {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    }
+  };
+
+  let moduleManager: ModuleManager | null = null;
+  try {
+    fs.writeFileSync(testFilePath, program);
+
+    clearAllGlobalImplState();
+    clearEnvContainingPrelude();
+    clearAllCachedTypes();
+    clearAllModuleCounters();
+
+    if (wasmTarget) {
+      setCurrentTarget(wasmTarget);
+      setTargetPointerSize(wasmTarget.pointerSizeBits);
+    } else if (isEmcc) {
+      const emscriptenTarget = parseTarget("wasm32-emscripten");
+      setCurrentTarget(emscriptenTarget);
+      setTargetPointerSize(emscriptenTarget.pointerSizeBits);
+    }
+
+    const yoCompileStart = Date.now();
+    moduleManager = new ModuleManager();
+    try {
+      moduleManager.compileModule(`file://${testFilePath}`, {
+        emitC: false,
+        debugGc: false,
+        debugParallelism: false,
+        debugAsyncAwait: false,
+        allocator: "libc",
+      });
+    } catch (compileError) {
+      moduleManager = null;
+      return {
+        success: false,
+        binaryPath: testOutputPath,
+        cleanup,
+        error: `Yo compilation error: ${compileError instanceof YoError ? compileError.toString() : compileError instanceof Error ? compileError.message : String(compileError)}`,
+      };
+    }
+    const yoCompileMs = Date.now() - yoCompileStart;
+
+    const generatedCode = moduleManager.getGeneratedCode();
+    const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
+    const usesParallelism = moduleManager.usesParallelism;
+    moduleManager = null;
+
+    fs.writeFileSync(testCPath, generatedCode);
+
+    if (!keepGeneratedFiles && fs.existsSync(testFilePath)) {
+      fs.unlinkSync(testFilePath);
+    }
+
+    // Build C compile args (same flags as runSingleTest)
+    const asanFlags =
+      !isMSVC && !isEmcc
+        ? getSanitizerFlags({ sanitize: "address", compilerInfo })
+        : { flags: [] };
+
+    const compileArgs = isMSVC
+      ? [
+          "/Od",
+          "/W4",
+          "/wd4100",
+          "/wd4101",
+          "/wd4189",
+          "/wd4505",
+          testCPath,
+          `/Fe${testOutputPath}`,
+        ]
+      : [
+          ...(cCompiler === "zig" ? ["cc"] : []),
+          "-std=c11",
+          ...(isEmcc
+            ? ["-w"]
+            : [
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-variable",
+                "-Wno-unused-parameter",
+                "-Wno-unused-function",
+                "-Wno-unused-but-set-variable",
+                "-Wno-unused-label",
+                "-Wno-unused-value",
+                "-Wno-parentheses-equality",
+              ]),
+          isEmcc ? "-O2" : "-O0",
+          ...asanFlags.flags,
+          testCPath,
+          "-o",
+          testOutputPath,
+        ];
+
+    if (isWindows) {
+      if (isMSVC) {
+        compileArgs.splice(-1, 0, "ws2_32.lib");
+        compileArgs.splice(-1, 0, "bcrypt.lib");
+      } else {
+        compileArgs.splice(-2, 0, "-lws2_32");
+        compileArgs.splice(-2, 0, "-lbcrypt");
+      }
+    }
+
+    if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
+      compileArgs.splice(-2, 0, "-masm=intel");
+    }
+
+    if (!isMSVC && !isEmcc && isLiburingAvailable()) {
+      compileArgs.splice(-2, 0, "-luring");
+    }
+
+    if (isEmcc) {
+      compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+      if (isWasi) {
+        compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+      } else {
+        compileArgs.splice(-2, 0, "-sNODERAWFS=1");
+      }
+      if (usesParallelism && !isWasi) {
+        compileArgs.splice(
+          -2,
+          0,
+          "-pthread",
+          "-sPTHREAD_POOL_SIZE=4",
+          "-sEXIT_RUNTIME=1"
+        );
+      }
+    }
+
+    const cCompileStart = Date.now();
+    const compileResult = spawnSync(cCompiler, compileArgs, {
+      stdio: "pipe",
+      encoding: "utf-8",
+      ...spawnShellOption,
+    });
+    const cCompileMs = Date.now() - cCompileStart;
+
+    if (compileResult.status !== 0) {
+      return {
+        success: false,
+        binaryPath: testOutputPath,
+        cleanup,
+        error: `C compilation failed:\n${compileResult.stderr || compileResult.stdout}`,
+      };
+    }
+
+    return {
+      success: true,
+      binaryPath: testOutputPath,
+      cleanup,
+      yoCompileMs,
+      cCompileMs,
+    };
+  } catch (error) {
+    moduleManager = null;
+    return {
+      success: false,
+      binaryPath: testOutputPath,
+      cleanup,
+      error: `Compilation error: ${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
+ * Run a single test from a pre-compiled batched binary.
+ * Sets YO_TEST_INDEX env var to select which test to execute.
+ */
+function runTestFromBatchedBinary(
+  testIndex: number,
+  test: StringifiedTestData,
+  binaryPath: string,
+  cCompiler: string,
+  wasmTarget?: TargetInfo,
+  profile?: boolean
+): TestResult {
+  const startTime = Date.now();
+  const compilerInfo = getCompilerInfo(cCompiler);
+  const { isMSVC, isWindows, isEmcc } = compilerInfo;
+  const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
+  const useAsan = !isMSVC && !isEmcc;
+
+  try {
+    let runResult;
+
+    if (isWasi) {
+      const testDir = path.dirname(test.filePath);
+      runResult = spawnSync(
+        "wasmtime",
+        [
+          "--dir",
+          testDir,
+          "--dir",
+          "/tmp",
+          "--dir",
+          process.cwd(),
+          "--env",
+          `YO_TEST_INDEX=${testIndex}`,
+          binaryPath,
+        ],
+        {
+          stdio: "pipe",
+          encoding: "utf-8",
+          timeout: 60000,
+        }
+      );
+    } else if (isEmcc) {
+      runResult = spawnSync("node", [binaryPath], {
+        stdio: "pipe",
+        encoding: "utf-8",
+        timeout: 60000,
+        env: { ...process.env, YO_TEST_INDEX: String(testIndex) },
+      });
+    } else {
+      // Native: run with AddressSanitizer leak detection
+      const isMacOS = process.platform === "darwin";
+      const lsanSuppressions = getMacOSLsanSuppressions();
+
+      let suppressionFile: string | undefined;
+      if (isMacOS && lsanSuppressions) {
+        suppressionFile = `${binaryPath}.lsan_supp_${testIndex}.txt`;
+        fs.writeFileSync(suppressionFile, lsanSuppressions);
+      }
+
+      const asanDllPath =
+        isWindows && useAsan && compilerInfo.isClangOnWindows
+          ? findClangAsanDllPath(cCompiler)
+          : undefined;
+
+      const baseRunEnv = buildAsanRunEnvironment({
+        compilerInfo,
+        asanDllPath,
+        lsanSuppressionFile: suppressionFile,
+        detectLeaks: true,
+      });
+      const runEnv = { ...baseRunEnv, YO_TEST_INDEX: String(testIndex) };
+
+      runResult = spawnSync(binaryPath, [], {
+        stdio: "pipe",
+        encoding: "utf-8",
+        timeout: 60000,
+        env: runEnv,
+      });
+
+      const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+      const leakDetectionNotSupported = combinedOutputInitial.includes(
+        "detect_leaks is not supported"
+      );
+
+      if (leakDetectionNotSupported) {
+        const runEnvNoLeaks = {
+          ...buildAsanRunEnvironment({
+            compilerInfo,
+            asanDllPath,
+            lsanSuppressionFile: suppressionFile,
+            detectLeaks: false,
+          }),
+          YO_TEST_INDEX: String(testIndex),
+        };
+        runResult = spawnSync(binaryPath, [], {
+          stdio: "pipe",
+          encoding: "utf-8",
+          timeout: 60000,
+          env: runEnvNoLeaks,
+        });
+      }
+
+      if (suppressionFile && fs.existsSync(suppressionFile)) {
+        fs.unlinkSync(suppressionFile);
+      }
+    }
+
+    const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+    const hasMemoryLeak =
+      !isEmcc &&
+      (combinedOutput.includes("LeakSanitizer") ||
+        combinedOutput.includes("detected memory leaks") ||
+        combinedOutput.includes("Direct leak") ||
+        combinedOutput.includes("Indirect leak"));
+
+    const passed = runResult.status === 0 && !hasMemoryLeak;
+    const duration = Date.now() - startTime;
+
+    let profileInfo: string | undefined;
+    if (profile) {
+      profileInfo = `run=${duration}ms`;
+      console.log(`    ${colors.dim}${profileInfo}${colors.reset}`);
+    }
+
+    let errorMessage: string | undefined;
+    if (!passed) {
+      if (hasMemoryLeak) {
+        const leakMatch = combinedOutput.match(
+          /=+\n([\s\S]*?SUMMARY[\s\S]*?)(\n=+|$)/
+        );
+        const leakInfo = leakMatch ? leakMatch[1] : combinedOutput;
+        errorMessage = `Memory leak detected:\n${leakInfo}`;
+      } else {
+        errorMessage = `Test failed with exit code ${runResult.status}\n${runResult.stdout}\n${runResult.stderr}`;
+      }
+    }
+
+    return {
+      testName: test.name,
+      filePath: test.filePath,
+      passed,
+      errorMessage,
+      duration,
+      profileInfo,
+    };
+  } catch (error) {
+    return {
+      testName: test.name,
+      filePath: test.filePath,
+      passed: false,
+      errorMessage: `Error running test: ${error instanceof Error ? error.message : String(error)}`,
+      duration: Date.now() - startTime,
+    };
+  }
+}
+
 /**
  * Information about a test to run (pre-stringified source code)
  */
@@ -1023,6 +1467,10 @@ async function runTestsInIsolatedProcesses({
 /**
  * Run tests sequentially within a single file.
  *
+ * Uses batch compilation: all tests are compiled into one binary,
+ * then the binary is run once per test with YO_TEST_INDEX selecting
+ * which test to execute. Falls back to per-test compilation on failure.
+ *
  * Parallel execution is handled at file level via isolated child processes.
  */
 async function runTestsSequentially(
@@ -1046,19 +1494,13 @@ async function runTestsSequentially(
   let failedTests = 0;
   let bailed = false;
 
-  for (const { test, nonTestContent } of testsToRun) {
-    if (bailed) break;
+  if (testsToRun.length === 0) {
+    return { results, passedTests, failedTests, bailed };
+  }
 
-    const result = runSingleTest(
-      test,
-      nonTestContent,
-      cCompiler,
-      options.wasmTarget,
-      options.keepGeneratedFiles,
-      options.profile
-    );
+  // Helper to display a test result and update counters
+  const reportResult = (test: StringifiedTestData, result: TestResult) => {
     results.push(result);
-
     if (result.passed) {
       passedTests++;
       console.log(
@@ -1079,18 +1521,74 @@ async function runTestsSequentially(
         const firstLine = result.errorMessage.split("\n")[0];
         console.log(`    ${colors.red}${firstLine}${colors.reset}`);
       }
-
       if (options.bail) {
         bailed = true;
       }
     }
+  };
 
-    // Force GC between tests to prevent heap accumulation.
-    // Each test compilation creates millions of objects; without GC
-    // the heap can grow to several GB causing extreme GC pressure.
-    tryForceGC();
+  // --- Try batch compilation (all tests in one binary) ---
+  const firstTest = testsToRun[0]!;
+  const batchResult = compileBatchedBinary(
+    testsToRun.map((t) => t.test),
+    firstTest.nonTestContent,
+    firstTest.test.filePath,
+    cCompiler,
+    options.wasmTarget,
+    options.keepGeneratedFiles
+  );
+
+  if (!batchResult.success) {
+    // Batch compilation failed — fall back to per-test compilation
+    batchResult.cleanup();
+    if (options.verbose) {
+      console.log(
+        `  ${colors.dim}Batch compilation failed, falling back to per-test mode${colors.reset}`
+      );
+      if (batchResult.error) {
+        const firstLine = batchResult.error.split("\n")[0];
+        console.log(`  ${colors.dim}${firstLine}${colors.reset}`);
+      }
+    }
+
+    for (const { test, nonTestContent } of testsToRun) {
+      if (bailed) break;
+      const result = runSingleTest(
+        test,
+        nonTestContent,
+        cCompiler,
+        options.wasmTarget,
+        options.keepGeneratedFiles,
+        options.profile
+      );
+      reportResult(test, result);
+      tryForceGC();
+    }
+    return { results, passedTests, failedTests, bailed };
   }
 
+  // Batch compilation succeeded — run each test from the binary
+  if (options.profile && batchResult.yoCompileMs != null) {
+    console.log(
+      `  ${colors.dim}batch: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${testsToRun.length} tests)${colors.reset}`
+    );
+  }
+
+  for (let i = 0; i < testsToRun.length; i++) {
+    if (bailed) break;
+    const test = testsToRun[i]!.test;
+    const result = runTestFromBatchedBinary(
+      i,
+      test,
+      batchResult.binaryPath,
+      cCompiler,
+      options.wasmTarget,
+      options.profile
+    );
+    reportResult(test, result);
+  }
+
+  batchResult.cleanup();
   return { results, passedTests, failedTests, bailed };
 }
 
