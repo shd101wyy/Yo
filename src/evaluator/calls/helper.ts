@@ -3265,12 +3265,15 @@ function createSpecializedFunctionInline({
   const compileTimeSignatureParts: string[] = [];
 
   // Include forall type arguments
-  // Helper function to convert a value to a string for signature, including type IDs for anonymous types
+  // Helper function to convert a value to a string for signature, including type IDs
   const valueToSignatureString = (value: Value): string => {
     if (isTypeValue(value)) {
       const type = value.value;
-      // For anonymous types (no typeName), include the type ID to ensure uniqueness
-      if (!type.typeName && type.id) {
+      // Always include the type ID to ensure uniqueness across different nominal types.
+      // Different types with the same display name (e.g., two different
+      // Counter :: object(count: i32) from different scopes in batch compilation)
+      // must produce different specialization signatures.
+      if (type.id) {
         return `${valueToString(value)}_id${type.id}`;
       }
     }
@@ -3329,15 +3332,11 @@ function createSpecializedFunctionInline({
     });
   }
 
-  // Include runtime parameter types if they contain anonymous types
+  // Include runtime parameter types if they have unique type IDs
   // This ensures different concrete types get different specializations
   runtimeParameters.forEach((param, index) => {
     const paramType = param.type;
-    // If the parameter type is anonymous (no typeName) or is/contains SomeType
-    if (
-      (!paramType.typeName && paramType.id) ||
-      typeContainsSomeType(paramType)
-    ) {
+    if (paramType.id || typeContainsSomeType(paramType)) {
       compileTimeSignatureParts.push(
         `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`
       );

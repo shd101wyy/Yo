@@ -340,19 +340,16 @@ export class CodeGenerator {
                   "-Wno-unused-label",
                   "-Wno-unused-value",
                   "-Wno-parentheses-equality",
-                  "-Wno-incompatible-pointer-types",
                   "-O0",
                 ];
           } else {
             optimizationFlags = isMSVC
               ? ["/w", `/O${level}`]
-              : ["-w", "-Wno-incompatible-pointer-types", `-O${level}`];
+              : ["-w", `-O${level}`];
           }
         } else if (options.release) {
           // --release uses -O2 and silences warnings
-          optimizationFlags = isMSVC
-            ? ["/w", "/O2"]
-            : ["-w", "-Wno-incompatible-pointer-types", "-O2"];
+          optimizationFlags = isMSVC ? ["/w", "/O2"] : ["-w", "-O2"];
         } else {
           // Default: debug mode with no optimizations and all warnings
           optimizationFlags = isMSVC
@@ -367,7 +364,6 @@ export class CodeGenerator {
                 "-Wno-unused-label",
                 "-Wno-unused-value",
                 "-Wno-parentheses-equality",
-                "-Wno-incompatible-pointer-types",
                 "-O0",
               ];
         }
