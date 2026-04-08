@@ -662,6 +662,33 @@ compare_and_add :: (fn(
 ;
 ```
 
+### Trait 方法消歧义
+
+当一个类型实现了多个定义了同名方法的 trait 时，`where` 子句约束决定使用哪个 trait 的方法：
+
+```rust
+T1 :: trait(get_number : (fn(self : Self) -> i32));
+T2 :: trait(get_number : (fn(self : Self) -> i32));
+
+Point :: struct(x : i32, y : i32);
+impl(Point, T1(get_number : (self -> self.x)));
+impl(Point, T2(get_number : (self -> self.y)));
+
+// 隐式分派 — where(T <: T1) 约束 self.get_number() 只使用 T1 的方法
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
+  return self.get_number();  // 返回 self.x (10)
+};
+
+// 显式分派 — 使用 (T <: T2).method(self) 语法
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
+  return (T <: T2).get_number(self);  // 返回 self.y (20)
+};
+
+point := Point(10, 20);
+use_t1(point);  // 10
+use_t2(point);  // 20
+```
+
 ### 使用 `_` 进行偏应用（Partial Application）
 
 多参数类型构造器可以使用 `_` 作为占位符进行偏应用。这会创建一个参数更少的新类型构造器：

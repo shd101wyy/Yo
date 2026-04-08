@@ -193,6 +193,36 @@ IntoIterator :: trait(
 - **`:=` in where clause** creates a specialized TraitType (constrains associated types only).
 - Always wrap `fn` types in parentheses inside trait field definitions: `next : (fn(...) -> T)`, not `next : fn(...) -> T`.
 
+## Trait method disambiguation with where-clause constraints
+
+When a type implements multiple traits that each define a method with the same name, where-clause constraints disambiguate which trait's method is used:
+
+```rust
+T1 :: trait(get_number : (fn(self : Self) -> i32));
+T2 :: trait(get_number : (fn(self : Self) -> i32));
+
+Point :: struct(x : i32, y : i32);
+impl(Point, T1(get_number : (self -> self.x)));
+impl(Point, T2(get_number : (self -> self.y)));
+
+// Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
+  return self.get_number();  // Dispatches to T1.get_number → returns x
+};
+
+// Explicit dispatch — (T <: T2).get_number accesses T2's method directly
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
+  return (T <: T2).get_number(self);  // Dispatches to T2.get_number → returns y
+};
+```
+
+**Implementation details:**
+
+- Where-clause constraints are applied BEFORE argument binding so the SomeType has trait constraints during method lookup
+- Runtime parameters with constrained SomeType stay typed as the SomeType (not the concrete arg type) to preserve trait filtering
+- `getReceiverMethodsByNameFromEnv` filters impl'd traits by the SomeType's where-clause constraint IDs
+- Concrete FunctionValues are resolved from trait impls for codegen static dispatch (avoids vtable-style dispatch)
+
 ## Comptime/runtime function specialization
 
 Yo does **not** support function overloading. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`). For operators, the `Call :: (runtime_fn, comptime_fn)` tuple pattern inside a module provides dispatch.

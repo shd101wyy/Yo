@@ -662,6 +662,33 @@ compare_and_add :: (fn(
 ;
 ```
 
+### Trait Method Disambiguation
+
+When a type implements multiple traits that define methods with the same name, `where` clause constraints determine which trait's method is used:
+
+```rust
+T1 :: trait(get_number : (fn(self : Self) -> i32));
+T2 :: trait(get_number : (fn(self : Self) -> i32));
+
+Point :: struct(x : i32, y : i32);
+impl(Point, T1(get_number : (self -> self.x)));
+impl(Point, T2(get_number : (self -> self.y)));
+
+// Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
+  return self.get_number();  // Returns self.x (10)
+};
+
+// Explicit dispatch — (T <: T2).method(self) syntax
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
+  return (T <: T2).get_number(self);  // Returns self.y (20)
+};
+
+point := Point(10, 20);
+use_t1(point);  // 10
+use_t2(point);  // 20
+```
+
 ### Partial Application with `_`
 
 Multi-parameter type constructors can be partially applied using `_` as a placeholder. This creates a new type constructor with reduced arity:
