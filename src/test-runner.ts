@@ -481,7 +481,7 @@ function compileBatchedBinary(
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           ...(isEmcc
-            ? ["-w"]
+            ? ["-w", "-Wno-incompatible-pointer-types"]
             : [
                 "-Wall",
                 "-Wextra",
@@ -492,6 +492,7 @@ function compileBatchedBinary(
                 "-Wno-unused-label",
                 "-Wno-unused-value",
                 "-Wno-parentheses-equality",
+                "-Wno-incompatible-pointer-types",
               ]),
           isEmcc ? "-O2" : "-O0",
           ...asanFlags.flags,
