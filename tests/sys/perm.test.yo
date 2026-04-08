@@ -15,7 +15,7 @@ dir :: import "std/sys/dir";
 } :: import "std/sys/constants";
 { temp_dir, path_join } :: import "../helper";
 
-test "access F_OK R_OK W_OK on existing file", using(io : IO), {
+test "access F_OK R_OK W_OK on existing file", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -40,12 +40,12 @@ test "access F_OK R_OK W_OK on existing file", using(io : IO), {
   assert(cleanup == i32(0));
 };
 
-test "access on nonexistent file returns -ENOENT", using(io : IO), {
+test "access on nonexistent file returns -ENOENT", {
   ret := perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
   assert(ret == (i32(0) - i32(ENOENT)));
 };
 
-test "chmodat changes and restores permissions", using(io : IO), {
+test "chmodat changes and restores permissions", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -79,7 +79,7 @@ test "chmodat changes and restores permissions", using(io : IO), {
   assert(cleanup == i32(0));
 };
 
-test "fchmod by fd sets executable bit", using(io : IO), {
+test "fchmod by fd sets executable bit", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -115,12 +115,12 @@ test "fchmod by fd sets executable bit", using(io : IO), {
   assert(cleanup == i32(0));
 };
 
-test "chmodat on nonexistent file returns -ENOENT", using(io : IO), {
+test "chmodat on nonexistent file returns -ENOENT", {
   ret := perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
   assert(ret == (i32(0) - i32(ENOENT)));
 };
 
-test "fchown with -1 -1 succeeds (no change)", using(io : IO), {
+test "fchown with -1 -1 succeeds (no change)", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();

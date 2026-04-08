@@ -13,7 +13,7 @@ tcp :: import "std/sys/tcp";
   NI_NUMERICHOST
 } :: import "std/sys/socket";
 
-test "DNS resolve localhost", using(io : IO), {
+test "DNS resolve localhost", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("localhost"), .None, .None, result_ptr));
   assert(ret == i32(0));
@@ -48,7 +48,7 @@ test "DNS resolve localhost", using(io : IO), {
   dns.free_result(result_ptr);
 };
 
-test "DNS resolve numeric IP 127.0.0.1", using(io : IO), {
+test "DNS resolve numeric IP 127.0.0.1", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .None, .None, result_ptr));
   assert(ret == i32(0));
@@ -69,7 +69,7 @@ test "DNS resolve numeric IP 127.0.0.1", using(io : IO), {
   dns.free_result(result_ptr);
 };
 
-test "DNS resolve with service port", using(io : IO), {
+test "DNS resolve with service port", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .Some(*(u8)("80")), .None, result_ptr));
   assert(ret == i32(0));
@@ -86,7 +86,7 @@ test "DNS resolve with service port", using(io : IO), {
   dns.free_result(result_ptr);
 };
 
-test "DNS getnameinfo reverse lookup", using(io : IO), {
+test "DNS getnameinfo reverse lookup", {
   sa := tcp.make_sockaddr_in_loopback(u16(0));
   host_buf := *(u8)(malloc(usize(256)).unwrap());
   serv_buf := *(u8)(malloc(usize(64)).unwrap());
@@ -103,7 +103,7 @@ test "DNS getnameinfo reverse lookup", using(io : IO), {
   tcp.free_sockaddr(sa);
 };
 
-test "DNS failed resolution for nonexistent host", using(io : IO), {
+test "DNS failed resolution for nonexistent host", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"), .None, .None, result_ptr));
   // Normally returns non-zero EAI_* error, but some networks have DNS interceptors

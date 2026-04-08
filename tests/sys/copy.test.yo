@@ -8,7 +8,7 @@ dir :: import "std/sys/dir";
 { AT_FDCWD, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import "std/sys/constants";
 { temp_dir, path_join } :: import "../helper";
 
-test "copyfile copies file contents", using(io : IO), {
+test "copyfile copies file contents", {
   tmp := temp_dir();
   src_path_str := path_join(tmp, `yo_io_copy_src.txt`);
   dst_path_str := path_join(tmp, `yo_io_copy_dst.txt`);
@@ -53,7 +53,7 @@ test "copyfile copies file contents", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)));
 };
 
-test "sendfile transfers bytes", using(io : IO), {
+test "sendfile transfers bytes", {
   tmp := temp_dir();
   src_path_str := path_join(tmp, `yo_io_sendfile_src.txt`);
   dst_path_str := path_join(tmp, `yo_io_sendfile_dst.txt`);

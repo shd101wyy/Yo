@@ -12,7 +12,7 @@ sockinfo :: import "std/sys/sockinfo";
   sockaddr_storage_size
 } :: import "std/sys/socket";
 
-test "sockinfo getsockname and getpeername on TCP connection", using(io : IO), {
+test "sockinfo getsockname and getpeername on TCP connection", {
   server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)));
   assert((server_fd >= i32(0)), "server socket should be created");
 
@@ -101,7 +101,7 @@ test "sockinfo getsockname and getpeername on TCP connection", using(io : IO), {
   free(.Some(*(void)(accepted_peer_len)));
 };
 
-test "sockinfo getsockopt and setsockopt", using(io : IO), {
+test "sockinfo getsockopt and setsockopt", {
   fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)));
   assert((fd >= i32(0)), "socket should be created for getsockopt/setsockopt test");
 

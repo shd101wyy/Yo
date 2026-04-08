@@ -11,12 +11,12 @@ dir :: import "std/sys/dir";
 temp_io :: import "std/sys/temp";
 fallocate_io :: import "std/sys/fallocate";
 
-test "fallocate invalid fd returns -EBADF", using(io : IO), {
+test "fallocate invalid fd returns -EBADF", {
   ret := fallocate_io.fallocate(i32(-1), i32(0), i64(0), i64(4096));
   assert((ret == (i32(0) - i32(EBADF))), "fallocate on invalid fd should return -EBADF");
 };
 
-test "fallocate mode 0 extends file size", using(io : IO), {
+test "fallocate mode 0 extends file size", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_fallocate_extend_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -46,7 +46,7 @@ test "fallocate mode 0 extends file size", using(io : IO), {
   assert((rm == i32(0)), "unlinking temp file after fallocate extend test should succeed");
 };
 
-test "fallocate KEEP_SIZE preserves file size", using(io : IO), {
+test "fallocate KEEP_SIZE preserves file size", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_fallocate_keepsize_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -75,7 +75,7 @@ test "fallocate KEEP_SIZE preserves file size", using(io : IO), {
   assert((rm == i32(0)), "unlinking temp file after KEEP_SIZE test should succeed");
 };
 
-test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", using(io : IO), {
+test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
   cond(
     (platform == Platform.Linux) => {
       tmp := temp_dir();

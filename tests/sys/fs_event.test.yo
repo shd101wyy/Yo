@@ -16,7 +16,7 @@ on_fs_event_record :: (fn(path: *(u8), events_mask: i32, user_data: *(u8)) -> un
   printf("  fs_event callback: path=%s events=%d\n", path, events_mask);
 });
 
-test "fs_event init/start/stop", using(io : IO), {
+test "fs_event init/start/stop", {
   handle := events.fs_event_init();
   dir_str := temp_dir();
   dir_c := dir_str.to_cstr();
@@ -34,7 +34,7 @@ test "fs_event init/start/stop", using(io : IO), {
   events.fs_event_close(handle);
 };
 
-test "fs_event detects file creation", using(io : IO), {
+test "fs_event detects file creation", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_create.txt`);
   test_file_c := test_file.to_cstr();
@@ -80,7 +80,7 @@ test "fs_event detects file creation", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
 };
 
-test "fs_event detects file modification", using(io : IO), {
+test "fs_event detects file modification", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_modify.txt`);
   test_file_c := test_file.to_cstr();
@@ -132,7 +132,7 @@ test "fs_event detects file modification", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
 };
 
-test "fs_event stop prevents further callbacks", using(io : IO), {
+test "fs_event stop prevents further callbacks", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_stopped.txt`);
   test_file_c := test_file.to_cstr();
@@ -177,7 +177,7 @@ test "fs_event stop prevents further callbacks", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
 };
 
-test "fs_event detects file deletion", using(io : IO), {
+test "fs_event detects file deletion", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_delete.txt`);
   test_file_c := test_file.to_cstr();

@@ -7,7 +7,7 @@ file :: import "std/sys/file";
 pipe_io :: import "std/sys/pipe";
 fcntl_io :: import "std/sys/fcntl";
 
-test "fcntl invalid fd returns -EBADF", using(io : IO), {
+test "fcntl invalid fd returns -EBADF", {
   ret_getfl := fcntl_io.getfl(i32(-1));
   ret_setfl := fcntl_io.setfl(i32(-1), i32(0));
   ret_getfd := fcntl_io.getfd(i32(-1));
@@ -24,7 +24,7 @@ test "fcntl invalid fd returns -EBADF", using(io : IO), {
   assert(ret_setfd == (i32(0) - i32(EBADF)));
 };
 
-test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
+test "fcntl setfl toggles O_NONBLOCK on pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -70,7 +70,7 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
   assert(c2 == i32(0));
 };
 
-test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
+test "fcntl getfd/setfd toggles FD_CLOEXEC", {
   // WASM has no exec() so FD_CLOEXEC is meaningless; fcntl F_GETFD/F_SETFD not supported
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");

@@ -9,7 +9,7 @@ file :: import "std/sys/file";
 { AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY } :: import "std/sys/constants";
 temp_io :: import "std/sys/temp";
 
-test "mkdtemp creates and removes directory", using(io : IO), {
+test "mkdtemp creates and removes directory", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mkdtemp_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -30,7 +30,7 @@ test "mkdtemp creates and removes directory", using(io : IO), {
   assert(rm == i32(0));
 };
 
-test "mkstemp creates and removes file", using(io : IO), {
+test "mkstemp creates and removes file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mkstemp_XXXXXX`);
   template_c := template_str.to_cstr();

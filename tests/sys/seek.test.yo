@@ -12,7 +12,7 @@ pipe_io :: import "std/sys/pipe";
 temp_io :: import "std/sys/temp";
 seek_io :: import "std/sys/seek";
 
-test "lseek SEEK_SET SEEK_CUR SEEK_END on regular file", using(io : IO), {
+test "lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_seek_regular_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -54,7 +54,7 @@ test "lseek SEEK_SET SEEK_CUR SEEK_END on regular file", using(io : IO), {
   assert((rm == i32(0)), "unlinking temp file after seek regular test should succeed");
 };
 
-test "lseek invalid fd invalid whence and negative offset errors", using(io : IO), {
+test "lseek invalid fd invalid whence and negative offset errors", {
   bad_fd_ret := seek_io.lseek(i32(-1), i64(0), seek_io.SEEK_SET);
   assert((bad_fd_ret == (i64(0) - i64(EBADF))), "lseek on invalid fd should return -EBADF");
 
@@ -79,7 +79,7 @@ test "lseek invalid fd invalid whence and negative offset errors", using(io : IO
   assert((rm == i32(0)), "unlinking temp file after seek error test should succeed");
 };
 
-test "lseek on pipe returns non-seekable error", using(io : IO), {
+test "lseek on pipe returns non-seekable error", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);

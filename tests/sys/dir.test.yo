@@ -15,7 +15,7 @@ open import "std/string";
 dir :: import "std/sys/dir";
 { temp_dir, path_join } :: import "../helper";
 
-test "async mkdir and rmdir", using(io : IO), {
+test "async mkdir and rmdir", {
   tmp_dir := temp_dir();
   dir_path_str := path_join(tmp_dir, `yo_io_dir_test`);
   dir_path_c := dir_path_str.to_cstr();
@@ -30,7 +30,7 @@ test "async mkdir and rmdir", using(io : IO), {
   assert(rm_result == i32(0));
 };
 
-test "mkdir existing returns -EEXIST", using(io : IO), {
+test "mkdir existing returns -EEXIST", {
   tmp_dir := temp_dir();
   dir_path_str := path_join(tmp_dir, `yo_io_dir_test2`);
   dir_path_c := dir_path_str.to_cstr();
@@ -44,7 +44,7 @@ test "mkdir existing returns -EEXIST", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR));
 };
 
-test "async rename", using(io : IO), {
+test "async rename", {
   tmp_dir := temp_dir();
   old_path_str := path_join(tmp_dir, `yo_io_rename_src`);
   new_path_str := path_join(tmp_dir, `yo_io_rename_dst`);
@@ -81,7 +81,7 @@ test "async rename", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, new_path, i32(0)));
 };
 
-test "async symlink and readlink", using(io : IO), {
+test "async symlink and readlink", {
   tmp_dir := temp_dir();
   target_str := path_join(tmp_dir, `yo_io_symlink_target`);
   link_path_str := path_join(tmp_dir, `yo_io_symlink_link`);
@@ -123,7 +123,7 @@ test "async symlink and readlink", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, target, i32(0)));
 };
 
-test "async hard link", using(io : IO), {
+test "async hard link", {
   tmp_dir := temp_dir();
   orig_path_str := path_join(tmp_dir, `yo_io_link_orig`);
   link_path_str := path_join(tmp_dir, `yo_io_link_hard`);
@@ -167,7 +167,7 @@ test "async hard link", using(io : IO), {
   );
 };
 
-test "async unlink file", using(io : IO), {
+test "async unlink file", {
   tmp_dir := temp_dir();
   file_path_str := path_join(tmp_dir, `yo_io_unlink_file`);
   file_path_c := file_path_str.to_cstr();
@@ -193,7 +193,7 @@ test "async unlink file", using(io : IO), {
   assert(gone_fd < i32(0));
 };
 
-test "unlink nonexistent returns -ENOENT", using(io : IO), {
+test "unlink nonexistent returns -ENOENT", {
   tmp_dir := temp_dir();
   bad_path_str := path_join(tmp_dir, `yo_io_nonexistent_file_999`);
   bad_path_c := bad_path_str.to_cstr();
@@ -203,7 +203,7 @@ test "unlink nonexistent returns -ENOENT", using(io : IO), {
   assert(result < i32(0));
 };
 
-test "async getdents lists directory entries", using(io : IO), {
+test "async getdents lists directory entries", {
   tmp_dir := temp_dir();
   test_dir_str := path_join(tmp_dir, `yo_io_readdir_test`);
   file_a_str := path_join(test_dir_str, `file_a.txt`);

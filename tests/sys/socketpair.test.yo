@@ -6,7 +6,7 @@ socketpair_io :: import "std/sys/socketpair";
 tcp :: import "std/sys/tcp";
 { AF_UNIX, SOCK_STREAM } :: import "std/sys/socket";
 
-test "socketpair create and close", using(io : IO), {
+test "socketpair create and close", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := *(i32)(sv_uninit.as_ptr());
 
@@ -26,7 +26,7 @@ test "socketpair create and close", using(io : IO), {
   assert((c1 == i32(0)), "closing socketpair fd1 should succeed");
 };
 
-test "socketpair bidirectional send and recv", using(io : IO), {
+test "socketpair bidirectional send and recv", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := *(i32)(sv_uninit.as_ptr());
 

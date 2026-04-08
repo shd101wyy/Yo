@@ -15,7 +15,7 @@ fs_file :: import "std/fs/file";
 // create_dir / remove_dir
 // ============================================================================
 
-test "create_dir and remove_dir", using(io : IO), {
+test "create_dir and remove_dir", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -41,7 +41,7 @@ test "create_dir and remove_dir", using(io : IO), {
   printf("  remove_dir ok\n");
 };
 
-test "create_dir_str", using(io : IO), {
+test "create_dir_str", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -60,7 +60,7 @@ test "create_dir_str", using(io : IO), {
   io.await(fs_dir.remove_dir(dpath));
 };
 
-test "create_dir on existing returns error", using(io : IO), {
+test "create_dir on existing returns error", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_dir_exists`));
 
@@ -88,7 +88,7 @@ test "create_dir on existing returns error", using(io : IO), {
 // create_dir_all
 // ============================================================================
 
-test "create_dir_all creates nested directories", using(io : IO), {
+test "create_dir_all creates nested directories", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -110,7 +110,7 @@ test "create_dir_all creates nested directories", using(io : IO), {
   io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`))));
 };
 
-test "create_dir_all on existing directory succeeds", using(io : IO), {
+test "create_dir_all on existing directory succeeds", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -135,7 +135,7 @@ test "create_dir_all on existing directory succeeds", using(io : IO), {
 // remove_file
 // ============================================================================
 
-test "remove_file removes a file", using(io : IO), {
+test "remove_file removes a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -154,7 +154,7 @@ test "remove_file removes a file", using(io : IO), {
   assert((!(e)), "file should not exist after remove");
 };
 
-test "remove_file nonexistent returns error", using(io : IO), {
+test "remove_file nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_rm_nope.txt`);
 
   given(exn) := Exception(throw : ((err) -> {
@@ -169,7 +169,7 @@ test "remove_file nonexistent returns error", using(io : IO), {
 // rename
 // ============================================================================
 
-test "rename moves a file", using(io : IO), {
+test "rename moves a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -202,7 +202,7 @@ test "rename moves a file", using(io : IO), {
 // hard_link
 // ============================================================================
 
-test "hard_link creates a link", using(io : IO), {
+test "hard_link creates a link", {
   // WASM NODERAWFS does not support hard links (link() returns EMLINK)
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");
@@ -238,7 +238,7 @@ test "hard_link creates a link", using(io : IO), {
 // symlink
 // ============================================================================
 
-test "symlink creates a symbolic link", using(io : IO), {
+test "symlink creates a symbolic link", {
   tmp := temp_dir();
   src := Path.new(path_join(tmp, `yo_fs_symlink_src.txt`));
   lnk := Path.new(path_join(tmp, `yo_fs_symlink_lnk.txt`));
@@ -292,7 +292,7 @@ test "symlink creates a symbolic link", using(io : IO), {
 // read_dir
 // ============================================================================
 
-test "read_dir lists directory entries", using(io : IO), {
+test "read_dir lists directory entries", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -350,7 +350,7 @@ test "read_dir lists directory entries", using(io : IO), {
   io.await(fs_dir.remove_dir(dpath));
 };
 
-test "read_dir on nonexistent returns error", using(io : IO), {
+test "read_dir on nonexistent returns error", {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
 
   given(exn) := Exception(throw : ((err) -> {

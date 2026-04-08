@@ -8,7 +8,7 @@ file :: import "std/sys/file";
 path_io :: import "std/sys/path";
 { AT_FDCWD, AT_REMOVEDIR, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY } :: import "std/sys/constants";
 
-test "realpath resolves . and ..", using(io : IO), {
+test "realpath resolves . and ..", {
   tmp := temp_dir();
   base_dir_str := path_join(tmp, `yo_io_realpath_dir`);
   sub_dir_str := path_join(base_dir_str, `sub`);
@@ -65,7 +65,7 @@ test "realpath resolves . and ..", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
 };
 
-test "realpath resolves symlink target", using(io : IO), {
+test "realpath resolves symlink target", {
   tmp := temp_dir();
   base_dir_str := path_join(tmp, `yo_io_realpath_link`);
   target_str := path_join(base_dir_str, `target.txt`);
@@ -121,7 +121,7 @@ test "realpath resolves symlink target", using(io : IO), {
   io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
 };
 
-test "realpath on nonexistent returns error", using(io : IO), {
+test "realpath on nonexistent returns error", {
   tmp := temp_dir();
   bad_path_str := path_join(tmp, `yo_io_realpath_missing_999`);
   bad_path_c := bad_path_str.to_cstr();

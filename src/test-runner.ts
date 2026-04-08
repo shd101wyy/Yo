@@ -51,11 +51,6 @@ const colors = {
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
-/** Escape special regex characters in a string for use in `new RegExp(...)`. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Try to force garbage collection if running with --expose-gc flag
  */
@@ -80,8 +75,6 @@ function tryForceGC(): void {
 export interface TestDeclaration {
   name: string;
   bodyExpr: Expr;
-  /** The IO variable name from the test's using clause (e.g., "io" from using(io: IO)) */
-  ioVarName?: string;
   filePath: string;
   lineNumber: number;
 }
@@ -94,8 +87,6 @@ export interface TestDeclaration {
 interface StringifiedTestData {
   name: string;
   bodyString: string;
-  /** The IO variable name from the test's using clause (e.g., "io" from using(io: IO)) */
-  ioVarName?: string;
   filePath: string;
 }
 
@@ -267,10 +258,8 @@ export function extractTests(filePath: string): ExtractTestsResult {
       ) {
         if (expr.args.length >= 2) {
           const testNameExpr = expr.args[0]!;
-          // 3 args: test "name", using(...), { body }
-          // 2 args: test "name", { body }
-          const hasUsingClause = expr.args.length === 3;
-          const testBodyExpr = hasUsingClause ? expr.args[2]! : expr.args[1]!;
+          // test "name", { body }
+          const testBodyExpr = expr.args[1]!;
 
           // Get the test name from the evaluated expression
           let testName = "unnamed_test";
@@ -286,28 +275,9 @@ export function extractTests(filePath: string): ExtractTestsResult {
             testName = testNameExpr.token.value;
           }
 
-          // Extract IO variable name from using clause (e.g., "io" from using(io : IO))
-          let ioVarName: string | undefined;
-          if (hasUsingClause) {
-            const usingExpr = expr.args[1]!;
-            if (exprIsFunctionCall(usingExpr) && usingExpr.args.length > 0) {
-              const firstParam = usingExpr.args[0]!;
-              // using(io : IO) → firstParam is "io : IO" (a ":" FnCallExpr)
-              if (
-                exprIsFunctionCall(firstParam) &&
-                exprIsFunctionCallOf(firstParam, ":") &&
-                firstParam.args.length > 0 &&
-                exprIsAtom(firstParam.args[0]!)
-              ) {
-                ioVarName = firstParam.args[0]!.token.value;
-              }
-            }
-          }
-
           tests.push({
             name: testName,
             bodyExpr: testBodyExpr,
-            ioVarName,
             filePath,
             lineNumber: testNameExpr.token.position.row + 1,
           });
@@ -354,26 +324,17 @@ function generateBatchedTestProgram(
   lines.push('__yo_batch_process :: import "std/process";');
   lines.push("");
 
-  // Main always uses "io" as the IO parameter name (the standard convention).
-  // For tests with a custom IO name (e.g., "my_io"), we rename occurrences
-  // in the body string so references resolve to main's "io" parameter.
-  const mainIoVarName = "io";
-
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
   // (escape/given) need to be in the same codegen scope as main.
-  lines.push(`main :: (fn(using(${mainIoVarName} : IO)) -> unit) {`);
+  lines.push("main :: (fn(using(io : IO)) -> unit) {");
   lines.push("  match(__yo_batch_process.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {
     const test = tests[i]!;
-    let body = test.bodyString;
-    // Rename custom IO variable to main's "io" parameter name
-    if (test.ioVarName && test.ioVarName !== mainIoVarName) {
-      const pattern = new RegExp(`\\b${escapeRegExp(test.ioVarName)}\\b`, "g");
-      body = body.replace(pattern, mainIoVarName);
-    }
-    lines.push("      (__yo_test_idx == `" + i + "`) => { " + body + "; },");
+    lines.push(
+      "      (__yo_test_idx == `" + i + "`) => { " + test.bodyString + "; },"
+    );
   }
   lines.push("      true => ()");
   lines.push("    ),");
@@ -1362,7 +1323,6 @@ export async function runTests(
         bodyString: exprToString(
           test.bodyExpr.$?.originalExpr ?? test.bodyExpr
         ),
-        ioVarName: test.ioVarName,
         filePath: test.filePath,
       },
       nonTestContent,

@@ -13,7 +13,7 @@ seek_io :: import "std/sys/seek";
 iov_io :: import "std/sys/iov";
 helper :: import "../helper";
 
-test "iov writev and readv on pipe", using(io : IO), {
+test "iov writev and readv on pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
 
@@ -61,7 +61,7 @@ test "iov writev and readv on pipe", using(io : IO), {
   free(.Some(*(void)(recv_b)));
 };
 
-test "iov pwritev and preadv on regular file", using(io : IO), {
+test "iov pwritev and preadv on regular file", {
   tmp := helper.temp_dir();
   path_str := helper.path_join(tmp, `yo_iov_regular_test.txt`);
   path_c := path_str.to_cstr();
