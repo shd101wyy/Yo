@@ -507,12 +507,28 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   const isParamCompileTimeOnly =
     parameter.isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
+  // If the parameter type is a constrained forall SomeType (from an early-applied
+  // where clause like `where(T <: Trait)`), use the SomeType as the binding type
+  // instead of the concrete argType. This preserves the trait constraint in the
+  // function body so that method dispatch on this parameter only considers methods
+  // from the constrained trait, not all methods on the concrete type.
+  //
+  // Guard: only apply for runtime parameters (isParamCompileTimeOnly = false).
+  // Comptime parameters (e.g., `comptime(self) : _Self`) have their concrete value
+  // available at compile time; method dispatch on them already uses the concrete
+  // value's type and works correctly without this override.
+  const useConstrainedSomeType =
+    !isParamCompileTimeOnly &&
+    isSomeType(parameterType) &&
+    (getWhereClauseConstraintsForSomeType(calleeEnv, parameterType)
+      ?.requiredTraits?.length ?? 0) > 0;
+  const bindingType = useConstrainedSomeType ? parameterType : argType;
+
   const { env: nextEnv } = addVariableToEnv({
     env: calleeEnv,
     variable: {
       name: parameter.label,
-      type: argType, // QUESTION: Should we use parameterType here or argType?
-      // This might affect assigning Free type arg to Type parameter
+      type: bindingType,
       isCompileTimeOnly: isParamCompileTimeOnly,
       value: argValue ? [argValue] : undefined,
       token: argExpr?.token ?? PlaceholderToken,
@@ -1298,6 +1314,48 @@ Got:   ${typeToString(typeValue.type)}`,
   // is evaluated with async-block context (allowing `await` inside).
   if (functionType.ioBuiltin === "io_async") {
     context = { ...context, isInsideIoAsyncCall: true };
+  }
+
+  // Early where-clause application: Apply where-clause constraints BEFORE argument
+  // processing so that forall SomeType parameters have their trait constraints when
+  // binding runtime arguments. This is needed for trait disambiguation — when a type
+  // implements multiple traits with identically-named methods, the where-clause
+  // constraint must be in place so method lookup on the parameter only considers
+  // methods from the constrained trait.
+  //
+  // Guard: Only apply early when ALL where-clause LHS types are forall params that
+  // already exist in calleeEnv. This prevents issues with comptime params that
+  // haven't been bound yet (e.g., `comptime(Rhs)` in operator traits).
+  if (functionType.whereClauseExprs?.length) {
+    const allLhsAreForallParams = functionType.whereClauseExprs.every(
+      (whereExpr) => {
+        // Where-clause exprs are SubtypeOf FnCallExprs: lhs <: rhs
+        if (!exprIsFunctionCall(whereExpr)) return false;
+        if (!exprIsFunctionCallOf(whereExpr, "<:")) return false;
+        const lhsExpr = whereExpr.args[0];
+        if (!lhsExpr) return false;
+        const lhsName =
+          lhsExpr.tag === ExprTag.Atom ? lhsExpr.token.value : undefined;
+        if (!lhsName) return false;
+        // Check if this name exists as a variable in calleeEnv (bound by forall)
+        const vars = getVariablesFromEnv(calleeEnv, lhsName);
+        return vars.length > 0;
+      }
+    );
+    if (allLhsAreForallParams) {
+      const constraintExprs = functionType.whereClauseExprs.map((_expr) =>
+        cloneExpr(_expr)
+      );
+      const result = applyWhereClauseConstraints({
+        constraintExprs,
+        env: calleeEnv,
+        context: {
+          ...context,
+          isEvaluatingFunctionType: true,
+        },
+      });
+      calleeEnv = result.env;
+    }
   }
 
   // Check if the regular parameters match the arguments

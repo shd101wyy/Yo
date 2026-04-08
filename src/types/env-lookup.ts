@@ -64,15 +64,7 @@ export function getValueOfSomeTypeFromEnv(
         }
         // If found value is a DIFFERENT SomeType (different ID), we have shadowing.
         // Fall through to normal search - there may be a newer binding in a higher frame.
-        if (isSomeType(typeVal.value) && typeVal.value.id !== someType.id) {
-          // Fall through to normal search
-        } else {
-          // Found a concrete type binding. But is it for THIS SomeType or a different one?
-          // We can't tell for sure from definitionFrameLevel alone, so fall through
-          // to normal search which handles shadowing properly.
-          // This is needed because multiple SomeTypes with the same name but different IDs
-          // might share the same definitionFrameLevel.
-        }
+        // Also fall through for concrete types — the normal search has ownership verification.
       }
     }
   }
@@ -173,6 +165,38 @@ export function getValueOfSomeTypeFromEnv(
           }
         }
         if (thisSomeTypeWasBound) break;
+      }
+
+      // Fallback: if no self-referential binding was found, check definitionFrameLevel.
+      // After synthesizeTypes, the self-referential binding (T=SomeType(T)) is replaced
+      // with T=ConcreteType. Use definitionFrameLevel to verify the concrete binding
+      // at the SomeType's original definition frame matches what the normal search found.
+      if (
+        !thisSomeTypeWasBound &&
+        definitionFrameLevel !== undefined &&
+        definitionFrameLevel >= 0 &&
+        definitionFrameLevel < env.frames.length
+      ) {
+        const defFrame = env.frames[definitionFrameLevel];
+        if (defFrame) {
+          for (const variable of defFrame.variables) {
+            if (variable.name === someType.name && variable.value) {
+              const val = variable.value[0];
+              if (val?.tag === ValueTag.Type) {
+                const defTypeVal = val as TypeValue;
+                // The variable at definitionFrameLevel has a concrete type that matches
+                // what the normal search found. This confirms synthesizeTypes updated
+                // the binding for THIS SomeType (definitionFrameLevel + name is unique).
+                if (
+                  !isSomeType(defTypeVal.value) &&
+                  defTypeVal.value === someTypeValue!.value
+                ) {
+                  thisSomeTypeWasBound = true;
+                }
+              }
+            }
+          }
+        }
       }
 
       // If THIS SomeType was never bound to itself anywhere in the env,
