@@ -330,6 +330,7 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 ```bash
 cp -r .github/skills /path/to/your-yo-project/.github/
+# 或者 .agents, .claude, 等，取决于你的 Agent 平台
 ```
 
 之后在任意 AI Agent 会话中，通过技能名称（例如 `@yo-syntax`）调用该技能，即可为 Agent 提供关于 Yo 语言的上下文知识。

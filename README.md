@@ -331,6 +331,7 @@ Copy the skills directory into your Yo project:
 
 ```bash
 cp -r .github/skills /path/to/your-yo-project/.github/
+# or .agents, .claude, etc depending on your agent platform
 ```
 
 Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.

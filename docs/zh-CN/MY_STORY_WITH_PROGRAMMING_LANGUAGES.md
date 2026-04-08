@@ -42,7 +42,7 @@ print "Hello, World!"
       (factorial (- n 1) (* n acc))))
 ```
 
-受 `Scheme` 启发，我用 `C` 实现了一个 Lisp 方言，取名 [WalleyLanguage](https://github.com/shd101wyy/WalleyLanguage)。多亏了 S 表达式，这次词法分析器和语法分析器简单多了。我还为它做了一个简单的虚拟机，灵感来自 [Lua](https://www.lua.org/)——另一个优美简洁的语言，我在大学 ACM 社团的一次游戏开发 Hackathon 中用过它。我借鉴了 Lua 基于堆的虚拟机设计。WalleyLanguage 使用引用计数，但没有处理循环引用。所以有内存泄漏的问题，只是我一直到后来学了追踪式垃圾回收才意识到。无知是福。
+受 `Scheme` 启发，我用 `C` 实现了一个 Lisp 方言，取名 [WalleyLanguage](https://github.com/shd101wyy/WalleyLanguage)。多亏了 S 表达式，这次词法分析器和语法分析器简单多了。我还为它做了一个简单的虚拟机，灵感来自 [Lua](https://www.lua.org/)——另一个优美简洁的语言，我在大学 ACM 社团的一次游戏开发 Hackathon 中用过它。我借鉴了 Lua 基于寄存器的虚拟机设计。WalleyLanguage 使用引用计数，但没有处理循环引用。所以有内存泄漏的问题，只是我一直到后来学了追踪式垃圾回收才意识到。无知是福。
 
 随着越来越深入 `Lisp` 的世界，我开始探索 [Clojure](https://clojure.org/) 和 [Common Lisp](https://common-lisp.net/)。我也开始用 [Emacs](https://www.gnu.org/software/emacs/) 作为编辑器，因为它用 `Emacs Lisp` 作为扩展语言。整个大学期间，我只用 `Emacs`，从没碰过 `Vim`。为什么？因为 Emacs 用的是 Lisp！（这是完全理性的决定，不接受反驳。）而且我很幸运，大学的"编程语言与编译器"课程用 `Scheme` 做作业。我拿了 A+——这对于一个痴迷了两年括号的人来说，毫不意外。
 
