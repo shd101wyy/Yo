@@ -19,6 +19,24 @@ import {
 } from "../builtins/build";
 
 /**
+ * Safely convert an absolute target path to a relative path from a base directory.
+ * On Windows, path.relative() between different drive letters (e.g., D:\ vs C:\)
+ * returns the absolute target path unchanged. This helper detects that case and
+ * returns the absolute path directly instead of a broken relative path.
+ */
+function safeRelativePath(fromDir: string, toPath: string): string {
+  const relativePath = path.relative(fromDir, toPath);
+  if (path.isAbsolute(relativePath)) {
+    // Cross-drive on Windows: relative path is impossible, use absolute path
+    return toPath;
+  }
+  if (!relativePath.startsWith(".")) {
+    return "./" + relativePath;
+  }
+  return relativePath;
+}
+
+/**
  *
  * Import a module
  *
@@ -76,42 +94,37 @@ export function evaluateImport({
   // Handle the std library path
   if (modulePathToImport.startsWith("std/")) {
     // std library
-    modulePathToImport = path.relative(
+    modulePathToImport = safeRelativePath(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, modulePathToImport.replace("std/", "./"))
     );
-    // Ensure it starts with "./" or "../" for consistency
-    if (!modulePathToImport.startsWith(".")) {
-      modulePathToImport = "./" + modulePathToImport;
-    }
   } else if (modulePathToImport === "std") {
     // std library
-    modulePathToImport = path.relative(
+    modulePathToImport = safeRelativePath(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, "./index.yo")
-    ); // Let's set prelude.yo as the default for now
-    // Ensure it starts with "./" or "../" for consistency
-    if (!modulePathToImport.startsWith(".")) {
-      modulePathToImport = "./" + modulePathToImport;
-    }
+    );
   }
 
-  if (!modulePathToImport.startsWith(".")) {
+  if (
+    !modulePathToImport.startsWith(".") &&
+    !path.isAbsolute(modulePathToImport)
+  ) {
     // Check module import roots first (from build.module() + add_import())
     const moduleRoot = getModuleImportRoot(modulePathToImport);
     if (moduleRoot) {
       const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
-      modulePathToImport = path.relative(
+      modulePathToImport = safeRelativePath(
         path.dirname(currentFilePath),
         moduleRoot
       );
-      if (!modulePathToImport.startsWith(".")) {
-        modulePathToImport = "./" + modulePathToImport;
-      }
     }
   }
 
-  if (!modulePathToImport.startsWith(".")) {
+  if (
+    !modulePathToImport.startsWith(".") &&
+    !path.isAbsolute(modulePathToImport)
+  ) {
     // Try to resolve as a dependency name (e.g., "json-parser" → .yo-cache/deps/...)
     const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
     const projectDir = findProjectRoot(currentFilePath);
@@ -160,18 +173,18 @@ export function evaluateImport({
           modulePathToImport
         );
         // Convert to relative path from current module
-        modulePathToImport = path.relative(
+        modulePathToImport = safeRelativePath(
           path.dirname(currentFilePath),
           entryPoint
         );
-        if (!modulePathToImport.startsWith(".")) {
-          modulePathToImport = "./" + modulePathToImport;
-        }
       }
     }
 
-    // If still not relative after dependency resolution, it's an unknown module
-    if (!modulePathToImport.startsWith(".")) {
+    // If still not relative/absolute after dependency resolution, it's an unknown module
+    if (
+      !modulePathToImport.startsWith(".") &&
+      !path.isAbsolute(modulePathToImport)
+    ) {
       throw formatErrorMessage({
         token: moduleArg.token,
         errorMessage: `Module "${modulePathToImport}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'.
@@ -181,12 +194,16 @@ ${exprToString(expr)}`,
   }
 
   // TODO: Support other protocol like https://
+  // If modulePathToImport is already absolute (e.g., Windows cross-drive std path),
+  // use it directly. Otherwise resolve relative to the current module's directory.
   let moduleAbsolutePath =
     "file://" +
-    path.resolve(
-      path.dirname(env.modulePath.replace(/^file:\/\//, "")),
-      modulePathToImport
-    );
+    (path.isAbsolute(modulePathToImport)
+      ? modulePathToImport
+      : path.resolve(
+          path.dirname(env.modulePath.replace(/^file:\/\//, "")),
+          modulePathToImport
+        ));
   const extname = path.extname(moduleAbsolutePath);
   if (!extname) {
     // If no extension, try both <path>.yo and <path>/index.yo
