@@ -1,6 +1,7 @@
 ---
 description: "Use when running tests, setting up test files, or debugging test failures in the Yo compiler. Covers yo-cli test, bun test, sanitizers, and test file constraints."
 ---
+
 # Testing Workflows
 
 ## Evaluator tests (TypeScript)
@@ -39,6 +40,29 @@ description: "Use when running tests, setting up test files, or debugging test f
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
 - If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
 
+## Test syntax
+
+Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
+
+```rust
+test "my test", {
+  assert(true, "ok");
+};
+```
+
+**`io : IO` is automatically injected** into every test body — no `using` clause is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
+
+```rust
+test "Async test", {
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+  });
+  io.await(task);
+};
+```
+
+> **Note:** The old `test "name", using(io : IO), { body }` 3-argument form is no longer supported.
+
 ## Assertion builtins for Yo tests
 
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
@@ -50,6 +74,7 @@ Prefer `comptime_assert` over `assert` when the value being tested is compile-ti
 ## Partial application (`_`) tests
 
 Partial application tests live in `tests/fn.test.yo`. Key facts:
+
 - Partial application with `_` only works on **comptime functions** (return type must be `comptime(...)`)
 - It does NOT work on runtime functions or `forall` parameters — use `comptime` parameters instead
 - Type constructors like `Result`, `Option` use comptime params and work with `_`
@@ -65,6 +90,7 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 ## Slow test files
 
 Some test files contain hundreds of tests and take a very long time to compile and run:
+
 - `tests/string/string.test.yo` — 246 tests, ~8 minutes
 - Other large test files may take several minutes
 

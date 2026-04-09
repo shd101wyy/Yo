@@ -1,4 +1,5 @@
-import type { Environment } from "../../env";
+import type { Environment, Variable } from "../../env";
+import { addVariableToEnv, getVariablesFromEnv, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -10,7 +11,11 @@ import {
 import { isUnitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isComptimeStringValue } from "../../value";
+import {
+  isComptimeStringValue,
+  createUnknownValue,
+  isTypeValue,
+} from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "./expr";
 
@@ -20,9 +25,10 @@ import { evaluateExpression } from "./expr";
  * During normal compilation, test declarations are skipped (no-op, returns unit).
  * The test runner will extract these declarations and compile/run them separately.
  *
+ * All tests implicitly have `using(io : IO)` — the IO effect is always available.
+ *
  * Syntax:
  *   test "test_name", { body };
- *   test "test_name", using(io : IO), { body };
  *
  * @param expr The test expression
  * @param env The current environment
@@ -45,31 +51,16 @@ export function evaluateTest({
     });
   }
 
-  // Validate the test expression has correct number of arguments
-  // 2 args: test "name", { body }
-  // 3 args: test "name", using(...), { body }
-  if (expr.args.length !== 2 && expr.args.length !== 3) {
+  // Validate the test expression has exactly 2 arguments: test "name", { body }
+  if (expr.args.length !== 2) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `test expects 2 or 3 arguments (name, [using clause], body), got ${expr.args.length}`,
+      errorMessage: `test expects 2 arguments (name, body), got ${expr.args.length}. IO is implicitly available via "io" — no using clause needed.`,
     });
   }
 
-  const hasUsingClause = expr.args.length === 3;
   const testNameExpr = expr.args[0]!;
-  const testUsingExpr = hasUsingClause ? expr.args[1]! : undefined;
-  const testBodyExpr = hasUsingClause ? expr.args[2]! : expr.args[1]!;
-
-  // Validate using clause is a using(...) call if present
-  if (
-    testUsingExpr &&
-    !exprIsFunctionCallOf(testUsingExpr, BuiltinKeywords.using)
-  ) {
-    throw formatErrorMessage({
-      token: testUsingExpr.token,
-      errorMessage: `Expected using(...) clause as second argument, got: ${exprToString(testUsingExpr)}`,
-    });
-  }
+  const testBodyExpr = expr.args[1]!;
 
   // Evaluate test name to ensure it's a comptime_string
   const evaluatedTestNameExpr = evaluateExpression({
@@ -96,59 +87,87 @@ export function evaluateTest({
     });
   }
 
-  if (hasUsingClause) {
-    // When a using clause is present, store the original expressions but
-    // don't evaluate the body — it depends on the using parameters which
-    // aren't in scope here. The test runner will compile each test
-    // independently with proper main :: (fn(using(...)) -> unit) signature.
-    const originalTestUsingExpr = cloneExpr(testUsingExpr!);
-    testUsingExpr!.$ = {
-      env,
-      type: VUnit.type,
-      value: VUnit,
-      pathCollection: [],
-      originalExpr: originalTestUsingExpr,
-    };
-
-    const originalTestBodyExpr = cloneExpr(testBodyExpr);
-    testBodyExpr.$ = {
-      env,
-      type: VUnit.type,
-      value: VUnit,
-      pathCollection: [],
-      originalExpr: originalTestBodyExpr,
-    };
-  } else {
-    const originalTestBodyExpr = cloneExpr(testBodyExpr);
-
-    // Evaluate the test body to catch any compile-time errors
-    // We evaluate it but don't execute it during normal compilation
-    const evaluatedTestBodyExpr = evaluateExpression({
-      expr: testBodyExpr,
-      env,
-      context: {
-        ...context,
-        isEvaluatingFunctionBodyOrAsyncBlock: {
-          kind: "test-block",
-          evaluationEnv: env,
-        },
-      },
+  // Inject `io : IO` as an implicit variable so test bodies can reference it.
+  // At runtime, main has `using(io : IO)` and the body is inlined into main.
+  // The variable `IO` in the env is the module type definition:
+  //   IO :: module(async: ..., await: ..., spawn: ...)
+  // Its type is the metatype (Type), and its value is TypeValue(ModuleType).
+  // We need the actual ModuleType for the `io` parameter.
+  const ioVariables = getVariablesFromEnv(env, "IO");
+  const ioModuleVar = ioVariables[ioVariables.length - 1];
+  if (!ioModuleVar) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `IO module not found in environment. Is the prelude loaded?`,
     });
-
-    if (!evaluatedTestBodyExpr.$) {
-      throw formatErrorMessage({
-        token: testBodyExpr.token,
-        errorMessage: `Failed to evaluate test body: ${exprToString(testBodyExpr)}`,
-      });
-    }
-    if (!isUnitType(evaluatedTestBodyExpr.$.type)) {
-      throw formatErrorMessage({
-        token: testBodyExpr.token,
-        errorMessage: `Test body must have 'unit' type, got ${typeToString(evaluatedTestBodyExpr.$.type)}`,
-      });
-    }
-    evaluatedTestBodyExpr.$.originalExpr = originalTestBodyExpr;
   }
+
+  // Extract the actual ModuleType from IO's TypeValue.
+  // IO :: module(...) means ioModuleVar.value is TypeValue(ModuleType(...)).
+  const ioRawValue = Array.isArray(ioModuleVar.value)
+    ? ioModuleVar.value[0]
+    : ioModuleVar.value;
+  const ioModuleType =
+    ioRawValue && isTypeValue(ioRawValue) ? ioRawValue.value : ioModuleVar.type;
+
+  // Push a frame for the implicit io parameter
+  let bodyEnv = pushEnvFrame(env);
+
+  // Create an UnknownValue for io — the actual value is provided at runtime.
+  // Using parameters use [value] array format for given-variable resolution.
+  const ioUnknownValue = createUnknownValue(ioModuleType, {
+    variableName: "io",
+    env: bodyEnv,
+    context,
+  });
+
+  const ioVar: Omit<Variable, "id" | "frameLevel"> = {
+    name: "io",
+    type: ioModuleType,
+    value: [ioUnknownValue],
+    isCompileTimeOnly: true,
+    isOwningTheRcValue: false,
+    isImplicit: true,
+    isReassignable: false,
+    initializedAtToken: expr.token,
+    consumedAtToken: undefined,
+    token: expr.token,
+  };
+  const addResult = addVariableToEnv({
+    env: bodyEnv,
+    variable: ioVar,
+    allowVariableShadowing: true,
+  });
+  bodyEnv = addResult.env;
+
+  const originalTestBodyExpr = cloneExpr(testBodyExpr);
+
+  // Evaluate the test body to catch any compile-time errors
+  const evaluatedTestBodyExpr = evaluateExpression({
+    expr: testBodyExpr,
+    env: bodyEnv,
+    context: {
+      ...context,
+      isEvaluatingFunctionBodyOrAsyncBlock: {
+        kind: "test-block",
+        evaluationEnv: bodyEnv,
+      },
+    },
+  });
+
+  if (!evaluatedTestBodyExpr.$) {
+    throw formatErrorMessage({
+      token: testBodyExpr.token,
+      errorMessage: `Failed to evaluate test body: ${exprToString(testBodyExpr)}`,
+    });
+  }
+  if (!isUnitType(evaluatedTestBodyExpr.$.type)) {
+    throw formatErrorMessage({
+      token: testBodyExpr.token,
+      errorMessage: `Test body must have 'unit' type, got ${typeToString(evaluatedTestBodyExpr.$.type)}`,
+    });
+  }
+  evaluatedTestBodyExpr.$.originalExpr = originalTestBodyExpr;
 
   // NOTE: Don't propagate env.
   // env = evaluatedTestBodyExpr.$.env;

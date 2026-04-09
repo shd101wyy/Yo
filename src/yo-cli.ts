@@ -281,7 +281,8 @@ yo --version                     Show version number
 
       // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
       const isEmcc = cCompiler === "emcc";
-      const targetTriple = targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
+      const targetTriple =
+        targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
 
       const absolutePath = `file://` + fs.realpathSync(file);
       const targetInfo = targetTriple

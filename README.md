@@ -32,6 +32,8 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Contributing](#contributing)
   - [Setup](#setup)
 - [Editor Support](#editor-support)
+- [AI Agent Skills](#ai-agent-skills)
+  - [Using in your own project](#using-in-your-own-project)
 - [Star History](#star-history)
 - [License](#license)
 
@@ -311,6 +313,28 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
+
+## AI Agent Skills
+
+This repository ships a set of **agent skill files** that teach AI agents how to write Yo programs. The skills are portable — you can copy the `.github/skills/` directory into any Yo project and agents will be able to use them there too.
+
+| Skill                                                                | Description                                                                        |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [`yo-syntax`](.github/skills/yo-syntax/SKILL.md)                     | Core language syntax: curly braces, cond/match, structs, enums, operators, modules |
+| [`yo-core-patterns`](.github/skills/yo-core-patterns/SKILL.md)       | Everyday patterns: types, generics, traits, error handling, collections, iterators |
+| [`yo-async-effects`](.github/skills/yo-async-effects/SKILL.md)       | Async/await, algebraic effects, Exception, IO, spawning tasks                      |
+| [`yo-project-workflow`](.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI commands, `build.yo` project files, dependency management                 |
+
+### Using in your own project
+
+Copy the skills directory into your Yo project:
+
+```bash
+cp -r .github/skills /path/to/your-yo-project/.github/
+# or .agents, .claude, etc depending on your agent platform
+```
+
+Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
 
 ## Star History
 

@@ -16,7 +16,7 @@ open import "std/fmt";
 // TcpListener tests
 // ============================================================================
 
-test "TcpListener bind and close", using(io : IO), {
+test "TcpListener bind and close", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
   printf("  listener fd = %d\n", listener.fd());
@@ -25,7 +25,7 @@ test "TcpListener bind and close", using(io : IO), {
   printf("  close ok\n");
 };
 
-test "TcpListener local_addr returns bound address", using(io : IO), {
+test "TcpListener local_addr returns bound address", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
   la := listener.local_addr();
@@ -38,7 +38,7 @@ test "TcpListener local_addr returns bound address", using(io : IO), {
 // TcpStream tests
 // ============================================================================
 
-test "TCP connect to listener and accept", using(io : IO), {
+test "TCP connect to listener and accept", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19900));
   listener := io.await(TcpListener.bind(addr));
@@ -56,7 +56,7 @@ test "TCP connect to listener and accept", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP echo with write_str and read", using(io : IO), {
+test "TCP echo with write_str and read", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19901));
   listener := io.await(TcpListener.bind(addr));
@@ -85,7 +85,7 @@ test "TCP echo with write_str and read", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP echo with write String", using(io : IO), {
+test "TCP echo with write String", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19902));
   listener := io.await(TcpListener.bind(addr));
@@ -110,7 +110,7 @@ test "TCP echo with write String", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP write_bytes", using(io : IO), {
+test "TCP write_bytes", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19903));
   listener := io.await(TcpListener.bind(addr));
@@ -143,7 +143,7 @@ test "TCP write_bytes", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP set_nodelay and set_keepalive", using(io : IO), {
+test "TCP set_nodelay and set_keepalive", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19904));
   listener := io.await(TcpListener.bind(addr));
@@ -159,7 +159,7 @@ test "TCP set_nodelay and set_keepalive", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP shutdown", using(io : IO), {
+test "TCP shutdown", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19905));
   listener := io.await(TcpListener.bind(addr));
@@ -174,7 +174,7 @@ test "TCP shutdown", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP peer_addr returns remote address", using(io : IO), {
+test "TCP peer_addr returns remote address", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19906));
   listener := io.await(TcpListener.bind(addr));
@@ -189,7 +189,7 @@ test "TCP peer_addr returns remote address", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP read_bytes gets all data", using(io : IO), {
+test "TCP read_bytes gets all data", {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19907));
   listener := io.await(TcpListener.bind(addr));

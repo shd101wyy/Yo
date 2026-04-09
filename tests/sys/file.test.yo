@@ -34,7 +34,7 @@ test "sync open nonexistent returns negative errno", {
   assert(fd < i32(0));
 };
 
-test "async openat, read, close", using(io : IO), {
+test "async openat, read, close", {
   async_path := *(u8)("tests/fixtures/test_file.txt");
   open_result := io.await(openat(AT_FDCWD, async_path, O_RDONLY, i32(0)));
   printf("  openat result = %d\n", open_result);
@@ -62,7 +62,7 @@ test "async openat, read, close", using(io : IO), {
   free(.Some(*(void)(buf)));
 };
 
-test "async write and read back", using(io : IO), {
+test "async write and read back", {
   write_open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   tmp := temp_dir();
   write_path_str := path_join(tmp, `yo_io_file_test.txt`);

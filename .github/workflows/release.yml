@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: "Version bump type"
         required: true
-        default: 'patch'
+        default: "patch"
         type: choice
         options:
           - patch
@@ -19,106 +19,106 @@ jobs:
       contents: write
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-      with:
-        ref: develop
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
-        submodules: recursive
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: develop
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          submodules: recursive
 
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
-      with:
-        bun-version: latest
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
-        registry-url: 'https://registry.npmjs.org'
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
-    - name: Install dependencies
-      run: |
-        bun install
+      - name: Install dependencies
+        run: |
+          bun install
 
-    - name: Bump version in root package.json
-      id: version
-      run: |
-        cd ${{ github.workspace }}
-        npm version ${{ inputs.bump }} --no-git-tag-version
-        NEW_VERSION=$(node -p "require('./package.json').version")
-        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-        echo "New version: $NEW_VERSION"
+      - name: Bump version in root package.json
+        id: version
+        run: |
+          cd ${{ github.workspace }}
+          npm version ${{ inputs.bump }} --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
 
-    - name: Bump version in vscode-extension package.json
-      run: |
-        cd vscode-extension
-        npm version ${{ inputs.bump }} --no-git-tag-version
+      - name: Bump version in vscode-extension package.json
+        run: |
+          cd vscode-extension
+          npm version ${{ inputs.bump }} --no-git-tag-version
 
-    - name: Build
-      run: bun run build
+      - name: Build
+        run: bun run build
 
-    - name: Get last commit message
-      id: last_commit
-      run: |
-        LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
-        echo "message<<EOF" >> $GITHUB_OUTPUT
-        echo "$LAST_COMMIT_MSG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+      - name: Get last commit message
+        id: last_commit
+        run: |
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$LAST_COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-    - name: Commit version bump
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add package.json vscode-extension/package.json
-        git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-        git push
+      - name: Commit version bump
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add package.json vscode-extension/package.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git push
 
-    - name: Publish to npm
-      run: npm publish --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-    - name: Build and package VS Code extension
-      run: |
-        cd vscode-extension
-        bun install
-        npm install -g @vscode/vsce
-        bun run build
-        bun package
+      - name: Build and package VS Code extension
+        run: |
+          cd vscode-extension
+          bun install
+          npm install -g @vscode/vsce
+          bun run build
+          bun package
 
-    - name:  Publish extension to Visual Studio Marketplace
-      id: create_vsix
-      uses: HaaLeo/publish-vscode-extension@v2
-      with:
-        dryRun: ${{ github.ref != 'refs/heads/develop' }}
-        pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
-        packagePath: ./vscode-extension
-        registryUrl: https://marketplace.visualstudio.com
+      - name: Publish extension to Visual Studio Marketplace
+        id: create_vsix
+        uses: HaaLeo/publish-vscode-extension@v2
+        with:
+          dryRun: ${{ github.ref != 'refs/heads/develop' }}
+          pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+          packagePath: ./vscode-extension
+          registryUrl: https://marketplace.visualstudio.com
 
-    - name: Create GitHub Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.version.outputs.version }}
-        release_name: Release v${{ steps.version.outputs.version }}
-        body: |
-          ${{ inputs.bump == 'minor' && 'Minor' || 'Patch' }} release v${{ steps.version.outputs.version }}
-          
-          ## Changes
-          ${{ steps.last_commit.outputs.message }}
-        draft: false
-        prerelease: false
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          release_name: Release v${{ steps.version.outputs.version }}
+          body: |
+            ${{ inputs.bump == 'minor' && 'Minor' || 'Patch' }} release v${{ steps.version.outputs.version }}
 
-    - name: Upload VSIX to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ steps.create_vsix.outputs.vsixPath}}
-        asset_name: ${{ steps.create_vsix.outputs.vsixPath}}
-        asset_content_type: application/vsix
+            ## Changes
+            ${{ steps.last_commit.outputs.message }}
+          draft: false
+          prerelease: false
+
+      - name: Upload VSIX to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.create_vsix.outputs.vsixPath}}
+          asset_name: ${{ steps.create_vsix.outputs.vsixPath}}
+          asset_content_type: application/vsix

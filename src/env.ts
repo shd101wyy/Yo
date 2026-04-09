@@ -1735,7 +1735,23 @@ export function getReceiverMethodsByNameFromEnv({
 
       // 2) Impl trait methods stored as ModuleValue with empty label ""
       // This is where `impl(concreteType, Module(...))` attaches concrete method bodies.
+      // When the receiver is a SomeType with where-clause constraints, only consider
+      // impl traits that match those constraints (trait disambiguation).
       if (methods.length === 0) {
+        // Collect constrained trait IDs from where-clause constraints
+        const constrainedTraitIds = new Set<string>();
+        if (isSomeType(dereferencedReceiverType)) {
+          const whereConstraints = getWhereClauseConstraintsForSomeType(
+            env,
+            dereferencedReceiverType
+          );
+          if (whereConstraints) {
+            for (const rt of whereConstraints.requiredTraits) {
+              constrainedTraitIds.add(rt.id);
+            }
+          }
+        }
+
         for (const field of concreteModule?.fields ?? []) {
           if (
             field.label === "" &&
@@ -1744,6 +1760,15 @@ export function getReceiverMethodsByNameFromEnv({
           ) {
             const implTraitValue = field.assignedValue;
             const implTraitType = implTraitValue.type;
+
+            // If we have where-clause constraints, only match impl traits in the constraint set
+            if (
+              constrainedTraitIds.size > 0 &&
+              !constrainedTraitIds.has(implTraitType.id)
+            ) {
+              continue;
+            }
+
             const methodIndex = implTraitType.fields.findIndex(
               (f) => f.label === methodName && isFunctionType(f.type)
             );
@@ -1877,17 +1902,65 @@ export function getReceiverMethodsByNameFromEnv({
             }
           }
 
-          // Create an unknown value since the actual implementation is not known
-          // The actual dispatch will happen at runtime based on the concrete type
-          const value = createUnknownValue(
-            specializedMethodType,
+          // Try to resolve the concrete implementation for codegen (static dispatch).
+          // If the receiver is a SomeType that has been synthesized to a concrete type
+          // in the env, look up that concrete type's impl for this specific trait.
+          let concreteMethodValue: Value | undefined = undefined;
+          if (isSomeType(dereferencedReceiverType)) {
+            const defLevel = dereferencedReceiverType.definitionFrameLevel;
+            if (defLevel !== undefined && defLevel >= 0) {
+              const defFrame = env.frames[defLevel];
+              if (defFrame) {
+                const defVar = defFrame.variables.find(
+                  (v) =>
+                    v.name === dereferencedReceiverType.name &&
+                    v.value &&
+                    isTypeValue(v.value[0])
+                );
+                if (defVar?.value && isTypeValue(defVar.value[0])) {
+                  const resolvedType = defVar.value[0].value;
+                  if (
+                    resolvedType !== dereferencedReceiverType &&
+                    !isSomeType(resolvedType) &&
+                    resolvedType.trait
+                  ) {
+                    // Found a concrete type — look up its impl for this trait
+                    for (const traitField of resolvedType.trait.fields) {
+                      if (
+                        traitField.label === "" &&
+                        traitField.assignedValue &&
+                        isTraitValue(traitField.assignedValue) &&
+                        traitField.assignedValue.type.id ===
+                          requiredTraitType.id
+                      ) {
+                        const implMethodIndex =
+                          traitField.assignedValue.type.fields.findIndex(
+                            (f) =>
+                              f.label === methodName && isFunctionType(f.type)
+                          );
+                        if (implMethodIndex >= 0) {
+                          concreteMethodValue =
+                            traitField.assignedValue.fields[implMethodIndex] ??
+                            traitField.assignedValue.type.fields[
+                              implMethodIndex
+                            ]?.assignedValue;
+                        }
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
 
-            {
+          const value =
+            concreteMethodValue ??
+            createUnknownValue(specializedMethodType, {
               variableName: method.label,
               env,
               context,
-            }
-          );
+            });
           methods.push({
             type: specializedMethodType,
             value,

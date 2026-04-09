@@ -6,16 +6,16 @@ open import "std/fmt";
 // ---------------------------------------------------------------------------
 // 1. Basic lazy async – verify task doesn't run until awaited
 // ---------------------------------------------------------------------------
-test "Test lazy async", using(io : IO), {
+test "Test lazy async", {
   b := Box(i32)(0);
 
-  task := io.async((using(io : IO))=> {
+  task := io.async((using(another_io : IO))=> {
     printf("Task started %d\n", b.*);
 
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    io.await(yield());
+    another_io.await(yield());
 
     printf("Task completed %d\n", b.*);
     assert(c.* == 10, "captured Box should still be 10");
@@ -32,7 +32,7 @@ test "Test lazy async", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 2. Async function returning a value
 // ---------------------------------------------------------------------------
-test "Test async function", using(io : IO), {
+test "Test async function", {
   bb := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -61,7 +61,7 @@ test "Test async function", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 3. Multiple sequential awaits
 // ---------------------------------------------------------------------------
-test "Test multiple sequential awaits", using(io : IO), {
+test "Test multiple sequential awaits", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -89,7 +89,7 @@ test "Test multiple sequential awaits", using(io : IO), {
 // 4. Cond with await in one branch only (the non-await branch taken)
 //    Regression test for NULL future dereference when non-await branch executes
 // ---------------------------------------------------------------------------
-test "Test cond with await in one branch - non-await path", using(io : IO), {
+test "Test cond with await in one branch - non-await path", {
   flag := Box(bool)(false);
   result := Box(i32)(0);
 
@@ -118,7 +118,7 @@ test "Test cond with await in one branch - non-await path", using(io : IO), {
 //    Result is set AFTER the yield, so by the time the event loop
 //    completes the task, the inner assertion should pass.
 // ---------------------------------------------------------------------------
-test "Test cond with await in one branch - await path", using(io : IO), {
+test "Test cond with await in one branch - await path", {
   flag := Box(bool)(true);
   result := Box(i32)(0);
 
@@ -145,7 +145,7 @@ test "Test cond with await in one branch - await path", using(io : IO), {
 // 6. Cond with await in BOTH branches – true branch taken
 //    Both branches have await, so the task always suspends.
 // ---------------------------------------------------------------------------
-test "Test cond with await in both branches", using(io : IO), {
+test "Test cond with await in both branches", {
   flag := Box(bool)(true);
   result := Box(i32)(0);
 
@@ -171,7 +171,7 @@ test "Test cond with await in both branches", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 7. Cond with await in both branches – false branch taken
 // ---------------------------------------------------------------------------
-test "Test cond with await in both branches - false path", using(io : IO), {
+test "Test cond with await in both branches - false path", {
   flag := Box(bool)(false);
   result := Box(i32)(0);
 
@@ -197,7 +197,7 @@ test "Test cond with await in both branches - false path", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 8. Early return from async block (no value)
 // ---------------------------------------------------------------------------
-test "Test early return from async block", using(io : IO), {
+test "Test early return from async block", {
   reached_end := Box(bool)(false);
   reached_middle := Box(bool)(false);
 
@@ -216,7 +216,7 @@ test "Test early return from async block", using(io : IO), {
 // 9. Early return from cond branch inside async (regression test)
 //    This ensures local variables are properly dropped on early return
 // ---------------------------------------------------------------------------
-test "Test early return from cond branch in async", using(io : IO), {
+test "Test early return from cond branch in async", {
   flag := Box(bool)(true);
   result := Box(i32)(0);
 
@@ -241,7 +241,7 @@ test "Test early return from cond branch in async", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 10. Early return from non-await cond branch inside async
 // ---------------------------------------------------------------------------
-test "Test early return from non-await cond branch in async", using(io : IO), {
+test "Test early return from non-await cond branch in async", {
   flag := Box(bool)(true);
   result := Box(i32)(0);
 
@@ -267,7 +267,7 @@ test "Test early return from non-await cond branch in async", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 11. Captured Box variables across multiple await points
 // ---------------------------------------------------------------------------
-test "Test captured Box across multiple awaits", using(io : IO), {
+test "Test captured Box across multiple awaits", {
   a := Box(i32)(1);
   b := Box(i32)(2);
   c := Box(i32)(3);
@@ -299,7 +299,7 @@ test "Test captured Box across multiple awaits", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 12. Async function returning value through cond branches
 // ---------------------------------------------------------------------------
-test "Test async function return through cond", using(io : IO), {
+test "Test async function return through cond", {
   task_true := io.async((using(io : IO))=> {
     io.await(yield());
     v := cond(
@@ -328,7 +328,7 @@ test "Test async function return through cond", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 13. While loop with await inside
 // ---------------------------------------------------------------------------
-test "Test while loop with await", using(io : IO), {
+test "Test while loop with await", {
   counter := Box(i32)(0);
   iterations := Box(i32)(0);
 
@@ -349,7 +349,7 @@ test "Test while loop with await", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 14. While loop with break after await
 // ---------------------------------------------------------------------------
-test "Test while loop with break after await", using(io : IO), {
+test "Test while loop with break after await", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -371,7 +371,7 @@ test "Test while loop with break after await", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 15. Nested cond with await at different levels
 // ---------------------------------------------------------------------------
-test "Test nested cond with await", using(io : IO), {
+test "Test nested cond with await", {
   outer_flag := Box(bool)(true);
   inner_flag := Box(bool)(true);
   result := Box(i32)(0);
@@ -405,7 +405,7 @@ test "Test nested cond with await", using(io : IO), {
 // 16. Lazy sequential async tasks – verify no interleaving without spawn
 //     With lazy execution, await task1 fully completes before task2 starts.
 // ---------------------------------------------------------------------------
-test "Test lazy sequential async tasks", using(io : IO), {
+test "Test lazy sequential async tasks", {
   order := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -433,7 +433,7 @@ test "Test lazy sequential async tasks", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 17. Async block with local allocations that must be dropped
 // ---------------------------------------------------------------------------
-test "Test async block drops local allocations", using(io : IO), {
+test "Test async block drops local allocations", {
   task := io.async((using(io : IO))=> {
     a := Box(i32)(100);
     b := Box(i32)(200);
@@ -450,7 +450,7 @@ test "Test async block drops local allocations", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 18. Async function with multiple await and early return
 // ---------------------------------------------------------------------------
-test "Test async function with multiple awaits and early return", using(io : IO), {
+test "Test async function with multiple awaits and early return", {
   task := io.async((using(io : IO))=> {
     i := Box(i32)(0);
     while runtime(i.* < i32(10)), {
@@ -475,7 +475,7 @@ test "Test async function with multiple awaits and early return", using(io : IO)
 //     flag is true, so the await branch is taken. x is set to 20 after yield.
 //     Then result.* = x happens after the cond completes.
 // ---------------------------------------------------------------------------
-test "Test code after cond with await", using(io : IO), {
+test "Test code after cond with await", {
   flag := Box(bool)(true);
   result := Box(i32)(0);
 
@@ -500,7 +500,7 @@ test "Test code after cond with await", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 20. Cond with await – non-await branch, then code after cond
 // ---------------------------------------------------------------------------
-test "Test code after cond with await - non-await path", using(io : IO), {
+test "Test code after cond with await - non-await path", {
   flag := Box(bool)(false);
   result := Box(i32)(0);
 
@@ -530,7 +530,7 @@ test "Test code after cond with await - non-await path", using(io : IO), {
 //     b_flag is false → second cond takes non-await branch: x += 2
 //     result.* = x = 12
 // ---------------------------------------------------------------------------
-test "Test sequential conds with await", using(io : IO), {
+test "Test sequential conds with await", {
   a_flag := Box(bool)(true);
   b_flag := Box(bool)(false);
   result := Box(i32)(0);
@@ -570,7 +570,7 @@ test "Test sequential conds with await", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 22. Async block completing without any awaits (degenerate case)
 // ---------------------------------------------------------------------------
-test "Test async block with no awaits", using(io : IO), {
+test "Test async block with no awaits", {
   result := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -585,7 +585,7 @@ test "Test async block with no awaits", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 23. Deeply nested awaits (stress test for state machine)
 // ---------------------------------------------------------------------------
-test "Test many sequential awaits", using(io : IO), {
+test "Test many sequential awaits", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -621,7 +621,7 @@ test "Test many sequential awaits", using(io : IO), {
 //     Loop counts from 0 to 9, skipping odd numbers via continue.
 //     sum should equal 0+2+4+6+8 = 20.
 // ---------------------------------------------------------------------------
-test "Test continue in async while loop", using(io : IO), {
+test "Test continue in async while loop", {
   sum := Box(i32)(0);
   counter := Box(i32)(0);
 
@@ -646,7 +646,7 @@ test "Test continue in async while loop", using(io : IO), {
 // 25. Break from nested cond inside async while loop (after await)
 //     Loop until counter reaches 5, then break from within a cond.
 // ---------------------------------------------------------------------------
-test "Test break from cond in async while loop", using(io : IO), {
+test "Test break from cond in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -672,7 +672,7 @@ test "Test break from cond in async while loop", using(io : IO), {
 //     Increment counter each iteration; if counter is 3 or 7, continue
 //     without adding to sum. sum should be 1+2+4+5+6+8+9+10 = 45.
 // ---------------------------------------------------------------------------
-test "Test continue skips body after await", using(io : IO), {
+test "Test continue skips body after await", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -698,7 +698,7 @@ test "Test continue skips body after await", using(io : IO), {
 //     Allocate a Box each iteration; break at iteration 3.
 //     AddressSanitizer will catch leaks.
 // ---------------------------------------------------------------------------
-test "Test break drops local allocations in async while loop", using(io : IO), {
+test "Test break drops local allocations in async while loop", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -721,7 +721,7 @@ test "Test break drops local allocations in async while loop", using(io : IO), {
 // 28. Continue with local Box allocation (must be dropped, no leak)
 //     Allocate a Box each iteration; continue on even iterations.
 // ---------------------------------------------------------------------------
-test "Test continue drops local allocations in async while loop", using(io : IO), {
+test "Test continue drops local allocations in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -747,7 +747,7 @@ test "Test continue drops local allocations in async while loop", using(io : IO)
 // 29. Break before first await in loop body
 //     Local allocation happens before break check; break path should drop it.
 // ---------------------------------------------------------------------------
-test "Test break before first await in async while loop", using(io : IO), {
+test "Test break before first await in async while loop", {
   counter := Box(i32)(0);
   resumed := Box(i32)(0);
 
@@ -774,7 +774,7 @@ test "Test break before first await in async while loop", using(io : IO), {
 // 30. Continue before first await in loop body
 //     Even snapshots continue without suspension; odd snapshots await and count.
 // ---------------------------------------------------------------------------
-test "Test continue before first await in async while loop", using(io : IO), {
+test "Test continue before first await in async while loop", {
   counter := Box(i32)(0);
   odd_resumed := Box(i32)(0);
 
@@ -800,7 +800,7 @@ test "Test continue before first await in async while loop", using(io : IO), {
 // 31. Zero-iteration async while loop
 //     Body should never run; no await should execute.
 // ---------------------------------------------------------------------------
-test "Test zero-iteration async while loop", using(io : IO), {
+test "Test zero-iteration async while loop", {
   ran_body := Box(bool)(false);
   touched_after_await := Box(bool)(false);
   done := Box(bool)(false);
@@ -826,7 +826,7 @@ test "Test zero-iteration async while loop", using(io : IO), {
 // 32. Mixed continue and break in same async loop
 //     1,2 continue; 3,4 accumulate; 5 breaks.
 // ---------------------------------------------------------------------------
-test "Test mixed continue then break in async while loop", using(io : IO), {
+test "Test mixed continue then break in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -858,7 +858,7 @@ test "Test mixed continue then break in async while loop", using(io : IO), {
 // 33. Nested async while loops - inner break only
 //     Inner loop breaks at 2; outer loop continues for 3 rounds.
 // ---------------------------------------------------------------------------
-test "Test nested async while with inner break", using(io : IO), {
+test "Test nested async while with inner break", {
   outer_counter := Box(i32)(0);
   outer_sum := Box(i32)(0);
 
@@ -889,7 +889,7 @@ test "Test nested async while with inner break", using(io : IO), {
 // 34. Nested async while loops - inner continue only
 //     Inner continue must not skip outer-level statements.
 // ---------------------------------------------------------------------------
-test "Test nested async while with inner continue", using(io : IO), {
+test "Test nested async while with inner continue", {
   outer_counter := Box(i32)(0);
   outer_sum := Box(i32)(0);
 
@@ -921,7 +921,7 @@ test "Test nested async while with inner continue", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 35. Match branches with continue/break after await
 // ---------------------------------------------------------------------------
-test "Test match branches with continue and break in async loop", using(io : IO), {
+test "Test match branches with continue and break in async loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -949,7 +949,7 @@ test "Test match branches with continue and break in async loop", using(io : IO)
 // 36. Loop-local + captured outer values across await with continue
 //     Local loop value and captured outer value must both stay correct.
 // ---------------------------------------------------------------------------
-test "Test loop-local and captured values with continue across await", using(io : IO), {
+test "Test loop-local and captured values with continue across await", {
   outer_value := Box(i32)(100);
   offset := Box(i32)(1);
   counter := Box(i32)(0);
@@ -978,7 +978,7 @@ test "Test loop-local and captured values with continue across await", using(io 
 // 37. Early return inside loop after continue path
 //     Continue on even numbers; early-return at first odd >= 5.
 // ---------------------------------------------------------------------------
-test "Test early return inside loop after continue", using(io : IO), {
+test "Test early return inside loop after continue", {
   i := Box(i32)(0);
   found := Box(i32)(-1);
   reached_end := Box(bool)(false);
@@ -1014,7 +1014,7 @@ test "Test early return inside loop after continue", using(io : IO), {
 // 38. Mixed pre-await break and post-await continue in one loop
 //     Break is checked before await, continue after await.
 // ---------------------------------------------------------------------------
-test "Test mixed pre-await break and post-await continue", using(io : IO), {
+test "Test mixed pre-await break and post-await continue", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -1048,7 +1048,7 @@ test "Test mixed pre-await break and post-await continue", using(io : IO), {
 //     Inner while (no await) runs to completion before outer await.
 //     Break inside the inner while must NOT affect the outer loop.
 // ---------------------------------------------------------------------------
-test "Test non-async inner while with break inside async while", using(io : IO), {
+test "Test non-async inner while with break inside async while", {
   counter := Box(i32)(0);
   total := Box(i32)(0);
 
@@ -1079,7 +1079,7 @@ test "Test non-async inner while with break inside async while", using(io : IO),
 // 40. Non-async inner while with continue inside async outer while
 //     Continue inside the inner while must only affect the inner loop.
 // ---------------------------------------------------------------------------
-test "Test non-async inner while with continue inside async while", using(io : IO), {
+test "Test non-async inner while with continue inside async while", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -1113,7 +1113,7 @@ test "Test non-async inner while with continue inside async while", using(io : I
 //     Two separate while loops with await, one after the other.
 //     The second loop must start only after the first finishes.
 // ---------------------------------------------------------------------------
-test "Test sequential while-with-await loops", using(io : IO), {
+test "Test sequential while-with-await loops", {
   a := Box(i32)(0);
   b := Box(i32)(0);
 
@@ -1138,7 +1138,7 @@ test "Test sequential while-with-await loops", using(io : IO), {
 // 42. While loop where await is the last expression in body
 //     No post-await expressions; bodyExprsAfterAwait is empty.
 // ---------------------------------------------------------------------------
-test "Test while with await as last expression in body", using(io : IO), {
+test "Test while with await as last expression in body", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1157,7 +1157,7 @@ test "Test while with await as last expression in body", using(io : IO), {
 //     Condition becomes false after exactly one iteration.
 //     Tests that the state machine correctly exits after one await.
 // ---------------------------------------------------------------------------
-test "Test single-iteration while-with-await", using(io : IO), {
+test "Test single-iteration while-with-await", {
   counter := Box(i32)(0);
   result := Box(i32)(0);
 
@@ -1179,7 +1179,7 @@ test "Test single-iteration while-with-await", using(io : IO), {
 // 44. While-with-await followed by code after the loop
 //     Expressions after the while must run after loop exits.
 // ---------------------------------------------------------------------------
-test "Test code after while-with-await loop", using(io : IO), {
+test "Test code after while-with-await loop", {
   counter := Box(i32)(0);
   result := Box(i32)(0);
 
@@ -1200,7 +1200,7 @@ test "Test code after while-with-await loop", using(io : IO), {
 // 45. Cond-with-await followed by while-with-await
 //     Sequential mixing of different async control flow patterns.
 // ---------------------------------------------------------------------------
-test "Test cond-with-await then while-with-await", using(io : IO), {
+test "Test cond-with-await then while-with-await", {
   flag := Box(bool)(true);
   counter := Box(i32)(0);
   result := Box(i32)(0);
@@ -1233,7 +1233,7 @@ test "Test cond-with-await then while-with-await", using(io : IO), {
 // 46. While-with-await followed by cond-with-await
 //     The cond sees the loop's final state.
 // ---------------------------------------------------------------------------
-test "Test while-with-await then cond-with-await", using(io : IO), {
+test "Test while-with-await then cond-with-await", {
   counter := Box(i32)(0);
   result := Box(i32)(0);
 
@@ -1263,7 +1263,7 @@ test "Test while-with-await then cond-with-await", using(io : IO), {
 // 47. While-with-await with break in first iteration
 //     The loop runs once and breaks immediately after the first await.
 // ---------------------------------------------------------------------------
-test "Test while-with-await break on first iteration", using(io : IO), {
+test "Test while-with-await break on first iteration", {
   counter := Box(i32)(0);
   done := Box(bool)(false);
 
@@ -1288,7 +1288,7 @@ test "Test while-with-await break on first iteration", using(io : IO), {
 //     Outer while runs 2 rounds. Inner while breaks at 3.
 //     After outer loop, additional code runs.
 // ---------------------------------------------------------------------------
-test "Test nested async while with code after outer loop", using(io : IO), {
+test "Test nested async while with code after outer loop", {
   outer := Box(i32)(0);
   inner_total := Box(i32)(0);
   final_result := Box(i32)(0);
@@ -1323,7 +1323,7 @@ test "Test nested async while with code after outer loop", using(io : IO), {
 // 49. Multiple captured variables modified in nested while-with-await
 //     All captured variables must remain consistent across iterations.
 // ---------------------------------------------------------------------------
-test "Test multiple captured variables in nested while-with-await", using(io : IO), {
+test "Test multiple captured variables in nested while-with-await", {
   x := Box(i32)(0);
   y := Box(i32)(100);
   z := Box(i32)(0);
@@ -1357,7 +1357,7 @@ test "Test multiple captured variables in nested while-with-await", using(io : I
 // 50. While-with-await early break skips remaining iterations
 //     Break after 2 of 10 planned iterations. Resources must be properly freed.
 // ---------------------------------------------------------------------------
-test "Test while-with-await early break with local allocations", using(io : IO), {
+test "Test while-with-await early break with local allocations", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -1383,7 +1383,7 @@ test "Test while-with-await early break with local allocations", using(io : IO),
 // 51. Cond with await in non-await branch followed by code
 //     Non-await branch is taken; code after cond should still execute.
 // ---------------------------------------------------------------------------
-test "Test cond non-await path then code after cond in async", using(io : IO), {
+test "Test cond non-await path then code after cond in async", {
   flag := Box(bool)(false);
   result := Box(i32)(0);
   after_cond := Box(i32)(0);
@@ -1412,7 +1412,7 @@ test "Test cond non-await path then code after cond in async", using(io : IO), {
 //     Tests proper dup of captured RC values when creating async blocks
 //     inside a state machine (while loop body).
 // ---------------------------------------------------------------------------
-test "Test await of async subtask inside while loop", using(io : IO), {
+test "Test await of async subtask inside while loop", {
   total := Box(i32)(0);
   counter := Box(i32)(0);
 
@@ -1439,7 +1439,7 @@ test "Test await of async subtask inside while loop", using(io : IO), {
 // 53. Match with await on primitive integer type
 //     Tests match expression with integer values containing await in branches.
 // ---------------------------------------------------------------------------
-test "Test match with await on primitive integer", using(io : IO), {
+test "Test match with await on primitive integer", {
   result := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1465,7 +1465,7 @@ test "Test match with await on primitive integer", using(io : IO), {
 // 54. Match with await on primitive integer - default branch
 //     Tests that the default/wildcard branch with await works correctly.
 // ---------------------------------------------------------------------------
-test "Test match with await on primitive integer default branch", using(io : IO), {
+test "Test match with await on primitive integer default branch", {
   result := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1494,7 +1494,7 @@ test "Test match with await on primitive integer default branch", using(io : IO)
 //     io.await extracts results after spawn.
 //     Verifies interleaving order: task1 state0 → task2 state0 → task1 state1 → task2 state1
 // ---------------------------------------------------------------------------
-test "Test basic spawn of two futures", using(io : IO), {
+test "Test basic spawn of two futures", {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1536,7 +1536,7 @@ test "Test basic spawn of two futures", using(io : IO), {
 // 56. Spawn single future — edge case
 //     io.spawn(task) starts the future, io.await waits for it.
 // ---------------------------------------------------------------------------
-test "Test spawn single future", using(io : IO), {
+test "Test spawn single future", {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1559,7 +1559,7 @@ test "Test spawn single future", using(io : IO), {
 //     Each future yields multiple times; spawn starts both.
 //     Verifies round-robin interleaving across all yield points.
 // ---------------------------------------------------------------------------
-test "Test spawn with multi-yield futures", using(io : IO), {
+test "Test spawn with multi-yield futures", {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1609,7 +1609,7 @@ test "Test spawn with multi-yield futures", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 58. Spawn then code after — verify execution continues after spawn + await
 // ---------------------------------------------------------------------------
-test "Test code after spawn", using(io : IO), {
+test "Test code after spawn", {
   flag := Box(bool)(false);
 
   task := io.async((using(io : IO))=> {
@@ -1638,7 +1638,7 @@ test "Test code after spawn", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 59. Future(T) — no effects (backward compat)
 // ---------------------------------------------------------------------------
-test "Test Future no effects backward compat", using(io : IO), {
+test "Test Future no effects backward compat", {
   task := io.async((using(io : IO))=> {
     io.await(yield());
     i32(42)
@@ -1650,7 +1650,7 @@ test "Test Future no effects backward compat", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 60. Future(T, ...(E)) — single row spread (backward compat)
 // ---------------------------------------------------------------------------
-test "Test Future with single effect row spread", using(io : IO), {
+test "Test Future with single effect row spread", {
   Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -1676,7 +1676,7 @@ test "Test Future with single effect row spread", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 61. Single individual effect — Raise used directly in async
 // ---------------------------------------------------------------------------
-test "Test Future with single individual effect", using(io : IO), {
+test "Test Future with single individual effect", {
   Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -1699,7 +1699,7 @@ test "Test Future with single individual effect", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 62. Multiple individual effects: Raise and Log
 // ---------------------------------------------------------------------------
-test "Test Future with multiple individual effects", using(io : IO), {
+test "Test Future with multiple individual effects", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1727,7 +1727,7 @@ test "Test Future with multiple individual effects", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 63. Multiple effect row spreads: ...(E1), ...(E2)
 // ---------------------------------------------------------------------------
-test "Test Future with multiple effect row spreads", using(io : IO), {
+test "Test Future with multiple effect row spreads", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1769,7 +1769,7 @@ test "Test Future with multiple effect row spreads", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 64. Mixed: individual effect + spread: using(my_raise : Raise, ...(E))
 // ---------------------------------------------------------------------------
-test "Test Future with mixed individual effect and spread", using(io : IO), {
+test "Test Future with mixed individual effect and spread", {
   Raise :: (fn(msg : String) -> i32);
 
   task := io.async((using(io : IO))=> {
@@ -1803,7 +1803,7 @@ test "Test Future with mixed individual effect and spread", using(io : IO), {
 // 65. Impl(Future(i32, Log, IO, Raise)) — individual effects at type level
 //     Effects listed in different order than the closure's (IO, Raise, Log)
 // ---------------------------------------------------------------------------
-test "Test type-level Impl Future with individual effects", using(io : IO), {
+test "Test type-level Impl Future with individual effects", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1827,7 +1827,7 @@ test "Test type-level Impl Future with individual effects", using(io : IO), {
 // 66. Impl(Future(i32, IO, ...(Raise), Log)) — spread of named type
 //     ...(Raise) where Raise is a concrete effect is equivalent to just Raise
 // ---------------------------------------------------------------------------
-test "Test type-level Impl Future with spread of named type", using(io : IO), {
+test "Test type-level Impl Future with spread of named type", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1849,7 +1849,7 @@ test "Test type-level Impl Future with spread of named type", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 67. Impl(Future(i32, IO, Raise, ...(Log))) — individual then spread
 // ---------------------------------------------------------------------------
-test "Test type-level Impl Future with individual then spread", using(io : IO), {
+test "Test type-level Impl Future with individual then spread", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1872,7 +1872,7 @@ test "Test type-level Impl Future with individual then spread", using(io : IO), 
 // ---------------------------------------------------------------------------
 // 67b. Explicit Impl(Future(i32, IO, Raise, Log)) type annotation on task
 // ---------------------------------------------------------------------------
-test "Test explicit Future type annotation on task", using(io : IO), {
+test "Test explicit Future type annotation on task", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1896,7 +1896,7 @@ test "Test explicit Future type annotation on task", using(io : IO), {
 // 67c. Explicit Impl(Future(i32, IO, Log, Raise)) — effects in different
 //      order than closure's using(io : IO, raise : Raise, log : Log)
 // ---------------------------------------------------------------------------
-test "Test explicit Future type annotation with reordered effects", using(io : IO), {
+test "Test explicit Future type annotation with reordered effects", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1919,7 +1919,7 @@ test "Test explicit Future type annotation with reordered effects", using(io : I
 // ---------------------------------------------------------------------------
 // 67d. Explicit Impl(Future(i32, IO, Log, Raise)) — without specifically naming using variables (using(_io, _raise, _log))
 // ---------------------------------------------------------------------------
-test "Test explicit Future type annotation with closure value without specifically naming using variable types", using(io : IO), {
+test "Test explicit Future type annotation with closure value without specifically naming using variable types", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -1943,7 +1943,7 @@ test "Test explicit Future type annotation with closure value without specifical
 // ---------------------------------------------------------------------------
 // 68. Await a Future multiple times — should return the same result
 // ---------------------------------------------------------------------------
-test "Test await future multiple times returns same result", using(io : IO), {
+test "Test await future multiple times returns same result", {
   {
     task := io.async(() => {
       return 42;
@@ -1969,7 +1969,7 @@ test "Test await future multiple times returns same result", using(io : IO), {
 // ---------------------------------------------------------------------------
 // 69. io.state — query a Future's state without awaiting
 // ---------------------------------------------------------------------------
-test "Test io.state pending", using(io : IO), {
+test "Test io.state pending", {
   // A cold (not yet started) Future should be Pending
   task := io.async((using(io : IO))=> {
     io.await(yield());
@@ -1980,7 +1980,7 @@ test "Test io.state pending", using(io : IO), {
   io.await(task);
 };
 
-test "Test io.state completed", using(io : IO), {
+test "Test io.state completed", {
   // After awaiting, the Future should be Completed
   task := io.async((using(io : IO))=> {
     return i32(42);
@@ -1990,7 +1990,7 @@ test "Test io.state completed", using(io : IO), {
   assert((s == FutureState.Completed), "awaited future should be Completed");
 };
 
-test "Test io.state completed after yield", using(io : IO), {
+test "Test io.state completed after yield", {
   // A task with yield points should be Completed after await
   task := io.async((using(io : IO))=> {
     io.await(yield());
@@ -2002,7 +2002,7 @@ test "Test io.state completed after yield", using(io : IO), {
   assert((s == FutureState.Completed), "future with yields should be Completed after await");
 };
 
-test "Test io.state completed after spawn", using(io : IO), {
+test "Test io.state completed after spawn", {
   // After spawn + await, both tasks should be Completed
   counter := Box(i32)(0);
   task_a := io.async((using(io : IO))=> {
@@ -2024,7 +2024,7 @@ test "Test io.state completed after spawn", using(io : IO), {
   assert((counter.* == i32(2)), "counter should be 2 after both tasks complete");
 };
 
-test "Test io.state consistency", using(io : IO), {
+test "Test io.state consistency", {
   // Multiple io.state calls on the same future return consistent results
   task := io.async(() => {
     return i32(99);
@@ -2040,7 +2040,7 @@ test "Test io.state consistency", using(io : IO), {
   assert((s3 == FutureState.Completed), "completed future should be Completed");
 };
 
-test "Test escape in async closure", using(io : IO), {
+test "Test escape in async closure", {
   // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
   // types in async closures produce "No C function name found" errors.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
@@ -2099,7 +2099,7 @@ test "Test escape in async closure", using(io : IO), {
 // ---------------------------------------------------------------------------
 // JoinHandle.await returns Option(T) — .Some on success, .None on escape
 // ---------------------------------------------------------------------------
-test "Test JoinHandle await returns Some on success", using(io : IO), {
+test "Test JoinHandle await returns Some on success", {
   task := io.async((using(io : IO))=> {
     io.await(yield());
     return i32(42);
@@ -2114,7 +2114,7 @@ test "Test JoinHandle await returns Some on success", using(io : IO), {
 // ---------------------------------------------------------------------------
 // JoinHandle.await returns .None when the task escapes (aborts)
 // ---------------------------------------------------------------------------
-test "Test JoinHandle await returns None on escape", using(io : IO), {
+test "Test JoinHandle await returns None on escape", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task := io.async((using(io : IO, raise : Raise)) => {
@@ -2135,7 +2135,7 @@ test "Test JoinHandle await returns None on escape", using(io : IO), {
 // ---------------------------------------------------------------------------
 // Two spawned tasks — one escapes, one succeeds. Verify both JoinHandles.
 // ---------------------------------------------------------------------------
-test "Test JoinHandle two tasks one escapes", using(io : IO), {
+test "Test JoinHandle two tasks one escapes", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task1 := io.async((using(io : IO, raise : Raise)) => {
@@ -2173,7 +2173,7 @@ test "Test JoinHandle two tasks one escapes", using(io : IO), {
 // ---------------------------------------------------------------------------
 // Effect injection via io.await (sync future, no await inside closure)
 // ---------------------------------------------------------------------------
-test "Test effect injection via io.await on sync future", using(io : IO), {
+test "Test effect injection via io.await on sync future", {
   Log :: (fn(msg : String) -> unit);
 
   task := io.async((using(io : IO, log : Log))=> {
@@ -2193,7 +2193,7 @@ test "Test effect injection via io.await on sync future", using(io : IO), {
 // Effect injection via io.spawn, then io.await (set-once semantics)
 // The first spawn sets the effect handlers; the later await is ignored.
 // ---------------------------------------------------------------------------
-test "Test effect injection set-once via io.spawn then io.await", using(io : IO), {
+test "Test effect injection set-once via io.spawn then io.await", {
   Log :: (fn(msg : String) -> unit);
 
   task := io.async((using(io : IO, log : Log))=> {
@@ -2218,7 +2218,7 @@ test "Test effect injection set-once via io.spawn then io.await", using(io : IO)
 // ---------------------------------------------------------------------------
 // Effect injection via io.await on async future (SM path, with await inside)
 // ---------------------------------------------------------------------------
-test "Test effect injection via io.await on SM future", using(io : IO), {
+test "Test effect injection via io.await on SM future", {
   Log :: (fn(msg : String) -> unit);
 
   task := io.async((using(io : IO, log : Log))=> {
@@ -2241,7 +2241,7 @@ test "Test effect injection via io.await on SM future", using(io : IO), {
 // Tests that goto-based break in match bodyCode is emitted directly,
 // not assigned to a temp variable (Bug 4 in C_CODEGEN_BUGS.md).
 // ---------------------------------------------------------------------------
-test "Test break in Option match arm in async while loop", using(io : IO), {
+test "Test break in Option match arm in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -2272,7 +2272,7 @@ test "Test break in Option match arm in async while loop", using(io : IO), {
 // Continue in tagged union (Option) match arm inside async while loop
 // Tests that goto-based continue in match bodyCode is emitted directly.
 // ---------------------------------------------------------------------------
-test "Test continue in Option match arm in async while loop", using(io : IO), {
+test "Test continue in Option match arm in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -2304,7 +2304,7 @@ test "Test continue in Option match arm in async while loop", using(io : IO), {
 // Mixed break and continue in tagged union match arms in async while loop
 // Tests both control flow paths through the same match expression.
 // ---------------------------------------------------------------------------
-test "Test mixed break and continue in Option match in async while loop", using(io : IO), {
+test "Test mixed break and continue in Option match in async while loop", {
   counter := Box(i32)(0);
   sum := Box(i32)(0);
 
@@ -2345,7 +2345,7 @@ test "Test mixed break and continue in Option match in async while loop", using(
 // Resume handler (return) inside async closure — handler resumes, execution
 // continues past the effect call site inside the async block.
 // ---------------------------------------------------------------------------
-test "Test effect resume inside async closure", using(io : IO), {
+test "Test effect resume inside async closure", {
   Raise :: (fn(msg : String) -> i32);
 
   task := io.async((using(io : IO, raise : Raise)) => {
@@ -2368,7 +2368,7 @@ test "Test effect resume inside async closure", using(io : IO), {
 // Effect resume across multiple await points — evidence is preserved in the
 // capture struct across state machine yields.
 // ---------------------------------------------------------------------------
-test "Test effect resume across multiple yields", using(io : IO), {
+test "Test effect resume across multiple yields", {
   Raise :: (fn(msg : String) -> i32);
 
   counter := Box(i32)(0);
@@ -2399,7 +2399,7 @@ test "Test effect resume across multiple yields", using(io : IO), {
 // Two different effect types injected simultaneously via io.await.
 // Both the Raise and Log handlers are provided via using().
 // ---------------------------------------------------------------------------
-test "Test two effects injected via io.await", using(io : IO), {
+test "Test two effects injected via io.await", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -2426,7 +2426,7 @@ test "Test two effects injected via io.await", using(io : IO), {
 // ---------------------------------------------------------------------------
 // Two different effects injected via io.spawn + JoinHandle.await.
 // ---------------------------------------------------------------------------
-test "Test two effects injected via io.spawn", using(io : IO), {
+test "Test two effects injected via io.spawn", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
@@ -2457,7 +2457,7 @@ test "Test two effects injected via io.spawn", using(io : IO), {
 // Effect resume in async while loop — effect is called each iteration,
 // handler resumes each time. Validates evidence survives loop iterations.
 // ---------------------------------------------------------------------------
-test "Test effect resume in async while loop", using(io : IO), {
+test "Test effect resume in async while loop", {
   GetValue :: (fn() -> i32);
 
   sum := Box(i32)(0);
@@ -2486,7 +2486,7 @@ test "Test effect resume in async while loop", using(io : IO), {
 // Effect resume in async while loop with break — handler resumes, then
 // a subsequent condition triggers break.
 // ---------------------------------------------------------------------------
-test "Test effect resume in async while loop with break", using(io : IO), {
+test "Test effect resume in async while loop with break", {
   GetValue :: (fn() -> i32);
 
   sum := Box(i32)(0);
@@ -2520,7 +2520,7 @@ test "Test effect resume in async while loop with break", using(io : IO), {
 // Escape from async task via injected effect — the handler escapes,
 // the future is aborted, and the caller sees the escape.
 // ---------------------------------------------------------------------------
-test "Test escape via injected effect aborts future", using(io : IO), {
+test "Test escape via injected effect aborts future", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   test_escape :: (fn(using(io : IO)) -> i32) {
@@ -2548,7 +2548,7 @@ test "Test escape via injected effect aborts future", using(io : IO), {
 // JoinHandle.await on escaped task returns .None — same as existing test but
 // with the effect injected via io.spawn (not io.await).
 // ---------------------------------------------------------------------------
-test "Test JoinHandle escape via spawn-injected effect", using(io : IO), {
+test "Test JoinHandle escape via spawn-injected effect", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   task := io.async((using(io : IO, raise : Raise)) => {
@@ -2572,7 +2572,7 @@ test "Test JoinHandle escape via spawn-injected effect", using(io : IO), {
 // The handler is installed inside the async block itself — no injection needed.
 // Validates internal given works correctly inside async SM.
 // ---------------------------------------------------------------------------
-test "Test given handler inside async closure with yields", using(io : IO), {
+test "Test given handler inside async closure with yields", {
   Raise :: (fn(msg : String) -> i32);
 
   task := io.async((using(io : IO)) => {
@@ -2609,7 +2609,7 @@ test "Test given handler inside async closure with yields", using(io : IO), {
 // expression (e.g., (a + b)). The SomeType resolution chain wasn't followed
 // when the closure body type was itself a SomeType with a resolvedConcreteType.
 // ---------------------------------------------------------------------------
-test "Regression: async SM result type for binary expression return", using(io : IO), {
+test "Regression: async SM result type for binary expression return", {
   task := io.async((using(io : IO)) => {
     a := i32(10);
     io.await(yield());
@@ -2626,7 +2626,7 @@ test "Regression: async SM result type for binary expression return", using(io :
 // async state machines. The step expression was ignored when the while loop
 // contained an await point.
 // ---------------------------------------------------------------------------
-test "Regression: 3-arg while loop in async SM with step expression", using(io : IO), {
+test "Regression: 3-arg while loop in async SM with step expression", {
   task := io.async((using(io : IO)) => {
     sum := i32(0);
     i := i32(0);
@@ -2648,7 +2648,7 @@ test "Regression: 3-arg while loop in async SM with step expression", using(io :
 // prematurely, causing UAF when accessing the future after the function
 // returned.
 // ---------------------------------------------------------------------------
-test "Regression: async escape RC no double-decrement UAF", using(io : IO), {
+test "Regression: async escape RC no double-decrement UAF", {
   // This test verifies that a full async SM that escapes doesn't cause a
   // use-after-free when the caller accesses the future after the await.
   // Before the fix, the synchronous await abort path decremented the RC
@@ -2679,7 +2679,7 @@ test "Regression: async escape RC no double-decrement UAF", using(io : IO), {
 // ---------------------------------------------------------------------------
 // SM Optimization: Segment-local variables should be C locals, not struct fields
 // ---------------------------------------------------------------------------
-test "SM opt: segment-local i32 vars are not in struct", using(io : IO), {
+test "SM opt: segment-local i32 vars are not in struct", {
   // Variables b, d, e are each used in only one segment.
   // The optimization should keep them as C locals.
   task := io.async((using(io : IO)) => {
@@ -2700,7 +2700,7 @@ test "SM opt: segment-local i32 vars are not in struct", using(io : IO), {
   assert((r == i32(100)), "segment-local optimization result should be 100");
 };
 
-test "SM opt: RC-typed segment-local variables", using(io : IO), {
+test "SM opt: RC-typed segment-local variables", {
   // Box values used in only one segment should be properly allocated and freed
   // even when they are C locals rather than struct fields.
   task := io.async((using(io : IO)) => {
@@ -2720,7 +2720,7 @@ test "SM opt: RC-typed segment-local variables", using(io : IO), {
   assert((r == i32(10)), "RC segment-local vars should work correctly");
 };
 
-test "SM opt: String segment-local variables", using(io : IO), {
+test "SM opt: String segment-local variables", {
   // String values used in only one segment should work correctly.
   task := io.async((using(io : IO)) => {
     s1 := `hello`;
@@ -2734,7 +2734,7 @@ test "SM opt: String segment-local variables", using(io : IO), {
   assert((r == `hello world`), "String segment-local should work");
 };
 
-test "SM opt: multiple awaits with cross-boundary and local vars", using(io : IO), {
+test "SM opt: multiple awaits with cross-boundary and local vars", {
   // A more complex pattern: some vars cross many boundaries, others are local.
   task := io.async((using(io : IO)) => {
     // Segment 0: define persistent var and local-only var
@@ -2758,7 +2758,7 @@ test "SM opt: multiple awaits with cross-boundary and local vars", using(io : IO
   assert((r == i32(306)), "multi-segment cross-boundary should be 306");
 };
 
-test "SM opt: no await points means no struct fields needed", using(io : IO), {
+test "SM opt: no await points means no struct fields needed", {
   // A sync_fut_t (no await points) — all variables should be stack locals.
   task := io.async((using(io : IO)) => {
     a := i32(1);
@@ -2770,7 +2770,7 @@ test "SM opt: no await points means no struct fields needed", using(io : IO), {
   assert((r == i32(6)), "no-await sync_fut_t should work with all locals");
 };
 
-test "SM opt: variable reassignment across await", using(io : IO), {
+test "SM opt: variable reassignment across await", {
   // Variable mutated (reassigned) across an await boundary.
   task := io.async((using(io : IO)) => {
     x := i32(1);
@@ -2784,7 +2784,7 @@ test "SM opt: variable reassignment across await", using(io : IO), {
   assert((r == i32(111)), "reassignment across await should be 111");
 };
 
-test "SM opt: cond with segment-local vars and no await in branches", using(io : IO), {
+test "SM opt: cond with segment-local vars and no await in branches", {
   // Cond without await in branches — the optimization should still apply
   // to variables local to each segment.
   task := io.async((using(io : IO)) => {
@@ -2806,7 +2806,7 @@ test "SM opt: cond with segment-local vars and no await in branches", using(io :
 // Variables in segments WITHOUT branching awaits should still be C locals,
 // even when OTHER segments have branching awaits (cond/while).
 // ---------------------------------------------------------------------------
-test "SM opt: cond-with-await, non-branching segment locals", using(io : IO), {
+test "SM opt: cond-with-await, non-branching segment locals", {
   // local_before is used only in segment 0 (before the first await).
   // Even though segment 1 has a cond-with-await, local_before should be a C local.
   task := io.async((using(io : IO)) => {
@@ -2828,7 +2828,7 @@ test "SM opt: cond-with-await, non-branching segment locals", using(io : IO), {
   assert((r == i32(216)), "non-branching segment locals with cond-with-await should be 216");
 };
 
-test "SM opt: while-with-await, non-branching segment locals", using(io : IO), {
+test "SM opt: while-with-await, non-branching segment locals", {
   // Variables in segments before/after the while should be C locals if only
   // used in that segment.
   task := io.async((using(io : IO)) => {
@@ -2850,7 +2850,7 @@ test "SM opt: while-with-await, non-branching segment locals", using(io : IO), {
   assert((r == i32(18)), "while-with-await non-branching locals should be 18");
 };
 
-test "SM opt: cond-with-await, cross-boundary vars still work", using(io : IO), {
+test "SM opt: cond-with-await, cross-boundary vars still work", {
   // Variables that cross the cond-await boundary must still be in the struct.
   task := io.async((using(io : IO)) => {
     a := i32(10);
@@ -2871,7 +2871,7 @@ test "SM opt: cond-with-await, cross-boundary vars still work", using(io : IO), 
   assert((r == i32(60)), "cond-with-await cross-boundary should be 60");
 };
 
-test "SM opt: nested cond-with-await, outer segment locals", using(io : IO), {
+test "SM opt: nested cond-with-await, outer segment locals", {
   // Multiple cond-with-await branches; variables only used outside cond are locals.
   task := io.async((using(io : IO)) => {
     total := i32(0);
@@ -2892,7 +2892,7 @@ test "SM opt: nested cond-with-await, outer segment locals", using(io : IO), {
   assert((r == i32(101)), "nested cond-with-await outer locals should be 101");
 };
 
-test "SM opt: temp future vars aliased to await_future fields", using(io : IO), {
+test "SM opt: temp future vars aliased to await_future fields", {
   // Phase 1b: io.await(yield()) creates a temp var that should be aliased
   // to the corresponding await_future_N field, not stored as a separate
   // struct field. This test verifies correctness with multiple temp futures.
@@ -2908,7 +2908,7 @@ test "SM opt: temp future vars aliased to await_future fields", using(io : IO), 
   r := io.await(task);
   assert((r == i32(60)), "temp future aliasing should compute 60");
 };
-test "SM opt: overlapping storage for non-RC value types", using(io : IO), {
+test "SM opt: overlapping storage for non-RC value types", {
   // Phase 2: Variables a and c have non-overlapping live ranges
   // (a: segments {0,1}, c: segments {2,3}) so they can share a slot.
   // b overlaps with both, so it keeps its own field.
@@ -2925,7 +2925,7 @@ test "SM opt: overlapping storage for non-RC value types", using(io : IO), {
   assert((r == i32(35)), "overlapping storage should compute 35");
 };
 
-test "SM opt: overlapping vars must conflict when ranges overlap", using(io : IO), {
+test "SM opt: overlapping vars must conflict when ranges overlap", {
   // a: segments {0,2}, range [0,2]; b: segments {1,2}, range [1,2]
   // Ranges overlap at segment 2 — no sharing possible.
   task := io.async((using(io : IO)) => {
@@ -2939,7 +2939,7 @@ test "SM opt: overlapping vars must conflict when ranges overlap", using(io : IO
   assert((r == i32(30)), "conflicting vars should compute 30");
 };
 
-test "SM opt: multiple non-overlapping pairs share slots", using(io : IO), {
+test "SM opt: multiple non-overlapping pairs share slots", {
   // a and c don't overlap, b and d don't overlap.
   // a: range [0,0], b: range [0,0], c: range [2,2], d: range [2,2]
   // But a and b are in same segment — they conflict!
@@ -2959,7 +2959,7 @@ test "SM opt: multiple non-overlapping pairs share slots", using(io : IO), {
   assert((r == i32(10)), "multiple pairs should compute 10");
 };
 
-test "SM opt: RC types excluded from overlapping storage", using(io : IO), {
+test "SM opt: RC types excluded from overlapping storage", {
   // String is RC-typed. Even if s1 and s2 have non-overlapping reference
   // ranges, they must NOT share a slot (RC deferred drops extend lifetime).
   task := io.async((using(io : IO)) => {

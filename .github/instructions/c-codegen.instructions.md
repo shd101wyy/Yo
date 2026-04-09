@@ -2,6 +2,7 @@
 applyTo: "src/**/codegen/**"
 description: "Use when working on C code generation, the codegen transpiler, emitting C code, or fixing C output bugs. Covers C11 standard compliance, emitter patterns, and debugging strategy."
 ---
+
 # C Codegen Conventions
 
 - Stick with **C11 standard**. Do not use GNU extensions — we target multiple C compilers.
@@ -13,11 +14,13 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 Each OS thread has its own **single-threaded event loop**. Within a single thread, async I/O submissions and completions are processed cooperatively — no concurrent access from multiple threads within one event loop. Worker threads from the parallelism runtime (`src/codegen/parallelism/`) share a thread pool; multiple workers may sit on the same OS thread and share that thread's event loop.
 
 **Platform implementations:**
+
 - **Linux**: `io_uring` — per-thread event loop submits SQEs and processes CQEs
 - **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
 - **Windows**: IOCP — per-thread `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**
+
 - Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are `_Thread_local` and only accessed from their owning thread's event loop.
 - All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_io_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
@@ -67,6 +70,7 @@ Array/Slice indexing through the Index trait uses compiler builtins that are inl
 ### generateIndexTraitCall (in `src/codegen/exprs/generation.ts`)
 
 This function generates C code for `value(arg)` dispatched through the Index trait:
+
 - For builtins (`__yo_array_index`, `__yo_slice_index`): inlines `(&((&value)->data[idx]))` directly
 - For range builtins: creates compound literal `*(Slice(T))` with computed data pointer and length
 - For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
@@ -93,6 +97,7 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isF
 For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 **How it works:**
+
 - A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
 - A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
@@ -102,6 +107,7 @@ For the full design document with overhead analysis and language semantics, see 
   - Transitive: forwarded from the caller's own evidence parameter
 
 **Why this is needed:**
+
 - SM-inlining works for sync-only contexts (handler body is inlined at call site)
 - But inside `io.async` closures, handler values become runtime function pointers in the capture struct
 - A sync effectful function called inside async can't access those captures via the SM mechanism
@@ -110,11 +116,13 @@ For the full design document with overhead analysis and language semantics, see 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
 **Forall function-type effects (e.g., `Raise :: fn(forall(T), msg: String) -> T`):**
+
 - Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
 - The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
 - Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both module-type and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
 **Mixed escape+return handlers:**
+
 - A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
   - Return path: handler function returns normally; caller uses the resume value
   - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
@@ -224,12 +232,14 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 `emitEffectInjection` resolves effect handler function pointers and injects them into the spawned future's capture struct. Resolution order for each effect:
 
 **Module effects (e.g., IO):** For each function field in the module:
+
 1. SM capture variables (`sm->__capture.<field>`)
 2. Module value fields (concrete `ModuleValue` from evaluator)
 3. Caller's evidence params (`currentEvidenceParams` map)
 4. Given bindings in the call environment
 
 **Function effects (e.g., Raise):** Including forall function effects:
+
 1. Caller's evidence params
 2. SM capture variables
 3. Using arg's function value (from evaluator)
@@ -248,6 +258,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 5. On abort (state == -2): clear `__yo_effect_escaped`, return `Option(T).None`
 
 The inline header struct assumes the standard state machine layout:
+
 ```c
 struct { __yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
 ```

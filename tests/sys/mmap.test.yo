@@ -8,7 +8,7 @@ dir :: import "std/sys/dir";
 temp_io :: import "std/sys/temp";
 mmap_io :: import "std/sys/mmap";
 
-test "mmap invalid fd returns encoded error", using(io : IO), {
+test "mmap invalid fd returns encoded error", {
   mapped := mmap_io.mmap(
     .None,
     usize(4096),
@@ -23,7 +23,7 @@ test "mmap invalid fd returns encoded error", using(io : IO), {
   assert((err == i32(9)), "mmap invalid fd should map to errno 9 (EBADF)");
 };
 
-test "mmap anonymous region supports read write protect and unmap", using(io : IO), {
+test "mmap anonymous region supports read write protect and unmap", {
   mapped := mmap_io.mmap(
     .None,
     usize(4096),
@@ -51,7 +51,7 @@ test "mmap anonymous region supports read write protect and unmap", using(io : I
   assert((unmap_ret == i32(0)), "munmap for anonymous region should succeed");
 };
 
-test "mmap shared file region and msync persists writes", using(io : IO), {
+test "mmap shared file region and msync persists writes", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mmap_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -98,7 +98,7 @@ test "mmap shared file region and msync persists writes", using(io : IO), {
   assert((rm == i32(0)), "unlinking temporary mmap file should succeed");
 };
 
-test "PROT_NONE mapping denies access and mprotect restores it", using(io : IO), {
+test "PROT_NONE mapping denies access and mprotect restores it", {
   mapped := mmap_io.mmap(
     .None,
     usize(4096),
@@ -121,7 +121,7 @@ test "PROT_NONE mapping denies access and mprotect restores it", using(io : IO),
   assert((unmap_ret == i32(0)), "munmap after PROT_NONE test should succeed");
 };
 
-test "error_code on valid pointer returns 0", using(io : IO), {
+test "error_code on valid pointer returns 0", {
   mapped := mmap_io.mmap(
     .None,
     usize(4096),
@@ -139,7 +139,7 @@ test "error_code on valid pointer returns 0", using(io : IO), {
   assert((unmap_ret == i32(0)), "munmap in error_code test should succeed");
 };
 
-test "msync with MS_ASYNC on file-backed mapping succeeds", using(io : IO), {
+test "msync with MS_ASYNC on file-backed mapping succeeds", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mmap_async_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -178,7 +178,7 @@ test "msync with MS_ASYNC on file-backed mapping succeeds", using(io : IO), {
   assert((rm == i32(0)), "unlinking file in MS_ASYNC test should succeed");
 };
 
-test "msync with MS_INVALIDATE on shared mapping succeeds", using(io : IO), {
+test "msync with MS_INVALIDATE on shared mapping succeeds", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mmap_inval_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -219,7 +219,7 @@ test "msync with MS_INVALIDATE on shared mapping succeeds", using(io : IO), {
   assert((rm == i32(0)), "unlinking file in MS_INVALIDATE test should succeed");
 };
 
-test "mmap with zero length returns error", using(io : IO), {
+test "mmap with zero length returns error", {
   mapped := mmap_io.mmap(
     .None,
     usize(0),

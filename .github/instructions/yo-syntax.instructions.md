@@ -2,6 +2,7 @@
 applyTo: "**/*.yo"
 description: "Use when writing or editing Yo language code. Covers critical syntax rules: curly brace semantics, cond/match parentheses, function definitions, parsing ambiguities, and expression vs block distinctions."
 ---
+
 # Yo Language Syntax Rules
 
 ## Curly braces `{...}` behave differently based on separators
@@ -388,3 +389,31 @@ match(result,
 - `*(u8)("literal")` works — casting `comptime_string` to pointer is valid.
 - Only pointer-to-pointer and `comptime_string`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
 - **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
+
+## Trait method dispatch syntax
+
+### Implicit dispatch (via where-clause)
+
+When a generic function has `where(T <: Trait)`, calling `self.method()` on a parameter of type `T` dispatches to `Trait`'s method:
+
+```rust
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
+  return self.get_number();  // Dispatches to T1.get_number
+};
+```
+
+### Explicit trait dispatch
+
+Use `(T <: Trait).method(self)` to explicitly select which trait's method to call:
+
+```rust
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
+  return (T <: T2).get_number(self);  // Explicitly calls T2.get_number
+};
+```
+
+This is necessary when:
+
+- A type implements multiple traits with the same method name
+- You want to be explicit about which trait's method is called
+- The `self` parameter type doesn't uniquely determine the trait

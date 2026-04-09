@@ -12,7 +12,7 @@ tcp :: import "std/sys/tcp";
   SOL_SOCKET, SO_REUSEADDR
 } :: import "std/sys/socket";
 
-test "UDP socket creation and close", using(io : IO), {
+test "UDP socket creation and close", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   printf("  socket fd = %d\n", sockfd);
   assert(sockfd >= i32(0));
@@ -22,7 +22,7 @@ test "UDP socket creation and close", using(io : IO), {
   assert(close_result == i32(0));
 };
 
-test "UDP socket bind to loopback", using(io : IO), {
+test "UDP socket bind to loopback", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   assert(sockfd >= i32(0));
 
@@ -35,7 +35,7 @@ test "UDP socket bind to loopback", using(io : IO), {
   tcp.free_sockaddr(addr);
 };
 
-test "UDP setsockopt SO_REUSEADDR", using(io : IO), {
+test "UDP setsockopt SO_REUSEADDR", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   assert(sockfd >= i32(0));
 
@@ -52,7 +52,7 @@ test "UDP setsockopt SO_REUSEADDR", using(io : IO), {
   io.await(udp.close(sockfd));
 };
 
-test "UDP sendto and recvfrom", using(io : IO), {
+test "UDP sendto and recvfrom", {
   // Create server socket
   server_fd := io.await(udp.socket(AF_INET, i32(0)));
   assert(server_fd >= i32(0));
@@ -113,7 +113,7 @@ test "UDP sendto and recvfrom", using(io : IO), {
   tcp.free_sockaddr(client_addr);
 };
 
-test "UDP bidirectional ping-pong", using(io : IO), {
+test "UDP bidirectional ping-pong", {
   // Create and bind server
   server_fd := io.await(udp.socket(AF_INET, i32(0)));
   assert(server_fd >= i32(0));
@@ -183,7 +183,7 @@ test "UDP bidirectional ping-pong", using(io : IO), {
   tcp.free_sockaddr(client_addr);
 };
 
-test "UDP sockaddr helpers from tcp module", using(io : IO), {
+test "UDP sockaddr helpers from tcp module", {
   // Test that tcp.make_sockaddr_in works for UDP too
   addr := tcp.make_sockaddr_in_loopback(u16(12345));
   family := tcp.get_family(addr.buf);

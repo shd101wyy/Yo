@@ -161,3 +161,39 @@ test "Test function that returns Impl", {
   r := ret_boxi32_i32();
   assert(&(r).return_i32() == i32(912), "Expected 912 from ret_boxi32_i32");
 };
+
+// Trait method disambiguation with where-clause constraints
+// When a type implements multiple traits with identically-named methods,
+// where(T <: Trait) should constrain method lookup to only the specified trait.
+TraitDisambigA :: trait(
+  get_number : (fn(self : Self) -> i32)
+);
+
+TraitDisambigB :: trait(
+  get_number : (fn(self : Self) -> i32)
+);
+
+DisambigPoint :: struct(x : i32, y : i32);
+impl(DisambigPoint, TraitDisambigA(
+  get_number : (self -> self.x)
+));
+impl(DisambigPoint, TraitDisambigB(
+  get_number : (self -> self.y)
+));
+
+use_trait_a :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigA)) -> i32) {
+  return self.get_number();
+};
+use_trait_b :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigB)) -> i32) {
+  return self.get_number();
+};
+use_trait_b_explicit :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigB)) -> i32) {
+  return (T <: TraitDisambigB).get_number(self);
+};
+
+test "Test trait method disambiguation with where-clause constraints", {
+  p := DisambigPoint(10, 20);
+  assert((use_trait_a(p) == 10), "use_trait_a should dispatch to TraitDisambigA.get_number (returns x)");
+  assert((use_trait_b(p) == 20), "use_trait_b should dispatch to TraitDisambigB.get_number (returns y)");
+  assert((use_trait_b_explicit(p) == 20), "use_trait_b_explicit should dispatch to TraitDisambigB.get_number (returns y)");
+};

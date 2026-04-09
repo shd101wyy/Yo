@@ -156,7 +156,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - Never skip bugs discovered during implementation.
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
-- Always check if there is need to create/update existing instructions & rules files, design/plan docs after implementing a change.
+- Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).
 - Always put the issues or bugs you found in `issues/` directory.
 - Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.

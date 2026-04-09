@@ -329,8 +329,19 @@ export class CodeGenerator {
           const level = options.optimize;
           if (level === "0") {
             optimizationFlags = isMSVC
-              ? ["/Od", "/W4"]
-              : ["-Wall", "-Wextra", "-O0"];
+              ? ["/Od", "/W4", "/wd4100", "/wd4101", "/wd4189", "/wd4505"]
+              : [
+                  "-Wall",
+                  "-Wextra",
+                  "-Wno-unused-variable",
+                  "-Wno-unused-parameter",
+                  "-Wno-unused-function",
+                  "-Wno-unused-but-set-variable",
+                  "-Wno-unused-label",
+                  "-Wno-unused-value",
+                  "-Wno-parentheses-equality",
+                  "-O0",
+                ];
           } else {
             optimizationFlags = isMSVC
               ? ["/w", `/O${level}`]
@@ -342,8 +353,19 @@ export class CodeGenerator {
         } else {
           // Default: debug mode with no optimizations and all warnings
           optimizationFlags = isMSVC
-            ? ["/Od", "/W4"]
-            : ["-Wall", "-Wextra", "-O0"];
+            ? ["/Od", "/W4", "/wd4100", "/wd4101", "/wd4189", "/wd4505"]
+            : [
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-variable",
+                "-Wno-unused-parameter",
+                "-Wno-unused-function",
+                "-Wno-unused-but-set-variable",
+                "-Wno-unused-label",
+                "-Wno-unused-value",
+                "-Wno-parentheses-equality",
+                "-O0",
+              ];
         }
 
         // Yo compiles to C11 standard

@@ -75,7 +75,6 @@ function tryForceGC(): void {
 export interface TestDeclaration {
   name: string;
   bodyExpr: Expr;
-  usingExpr?: Expr;
   filePath: string;
   lineNumber: number;
 }
@@ -88,7 +87,6 @@ export interface TestDeclaration {
 interface StringifiedTestData {
   name: string;
   bodyString: string;
-  usingString: string;
   filePath: string;
 }
 
@@ -260,11 +258,8 @@ export function extractTests(filePath: string): ExtractTestsResult {
       ) {
         if (expr.args.length >= 2) {
           const testNameExpr = expr.args[0]!;
-          // 3 args: test "name", using(...), { body }
-          // 2 args: test "name", { body }
-          const hasUsingClause = expr.args.length === 3;
-          const testUsingExpr = hasUsingClause ? expr.args[1]! : undefined;
-          const testBodyExpr = hasUsingClause ? expr.args[2]! : expr.args[1]!;
+          // test "name", { body }
+          const testBodyExpr = expr.args[1]!;
 
           // Get the test name from the evaluated expression
           let testName = "unnamed_test";
@@ -283,7 +278,6 @@ export function extractTests(filePath: string): ExtractTestsResult {
           tests.push({
             name: testName,
             bodyExpr: testBodyExpr,
-            usingExpr: testUsingExpr,
             filePath,
             lineNumber: testNameExpr.token.position.row + 1,
           });
@@ -309,54 +303,83 @@ export function extractTests(filePath: string): ExtractTestsResult {
 }
 
 /**
- * Generate a standalone Yo program for a single test
- *
- * Strategy: Use pre-stringified source code from the original AST.
- * The AST is converted to strings eagerly so the heavy object graph
- * can be released before the test compilation loop.
+ * Generate a batched Yo program containing all test functions,
+ * dispatched by the YO_TEST_INDEX environment variable.
+ * This allows compiling all tests in a file into a single binary,
+ * then running the binary multiple times (once per test).
  */
-function generateTestProgram(
-  test: StringifiedTestData,
+function generateBatchedTestProgram(
+  tests: StringifiedTestData[],
   nonTestContent: string
 ): string {
-  const mainParams = test.usingString;
+  const lines: string[] = [];
 
-  // Build the program from non-test expressions plus the main function
-  return `${nonTestContent};
+  // Non-test content (imports, helpers, etc.)
+  if (nonTestContent.trim().length > 0) {
+    lines.push(nonTestContent + ";");
+  }
+  lines.push("");
 
-// Auto-generated main function for test: ${test.name}
-main :: (fn(${mainParams}) -> unit) {
-  ${test.bodyString};
-};
+  // Import process module for env var dispatch (unique name to avoid conflicts)
+  lines.push('__yo_batch_process :: import "std/process";');
+  lines.push("");
 
-export main;
-`;
+  // Inline all test bodies into main's cond branches.
+  // We can't use separate functions because tests with algebraic effects
+  // (escape/given) need to be in the same codegen scope as main.
+  lines.push("main :: (fn(using(io : IO)) -> unit) {");
+  lines.push("  match(__yo_batch_process.env.get(`YO_TEST_INDEX`),");
+  lines.push("    .Some(__yo_test_idx) => cond(");
+  for (let i = 0; i < tests.length; i++) {
+    const test = tests[i]!;
+    lines.push(
+      "      (__yo_test_idx == `" + i + "`) => { " + test.bodyString + "; },"
+    );
+  }
+  lines.push("      true => ()");
+  lines.push("    ),");
+  lines.push("    .None => ()");
+  lines.push("  );");
+  lines.push("};");
+  lines.push("");
+  lines.push("export main;");
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Batched test compilation — compile all tests in a file into one binary
+// ---------------------------------------------------------------------------
+
+interface BatchCompileResult {
+  binaryPath: string;
+  cleanup: () => void;
+  yoCompileMs?: number;
+  cCompileMs?: number;
 }
 
 /**
- * Compile and run a single test
+ * Compile all tests in a file into a single binary.
+ * The binary reads YO_TEST_INDEX env var to dispatch to a test function.
+ * Caller MUST call cleanup() on the returned result when done.
  */
-function runSingleTest(
-  test: StringifiedTestData,
+function compileBatchedBinary(
+  tests: StringifiedTestData[],
   nonTestContent: string,
+  filePath: string,
   cCompiler: string,
   wasmTarget?: TargetInfo,
-  keepGeneratedFiles?: boolean,
-  profile?: boolean
-): TestResult {
-  const startTime = Date.now();
-  const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
+  keepGeneratedFiles?: boolean
+): BatchCompileResult {
+  const program = generateBatchedTestProgram(tests, nonTestContent);
+  const originalDir = path.dirname(filePath);
   const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-  // Create all temp files in the SAME directory as the original file
-  // This preserves relative import paths
-  const originalDir = path.dirname(test.filePath);
-  const baseName = `.yo_test_${sanitizedName}_${uniqueId}`;
+  const baseName = `.yo_test_batch_${uniqueId}`;
   const testFilePath = path.join(originalDir, `${baseName}.yo`);
+
   const compilerInfo = getCompilerInfo(cCompiler);
   const { isMSVC, isWindows, isEmcc } = compilerInfo;
   const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
-  // emcc outputs .js (+ .wasm) for emscripten, .wasm for WASI; Windows needs .exe
   const exeExtension = isWasi
     ? ".wasm"
     : isEmcc
@@ -366,15 +389,12 @@ function runSingleTest(
         : "";
   const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
   const testCPath = path.join(originalDir, `${baseName}.c`);
-  // emcc also generates a .wasm file alongside the .js (not needed for WASI — output IS .wasm)
   const testWasmPath =
     isEmcc && !isWasi ? path.join(originalDir, `${baseName}.wasm`) : undefined;
-  // On Windows with MSVC/Clang-cl, .pdb debug files are generated alongside the executable
   const testPdbPath = isWindows
     ? path.join(originalDir, `${baseName}.pdb`)
     : undefined;
 
-  // Helper to clean up all temp files
   const cleanup = () => {
     if (keepGeneratedFiles) {
       console.log(`  ${colors.dim}Keeping generated files:${colors.reset}`);
@@ -383,12 +403,8 @@ function runSingleTest(
       return;
     }
     const filesToClean = [testFilePath, testOutputPath, testCPath];
-    if (testPdbPath) {
-      filesToClean.push(testPdbPath);
-    }
-    if (testWasmPath) {
-      filesToClean.push(testWasmPath);
-    }
+    if (testPdbPath) filesToClean.push(testPdbPath);
+    if (testWasmPath) filesToClean.push(testWasmPath);
     for (const file of filesToClean) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
@@ -396,18 +412,15 @@ function runSingleTest(
     }
   };
 
-  // Declare moduleManager outside try block so we can clean it up
   let moduleManager: ModuleManager | null = null;
-
   try {
-    // Clear all global state before compiling each test
-    // This ensures each test runs in a clean environment
+    fs.writeFileSync(testFilePath, program);
+
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllCachedTypes();
     clearAllModuleCounters();
 
-    // Set WASM target when using emcc so the evaluator sees wasm32 arch/platform
     if (wasmTarget) {
       setCurrentTarget(wasmTarget);
       setTargetPointerSize(wasmTarget.pointerSizeBits);
@@ -417,14 +430,8 @@ function runSingleTest(
       setTargetPointerSize(emscriptenTarget.pointerSizeBits);
     }
 
-    // Generate test program
-    const testProgram = generateTestProgram(test, nonTestContent);
-    fs.writeFileSync(testFilePath, testProgram);
-
-    // Compile the test using ModuleManager with libc allocator (faster compilation)
     const yoCompileStart = Date.now();
     moduleManager = new ModuleManager();
-
     try {
       moduleManager.compileModule(`file://${testFilePath}`, {
         emitC: false,
@@ -434,51 +441,58 @@ function runSingleTest(
         allocator: "libc",
       });
     } catch (compileError) {
-      // Clean up moduleManager before returning
       moduleManager = null;
       cleanup();
-      return {
-        testName: test.name,
-        filePath: test.filePath,
-        passed: false,
-        errorMessage: `Compilation error: ${compileError instanceof YoError ? compileError.toString() : compileError instanceof Error ? compileError.message : String(compileError)}`,
-        duration: Date.now() - startTime,
-      };
+      throw new Error(
+        `Yo compilation error: ${compileError instanceof YoError ? compileError.toString() : compileError instanceof Error ? compileError.message : String(compileError)}`
+      );
     }
-    const yoCompileEnd = Date.now();
+    const yoCompileMs = Date.now() - yoCompileStart;
 
-    // Get the generated C code and codegen flags
     const generatedCode = moduleManager.getGeneratedCode();
     const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
     const usesParallelism = moduleManager.usesParallelism;
-
-    // Explicitly release the moduleManager to help GC
     moduleManager = null;
 
     fs.writeFileSync(testCPath, generatedCode);
 
-    // Clean up temp .yo file after generating C code (unless keeping files)
     if (!keepGeneratedFiles && fs.existsSync(testFilePath)) {
       fs.unlinkSync(testFilePath);
     }
 
-    // Compile C code with AddressSanitizer for memory leak detection
-    // Note: Using libc allocator (no mimalloc) for faster test compilation
-    // (compilerInfo, isMSVC, isWindows, isEmcc already set above)
-
-    // Get ASAN flags (skip for emcc — WASM doesn't support ASAN)
+    // Build C compile args
     const asanFlags =
       !isMSVC && !isEmcc
         ? getSanitizerFlags({ sanitize: "address", compilerInfo })
         : { flags: [] };
-    const useAsan = asanFlags.flags.length > 0;
 
     const compileArgs = isMSVC
-      ? ["/Od", "/W4", testCPath, `/Fe${testOutputPath}`]
+      ? [
+          "/Od",
+          "/W4",
+          "/wd4100",
+          "/wd4101",
+          "/wd4189",
+          "/wd4505",
+          testCPath,
+          `/Fe${testOutputPath}`,
+        ]
       : [
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
-          ...(isEmcc ? ["-w"] : ["-Wall", "-Wextra"]),
+          ...(isEmcc
+            ? ["-w"]
+            : [
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-variable",
+                "-Wno-unused-parameter",
+                "-Wno-unused-function",
+                "-Wno-unused-but-set-variable",
+                "-Wno-unused-label",
+                "-Wno-unused-value",
+                "-Wno-parentheses-equality",
+              ]),
           isEmcc ? "-O2" : "-O0",
           ...asanFlags.flags,
           testCPath,
@@ -496,31 +510,21 @@ function runSingleTest(
       }
     }
 
-    // Add -masm=intel when inline assembly uses Intel syntax (not for emcc)
     if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
       compileArgs.splice(-2, 0, "-masm=intel");
     }
 
-    // Add liburing on Linux for async I/O (not for emcc)
     if (!isMSVC && !isEmcc && isLiburingAvailable()) {
       compileArgs.splice(-2, 0, "-luring");
     }
 
-    // Emscripten-specific flags
     if (isEmcc) {
-      // Allow function pointer casts (WASM call_indirect requires exact
-      // signature matches, but the codegen casts void* to fn pointers)
       compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
-
       if (isWasi) {
-        // Standalone WASI: produce a .wasm file without JS glue
         compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
       } else {
-        // Emscripten target: use Node.js's real filesystem instead of MEMFS
         compileArgs.splice(-2, 0, "-sNODERAWFS=1");
       }
-
-      // Enable pthreads when the program uses threading (not for standalone WASI)
       if (usesParallelism && !isWasi) {
         compileArgs.splice(
           -2,
@@ -538,25 +542,59 @@ function runSingleTest(
       encoding: "utf-8",
       ...spawnShellOption,
     });
-    const cCompileEnd = Date.now();
+    const cCompileMs = Date.now() - cCompileStart;
 
     if (compileResult.status !== 0) {
       cleanup();
-      return {
-        testName: test.name,
-        filePath: test.filePath,
-        passed: false,
-        errorMessage: `C compilation failed:\n${compileResult.stderr || compileResult.stdout}`,
-        duration: Date.now() - startTime,
-      };
+      throw new Error(
+        `C compilation failed:\n${compileResult.stderr || compileResult.stdout}`
+      );
     }
 
-    // Run the test executable
-    const runStart = Date.now();
+    return {
+      binaryPath: testOutputPath,
+      cleanup,
+      yoCompileMs,
+      cCompileMs,
+    };
+  } catch (error) {
+    moduleManager = null;
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("Yo compilation error:") ||
+        error.message.startsWith("C compilation failed:"))
+    ) {
+      throw error;
+    }
+    cleanup();
+    throw new Error(
+      `Compilation error: ${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
+ * Run a single test from a pre-compiled batched binary.
+ * Sets YO_TEST_INDEX env var to select which test to execute.
+ */
+function runTestFromBatchedBinary(
+  testIndex: number,
+  test: StringifiedTestData,
+  binaryPath: string,
+  cCompiler: string,
+  wasmTarget?: TargetInfo,
+  profile?: boolean
+): TestResult {
+  const startTime = Date.now();
+  const compilerInfo = getCompilerInfo(cCompiler);
+  const { isMSVC, isWindows, isEmcc } = compilerInfo;
+  const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
+  const useAsan = !isMSVC && !isEmcc;
+
+  try {
     let runResult;
 
     if (isWasi) {
-      // WASI: run via wasmtime with directory access
       const testDir = path.dirname(test.filePath);
       runResult = spawnSync(
         "wasmtime",
@@ -567,7 +605,9 @@ function runSingleTest(
           "/tmp",
           "--dir",
           process.cwd(),
-          testOutputPath,
+          "--env",
+          `YO_TEST_INDEX=${testIndex}`,
+          binaryPath,
         ],
         {
           stdio: "pipe",
@@ -576,63 +616,59 @@ function runSingleTest(
         }
       );
     } else if (isEmcc) {
-      // WASM: run via node (emcc produces .js + .wasm)
-      runResult = spawnSync("node", [testOutputPath], {
+      runResult = spawnSync("node", [binaryPath], {
         stdio: "pipe",
         encoding: "utf-8",
         timeout: 60000,
+        env: { ...process.env, YO_TEST_INDEX: String(testIndex) },
       });
     } else {
       // Native: run with AddressSanitizer leak detection
-      // On macOS, we need to suppress system library leaks
-      // On Windows with Clang, we need to find and add the ASAN DLL path to PATH
       const isMacOS = process.platform === "darwin";
       const lsanSuppressions = getMacOSLsanSuppressions();
 
-      // Create a temporary suppression file for macOS
       let suppressionFile: string | undefined;
       if (isMacOS && lsanSuppressions) {
-        suppressionFile = `${testOutputPath}.lsan_suppressions.txt`;
+        suppressionFile = `${binaryPath}.lsan_supp_${testIndex}.txt`;
         fs.writeFileSync(suppressionFile, lsanSuppressions);
       }
 
-      // On Windows with Clang, find the ASAN DLL directory
-      // (GCC uses static linking so doesn't need this)
       const asanDllPath =
         isWindows && useAsan && compilerInfo.isClangOnWindows
           ? findClangAsanDllPath(cCompiler)
           : undefined;
 
-      // Build environment with ASAN settings
-      const runEnv = buildAsanRunEnvironment({
+      const baseRunEnv = buildAsanRunEnvironment({
         compilerInfo,
         asanDllPath,
         lsanSuppressionFile: suppressionFile,
         detectLeaks: true,
       });
+      const runEnv = { ...baseRunEnv, YO_TEST_INDEX: String(testIndex) };
 
-      runResult = spawnSync(testOutputPath, [], {
+      runResult = spawnSync(binaryPath, [], {
         stdio: "pipe",
         encoding: "utf-8",
-        timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
+        timeout: 60000,
         env: runEnv,
       });
 
-      // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
       const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
       const leakDetectionNotSupported = combinedOutputInitial.includes(
         "detect_leaks is not supported"
       );
 
-      // If leak detection is not supported, rerun without it
       if (leakDetectionNotSupported) {
-        const runEnvNoLeaks = buildAsanRunEnvironment({
-          compilerInfo,
-          asanDllPath,
-          lsanSuppressionFile: suppressionFile,
-          detectLeaks: false,
-        });
-        runResult = spawnSync(testOutputPath, [], {
+        const runEnvNoLeaks = {
+          ...buildAsanRunEnvironment({
+            compilerInfo,
+            asanDllPath,
+            lsanSuppressionFile: suppressionFile,
+            detectLeaks: false,
+          }),
+          YO_TEST_INDEX: String(testIndex),
+        };
+        runResult = spawnSync(binaryPath, [], {
           stdio: "pipe",
           encoding: "utf-8",
           timeout: 60000,
@@ -640,13 +676,11 @@ function runSingleTest(
         });
       }
 
-      // Clean up suppression file
       if (suppressionFile && fs.existsSync(suppressionFile)) {
         fs.unlinkSync(suppressionFile);
       }
     }
 
-    // Check for memory leaks in the output (skip for emcc — no ASAN)
     const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
     const hasMemoryLeak =
       !isEmcc &&
@@ -656,21 +690,17 @@ function runSingleTest(
         combinedOutput.includes("Indirect leak"));
 
     const passed = runResult.status === 0 && !hasMemoryLeak;
-    const runEnd = Date.now();
+    const duration = Date.now() - startTime;
 
     let profileInfo: string | undefined;
     if (profile) {
-      const heapMB = process.memoryUsage().heapUsed / 1024 / 1024;
-      profileInfo = `yo=${yoCompileEnd - yoCompileStart}ms cc=${cCompileEnd - cCompileStart}ms run=${runEnd - runStart}ms heap=${heapMB.toFixed(0)}MB`;
+      profileInfo = `run=${duration}ms`;
       console.log(`    ${colors.dim}${profileInfo}${colors.reset}`);
     }
-
-    cleanup();
 
     let errorMessage: string | undefined;
     if (!passed) {
       if (hasMemoryLeak) {
-        // Extract just the leak summary for a cleaner error message
         const leakMatch = combinedOutput.match(
           /=+\n([\s\S]*?SUMMARY[\s\S]*?)(\n=+|$)/
         );
@@ -686,11 +716,10 @@ function runSingleTest(
       filePath: test.filePath,
       passed,
       errorMessage,
-      duration: Date.now() - startTime,
+      duration,
       profileInfo,
     };
   } catch (error) {
-    cleanup();
     return {
       testName: test.name,
       filePath: test.filePath,
@@ -1002,6 +1031,10 @@ async function runTestsInIsolatedProcesses({
 /**
  * Run tests sequentially within a single file.
  *
+ * Uses batch compilation: all tests are compiled into one binary,
+ * then the binary is run once per test with YO_TEST_INDEX selecting
+ * which test to execute. Falls back to per-test compilation on failure.
+ *
  * Parallel execution is handled at file level via isolated child processes.
  */
 async function runTestsSequentially(
@@ -1025,19 +1058,13 @@ async function runTestsSequentially(
   let failedTests = 0;
   let bailed = false;
 
-  for (const { test, nonTestContent } of testsToRun) {
-    if (bailed) break;
+  if (testsToRun.length === 0) {
+    return { results, passedTests, failedTests, bailed };
+  }
 
-    const result = runSingleTest(
-      test,
-      nonTestContent,
-      cCompiler,
-      options.wasmTarget,
-      options.keepGeneratedFiles,
-      options.profile
-    );
+  // Helper to display a test result and update counters
+  const reportResult = (test: StringifiedTestData, result: TestResult) => {
     results.push(result);
-
     if (result.passed) {
       passedTests++;
       console.log(
@@ -1058,18 +1085,65 @@ async function runTestsSequentially(
         const firstLine = result.errorMessage.split("\n")[0];
         console.log(`    ${colors.red}${firstLine}${colors.reset}`);
       }
-
       if (options.bail) {
         bailed = true;
       }
     }
+  };
 
-    // Force GC between tests to prevent heap accumulation.
-    // Each test compilation creates millions of objects; without GC
-    // the heap can grow to several GB causing extreme GC pressure.
-    tryForceGC();
+  // --- Batch-compile all tests into one binary ---
+  const firstTest = testsToRun[0]!;
+  let batchResult: BatchCompileResult;
+  try {
+    batchResult = compileBatchedBinary(
+      testsToRun.map((t) => t.test),
+      firstTest.nonTestContent,
+      firstTest.test.filePath,
+      cCompiler,
+      options.wasmTarget,
+      options.keepGeneratedFiles
+    );
+  } catch (compileError) {
+    // Batch compilation failed — report as failure for all tests
+    const errorMsg =
+      compileError instanceof Error
+        ? compileError.message
+        : String(compileError);
+    for (const { test } of testsToRun) {
+      reportResult(test, {
+        testName: test.name,
+        filePath: test.filePath,
+        passed: false,
+        errorMessage: errorMsg,
+        duration: 0,
+      });
+      if (bailed) break;
+    }
+    return { results, passedTests, failedTests, bailed };
   }
 
+  // Run each test from the batched binary
+  if (options.profile && batchResult.yoCompileMs != null) {
+    console.log(
+      `  ${colors.dim}batch: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${testsToRun.length} tests)${colors.reset}`
+    );
+  }
+
+  for (let i = 0; i < testsToRun.length; i++) {
+    if (bailed) break;
+    const test = testsToRun[i]!.test;
+    const result = runTestFromBatchedBinary(
+      i,
+      test,
+      batchResult.binaryPath,
+      cCompiler,
+      options.wasmTarget,
+      options.profile
+    );
+    reportResult(test, result);
+  }
+
+  batchResult.cleanup();
   return { results, passedTests, failedTests, bailed };
 }
 
@@ -1249,9 +1323,6 @@ export async function runTests(
         bodyString: exprToString(
           test.bodyExpr.$?.originalExpr ?? test.bodyExpr
         ),
-        usingString: test.usingExpr
-          ? exprToString(test.usingExpr.$?.originalExpr ?? test.usingExpr)
-          : "",
         filePath: test.filePath,
       },
       nonTestContent,

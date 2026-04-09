@@ -15,7 +15,7 @@ fs_dir :: import "std/fs/dir";
 // is_file tests
 // ============================================================================
 
-test "is_file returns true for a regular file", using(io : IO), {
+test "is_file returns true for a regular file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -33,7 +33,7 @@ test "is_file returns true for a regular file", using(io : IO), {
   io.await(fs_dir.remove_file(fpath));
 };
 
-test "is_file returns false for a directory", using(io : IO), {
+test "is_file returns false for a directory", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -51,7 +51,7 @@ test "is_file returns false for a directory", using(io : IO), {
   io.await(fs_dir.remove_dir(dpath));
 };
 
-test "is_file returns false for nonexistent path", using(io : IO), {
+test "is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
   r := io.await(fs_file.is_file(fpath, using(io)));
   printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
@@ -62,7 +62,7 @@ test "is_file returns false for nonexistent path", using(io : IO), {
 // is_dir tests
 // ============================================================================
 
-test "is_dir returns true for a directory", using(io : IO), {
+test "is_dir returns true for a directory", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -80,7 +80,7 @@ test "is_dir returns true for a directory", using(io : IO), {
   io.await(fs_dir.remove_dir(dpath));
 };
 
-test "is_dir returns false for a file", using(io : IO), {
+test "is_dir returns false for a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
     escape ();
@@ -98,7 +98,7 @@ test "is_dir returns false for a file", using(io : IO), {
   io.await(fs_dir.remove_file(fpath));
 };
 
-test "is_dir returns false for nonexistent path", using(io : IO), {
+test "is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
   r := io.await(fs_file.is_dir(dpath, using(io)));
   printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
@@ -109,7 +109,7 @@ test "is_dir returns false for nonexistent path", using(io : IO), {
 // canonical tests
 // ============================================================================
 
-test "canonical resolves a real path", using(io : IO), {
+test "canonical resolves a real path", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
@@ -129,7 +129,7 @@ test "canonical resolves a real path", using(io : IO), {
   io.await(fs_dir.remove_file(fpath));
 };
 
-test "canonical resolves dot-dot segments", using(io : IO), {
+test "canonical resolves dot-dot segments", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
@@ -161,7 +161,7 @@ test "canonical resolves dot-dot segments", using(io : IO), {
   io.await(fs_dir.remove_dir(dir_path));
 };
 
-test "canonical throws for nonexistent path", using(io : IO), {
+test "canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
 
   given(exn) := Exception(throw : ((err) -> {

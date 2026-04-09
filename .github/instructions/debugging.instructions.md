@@ -1,17 +1,20 @@
 ---
 description: "Use when debugging the Yo evaluator, C codegen output, or runtime issues. Covers gdb, debug print functions, and strategies for diagnosing compiler bugs."
 ---
+
 # Debugging the Yo Compiler
 
 ## Evaluator debugging
 
 Use these functions to print debug information:
+
 - `typeToString` — print types
 - `exprToString` — print expressions
 - `valueToString` — print values
 - `areTypesCompatible` — check type compatibility
 
 Key facts:
+
 - `expr.$.value == undefined` means the value is a **runtime value**, not `UnknownValue`.
 - `UnknownValue` is a compile-time value where we only know its type but not the real value.
 
@@ -42,6 +45,7 @@ Key facts:
 ## Debugging regressions with git bisect
 
 When a test fails after a series of commits:
+
 1. First confirm the test passes on `origin/develop`: `git stash && git checkout origin/develop && ./yo-cli test <file> --bail`
 2. Use `git bisect` or manually check individual commits to find the first failing commit
 3. Read the diff of that commit to understand what changed
@@ -50,6 +54,7 @@ When a test fails after a series of commits:
 ## Environment frame debugging
 
 The evaluator uses frame-based environments. Key debugging facts:
+
 - `variable.frameLevel` = the frame index where the variable was defined
 - `env.frames.length` = total number of frames in the environment
 - `functionType.env` captures the env at the function's **definition site** (minus parameters frame)
@@ -60,6 +65,7 @@ The evaluator uses frame-based environments. Key debugging facts:
 ## Test file conventions
 
 Each `.test.yo` file has its own import set. Check whether a test file imports `std/fmt` before using `println`:
+
 - Files with `open import "std/fmt"` → `println` available
 - Files without it → use `assert` only, or add the import
 - Match the existing style of the test file when adding new tests
