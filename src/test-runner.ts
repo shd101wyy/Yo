@@ -520,6 +520,7 @@ function compileBatchedBinary(
 
     if (isEmcc) {
       compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
+      compileArgs.splice(-2, 0, "-fno-exceptions");
       if (isWasi) {
         compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
       } else {
