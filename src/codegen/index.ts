@@ -582,6 +582,11 @@ export class CodeGenerator {
         if (isEmcc) {
           compileArgs.splice(-2, 0, "-sEMULATE_FUNCTION_POINTER_CASTS=1");
 
+          // Yo generates C11, not C++ — disable C++ exception handling to avoid
+          // linker errors on Emscripten 4.0.23+ where the JS symbols library
+          // references __cxa_increment_exception_refcount.
+          compileArgs.splice(-2, 0, "-fno-exceptions");
+
           if (isTargetStandaloneWasi(targetInfo)) {
             // Standalone WASI: produce a .wasm file without JS glue
             compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
