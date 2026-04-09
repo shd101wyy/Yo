@@ -24,9 +24,13 @@ import {
  * returns the absolute target path unchanged. This helper detects that case and
  * returns the absolute path directly instead of a broken relative path.
  */
-function safeRelativePath(fromDir: string, toPath: string): string {
-  const relativePath = path.relative(fromDir, toPath);
-  if (path.isAbsolute(relativePath)) {
+export function safeRelativePath(
+  fromDir: string,
+  toPath: string,
+  pathModule: typeof path = path
+): string {
+  const relativePath = pathModule.relative(fromDir, toPath);
+  if (pathModule.isAbsolute(relativePath)) {
     // Cross-drive on Windows: relative path is impossible, use absolute path
     return toPath;
   }
