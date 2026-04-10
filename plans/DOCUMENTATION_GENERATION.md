@@ -1,0 +1,356 @@
+# Documentation Generation for Yo
+
+## Problem
+
+Yo has no standard way to generate API documentation from source code. Developers writing libraries and applications need a way to:
+
+1. Write structured doc comments in `.yo` files
+2. Extract those comments and associate them with declarations
+3. Generate browsable HTML documentation (like Rust's `rustdoc` or TypeScript's `typedoc`)
+
+The standard library already uses `///` and `/** */` comment conventions informally, but these are discarded during parsing and never reach the AST.
+
+## Current State
+
+### What we have
+
+- **Lexer** preserves comments as tokens (`SingleLineComment`, `MultiLineComment`) with full text and position info
+- **Parser** skips all comments via `skipWhitespace()` — they never reach the AST
+- **AST** has an unused `comment?: string` field on `EvaluatedExprData` (expr.ts:281)
+- **Standard library** already uses doc comment conventions:
+  - `///` triple-slash for single-line doc comments (prelude.yo traits, builtins)
+  - `/** ... */` JSDoc-style blocks for multi-line descriptions (array_list.yo, hash_map.yo, etc.)
+- **BUILD_SYSTEM.md** section 11.2.6 already proposes this feature with output to `yo-out/doc/`
+
+### What's missing
+
+- No doc comment extraction or association with declarations
+- No documentation data model
+- No rendering pipeline (HTML/Markdown)
+- No CLI command or build system integration
+
+## Design Decisions
+
+### Doc comment syntax
+
+Use both existing conventions, consistent with what the std library already does:
+
+````rust
+//! This module provides core collection types.
+//! It is part of the Yo standard library.
+
+/// Single-line doc comment (outer — attaches to next declaration).
+/// Multiple consecutive lines are merged into one doc block.
+Comptime :: trait(id := "Comptime");
+
+/**
+ * Multi-line doc comment block (outer).
+ *
+ * Supports **Markdown** formatting:
+ * - Lists
+ * - `code spans` and auto-linked types like `Option`
+ * - [links](https://example.com)
+ *
+ * ## Examples
+ *
+ * ```rust
+ * (x : i32) = i32(42);
+ * ```
+ */
+ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(...);
+````
+
+**Outer doc comments** (attach to the next declaration):
+
+- `///` — single-line outer doc comment. `//` is a regular comment (ignored).
+- `/** ... */` — multi-line outer doc comment. `/* ... */` is a regular comment (ignored).
+
+**Inner doc comments** (attach to the enclosing item — module, struct, trait):
+
+- `//!` — single-line inner doc comment. Used at the top of a file for module-level docs.
+- `/*! ... */` — multi-line inner doc comment. Also for module-level docs.
+
+This matches Rust's doc comment syntax exactly.
+
+**Rules:**
+
+- Outer doc comments attach to the **next** declaration (forward association).
+- Inner doc comments attach to the **enclosing** item (the module/file itself, or a struct/trait body).
+- Content is parsed as Markdown (like rustdoc).
+- Leading `*` and whitespace in `/** */` / `/*! */` blocks are stripped (JSDoc convention).
+- Backtick references (`` `TypeName` ``) auto-link to the referenced item's doc page (cross-module linking).
+
+### `yo doc` CLI command vs build system step
+
+**Decision: Both — `yo doc` as primary, build system for advanced configuration.**
+
+#### Evaluation
+
+| Criterion             | `yo doc` CLI            | `build.doc()` step              |
+| --------------------- | ----------------------- | ------------------------------- |
+| Zero-config           | ✅ Just works           | ❌ Requires build.yo            |
+| Discoverability       | ✅ `yo --help` shows it | ❌ Hidden in build config       |
+| Customization         | ⚠️ CLI flags only       | ✅ Full programmatic control    |
+| Build DAG integration | ❌ Standalone           | ✅ Can depend on/be depended on |
+| Works on single files | ✅ `yo doc file.yo`     | ❌ Project-level only           |
+
+#### Approach
+
+1. **`yo doc`** — The primary command. Works on any project or file with zero configuration. Produces HTML documentation in `yo-out/doc/` by default.
+
+2. **`build.doc()` step (future)** — For projects needing custom output directories, filtered modules, themes, or integration with other build steps. Invokes the same underlying doc engine. This is a follow-up enhancement.
+
+3. **No `yo build doc` alias initially** — Avoid confusion. `yo doc` is the command. Build system integration comes later via `build.doc()` step kind.
+
+### Output format
+
+- **Primary**: Fully offline static HTML site (self-contained, zero external dependencies)
+  - All CSS/JS inlined or bundled — no CDN links, no external fonts, no network requests
+  - Module index page
+  - Per-module pages with all exported declarations
+  - Search (client-side, JSON index embedded in the page)
+  - Sidebar navigation
+  - Works from `file://` URLs (open `index.html` directly in browser)
+- **Secondary**: JSON intermediate representation (allows custom renderers)
+- **Style**: Clean, minimal — inspired by Rust docs but simpler. System font stack only.
+
+### Scope of documented items
+
+Only **exported** declarations are documented by default. Internal declarations can be included with `--document-private` flag.
+
+Documentable items:
+
+- Functions (`fn`)
+- Types (`struct`, `object`, `enum`, `newtype`, `union`)
+- Traits (`trait`)
+- Modules (`module`)
+- Constants (top-level `::` bindings with comptime values)
+- Trait implementations (`impl`) — listed on the type's page
+- Re-exports (`export`)
+
+## Architecture
+
+```
+.yo source files
+       │
+       ▼
+  ┌─────────────┐
+  │   Lexer      │  ← Already tokenizes comments
+  └──────┬──────┘
+         │ tokens (with comment tokens)
+         ▼
+  ┌─────────────┐
+  │  Doc Comment │  ← NEW: Extract & associate doc comments
+  │  Extractor   │    with declarations from token stream
+  └──────┬──────┘
+         │ DocItem[]
+         ▼
+  ┌─────────────┐
+  │  Evaluator   │  ← Existing: provides type info
+  │  (type info) │    for documented declarations
+  └──────┬──────┘
+         │ enriched DocItem[] with types
+         ▼
+  ┌─────────────┐
+  │  Doc Model   │  ← NEW: Structured documentation IR
+  │  Builder     │    (modules, types, functions, traits)
+  └──────┬──────┘
+         │ DocModel (JSON-serializable)
+         ▼
+  ┌─────────────┐
+  │  Renderer    │  ← NEW: Generates HTML/Markdown
+  │  (HTML)      │    from DocModel
+  └─────────────┘
+         │
+         ▼
+    yo-out/doc/
+```
+
+### Key components
+
+#### 1. Doc Comment Extractor (`src/doc/extractor.ts`)
+
+Operates on the **token stream** (before parsing). Scans for doc comment tokens (`///` and `/** */`) and associates them with the next non-comment, non-whitespace token's position.
+
+```typescript
+interface RawDocComment {
+  content: string; // Stripped markdown content
+  position: TokenPosition; // Source location
+  kind: "line" | "block"; // /// vs /** */
+}
+
+interface DocAssociation {
+  comment: RawDocComment;
+  declarationName: string; // The identifier that follows
+  declarationPosition: TokenPosition;
+}
+```
+
+The extractor doesn't need to understand the full AST — it does a lightweight token-level scan:
+
+1. Find doc comment tokens
+2. Skip whitespace tokens forward
+3. Record the next identifier token as the associated declaration
+
+#### 2. Doc Model (`src/doc/model.ts`)
+
+The intermediate representation for documentation, produced by combining doc comments with evaluator type information.
+
+```typescript
+interface DocModule {
+  name: string;
+  path: string; // Module file path
+  description?: string; // Module-level doc comment (top of file)
+  functions: DocFunction[];
+  types: DocType[];
+  traits: DocTrait[];
+  constants: DocConstant[];
+  reExports: DocReExport[];
+}
+
+interface DocFunction {
+  name: string;
+  doc?: string;
+  signature: string; // Human-readable type signature
+  parameters: DocParam[];
+  returnType: string;
+  effects?: string[]; // using(...) effect parameters
+  typeParams?: string[]; // forall(...) type parameters
+  isExported: boolean;
+}
+
+interface DocType {
+  name: string;
+  doc?: string;
+  kind: "struct" | "object" | "enum" | "newtype" | "union";
+  typeParams?: string[];
+  fields?: DocField[]; // For struct/object
+  variants?: DocVariant[]; // For enum
+  methods: DocFunction[]; // From impl blocks
+  traitImpls: string[]; // Names of implemented traits
+}
+
+interface DocTrait {
+  name: string;
+  doc?: string;
+  typeParams?: string[];
+  associatedTypes?: DocAssociatedType[];
+  methods: DocFunction[]; // Required methods
+  implementors: string[]; // Types that implement this trait
+}
+```
+
+#### 3. Type Info Integration
+
+After extraction, the doc generator runs the evaluator on each module to get type information. This provides:
+
+- Resolved type signatures (with generics expanded)
+- Impl block association (which methods belong to which type)
+- Trait implementation lists
+- Export visibility
+
+The evaluator already computes all of this. We need a mode that evaluates types without generating C code — effectively the existing evaluator with codegen skipped.
+
+#### 4. HTML Renderer (`src/doc/render-html.ts`)
+
+Generates static HTML pages. Uses template strings (no external templating library — keep dependencies minimal).
+
+Page structure:
+
+- `index.html` — Module index with search
+- `module/<name>.html` — Per-module page
+- `type/<name>.html` — Per-type page (with methods, trait impls)
+- `trait/<name>.html` — Per-trait page (with implementors)
+- `search-index.json` — Client-side search data
+- `style.css` — Styling
+- `search.js` — Minimal search script
+
+#### 5. Markdown Renderer (`src/doc/render-markdown.ts`)
+
+Alternative output for embedding in READMEs or other docs.
+
+### CLI interface
+
+```
+yo doc [path]              # Generate docs for project or file
+  --output, -o <dir>       # Output directory (default: yo-out/doc)
+  --format <html|markdown|json>  # Output format (default: html)
+  --document-private       # Include non-exported declarations
+  --no-deps                # Don't document dependencies
+  --open                   # Open in browser after generation
+  --module <name>          # Document specific module only
+```
+
+## Implementation Plan
+
+### Phase 1: Doc Comment Extraction
+
+- Define doc comment syntax rules (distinguish `///` from `//`, `/** */` from `/* */`, plus inner `//!` and `/*! */`)
+- Build token-level doc comment extractor
+- Associate outer doc comments with declarations via token position
+- Associate inner doc comments (`//!`, `/*! */`) with their enclosing module/item
+- Strip comment syntax (`///`, `//!`, `/** */`, `/*! */`, leading `*`) and produce clean Markdown
+- Handle consecutive `///` lines merging into a single doc block
+- Handle module-level doc comments (top-of-file `///!` or `/**! */`, or just the first `/** */` before any declaration)
+- Unit tests for extraction
+
+### Phase 2: Doc Model & Type Integration
+
+- Define `DocModule`, `DocFunction`, `DocType`, `DocTrait` etc. data model
+- Run evaluator in "type-info-only" mode on source files
+- Walk evaluated declarations and match with extracted doc comments
+- Resolve type signatures to human-readable strings
+- Collect impl blocks and associate methods with their types
+- Build cross-references (trait → implementors, type → traits)
+- Handle generic types, effects, associated types in signatures
+- Unit tests for model building
+
+### Phase 3: HTML Renderer
+
+- Design page templates (module index, type page, trait page, function listing)
+- Implement HTML generation from DocModel
+- Render Markdown doc content to HTML (use a lightweight Markdown parser or write a minimal one)
+- Syntax highlighting for code blocks in doc comments
+- Generate search index JSON
+- Implement client-side search (minimal JS)
+- CSS styling
+- Test with std library as a real-world corpus
+
+### Phase 4: CLI Integration
+
+- Add `yo doc` command to `src/yo-cli.ts`
+- Implement `src/doc/doc-command.ts` orchestration
+- Wire up options (output dir, format, filters)
+- Module resolution — find all `.yo` files in project
+- Dependency documentation (optional, `--no-deps` to skip)
+- `--open` flag to launch browser
+- Integration tests
+
+### Phase 5: Markdown Renderer & JSON Output
+
+- Implement Markdown output format
+- Implement raw JSON output (for custom tooling)
+- Format selection via `--format` flag
+
+### Phase 6: Build System Integration (future)
+
+- Add `StepKind.Documentation` to `std/build.yo`
+- `build.doc(name, options)` function
+- Handle doc step in `build-runner.ts`
+- Allow `yo build doc` to run the configured doc step
+
+## Open Questions
+
+1. **Doc comment sections**: Should we support Rust-style sections like `# Examples`, `# Panics`, `# Errors`, `# Safety`? Or keep it freeform Markdown?
+
+2. **Inline type rendering**: For complex generic types like `fn(forall(T: Type), x: T, using(io: IO)) -> Impl(Future(Result(T, E), IO))`, how much should we simplify in the rendered signature?
+
+3. **Doc tests**: Should code blocks in doc comments be extractable as tests (like Rust's `cargo test` running doc examples)? This could be a future phase.
+
+## References
+
+- Rust `rustdoc`: https://doc.rust-lang.org/rustdoc/
+- TypeScript `typedoc`: https://typedoc.org/
+- Go `godoc`/`pkgsite`: https://pkg.go.dev/
+- Zig `autodoc`: https://ziglang.org/documentation/
+- BUILD_SYSTEM.md section 11.2.6
