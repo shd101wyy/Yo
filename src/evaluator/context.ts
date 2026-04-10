@@ -259,6 +259,13 @@ export interface EvaluatorContext {
    * which can be ambiguous when multiple impls of the same trait exist.
    */
   isEvaluatingGenericImplSpecialization?: boolean;
+
+  /**
+   * Lookup map from declaration name to doc comment content.
+   * Built by extractDocComments() before evaluation starts.
+   * Used by initialization-assignment to set Variable.docComment.
+   */
+  docCommentLookup?: Map<string, string>;
 }
 
 /**

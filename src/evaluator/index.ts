@@ -11,6 +11,7 @@ import Parser from "../parser";
 import { TokenType, type Token } from "../token";
 import { isModuleType } from "../types/guards";
 import type { ModuleValue } from "../value";
+import { extractDocComments } from "../doc/extractor";
 
 // Import extracted evaluator functions
 import { YoError, YoLexerError } from "../error";
@@ -177,6 +178,15 @@ export default class Evaluator {
       setEnvContainingPrelude(env);
     }
 
+    // Build doc comment lookup from token stream before evaluation
+    const docExtractionResult = extractDocComments(this.tokens);
+    const docCommentLookup = new Map<string, string>();
+    for (const assoc of docExtractionResult.declarations) {
+      if (assoc.declarationName) {
+        docCommentLookup.set(assoc.declarationName, assoc.comment.content);
+      }
+    }
+
     const {
       moduleValue,
       env: nextEnv,
@@ -191,6 +201,7 @@ export default class Evaluator {
         loadModule: loadModule.bind(this),
         stdPath,
         currentModulePath: this.modulePath,
+        docCommentLookup,
       },
       allowPartialModule: this.allowPartialModule,
       registerPartialModule: this.registerPartialModule,

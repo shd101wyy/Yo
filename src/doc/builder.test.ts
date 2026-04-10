@@ -9,6 +9,8 @@ import { tokenize } from "../lexer";
 import { extractDocComments } from "./extractor";
 import { buildDocModule, buildCrossReferences } from "./builder";
 import type { DocModule } from "./model";
+import { getVariablesFromEnv } from "../env";
+import { exprIsFunctionCall, type FnCallExpr } from "../expr";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -437,5 +439,128 @@ export add;
     expect(doc.functions[0]!.parameters).toHaveLength(2);
     expect(doc.functions[0]!.parameters[0]!.doc).toBe("The first operand.");
     expect(doc.functions[0]!.parameters[1]!.doc).toBe("The second operand.");
+  });
+});
+
+// ── Variable.docComment propagation tests ──────────────────────────
+
+/**
+ * Helper: evaluate a Yo source string and return the evaluator program
+ * so we can inspect Variable.docComment on the resulting env.
+ */
+function getEvaluatorProgram(source: string, moduleName?: string) {
+  const name = moduleName ?? `test_var_${testCounter++}`;
+  const filePath = path.join(sharedTmpDir, `${name}.yo`);
+  fs.writeFileSync(filePath, source);
+
+  const modulePath = `file://${filePath}`;
+  sharedModuleManager.loadModule(modulePath);
+
+  const module = sharedModuleManager.modules.get(modulePath);
+  if (!module?.evaluator) {
+    throw new Error("No evaluator available");
+  }
+  return module.evaluator.getProgram();
+}
+
+/** Find the last env from the program that has the given variable. */
+function findVariableDocComment(
+  program: ReturnType<typeof getEvaluatorProgram>,
+  varName: string
+): string | undefined {
+  // Walk expressions to find one with env containing the variable
+  for (let i = program.length - 1; i >= 0; i--) {
+    const expr = program[i]!;
+    if (exprIsFunctionCall(expr)) {
+      const fnExpr = expr as FnCallExpr;
+      const env = fnExpr.$?.env;
+      if (env) {
+        const vars = getVariablesFromEnv(env, varName);
+        if (vars.length > 0) {
+          return vars[vars.length - 1]!.docComment;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+describe("Variable.docComment propagation", () => {
+  test("propagates doc comment to variable for :: declaration", () => {
+    const program = getEvaluatorProgram(`
+/// A documented constant.
+x :: i32(42);
+export x;
+`);
+
+    expect(findVariableDocComment(program, "x")).toBe("A documented constant.");
+  });
+
+  test("propagates multi-line doc comment to variable", () => {
+    const program = getEvaluatorProgram(`
+/// First line.
+/// Second line.
+y :: i32(10);
+export y;
+`);
+
+    expect(findVariableDocComment(program, "y")).toBe(
+      "First line.\nSecond line."
+    );
+  });
+
+  test("variable without doc comment has undefined docComment", () => {
+    const program = getEvaluatorProgram(`
+z :: i32(5);
+export z;
+`);
+
+    expect(findVariableDocComment(program, "z")).toBeUndefined();
+  });
+
+  test("propagates doc comment to function variable", () => {
+    const program = getEvaluatorProgram(`
+/// Adds two numbers.
+add :: (fn(a : i32, b : i32) -> i32)((a + b));
+export add;
+`);
+
+    expect(findVariableDocComment(program, "add")).toBe("Adds two numbers.");
+  });
+
+  test("propagates doc comment to type variable", () => {
+    const program = getEvaluatorProgram(`
+/// A 2D point.
+Point :: struct(x : f64, y : f64);
+export Point;
+`);
+
+    expect(findVariableDocComment(program, "Point")).toBe("A 2D point.");
+  });
+
+  test("propagates block doc comment to variable", () => {
+    const program = getEvaluatorProgram(`
+/** A block-documented value. */
+val :: i32(99);
+export val;
+`);
+
+    expect(findVariableDocComment(program, "val")).toBe(
+      "A block-documented value."
+    );
+  });
+
+  test("multiple documented declarations get separate doc comments", () => {
+    const program = getEvaluatorProgram(`
+/// First.
+a1 :: i32(1);
+/// Second.
+b1 :: i32(2);
+export a1;
+export b1;
+`);
+
+    expect(findVariableDocComment(program, "a1")).toBe("First.");
+    expect(findVariableDocComment(program, "b1")).toBe("Second.");
   });
 });

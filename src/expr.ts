@@ -276,9 +276,11 @@ export interface EvaluatedExprData {
   primitivePatternValues?: (Value | undefined)[];
 
   /**
-   * Comment for the expression.
+   * Doc comment for the expression.
+   * Set during evaluation when the expression (e.g., a declaration) is preceded
+   * by triple-slash or block doc comment tokens.
    */
-  comment?: string;
+  docComment?: string;
 
   /**
    * For closures that capture Rc variables, this contains expressions that
