@@ -1,21 +1,9 @@
-// std/fmt/display.yo - Display trait
-//
-// The Display trait provides a standard way to format a value for
-// human-readable output using a Writer. It complements ToString
-// (which always returns a String) by streaming into an existing Writer.
-//
-// Example:
-//   impl(MyType, Display(
-//     display : (fn(self: *(Self), writer: Writer) -> Writer)(
-//       writer.write_str("MyType(").write_i64(i64(self.value)).write_str(")")
-//     )
-//   ));
+//! Display trait for streaming formatted output to a Writer.
 
 { Writer } :: import "./writer";
 
-// ============================================================================
-// Display trait
-// ============================================================================
+/// Trait for formatting values by writing to a `Writer` rather than allocating a `String`.
+/// Complement to `ToString` for streaming output into an existing buffer.
 
 Display :: (fn(comptime(T) : Type) -> comptime(Type))
   trait(

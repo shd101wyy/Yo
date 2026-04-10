@@ -1,21 +1,20 @@
+//! Immutable UTF-8 string type with comprehensive operations.
+
 { ArrayList } :: import "../collections/array_list.yo";
 { rune } :: import "./rune.yo";
 { memcpy, memcmp, strlen } :: import "../libc/string.yo";
 
+/// String operation error variants.
 StringError :: enum(
+  /// The input bytes are not valid UTF-8.
   InvalidUtf8,
+  /// The index is out of bounds for the string's byte length.
   IndexOutOfBounds(index: usize, length: usize)
 );
 
-/**
- * String - Immutable UTF-8 encoded string
- * 
- * Similar to JavaScript String, Python str, and Rust String.
- * Strings are immutable - all operations return new strings.
- * 
- * Internal storage uses Option(ArrayList(u8)) for UTF-8 bytes.
- * An empty string is represented as .None (zero allocation).
- */
+/// Immutable UTF-8 encoded string.
+/// All operations return new strings; mutable operations require a pointer to self.
+/// Empty strings use zero allocation (represented as `Option.None` internally).
 String :: newtype(
   _bytes: Option(ArrayList(u8))
 );
