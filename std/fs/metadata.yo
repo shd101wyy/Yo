@@ -1,22 +1,5 @@
-// std/fs/metadata.yo - File metadata
-//
-// Wraps the low-level statx buffer with ergonomic accessors.
-// Uses Exception effect for error handling.
-//
-// Example:
-//   { metadata } :: import "std/fs/metadata";
-//
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) : Exception = {
-//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//         { println(error.to_string()); exit(i32(1)); }
-//       )
-//     };
-//
-//     m := io.await(metadata(Path.new(`/tmp/test.txt`)));
-//     printf("size: %lld\n", m.size());
-//     printf("is file: %d\n", i32(m.is_file()));
-//   });
+//! File metadata via `statx` with ergonomic accessors.
+//! Uses the Exception effect for error handling.
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
@@ -32,10 +15,7 @@ IO_file :: import "../sys/file";
   S_IWUSR, S_IWGRP, S_IWOTH
 } :: import "../sys/constants";
 
-// ============================================================================
-// Metadata
-// ============================================================================
-
+/// File metadata wrapper around `Statx`.
 Metadata :: object(
   _statx : Statx,
   _buf_ptr : *(u8)
@@ -149,20 +129,22 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadat
   })
 );
 
-// Get metadata for a path (follows symlinks).
+/// Get metadata for a path (follows symlinks).
 metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
   _stat_path(path, AT_STATX_SYNC_AS_STAT)
 ;
 
+/// Get metadata for a path given as a raw string (follows symlinks).
 metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
   metadata(Path.new(String.from(path)))
 ;
 
-// Get metadata for a path (does NOT follow symlinks).
+/// Get metadata for a path (does NOT follow symlinks).
 symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
   _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT))
 ;
 
+/// Get metadata for a path given as a raw string (does NOT follow symlinks).
 symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
   symlink_metadata(Path.new(String.from(path)))
 ;

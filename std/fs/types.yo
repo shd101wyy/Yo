@@ -1,22 +1,22 @@
-// std/fs/types.yo - File system types
-//
-// OpenMode and FilePermission for typed file operations.
+//! File system types for open modes, permissions, and seek positions.
 
 {
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND,
   O_EXCL, O_CLOEXEC, DEFAULT_FILE_MODE
 } :: import "../sys/constants";
 
-// ============================================================================
-// OpenMode — determines how a file is opened
-// ============================================================================
-
+/// Determines how a file is opened.
 OpenMode :: enum(
-  Read,       // O_RDONLY — read existing file
-  Write,      // O_WRONLY | O_CREAT | O_TRUNC — create/overwrite
-  Append,     // O_WRONLY | O_CREAT | O_APPEND — append to file
-  ReadWrite,  // O_RDWR — read and write existing file
-  CreateNew   // O_WRONLY | O_CREAT | O_EXCL — create new, fail if exists
+  /// Read an existing file (O_RDONLY).
+  Read,
+  /// Create or overwrite a file (O_WRONLY | O_CREAT | O_TRUNC).
+  Write,
+  /// Append to a file (O_WRONLY | O_CREAT | O_APPEND).
+  Append,
+  /// Read and write an existing file (O_RDWR).
+  ReadWrite,
+  /// Create a new file, fail if it already exists (O_WRONLY | O_CREAT | O_EXCL).
+  CreateNew
 );
 
 // Convert OpenMode to POSIX open flags.
@@ -45,10 +45,7 @@ _open_mode_needs_perm :: (fn(mode: OpenMode) -> bool)(
 
 export OpenMode, _open_mode_to_flags, _open_mode_needs_perm;
 
-// ============================================================================
-// FilePermission — POSIX file permission bits
-// ============================================================================
-
+/// POSIX file permission bits.
 FilePermission :: newtype(
   mode : u32
 );
@@ -77,14 +74,14 @@ impl(FilePermission,
 
 export FilePermission;
 
-// ============================================================================
-// SeekFrom — file seek position reference
-// ============================================================================
-
+/// Reference point for file seek operations.
 SeekFrom :: enum(
-  Start,    // Seek from the beginning of the file
-  Current,  // Seek relative to the current position
-  End       // Seek relative to the end of the file
+  /// Seek from the beginning of the file.
+  Start,
+  /// Seek relative to the current position.
+  Current,
+  /// Seek relative to the end of the file.
+  End
 );
 
 // Convert SeekFrom to POSIX whence constant (i32).
