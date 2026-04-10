@@ -1,22 +1,10 @@
-// std/log - Structured logging
-//
-// Provides a global logger with configurable level and output destination.
-//
-// Example:
-//   { info, warn, error, set_level, Level } :: import "std/log";
-//
-//   set_level(.Info);
-//   info(String.from("application started"));
-//   warn(String.from("disk usage high"));
+//! Structured logging with configurable level and output destination.
 
 open import "../string";
 { ToString } :: import "../fmt";
 { fwrite, stdout, stderr } :: import "../libc/stdio";
 
-// ============================================================================
-// Level
-// ============================================================================
-
+/// Log severity level.
 Level :: enum(Trace, Debug, Info, Warn, Error);
 
 impl(Level, ToString(
@@ -33,10 +21,7 @@ impl(Level, ToString(
 
 export Level;
 
-// ============================================================================
-// LogOutput
-// ============================================================================
-
+/// Where log messages are written.
 LogOutput :: enum(
   Stderr,
   Stdout

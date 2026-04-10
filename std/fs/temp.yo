@@ -1,4 +1,22 @@
 //! RAII-managed temporary files and directories.
+//!
+//! # Example
+//!
+//! ```rust
+//! { TempDir } :: import "std/fs/temp";
+//!
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) : Exception = {
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error.to_string()); exit(i32(1)); }
+//!     )
+//!   };
+//!
+//!   dir := io.await(TempDir.new());
+//!   println(dir.path());
+//!   io.await(dir.remove());
+//! });
+//! ```
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;

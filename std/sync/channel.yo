@@ -1,5 +1,20 @@
 //! Bounded multi-producer multi-consumer (MPMC) channel.
 //! Uses blocking send/recv via condition variables — does not require IO.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Channel } :: import "std/sync/channel";
+//! { Thread } :: import "std/thread";
+//!
+//! ch := Channel(i32).new(usize(10));
+//! t := Thread.spawn(() => {
+//!   ch.send(i32(42));
+//! });
+//! val := ch.recv();   // blocks until data available
+//! assert((val.unwrap() == i32(42)), "received value");
+//! t.join();
+//! ```
 
 { Deque } :: import "../collections/deque";
 { Mutex } :: import "./mutex";

@@ -1,5 +1,23 @@
 //! File metadata via `statx` with ergonomic accessors.
 //! Uses the Exception effect for error handling.
+//!
+//! # Example
+//!
+//! ```rust
+//! { metadata } :: import "std/fs/metadata";
+//!
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) : Exception = {
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error.to_string()); exit(i32(1)); }
+//!     )
+//!   };
+//!
+//!   m := io.await(metadata(Path.new(`/tmp/test.txt`)));
+//!   printf("size: %lld\n", m.size());
+//!   printf("is file: %d\n", i32(m.is_file()));
+//! });
+//! ```
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;

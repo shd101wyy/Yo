@@ -1,4 +1,26 @@
 //! Recursive directory traversal.
+//!
+//! # Example
+//!
+//! ```rust
+//! { walk, WalkEntry } :: import "std/fs/walker";
+//!
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) : Exception = {
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error.to_string()); exit(i32(1)); }
+//!     )
+//!   };
+//!
+//!   entries := io.await(walk(`/tmp`));
+//!   i := usize(0);
+//!   while runtime((i < entries.len())), {
+//!     e := entries.get(i).unwrap();
+//!     println(e.path);
+//!     i = (i + usize(1));
+//!   };
+//! });
+//! ```
 
 { ArrayList } :: import "../collections/array_list";
 open import "../string";
