@@ -306,7 +306,7 @@ yo doc [path]              # Generate docs for project or file
 
 ## Implementation Plan
 
-### Phase 1: Doc Comment Extraction
+### Phase 1: Doc Comment Extraction ✅
 
 - Define doc comment syntax rules (distinguish `///` from `//`, `/** */` from `/* */`, plus inner `//!` and `/*! */`)
 - Build token-level doc comment extractor
@@ -315,41 +315,39 @@ yo doc [path]              # Generate docs for project or file
 - Strip comment syntax (`///`, `//!`, `/** */`, `/*! */`, leading `*`) and produce clean Markdown
 - Handle consecutive `///` lines merging into a single doc block
 - Handle module-level doc comments (top-of-file `///!` or `/**! */`, or just the first `/** */` before any declaration)
-- Unit tests for extraction
+- Unit tests for extraction (29 tests)
 
-### Phase 2: Doc Model & Type Integration
+### Phase 2: Doc Model & Type Integration ✅
 
 - Define `DocModule`, `DocFunction`, `DocType`, `DocTrait` etc. data model
-- Run evaluator in "type-info-only" mode on source files
+- Run evaluator on source files to get type information
 - Walk evaluated declarations and match with extracted doc comments
-- Resolve type signatures to human-readable strings
+- Resolve type signatures to human-readable strings via `typeToString`
 - Collect impl blocks and associate methods with their types
 - Build cross-references (trait → implementors, type → traits)
 - Handle generic types, effects, associated types in signatures
-- Unit tests for model building
+- Unit tests for model building (15 tests)
 
-### Phase 3: HTML Renderer
+### Phase 3: HTML Renderer ✅
 
-- Add `markdown_yo` as npm dependency (`bun install markdown_yo@0.0.4`)
-- Design page templates (module index, type page, trait page, function listing)
-- Implement HTML generation from DocModel
-- Use `markdown_yo` WASM API to render Markdown doc content to HTML at build time
-- Syntax highlighting for code blocks in doc comments
-- Generate search index JSON
-- Bundle `markdown_yo` JS/WASM for client-side search previews
-- Implement client-side search (minimal JS + markdown_yo WASM)
-- CSS styling (system fonts, inline styles, no external deps)
-- Test with std library as a real-world corpus
+- Added `markdown_yo@0.0.4` as npm dependency
+- Page templates: module index (card grid), per-module detail page
+- HTML generation from DocModel with all item types
+- `markdown_yo` WASM API renders Markdown doc content to HTML at build time
+- Client-side search via embedded JSON index
+- Fully offline: all CSS/JS inlined, system fonts, no CDN
+- Dark mode via `prefers-color-scheme` media query
+- Responsive design with mobile breakpoint
+- Unit + integration tests (22 tests)
 
-### Phase 4: CLI Integration
+### Phase 4: CLI Integration ✅
 
-- Add `yo doc` command to `src/yo-cli.ts`
-- Implement `src/doc/doc-command.ts` orchestration
-- Wire up options (output dir, format, filters)
-- Module resolution — find all `.yo` files in project
-- Dependency documentation (optional, `--no-deps` to skip)
-- `--open` flag to launch browser
-- Integration tests
+- Added `yo doc [path]` command to `src/yo-cli.ts`
+- `src/doc-command.ts` orchestrates file discovery → evaluation → extraction → rendering
+- Options: `-o` output dir, `--name` project name, `--document-private`, `-v` verbose
+- Auto-discovers `.yo` files (skips test files, build files, hidden dirs)
+- Infers project name from package.json, build.yo, or directory name
+- Reports timing and item counts
 
 ### Phase 5: Additional Output Formats (future)
 
