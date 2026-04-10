@@ -1058,4 +1058,4 @@ Status of modules that were not yet implemented at the start of the std library 
 
 ## Documentation
 
-Full standard library documentation: **[docs/en-US/STD_LIBRARY_MODULES.md](../docs/en-US/STD_LIBRARY_MODULES.md)**
+Full standard library documentation: **[Standard Library Documentation](https://shd101wyy.github.io/Yo/)**

@@ -234,7 +234,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 
 _Still In Design_
 
-Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/en-US/STD_LIBRARY_MODULES.md)**.
+Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see the **[Standard Library Documentation](https://shd101wyy.github.io/Yo/)**.
 
 ## Code examples
 
