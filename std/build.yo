@@ -365,6 +365,8 @@ DocConfig :: struct(
   root : comptime_string,
   /// Output directory (default: "yo-out/doc").
   (output : comptime_string) ?= "yo-out/doc",
+  /// Output format: "html", "markdown", or "json" (default: "html").
+  (format : comptime_string) ?= "html",
   /// Document non-exported (private) items.
   (include_private : bool) ?= false,
   /// Document dependencies too.
@@ -401,7 +403,7 @@ export DocConfig;
 /// ```
 doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
   __yo_build_doc(
-    config.name, config.root, config.output,
+    config.name, config.root, config.output, config.format,
     config.include_private, config.include_deps,
     config.title, config.logo, config.favicon
   );

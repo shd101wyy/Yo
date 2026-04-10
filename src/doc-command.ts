@@ -13,7 +13,11 @@ import { ModuleManager } from "./module-manager";
 import { extractDocComments } from "./doc/extractor";
 import { buildDocModule, buildCrossReferences } from "./doc/builder";
 import { renderDocSite, destroyMarkdownRenderer } from "./doc/render-html";
+import { renderDocMarkdown } from "./doc/render-markdown";
+import { renderDocJson } from "./doc/render-json";
 import type { DocModel, DocModule } from "./doc/model";
+
+export type DocFormat = "html" | "markdown" | "json";
 
 export interface DocCommandOptions {
   /** File or directory to document (default: current directory) */
@@ -26,6 +30,8 @@ export interface DocCommandOptions {
   verbose: boolean;
   /** Project name override */
   name?: string;
+  /** Output format (default: html) */
+  format?: DocFormat;
 }
 
 /**
@@ -179,6 +185,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
     includePrivate: _includePrivate,
     verbose,
     name,
+    format = "html",
   } = options;
 
   const basePath = path.resolve(
@@ -224,11 +231,28 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
     modules,
   };
 
-  // Render HTML site
+  // Render output in the chosen format
   const absOutputDir = path.resolve(outputDir);
-  console.log(`Rendering HTML to ${absOutputDir}...`);
-  await renderDocSite({ model, outputDir: absOutputDir });
-  destroyMarkdownRenderer();
+  let outputFile: string;
+  switch (format) {
+    case "markdown":
+      console.log(`Rendering Markdown to ${absOutputDir}...`);
+      renderDocMarkdown({ model, outputDir: absOutputDir });
+      outputFile = "README.md";
+      break;
+    case "json":
+      console.log(`Rendering JSON to ${absOutputDir}...`);
+      renderDocJson({ model, outputDir: absOutputDir });
+      outputFile = "doc.json";
+      break;
+    case "html":
+    default:
+      console.log(`Rendering HTML to ${absOutputDir}...`);
+      await renderDocSite({ model, outputDir: absOutputDir });
+      destroyMarkdownRenderer();
+      outputFile = "index.html";
+      break;
+  }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const totalItems = modules.reduce(
@@ -245,7 +269,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
   console.log(
     `  ${modules.length} module${modules.length === 1 ? "" : "s"}, ${totalItems} item${totalItems === 1 ? "" : "s"} documented in ${elapsed}s`
   );
-  console.log(`  Output: ${absOutputDir}/index.html`);
+  console.log(`  Output: ${absOutputDir}/${outputFile}`);
 
   // Reset evaluator state
   moduleManager.resetAllState();

@@ -349,11 +349,13 @@ yo doc [path]              # Generate docs for project or file
 - Infers project name from package.json, build.yo, or directory name
 - Reports timing and item counts
 
-### Phase 5: Additional Output Formats (future)
+### Phase 5: Additional Output Formats ✅
 
-- Markdown renderer (when `DocFormat.Markdown` is enabled)
-- Raw JSON output for custom tooling (when `DocFormat.Json` is enabled)
-- `--format` CLI flag to select output format
+- Markdown renderer: `src/doc/render-markdown.ts` → `README.md` + `module/<name>.md`
+- JSON renderer: `src/doc/render-json.ts` → `doc.json`
+- `--format` / `-f` CLI flag: `html` (default), `markdown`, `json`
+- Format field added to `DocConfig` in `std/build.yo` and `BuildDocConfig` interface
+- 19 new tests (15 markdown + 4 JSON)
 
 ### Phase 6: Build System Integration ✅
 

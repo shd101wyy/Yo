@@ -695,6 +695,13 @@ yo --version                     Show version number
           describe: "Verbose output",
           type: "boolean",
           default: false,
+        })
+        .option("format", {
+          alias: "f",
+          describe: "Output format",
+          type: "string",
+          choices: ["html", "markdown", "json"],
+          default: "html",
         });
     },
     async (argv) => {
@@ -705,6 +712,7 @@ yo --version                     Show version number
         includePrivate: argv.documentPrivate as boolean,
         verbose: argv.verbose as boolean,
         name: argv.name as string | undefined,
+        format: argv.format as "html" | "markdown" | "json",
       });
     }
   )

@@ -1980,11 +1980,14 @@ async function runDocGeneration(
   const rootPath = path.resolve(projectDir, docConfig.root);
   const outputPath = path.resolve(projectDir, docConfig.outputDir);
 
+  const format = (docConfig.format || "html") as "html" | "markdown" | "json";
+
   await runDoc({
     input: rootPath,
     outputDir: outputPath,
     includePrivate: docConfig.includePrivate,
     verbose: ctx.verbose ?? false,
     name: docConfig.title || undefined,
+    format,
   });
 }

@@ -121,6 +121,7 @@ export interface BuildDocConfig {
   name: string;
   root: string;
   outputDir: string;
+  format: string;
   includePrivate: boolean;
   includeDeps: boolean;
   title: string;
@@ -855,12 +856,12 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_doc(name, root, output, include_private, include_deps, title, logo, favicon)
+  // __yo_build_doc(name, root, output, format, include_private, include_deps, title, logo, favicon)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_doc)) {
-    if (expr.args.length < 8) {
+    if (expr.args.length < 9) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_doc expects 8 arguments, got ${expr.args.length}`,
+        errorMessage: `__yo_build_doc expects 9 arguments, got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -878,20 +879,25 @@ export function evaluateYoBuildFunctions({
       "output",
       expr.token
     );
-    const includePrivate = Boolean(expr.args[3]!.$?.value);
-    const includeDeps = Boolean(expr.args[4]!.$?.value);
+    const format = extractComptimeString(
+      expr.args[3]!.$?.value,
+      "format",
+      expr.token
+    );
+    const includePrivate = Boolean(expr.args[4]!.$?.value);
+    const includeDeps = Boolean(expr.args[5]!.$?.value);
     const title = extractComptimeString(
-      expr.args[5]!.$?.value,
+      expr.args[6]!.$?.value,
       "title",
       expr.token
     );
     const logo = extractComptimeString(
-      expr.args[6]!.$?.value,
+      expr.args[7]!.$?.value,
       "logo",
       expr.token
     );
     const favicon = extractComptimeString(
-      expr.args[7]!.$?.value,
+      expr.args[8]!.$?.value,
       "favicon",
       expr.token
     );
@@ -899,6 +905,7 @@ export function evaluateYoBuildFunctions({
       name,
       root,
       outputDir,
+      format,
       includePrivate,
       includeDeps,
       title,
