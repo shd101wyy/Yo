@@ -1,36 +1,11 @@
-// std/sync/channel.yo - Bounded multi-producer multi-consumer channel
-//
-// A thread-safe channel for sending values between threads and workers.
-// Uses Mutex + Cond internally — does NOT require async/await or IO effect.
-//
-// Design rationale:
-//   Channel uses blocking send/recv via condition variables rather than
-//   async/await. This is intentional:
-//   - Works with both Thread and Worker without requiring an IO effect context
-//   - Simpler mental model: send blocks when full, recv blocks when empty
-//   - Channel is a synchronization primitive, not an I/O operation
-//   - For async usage, wrap Channel.recv in io.async() if needed
-//
-// Example:
-//   { Channel } :: import "std/sync/channel";
-//   { Thread } :: import "std/thread";
-//
-//   ch := Channel(i32).new(usize(10));
-//   t := Thread.spawn(() => {
-//     ch.send(i32(42));
-//   });
-//   val := ch.recv();   // blocks until data available
-//   assert((val.unwrap() == i32(42)), "received value");
-//   t.join();
+//! Bounded multi-producer multi-consumer (MPMC) channel.
+//! Uses blocking send/recv via condition variables — does not require IO.
 
 { Deque } :: import "../collections/deque";
 { Mutex } :: import "./mutex";
 { Cond } :: import "./cond";
 
-// ============================================================================
-// Channel - Bounded MPMC channel
-// ============================================================================
-
+/// Thread-safe bounded channel for passing values between threads.
 Channel :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
     _buf      : Deque(T),

@@ -1,29 +1,9 @@
-// std/sync/rwlock.yo - Reader-Writer Lock
-//
-// Allows multiple concurrent readers or one exclusive writer.
-// Uses Mutex + Cond internally.
-//
-// Example:
-//   { RwLock } :: import "std/sync/rwlock";
-//
-//   lock := RwLock.new();
-//   // Multiple readers can hold the lock simultaneously
-//   lock.read_lock();
-//   // ... read shared data ...
-//   lock.read_unlock();
-//
-//   // Only one writer at a time, blocks all readers
-//   lock.write_lock();
-//   // ... write shared data ...
-//   lock.write_unlock();
+//! Reader-writer lock allowing multiple concurrent readers or one exclusive writer.
 
 { Mutex } :: import "./mutex";
 { Cond } :: import "./cond";
 
-// ============================================================================
-// RwLock
-// ============================================================================
-
+/// Reader-writer lock built on `Mutex` and `Cond`.
 RwLock :: object(
   _readers  : i32,
   _writer   : bool,

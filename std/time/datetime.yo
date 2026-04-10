@@ -1,23 +1,12 @@
-// std/time/datetime.yo - Wall-clock date/time
-//
-// DateTime represents a calendar date and time of day.
-// All values are in UTC unless utc_offset_secs is non-zero.
-//
-// Example:
-//   { DateTime } :: import "std/time/datetime";
-//
-//   now := DateTime.now_utc();
-//   println(now.to_string());   // "2026-02-26T17:41:24Z"
+//! Wall-clock date and time in UTC.
 
 { String } :: import "../string";
 { ToString } :: import "../fmt";
 { CLOCK_REALTIME, clock_gettime } :: import "../sys/clock";
 { snprintf } :: import "../libc/stdio";
 
-// ============================================================================
-// DateTime
-// ============================================================================
-
+/// Calendar date and time with nanosecond precision.
+/// Values are in UTC unless `utc_offset_secs` is non-zero.
 DateTime :: struct(
   year            : i32,
   month           : u8,
