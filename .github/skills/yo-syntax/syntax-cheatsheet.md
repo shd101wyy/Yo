@@ -75,6 +75,22 @@ if(done, println("done"), println("pending"));
 - Always write `match(...)`, never bare `match ...`
 - `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
 
+## String types
+
+| Syntax             | Type              | Context                          |
+| ------------------ | ----------------- | -------------------------------- |
+| `"hello"`          | `str`             | Runtime contexts (most code)     |
+| `"hello"`          | `comptime_string` | Inside `comptime` functions      |
+| `` `hello ${x}` `` | `String`          | Always (template string)         |
+| `` `hello` ``      | `String`          | Always (template without interp) |
+| `*(u8)("hello")`   | `*(u8)`           | Pointer cast for C interop       |
+
+Key rules:
+
+- In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
+- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
+- For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+
 ## Calls, operators, and whitespace
 
 ```rust
@@ -288,6 +304,13 @@ while runtime(true), {
 ## Return and branch safety
 
 ```rust
+// WRONG — return consumes the comma, capturing the next match branch:
+match(opt,
+  .Some(v) => return v,    // parsed as return(v, .None => ...)
+  .None => default_value()
+);
+
+// CORRECT — begin blocks isolate return from the comma:
 match(opt,
   .Some(v) => {
     return v;
@@ -296,11 +319,20 @@ match(opt,
     return default_value();
   }
 );
+
+// BEST — expression-bodied function, no return needed:
+get_value :: (fn(opt : Option(i32)) -> i32)(
+  match(opt,
+    .Some(v) => v,
+    .None => i32(0)
+  )
+);
 ```
 
-- `return expr1, expr2` parses as a single function call
-- In `cond` or `match` branches, use begin blocks when you need `return`
-- If the whole function is one expression, prefer expression-bodied style and skip `return`
+- `return expr1, expr2` parses as a single function call: `return(expr1, expr2)`
+- In `cond` or `match` branches, **always use begin blocks** when you need `return`
+- If the whole function is one expression, prefer expression-bodied style and skip `return` entirely
+- The same trap applies to any function call without parens in match branches
 
 ## Iterator and for loop
 

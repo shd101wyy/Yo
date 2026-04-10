@@ -132,6 +132,36 @@ yo test ./tests/main.test.yo --target wasm-wasi
 - `--target wasm-wasi` targets standalone WASI
 - Prefer the host target for routine development unless the task is explicitly cross-platform
 
+### WASM library targets in build.yo
+
+For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Emscripten` and `add_c_flags(...)` for Emscripten settings:
+
+```rust
+build :: import "std/build";
+
+wasm_api :: build.executable({
+  name: "my_lib_wasm_api",
+  root: "./src/wasm_api.yo",
+  target: build.CompilationTarget.Wasm32_Emscripten,
+  optimize: build.Optimize.ReleaseSmall,
+  allocator: build.Allocator.Libc
+});
+wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_my_func,_wasm_alloc,_wasm_free -sEXPORTED_RUNTIME_METHODS=HEAPU8");
+
+wasm_step :: build.step("wasm_api", "Build WASM module");
+wasm_step.depend_on(wasm_api);
+```
+
+Key API:
+
+- `build.executable({...})` — `Executable` struct fields: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`
+- `step.add_c_flags("...")` — append compiler/linker flags (Emscripten `-s` options go here)
+- `step.add_import_list(imports)` — add module dependencies
+- `build.CompilationTarget.Wasm32_Emscripten` — Emscripten target
+- `build.CompilationTarget.Wasm32_Wasi` — WASI target
+
+See the [yo-wasm-integration](../yo-wasm-integration/SKILL.md) skill for full npm packaging patterns.
+
 ## Dependency management
 
 ```bash
