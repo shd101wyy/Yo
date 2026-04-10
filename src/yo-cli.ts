@@ -73,6 +73,14 @@ Example:
   $ yo test ./tests              Run all *.test.yo files in ./tests directory
   $ yo test ./some-file.yo       Run tests in some-file.yo
 
+yo doc [path] [options]          Generate API documentation
+Examples:
+  $ yo doc                       Document all .yo files in current directory
+  $ yo doc ./src                 Document all .yo files in ./src
+  $ yo doc ./src/main.yo         Document a single file
+  $ yo doc -o docs               Output to ./docs directory
+  $ yo doc --name "My Project"   Set project name
+
 yo --help                        Show this help message
 yo --version                     Show version number
 `
@@ -653,6 +661,50 @@ yo --version                     Show version number
         cCompiler: argv.cc as string | undefined,
         defines: Object.keys(defines).length > 0 ? defines : undefined,
         summary: argv.summary as boolean,
+      });
+    }
+  )
+  .command(
+    "doc [path]",
+    "Generate API documentation",
+    (_yargs) => {
+      _yargs
+        .positional("path", {
+          describe:
+            "File or directory to document (default: current directory)",
+          type: "string",
+          default: ".",
+        })
+        .option("o", {
+          alias: "output",
+          describe: "Output directory",
+          type: "string",
+          default: "yo-out/doc",
+        })
+        .option("name", {
+          describe: "Project name (default: inferred from directory/package)",
+          type: "string",
+        })
+        .option("document-private", {
+          describe: "Include non-exported (private) declarations",
+          type: "boolean",
+          default: false,
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose output",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      const { runDoc } = await import("./doc-command");
+      await runDoc({
+        input: argv.path as string,
+        outputDir: argv.o as string,
+        includePrivate: argv.documentPrivate as boolean,
+        verbose: argv.verbose as boolean,
+        name: argv.name as string | undefined,
       });
     }
   )
