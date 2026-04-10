@@ -306,3 +306,102 @@ describe("renderDocMarkdown", () => {
     }
   });
 });
+
+// ── Section rendering tests ──────────────────────────────────────────
+
+describe("renderFunctionMd sections", () => {
+  it("renders deprecated banner", () => {
+    const md = renderFunctionMd(
+      makeFunction({ deprecated: "Use new_add instead." })
+    );
+    expect(md).toContain("⚠️ **Deprecated**");
+    expect(md).toContain("Use new_add instead.");
+  });
+
+  it("renders Returns section", () => {
+    const md = renderFunctionMd(
+      makeFunction({ returns: "The sum of the two operands." })
+    );
+    expect(md).toContain("The sum of the two operands.");
+  });
+
+  it("renders Errors section", () => {
+    const md = renderFunctionMd(
+      makeFunction({ errors: "Returns an error on overflow." })
+    );
+    expect(md).toContain("**Errors:**");
+    expect(md).toContain("Returns an error on overflow.");
+  });
+
+  it("renders Examples section", () => {
+    const md = renderFunctionMd(
+      makeFunction({ examples: "```rust\nresult :: add(i32(1), i32(2));\n```" })
+    );
+    expect(md).toContain("**Examples:**");
+    expect(md).toContain("result :: add(i32(1), i32(2));");
+  });
+
+  it("renders param descriptions", () => {
+    const md = renderFunctionMd(
+      makeFunction({
+        parameters: [
+          {
+            name: "a",
+            type: "i32",
+            isComptime: false,
+            isImplicit: false,
+            doc: "First operand.",
+          },
+          {
+            name: "b",
+            type: "i32",
+            isComptime: false,
+            isImplicit: false,
+            doc: "Second operand.",
+          },
+        ],
+      })
+    );
+    expect(md).toContain("First operand.");
+    expect(md).toContain("Second operand.");
+  });
+});
+
+describe("renderTypeMd sections", () => {
+  it("renders deprecated banner", () => {
+    const md = renderTypeMd(makeType({ deprecated: "Use Point3D." }));
+    expect(md).toContain("⚠️ **Deprecated**");
+    expect(md).toContain("Use Point3D.");
+  });
+
+  it("renders examples", () => {
+    const md = renderTypeMd(
+      makeType({ examples: "```rust\np :: Point(i32(1), i32(2));\n```" })
+    );
+    expect(md).toContain("**Examples:**");
+    expect(md).toContain("Point(i32(1), i32(2))");
+  });
+});
+
+describe("renderTraitMd sections", () => {
+  it("renders deprecated banner", () => {
+    const md = renderTraitMd(makeTrait({ deprecated: "Use NewTrait." }));
+    expect(md).toContain("⚠️ **Deprecated**");
+    expect(md).toContain("Use NewTrait.");
+  });
+
+  it("renders examples", () => {
+    const md = renderTraitMd(
+      makeTrait({ examples: "```rust\nimpl(MyType, Show : ...)\n```" })
+    );
+    expect(md).toContain("**Examples:**");
+  });
+});
+
+describe("renderConstantMd sections", () => {
+  it("renders deprecated banner", () => {
+    const md = renderConstantMd(makeConstant({ deprecated: "Use NEW_VALUE." }));
+    expect(md).toContain("⚠️ **Deprecated**");
+    expect(md).toContain("Use NEW_VALUE.");
+  });
+});

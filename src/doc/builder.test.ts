@@ -341,4 +341,101 @@ describe("buildCrossReferences", () => {
     expect(modules[0]!.traits[0]!.implementors).toEqual(["Color", "Point"]);
     expect(modules[0]!.traits[1]!.implementors).toEqual(["Point"]);
   });
+
+  // ── Section parsing integration tests ──────────────────────────────
+
+  test("extracts Returns section from function doc", () => {
+    const doc = buildDocFromSource(`
+/// Parse the input string.
+///
+/// ## Returns
+///
+/// The parsed integer value, or -1 on failure.
+parse :: (fn(s: str) -> i32)(i32(0));
+export parse;
+`);
+
+    expect(doc.functions).toHaveLength(1);
+    expect(doc.functions[0]!.doc).toContain("Parse the input string.");
+    expect(doc.functions[0]!.returns).toBe(
+      "The parsed integer value, or -1 on failure."
+    );
+  });
+
+  test("extracts Errors section from function doc", () => {
+    const doc = buildDocFromSource(`
+/// Open a file.
+///
+/// ## Errors
+///
+/// Returns an error if the file does not exist.
+open_file :: (fn(path: str) -> i32)(i32(0));
+export open_file;
+`);
+
+    expect(doc.functions[0]!.errors).toBe(
+      "Returns an error if the file does not exist."
+    );
+  });
+
+  test("extracts Deprecated section from function doc", () => {
+    const doc = buildDocFromSource(`
+/// Old API function.
+///
+/// ## Deprecated
+///
+/// Use new_api instead.
+old_api :: (fn() -> i32)(i32(0));
+export old_api;
+`);
+
+    expect(doc.functions[0]!.deprecated).toBe("Use new_api instead.");
+  });
+
+  test("extracts Examples section from function doc", () => {
+    const doc = buildDocFromSource(`
+/// Add two numbers.
+///
+/// ## Examples
+///
+/// \`\`\`rust
+/// result :: add(i32(1), i32(2));
+/// \`\`\`
+add :: (fn(a: i32, b: i32) -> i32)((a + b));
+export add;
+`);
+
+    expect(doc.functions[0]!.examples).toContain("```rust");
+  });
+
+  test("extracts deprecated from type doc", () => {
+    const doc = buildDocFromSource(`
+/// Old point type.
+///
+/// ## Deprecated
+///
+/// Use Point3D instead.
+OldPoint :: struct(x: i32, y: i32);
+export OldPoint;
+`);
+
+    expect(doc.types[0]!.deprecated).toBe("Use Point3D instead.");
+  });
+
+  test("extracts param doc from inline comments", () => {
+    const doc = buildDocFromSource(`
+/// Add two numbers.
+add :: (fn(
+  /// The first operand.
+  a: i32,
+  /// The second operand.
+  b: i32
+) -> i32)((a + b));
+export add;
+`);
+
+    expect(doc.functions[0]!.parameters).toHaveLength(2);
+    expect(doc.functions[0]!.parameters[0]!.doc).toBe("The first operand.");
+    expect(doc.functions[0]!.parameters[1]!.doc).toBe("The second operand.");
+  });
 });

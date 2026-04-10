@@ -433,6 +433,44 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   color: #fff;
 }
 
+/* Deprecated items */
+.item-card.deprecated {
+  border-color: #d4a017;
+  opacity: 0.85;
+}
+.deprecated-banner {
+  background: #fff3cd;
+  color: #664d03;
+  border: 1px solid #ffecb5;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+[data-theme="dark"] .deprecated-banner {
+  background: #332701;
+  color: #ffda6a;
+  border-color: #664d03;
+}
+
+/* Doc sections (Returns, Errors, Examples) */
+.doc-section {
+  margin: 12px 0;
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+.doc-section h5 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+.doc-section-content {
+  font-size: 14px;
+}
+
 /* Index page */
 .module-grid {
   display: grid;
@@ -750,21 +788,64 @@ function renderDoc(md: MarkdownRenderer, doc: string | undefined): string {
   return `<div class="doc-content">${renderMarkdown(md, doc)}</div>`;
 }
 
+// ── Deprecated banner rendering ──────────────────────────────────────
+
+function renderDeprecatedBanner(
+  md: MarkdownRenderer,
+  deprecated: string | undefined
+): string {
+  if (!deprecated) return "";
+  const detail = renderMarkdown(md, deprecated);
+  return `<div class="deprecated-banner">⚠️ <strong>Deprecated</strong>${detail ? `: ${detail}` : ""}</div>`;
+}
+
+// ── Section rendering (Returns, Errors, Examples) ────────────────────
+
+function renderSections(
+  md: MarkdownRenderer,
+  item: {
+    returns?: string;
+    errors?: string;
+    examples?: string;
+  }
+): string {
+  let html = "";
+
+  if (item.returns) {
+    html += `\n<div class="doc-section"><h5>Returns</h5><div class="doc-section-content">${renderMarkdown(md, item.returns)}</div></div>`;
+  }
+  if (item.errors) {
+    html += `\n<div class="doc-section"><h5>Errors</h5><div class="doc-section-content">${renderMarkdown(md, item.errors)}</div></div>`;
+  }
+  if (item.examples) {
+    html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, item.examples)}</div></div>`;
+  }
+
+  return html;
+}
+
 // ── Parameter table rendering ────────────────────────────────────────
 
 function renderParamsTable(
+  md: MarkdownRenderer,
   params: DocParam[],
   label: string = "Parameters"
 ): string {
   if (params.length === 0) return "";
 
-  let html = `<h4>${escapeHtml(label)}</h4>\n<table class="params-table">\n<thead><tr><th>Name</th><th>Type</th><th>Notes</th></tr></thead>\n<tbody>`;
+  const hasDoc = params.some((p) => p.doc);
+  const docHeader = hasDoc ? "<th>Description</th>" : "";
+
+  let html = `<h4>${escapeHtml(label)}</h4>\n<table class="params-table">\n<thead><tr><th>Name</th><th>Type</th><th>Notes</th>${docHeader}</tr></thead>\n<tbody>`;
   for (const p of params) {
     const notes: string[] = [];
     if (p.isComptime) notes.push("comptime");
     if (p.isImplicit) notes.push("implicit");
     if (p.defaultValue) notes.push(`default: ${escapeHtml(p.defaultValue)}`);
-    html += `\n<tr><td><code>${escapeHtml(p.name)}</code></td><td class="type-col">${escapeHtml(p.type)}</td><td>${notes.join(", ")}</td></tr>`;
+    const docCell = hasDoc
+      ? `<td>${p.doc ? renderMarkdown(md, p.doc) : ""}</td>`
+      : "";
+    html += `\n<tr><td><code>${escapeHtml(p.name)}</code></td><td class="type-col">${escapeHtml(p.type)}</td><td>${notes.join(", ")}</td>${docCell}</tr>`;
   }
   html += `\n</tbody></table>`;
   return html;
@@ -837,11 +918,13 @@ function renderMethods(
     html += `\n<div class="method-item" id="method-${escapeHtml(parentName)}-${escapeHtml(m.name)}">
 <div class="method-header"><code>${escapeHtml(m.name)}</code> : <code>${escapeHtml(m.signature)}</code></div>
 <div class="method-body">`;
+    html += renderDeprecatedBanner(md, m.deprecated);
     html += renderDoc(md, m.doc);
     if (m.parameters.length > 0) {
-      html += renderParamsTable(m.parameters);
+      html += renderParamsTable(md, m.parameters);
     }
     html += `\n<p>Returns: <code>${escapeHtml(m.returnType)}</code></p>`;
+    html += renderSections(md, m);
     html += `\n</div></div>`;
   }
   return html;
@@ -863,26 +946,28 @@ function renderTraitImpls(impls: string[]): string {
 // ── Function rendering ───────────────────────────────────────────────
 
 function renderFunction(md: MarkdownRenderer, fn: DocFunction): string {
-  let html = `<div class="item-card" id="fn-${escapeHtml(fn.name)}">
+  let html = `<div class="item-card${fn.deprecated ? " deprecated" : ""}" id="fn-${escapeHtml(fn.name)}">
 <div class="item-header">
   <a class="item-name" href="#fn-${escapeHtml(fn.name)}">${escapeHtml(fn.name)}</a>
   <span class="item-kind">function</span>
 </div>
 <div class="item-body">
 <div class="decl-signature">${escapeHtml(fn.signature)}</div>`;
+  html += renderDeprecatedBanner(md, fn.deprecated);
   html += renderDoc(md, fn.doc);
 
   if (fn.typeParams && fn.typeParams.length > 0) {
-    html += renderParamsTable(fn.typeParams, "Type Parameters");
+    html += renderParamsTable(md, fn.typeParams, "Type Parameters");
   }
   if (fn.parameters.length > 0) {
-    html += renderParamsTable(fn.parameters);
+    html += renderParamsTable(md, fn.parameters);
   }
   if (fn.effects && fn.effects.length > 0) {
-    html += renderParamsTable(fn.effects, "Effects");
+    html += renderParamsTable(md, fn.effects, "Effects");
   }
 
   html += `\n<p>Returns: <code>${escapeHtml(fn.returnType)}</code></p>`;
+  html += renderSections(md, fn);
   html += `\n</div></div>`;
   return html;
 }
@@ -890,17 +975,18 @@ function renderFunction(md: MarkdownRenderer, fn: DocFunction): string {
 // ── Type rendering ───────────────────────────────────────────────────
 
 function renderType(md: MarkdownRenderer, t: DocType): string {
-  let html = `<div class="item-card" id="type-${escapeHtml(t.name)}">
+  let html = `<div class="item-card${t.deprecated ? " deprecated" : ""}" id="type-${escapeHtml(t.name)}">
 <div class="item-header">
   <a class="item-name" href="#type-${escapeHtml(t.name)}">${escapeHtml(t.name)}</a>
   <span class="item-kind">${escapeHtml(t.kind)}</span>
 </div>
 <div class="item-body">
 <div class="decl-signature">${escapeHtml(t.signature)}</div>`;
+  html += renderDeprecatedBanner(md, t.deprecated);
   html += renderDoc(md, t.doc);
 
   if (t.typeParams && t.typeParams.length > 0) {
-    html += renderParamsTable(t.typeParams, "Type Parameters");
+    html += renderParamsTable(md, t.typeParams, "Type Parameters");
   }
   if (t.fields && t.fields.length > 0) {
     html += renderFieldsTable(md, t.fields);
@@ -910,6 +996,9 @@ function renderType(md: MarkdownRenderer, t: DocType): string {
   }
   html += renderTraitImpls(t.traitImpls);
   html += renderMethods(md, t.methods, t.name);
+  if (t.examples) {
+    html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, t.examples)}</div></div>`;
+  }
 
   html += `\n</div></div>`;
   return html;
@@ -918,20 +1007,24 @@ function renderType(md: MarkdownRenderer, t: DocType): string {
 // ── Trait rendering ──────────────────────────────────────────────────
 
 function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
-  let html = `<div class="item-card" id="trait-${escapeHtml(tr.name)}">
+  let html = `<div class="item-card${tr.deprecated ? " deprecated" : ""}" id="trait-${escapeHtml(tr.name)}">
 <div class="item-header">
   <a class="item-name" href="#trait-${escapeHtml(tr.name)}">${escapeHtml(tr.name)}</a>
   <span class="item-kind">trait</span>
 </div>
 <div class="item-body">
 <div class="decl-signature">${escapeHtml(tr.signature)}</div>`;
+  html += renderDeprecatedBanner(md, tr.deprecated);
   html += renderDoc(md, tr.doc);
 
   if (tr.typeParams && tr.typeParams.length > 0) {
-    html += renderParamsTable(tr.typeParams, "Type Parameters");
+    html += renderParamsTable(md, tr.typeParams, "Type Parameters");
   }
   html += renderAssociatedTypes(md, tr.associatedTypes);
   html += renderMethods(md, tr.methods, tr.name);
+  if (tr.examples) {
+    html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, tr.examples)}</div></div>`;
+  }
 
   if (tr.implementors.length > 0) {
     html += `\n<h4>Implementors</h4>\n<div class="trait-impl-list">`;
@@ -948,13 +1041,14 @@ function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
 // ── Constant rendering ───────────────────────────────────────────────
 
 function renderConstant(md: MarkdownRenderer, c: DocConstant): string {
-  let html = `<div class="item-card" id="const-${escapeHtml(c.name)}">
+  let html = `<div class="item-card${c.deprecated ? " deprecated" : ""}" id="const-${escapeHtml(c.name)}">
 <div class="item-header">
   <a class="item-name" href="#const-${escapeHtml(c.name)}">${escapeHtml(c.name)}</a>
   <span class="item-kind">constant</span>
   <span class="item-sig">${escapeHtml(c.type)}</span>
 </div>
 <div class="item-body">`;
+  html += renderDeprecatedBanner(md, c.deprecated);
   html += renderDoc(md, c.doc);
   if (c.value) {
     html += `\n<p>Value: <code>${escapeHtml(c.value)}</code></p>`;

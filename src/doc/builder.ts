@@ -34,6 +34,7 @@ import {
 } from "../types/guards";
 import { typeToString } from "../types/utils";
 import type { DocExtractionResult } from "./extractor";
+import { parseDocComment } from "./sections";
 import type {
   DocModule,
   DocFunction,
@@ -81,6 +82,22 @@ function resolveInnerType(
 
 type DocLookup = Map<string, string>;
 
+/** Parsed section fields shared by DocType, DocTrait, and DocConstant. */
+interface DocSections {
+  deprecated?: string;
+  examples?: string;
+}
+
+/** Extract deprecated/examples sections from a doc comment string. */
+function extractDocSections(doc: string | undefined): DocSections {
+  if (!doc) return {};
+  const parsed = parseDocComment(doc);
+  return {
+    deprecated: parsed.sections.get("deprecated"),
+    examples: parsed.sections.get("examples"),
+  };
+}
+
 /**
  * Build a lookup map from declaration name → doc comment content.
  * This is used to match extracted doc comments with evaluator fields.
@@ -98,7 +115,8 @@ function buildDocLookup(extraction: DocExtractionResult): DocLookup {
 // ── Helper: convert function parameters to DocParam[] ────────────────
 
 function functionParamsToDocParams(
-  params: FunctionType["parameters"]
+  params: FunctionType["parameters"],
+  docLookup?: DocLookup
 ): DocParam[] {
   return params.map((p) => ({
     name: p.label,
@@ -108,6 +126,7 @@ function functionParamsToDocParams(
     defaultValue: p.exprs.defaultValueExpr
       ? String(p.exprs.defaultValueExpr)
       : undefined,
+    doc: docLookup?.get(p.label),
   }));
 }
 
@@ -140,15 +159,19 @@ function buildDocFunction(
   funcType: FunctionType,
   doc: string | undefined,
   isMethod: boolean,
-  selfType?: string
+  selfType?: string,
+  docLookup?: DocLookup
 ): DocFunction {
   const signature = typeToString(funcType);
+
+  // Parse sections from doc comment
+  const parsed = doc ? parseDocComment(doc) : undefined;
 
   return {
     name,
     doc,
     signature,
-    parameters: functionParamsToDocParams(funcType.parameters),
+    parameters: functionParamsToDocParams(funcType.parameters, docLookup),
     returnType: typeToString(funcType.return.type),
     typeParams:
       funcType.forallParameters.length > 0
@@ -160,6 +183,10 @@ function buildDocFunction(
         : undefined,
     isMethod,
     selfType,
+    returns: parsed?.sections.get("returns"),
+    errors: parsed?.sections.get("errors"),
+    deprecated: parsed?.sections.get("deprecated"),
+    examples: parsed?.sections.get("examples"),
   };
 }
 
@@ -185,7 +212,8 @@ function extractMethods(
           field.type,
           docLookup.get(field.label),
           true,
-          typeName
+          typeName,
+          docLookup
         )
       );
     }
@@ -362,6 +390,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           fields: typeFieldsToDocFields(structType.fields, docLookup),
           methods: extractMethods(structType.trait, fieldName, docLookup),
           traitImpls: collectTraitImpls(structType.trait),
+          ...extractDocSections(doc),
         });
         continue;
       }
@@ -377,6 +406,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           variants: enumVariantsToDocVariants(enumType.variants, docLookup),
           methods: extractMethods(enumType.trait, fieldName, docLookup),
           traitImpls: collectTraitImpls(enumType.trait),
+          ...extractDocSections(doc),
         });
         continue;
       }
@@ -392,6 +422,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           fields: typeFieldsToDocFields(unionType.fields, docLookup),
           methods: [],
           traitImpls: [],
+          ...extractDocSections(doc),
         });
         continue;
       }
@@ -417,7 +448,8 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
                   traitField.type,
                   docLookup.get(traitField.label),
                   true,
-                  fieldName
+                  fieldName,
+                  docLookup
                 )
               );
             }
@@ -433,6 +465,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             associatedTypes.length > 0 ? associatedTypes : undefined,
           methods: traitMethods,
           implementors: [],
+          ...extractDocSections(doc),
         });
         continue;
       }
@@ -459,6 +492,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
         signature: typeToString(actualType),
         methods: [],
         traitImpls: [],
+        ...extractDocSections(doc),
       });
       continue;
     }
@@ -480,6 +514,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             fields: typeFieldsToDocFields(structType.fields, docLookup),
             methods: extractMethods(structType.trait, fieldName, docLookup),
             traitImpls: collectTraitImpls(structType.trait),
+            ...extractDocSections(doc),
           });
         } else if (isEnumType(innerType)) {
           const enumType = innerType as EnumType;
@@ -492,6 +527,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             variants: enumVariantsToDocVariants(enumType.variants, docLookup),
             methods: extractMethods(enumType.trait, fieldName, docLookup),
             traitImpls: collectTraitImpls(enumType.trait),
+            ...extractDocSections(doc),
           });
         } else if (isTraitType(innerType)) {
           const traitType = innerType as TraitType;
@@ -514,7 +550,8 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
                   traitField.type,
                   docLookup.get(traitField.label),
                   true,
-                  fieldName
+                  fieldName,
+                  docLookup
                 )
               );
             }
@@ -528,6 +565,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
               associatedTypes.length > 0 ? associatedTypes : undefined,
             methods: traitMethods,
             implementors: [],
+            ...extractDocSections(doc),
           });
         } else {
           // Generic type constructor that we can't resolve
@@ -539,6 +577,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             typeParams: getTypeConstructorParams(field),
             methods: [],
             traitImpls: [],
+            ...extractDocSections(doc),
           });
         }
         continue;
@@ -546,7 +585,14 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
 
       // Regular function or comptime function
       result.functions.push(
-        buildDocFunction(fieldName, field.type, doc, false)
+        buildDocFunction(
+          fieldName,
+          field.type,
+          doc,
+          false,
+          undefined,
+          docLookup
+        )
       );
       continue;
     }
@@ -557,6 +603,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
       doc,
       type: typeToString(field.type),
       value: value ? valueToString(value) : undefined,
+      ...extractDocSections(doc),
     });
   }
 

@@ -642,4 +642,192 @@ describe("renderDocSite", () => {
     expect(html).toContain("Effects");
     expect(html).toContain("IO");
   });
+
+  test("renders deprecated banner on functions", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "TestProject",
+      modules: [
+        makeModule({
+          functions: [
+            {
+              name: "old_fn",
+              doc: "Old function.",
+              signature: "fn() -> i32",
+              parameters: [],
+              returnType: "i32",
+              isMethod: false,
+              deprecated: "Use new_fn instead.",
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("deprecated-banner");
+    expect(html).toContain("Deprecated");
+    expect(html).toContain("Use new_fn instead.");
+    expect(html).toContain('class="item-card deprecated"');
+  });
+
+  test("renders Returns and Errors sections on functions", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "TestProject",
+      modules: [
+        makeModule({
+          functions: [
+            {
+              name: "read_file",
+              doc: "Read a file.",
+              signature: "fn(path: str) -> Result(String, Error)",
+              parameters: [
+                {
+                  name: "path",
+                  type: "str",
+                  isComptime: false,
+                  isImplicit: false,
+                },
+              ],
+              returnType: "Result(String, Error)",
+              isMethod: false,
+              returns: "The file contents as a string.",
+              errors: "Returns an error if the file does not exist.",
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("doc-section");
+    expect(html).toContain("Returns");
+    expect(html).toContain("The file contents as a string.");
+    expect(html).toContain("Errors");
+    expect(html).toContain("Returns an error if the file does not exist.");
+  });
+
+  test("renders param descriptions in parameters table", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "TestProject",
+      modules: [
+        makeModule({
+          functions: [
+            {
+              name: "add",
+              doc: "Add numbers.",
+              signature: "fn(a: i32, b: i32) -> i32",
+              parameters: [
+                {
+                  name: "a",
+                  type: "i32",
+                  isComptime: false,
+                  isImplicit: false,
+                  doc: "The first operand.",
+                },
+                {
+                  name: "b",
+                  type: "i32",
+                  isComptime: false,
+                  isImplicit: false,
+                  doc: "The second operand.",
+                },
+              ],
+              returnType: "i32",
+              isMethod: false,
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("Description");
+    expect(html).toContain("The first operand.");
+    expect(html).toContain("The second operand.");
+  });
+
+  test("renders deprecated type with banner", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "TestProject",
+      modules: [
+        makeModule({
+          types: [
+            {
+              name: "OldType",
+              doc: "An old type.",
+              kind: "struct",
+              signature: "struct(x: i32)",
+              methods: [],
+              traitImpls: [],
+              deprecated: "Use NewType instead.",
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("deprecated-banner");
+    expect(html).toContain("Use NewType instead.");
+  });
+
+  test("renders examples section on type", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "TestProject",
+      modules: [
+        makeModule({
+          types: [
+            {
+              name: "Point",
+              doc: "A 2D point.",
+              kind: "struct",
+              signature: "struct(x: i32, y: i32)",
+              methods: [],
+              traitImpls: [],
+              examples: "```rust\np :: Point(i32(1), i32(2));\n```",
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("Examples");
+    expect(html).toContain("Point(i32(1), i32(2))");
+  });
 });

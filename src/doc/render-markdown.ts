@@ -42,6 +42,12 @@ function renderFunction(fn: DocFunction): string {
   const anchor = fn.isMethod ? `${fn.selfType}.${fn.name}` : fn.name;
   lines.push(`### \`${anchor}\``);
   lines.push("");
+
+  if (fn.deprecated) {
+    lines.push(`> ⚠️ **Deprecated**: ${fn.deprecated}`);
+    lines.push("");
+  }
+
   lines.push("```rust");
   lines.push(fn.signature);
   lines.push("```");
@@ -59,8 +65,9 @@ function renderFunction(fn: DocFunction): string {
       const comptime = p.isComptime ? " *(comptime)*" : "";
       const implicit = p.isImplicit ? " *(implicit)*" : "";
       const dflt = p.defaultValue ? ` = \`${p.defaultValue}\`` : "";
+      const doc = p.doc ? ` — ${p.doc}` : "";
       lines.push(
-        `- \`${p.name}\` : \`${p.type}\`${comptime}${implicit}${dflt}`
+        `- \`${p.name}\` : \`${p.type}\`${comptime}${implicit}${dflt}${doc}`
       );
     }
     lines.push("");
@@ -68,6 +75,26 @@ function renderFunction(fn: DocFunction): string {
 
   lines.push(`**Returns:** \`${fn.returnType}\``);
   lines.push("");
+
+  if (fn.returns) {
+    lines.push(fn.returns);
+    lines.push("");
+  }
+
+  if (fn.errors) {
+    lines.push("**Errors:**");
+    lines.push("");
+    lines.push(fn.errors);
+    lines.push("");
+  }
+
+  if (fn.examples) {
+    lines.push("**Examples:**");
+    lines.push("");
+    lines.push(fn.examples);
+    lines.push("");
+  }
+
   return lines.join("\n");
 }
 
@@ -122,6 +149,12 @@ function renderType(type: DocType): string {
   const tp = formatTypeParams(type.typeParams);
   lines.push(`### \`${type.name}${tp}\``);
   lines.push("");
+
+  if (type.deprecated) {
+    lines.push(`> ⚠️ **Deprecated**: ${type.deprecated}`);
+    lines.push("");
+  }
+
   lines.push(`*${type.kind}*`);
   lines.push("");
   lines.push("```rust");
@@ -157,6 +190,13 @@ function renderType(type: DocType): string {
     }
   }
 
+  if (type.examples) {
+    lines.push("**Examples:**");
+    lines.push("");
+    lines.push(type.examples);
+    lines.push("");
+  }
+
   return lines.join("\n");
 }
 
@@ -167,6 +207,12 @@ function renderTrait(trait: DocTrait): string {
   const tp = formatTypeParams(trait.typeParams);
   lines.push(`### \`${trait.name}${tp}\``);
   lines.push("");
+
+  if (trait.deprecated) {
+    lines.push(`> ⚠️ **Deprecated**: ${trait.deprecated}`);
+    lines.push("");
+  }
+
   lines.push(`*trait*`);
   lines.push("");
   lines.push("```rust");
@@ -198,6 +244,13 @@ function renderTrait(trait: DocTrait): string {
     lines.push("");
   }
 
+  if (trait.examples) {
+    lines.push("**Examples:**");
+    lines.push("");
+    lines.push(trait.examples);
+    lines.push("");
+  }
+
   return lines.join("\n");
 }
 
@@ -208,6 +261,12 @@ function renderConstant(constant: DocConstant): string {
   const val = constant.value ? ` = ${constant.value}` : "";
   lines.push(`### \`${constant.name}\``);
   lines.push("");
+
+  if (constant.deprecated) {
+    lines.push(`> ⚠️ **Deprecated**: ${constant.deprecated}`);
+    lines.push("");
+  }
+
   lines.push(`\`${constant.type}${val}\``);
   lines.push("");
 

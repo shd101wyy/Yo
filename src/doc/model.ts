@@ -25,6 +25,8 @@ export interface DocParam {
   isComptime: boolean;
   isImplicit: boolean;
   defaultValue?: string;
+  /** Doc comment from inline `///` above this parameter */
+  doc?: string;
 }
 
 export interface DocField {
@@ -60,6 +62,14 @@ export interface DocFunction {
   isMethod: boolean;
   /** The type this method belongs to (for methods only) */
   selfType?: string;
+  /** From ## Returns section */
+  returns?: string;
+  /** From ## Errors section */
+  errors?: string;
+  /** From ## Deprecated section */
+  deprecated?: string;
+  /** From ## Examples section (raw markdown) */
+  examples?: string;
 }
 
 // ── Type documentation ───────────────────────────────────────────────
@@ -74,6 +84,10 @@ export interface DocType {
   variants?: DocVariant[];
   methods: DocFunction[];
   traitImpls: string[];
+  /** From ## Deprecated section */
+  deprecated?: string;
+  /** From ## Examples section (raw markdown) */
+  examples?: string;
 }
 
 // ── Trait documentation ──────────────────────────────────────────────
@@ -86,6 +100,10 @@ export interface DocTrait {
   associatedTypes?: DocAssociatedType[];
   methods: DocFunction[];
   implementors: string[];
+  /** From ## Deprecated section */
+  deprecated?: string;
+  /** From ## Examples section (raw markdown) */
+  examples?: string;
 }
 
 // ── Constant documentation ───────────────────────────────────────────
@@ -95,6 +113,8 @@ export interface DocConstant {
   doc?: string;
   type: string;
   value?: string;
+  /** From ## Deprecated section */
+  deprecated?: string;
 }
 
 // ── Module documentation ─────────────────────────────────────────────
