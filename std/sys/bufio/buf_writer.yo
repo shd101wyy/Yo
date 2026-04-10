@@ -1,14 +1,17 @@
-// std/sys/bufio/buf_writer.yo - Buffered writer for file descriptors
-//
-// Wraps a file descriptor with an internal buffer for efficient writes.
-// Reduces the number of system calls by batching small writes together.
-//
-// Example:
-//   { BufWriter } :: import "std/sys/bufio/buf_writer";
-//
-//   writer := BufWriter.new(fd);
-//   io.await(writer.write_string(String.from("hello\n"), using(io)));
-//   io.await(writer.flush(using(io)));
+//! Buffered writer for file descriptors.
+//!
+//! Wraps a file descriptor with an internal buffer for efficient writes.
+//! Reduces the number of system calls by batching small writes together.
+//!
+//! # Example
+//!
+//! ```rust
+//! { BufWriter } :: import "std/sys/bufio/buf_writer";
+//!
+//! writer := BufWriter.new(fd);
+//! io.await(writer.write_string(`hello\n`, using(io)));
+//! io.await(writer.flush(using(io)));
+//! ```
 
 { ArrayList } :: import "../../collections/array_list";
 open import "../../string";
