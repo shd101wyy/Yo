@@ -114,6 +114,29 @@ This matches Rust's doc comment syntax exactly.
 - **Secondary**: JSON intermediate representation (allows custom renderers)
 - **Style**: Clean, minimal — inspired by Rust docs but simpler. System font stack only.
 
+### Markdown rendering: `markdown_yo` (WASM)
+
+Doc comments are Markdown. We use **[markdown_yo](https://github.com/shd101wyy/markdown_yo)** — a high-performance Markdown-to-HTML converter written in Yo, compiled to WASM and published as `npm install markdown_yo@0.0.4`.
+
+**Build-time rendering** (primary):
+
+- `yo doc` imports `markdown_yo` as an npm dependency
+- Calls `createRenderer()` → `md.render(docComment, { html: true, fullFeatures: true })` to pre-render all doc comments to HTML
+- Output pages contain fully rendered HTML — no JS required to read docs
+- This is Yo dogfooding its own ecosystem!
+
+**Client-side bundle** (for interactive features):
+
+- The `markdown_yo_wasm_api.js` + `.wasm` files (~383 KB) are bundled in the doc site
+- Powers live search result previews and rendering
+- Future: interactive code examples, editable doc preview
+
+This means:
+
+- No external Markdown library needed (no `marked`, `markdown-it`, etc.)
+- Full CommonMark compatibility (98.7% spec) + extensions (math, emoji, admonitions, etc.)
+- Syntax highlighting for code blocks in doc comments (via `markdown_yo`'s built-in support or a separate pass)
+
 ### Scope of documented items
 
 Only **exported** declarations are documented by default. Internal declarations can be included with `--document-private` flag.
@@ -307,13 +330,15 @@ yo doc [path]              # Generate docs for project or file
 
 ### Phase 3: HTML Renderer
 
+- Add `markdown_yo` as npm dependency (`bun install markdown_yo@0.0.4`)
 - Design page templates (module index, type page, trait page, function listing)
 - Implement HTML generation from DocModel
-- Render Markdown doc content to HTML (use a lightweight Markdown parser or write a minimal one)
+- Use `markdown_yo` WASM API to render Markdown doc content to HTML at build time
 - Syntax highlighting for code blocks in doc comments
 - Generate search index JSON
-- Implement client-side search (minimal JS)
-- CSS styling
+- Bundle `markdown_yo` JS/WASM for client-side search previews
+- Implement client-side search (minimal JS + markdown_yo WASM)
+- CSS styling (system fonts, inline styles, no external deps)
 - Test with std library as a real-world corpus
 
 ### Phase 4: CLI Integration
@@ -326,11 +351,11 @@ yo doc [path]              # Generate docs for project or file
 - `--open` flag to launch browser
 - Integration tests
 
-### Phase 5: Markdown Renderer & JSON Output
+### Phase 5: Additional Output Formats (future)
 
-- Implement Markdown output format
-- Implement raw JSON output (for custom tooling)
-- Format selection via `--format` flag
+- Markdown renderer (when `DocFormat.Markdown` is enabled)
+- Raw JSON output for custom tooling (when `DocFormat.Json` is enabled)
+- `--format` CLI flag to select output format
 
 ### Phase 6: Build System Integration (future)
 
@@ -338,6 +363,88 @@ yo doc [path]              # Generate docs for project or file
 - `build.doc(name, options)` function
 - Handle doc step in `build-runner.ts`
 - Allow `yo build doc` to run the configured doc step
+
+#### `build.doc()` API design
+
+Following the existing patterns in `std/build.yo` (config structs with defaults, returns `Step`):
+
+```rust
+// ── Doc output formats ───────────────────────────────────────────────
+
+DocFormat :: enum(
+  Html
+  // Markdown,   // future
+  // Json        // future
+);
+export DocFormat;
+
+// ── Doc config struct ────────────────────────────────────────────────
+
+DocConfig :: struct(
+  name : comptime_string,                        // Step name (e.g., "doc")
+  root : comptime_string,                        // Root source file or directory
+  (output : comptime_string) ?= "yo-out/doc",    // Output directory
+  (format : DocFormat) ?= DocFormat.Html,         // Output format
+  (include_private : bool) ?= false,             // Document non-exported items
+  (include_deps : bool) ?= false,                // Document dependencies too
+  (title : comptime_string) ?= "",                // Custom site title (default: project name)
+  (description : comptime_string) ?= "",          // Site description / subtitle
+  (logo : comptime_string) ?= "",                 // Path to logo image
+  (favicon : comptime_string) ?= ""               // Path to favicon
+);
+export DocConfig;
+
+// Register a documentation generation step.
+doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
+  __yo_build_doc(
+    config.name, config.root, config.output,
+    "html",  // only Html supported for now
+    config.include_private, config.include_deps,
+    config.title, config.description, config.logo, config.favicon
+  );
+  Step(name: config.name, kind: StepKind.Documentation)
+};
+export doc;
+```
+
+**Usage in `build.yo`:**
+
+```rust
+build :: import "std/build";
+
+// Minimal — just works with defaults
+doc_step :: build.doc({ name: "doc", root: "./src/lib.yo" });
+
+// Full customization
+doc_step :: build.doc({
+  name: "doc",
+  root: "./src/lib.yo",
+  output: "docs/api",
+  format: DocFormat.Html,
+  include_deps: true,
+  title: "My Library API",
+  description: "API reference for my-lib",
+  logo: "./assets/logo.png"
+});
+
+// Wire into build DAG
+install :: build.step("install", "Build all artifacts");
+install.depend_on(doc_step);  // Docs generated as part of install
+
+// Or standalone
+// yo build doc
+```
+
+**Relationship with `yo doc`:**
+
+- `yo doc` is the zero-config CLI command (no `build.yo` needed). It auto-discovers source files and uses sensible defaults.
+- `build.doc()` is for projects that want custom doc generation integrated into their build pipeline.
+- Both use the same underlying doc engine (`src/doc/`).
+- `yo build doc` invokes the `build.doc()` step. `yo doc` invokes the engine directly.
+
+**`StepKind.Documentation` vs `StepKind.Custom`:**
+
+Adding a dedicated `StepKind.Documentation` (rather than reusing `Custom`) lets `build-runner.ts` dispatch to the doc generation engine directly, with typed config. Custom steps are opaque; Documentation steps carry `DocConfig` metadata that the build runner interprets.
 
 ## Open Questions
 

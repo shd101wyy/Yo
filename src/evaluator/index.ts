@@ -41,7 +41,11 @@ function hasCommentAttribute(tokens: Token[], attribute: string): boolean {
   return tokens.some(
     (token) =>
       (token.type === TokenType.SingleLineComment ||
-        token.type === TokenType.MultiLineComment) &&
+        token.type === TokenType.MultiLineComment ||
+        token.type === TokenType.DocLineComment ||
+        token.type === TokenType.InnerDocLineComment ||
+        token.type === TokenType.DocBlockComment ||
+        token.type === TokenType.InnerDocBlockComment) &&
       token.value.includes(attribute)
   );
 }
