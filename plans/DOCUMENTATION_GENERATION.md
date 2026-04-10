@@ -355,12 +355,13 @@ yo doc [path]              # Generate docs for project or file
 - Raw JSON output for custom tooling (when `DocFormat.Json` is enabled)
 - `--format` CLI flag to select output format
 
-### Phase 6: Build System Integration (future)
+### Phase 6: Build System Integration ✅
 
-- Add `StepKind.Documentation` to `std/build.yo`
-- `build.doc(name, options)` function
-- Handle doc step in `build-runner.ts`
-- Allow `yo build doc` to run the configured doc step
+- Added `StepKind.Documentation` to `std/build.yo`
+- `build.doc(config)` function with `DocConfig` struct
+- Handle doc step in `build-runner.ts` (serialized with artifacts)
+- `yo build doc` runs the configured doc step
+- `yo init` generates `build.yo` with doc step included
 
 #### `build.doc()` API design
 

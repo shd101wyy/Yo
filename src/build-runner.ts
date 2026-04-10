@@ -17,6 +17,7 @@ import { findAvailableCompiler } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
+  type BuildDocConfig,
   type BuildGitDependency,
   type BuildModuleEntry,
   BuildRegistry,
@@ -368,7 +369,7 @@ interface ExecutionContext {
 /** Result of executing a single build step. */
 interface StepResult {
   name: string;
-  kind: "artifact" | "test" | "run" | "step";
+  kind: "artifact" | "test" | "run" | "step" | "doc";
   success: boolean;
   durationMs: number;
   /** Peak RSS in bytes during this step's execution */
@@ -387,7 +388,7 @@ interface StepResult {
  */
 export interface DAGNode {
   name: string;
-  kind: "artifact" | "test" | "run" | "step";
+  kind: "artifact" | "test" | "run" | "step" | "doc";
   dependsOn: string[];
 }
 
@@ -441,6 +442,10 @@ export function buildDAG(
           walk(depName);
         }
         nodes.set(name, { name, kind: "step", dependsOn: deps });
+        break;
+      }
+      case "doc": {
+        nodes.set(name, { name, kind: "doc", dependsOn: [] });
         break;
       }
     }
@@ -620,11 +625,16 @@ async function executeDAG(
     }
 
     // Group by kind for execution strategy
-    const artifactNodes = ready.filter((n) => n.kind === "artifact");
-    const otherNodes = ready.filter((n) => n.kind !== "artifact");
+    // Artifacts and doc nodes use global evaluator state — serialize them
+    const serializedNodes = ready.filter(
+      (n) => n.kind === "artifact" || n.kind === "doc"
+    );
+    const otherNodes = ready.filter(
+      (n) => n.kind !== "artifact" && n.kind !== "doc"
+    );
 
-    // Artifact compilations must be serialized (global evaluator state)
-    for (const node of artifactNodes) {
+    // Artifacts and docs must be serialized (global evaluator state)
+    for (const node of serializedNodes) {
       const result = await executeNode(node, ctx);
       results.set(node.name, result);
     }
@@ -721,6 +731,21 @@ async function executeNode(
     case "step":
       description = node.name;
       break;
+    case "doc": {
+      const docConfig = registry.findDocumentation(node.name);
+      if (docConfig) {
+        description = `doc ${docConfig.name}`;
+        try {
+          await runDocGeneration(docConfig, ctx);
+        } catch (e) {
+          console.error(
+            `Documentation generation error: ${e instanceof Error ? e.message : String(e)}`
+          );
+          success = false;
+        }
+      }
+      break;
+    }
   }
 
   sampleRss();
@@ -1939,4 +1964,27 @@ async function runTestSuite(
   if (summary.failed > 0) {
     process.exit(1);
   }
+}
+
+// ── Documentation generation ──────────────────────────────────────────
+
+async function runDocGeneration(
+  docConfig: BuildDocConfig,
+  ctx: ExecutionContext
+): Promise<void> {
+  const { projectDir } = ctx;
+
+  console.log(`Generating documentation: ${docConfig.name}`);
+
+  const { runDoc } = await import("./doc-command");
+  const rootPath = path.resolve(projectDir, docConfig.root);
+  const outputPath = path.resolve(projectDir, docConfig.outputDir);
+
+  await runDoc({
+    input: rootPath,
+    outputDir: outputPath,
+    includePrivate: docConfig.includePrivate,
+    verbose: ctx.verbose ?? false,
+    name: docConfig.title || undefined,
+  });
 }

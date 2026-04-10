@@ -117,6 +117,17 @@ export interface ImportedModule {
   propagatedSystemLibraries?: string[];
 }
 
+export interface BuildDocConfig {
+  name: string;
+  root: string;
+  outputDir: string;
+  includePrivate: boolean;
+  includeDeps: boolean;
+  title: string;
+  logo: string;
+  favicon: string;
+}
+
 export class BuildRegistry {
   artifacts: BuildArtifact[] = [];
   testSuites: BuildTestSuite[] = [];
@@ -127,6 +138,7 @@ export class BuildRegistry {
   systemLibraries: BuildSystemLibrary[] = [];
   dependencyArtifacts: DependencyArtifactRef[] = [];
   modules: BuildModuleEntry[] = [];
+  docConfigs: BuildDocConfig[] = [];
   /** User-provided build options from CLI -Dname=value */
   cliOptions: Map<string, string> = new Map();
   /** Declared build options (name → { description, default }) */
@@ -269,6 +281,15 @@ export class BuildRegistry {
     return this.steps.find((s) => s.name === name);
   }
 
+  /** Find a documentation config by name */
+  findDocumentation(name: string): BuildDocConfig | undefined {
+    return this.docConfigs.find((d) => d.name === name);
+  }
+
+  registerDocumentation(config: BuildDocConfig): void {
+    this.docConfigs.push(config);
+  }
+
   /** Throw if an artifact with the given name already exists */
   private checkDuplicateArtifactName(name: string): void {
     const existing = this.artifacts.find((a) => a.name === name);
@@ -309,6 +330,7 @@ export class BuildRegistry {
     | { kind: "artifact"; value: BuildArtifact }
     | { kind: "test"; value: BuildTestSuite }
     | { kind: "run"; value: BuildRunStep }
+    | { kind: "doc"; value: BuildDocConfig }
     | { kind: "step"; value: BuildStep }
     | undefined {
     const artifact = this.findArtifact(name);
@@ -320,6 +342,9 @@ export class BuildRegistry {
     // Run steps have synthetic names like "run:app-name"
     const run = this.findRunStep(name);
     if (run) return { kind: "run", value: run };
+
+    const doc = this.findDocumentation(name);
+    if (doc) return { kind: "doc", value: doc };
 
     const step = this.findStep(name);
     if (step) return { kind: "step", value: step };
@@ -827,6 +852,59 @@ export function evaluateYoBuildFunctions({
       expr.token
     );
     registry.registerStep(name, description);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_doc(name, root, output, include_private, include_deps, title, logo, favicon)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_doc)) {
+    if (expr.args.length < 8) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_doc expects 8 arguments, got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    const outputDir = extractComptimeString(
+      expr.args[2]!.$?.value,
+      "output",
+      expr.token
+    );
+    const includePrivate = Boolean(expr.args[3]!.$?.value);
+    const includeDeps = Boolean(expr.args[4]!.$?.value);
+    const title = extractComptimeString(
+      expr.args[5]!.$?.value,
+      "title",
+      expr.token
+    );
+    const logo = extractComptimeString(
+      expr.args[6]!.$?.value,
+      "logo",
+      expr.token
+    );
+    const favicon = extractComptimeString(
+      expr.args[7]!.$?.value,
+      "favicon",
+      expr.token
+    );
+    registry.registerDocumentation({
+      name,
+      root,
+      outputDir,
+      includePrivate,
+      includeDeps,
+      title,
+      logo,
+      favicon,
+    });
     return makeUnitResult(expr, env);
   }
 

@@ -116,6 +116,8 @@ tests :: build.test({ name: "tests", root: "./tests/" });
 
 run_exe :: build.run(exe);
 
+docs :: build.doc({ name: "docs", root: "./src" });
+
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
 install.depend_on(lib);
@@ -125,6 +127,9 @@ run_step.depend_on(run_exe);
 
 test_step :: build.step("test", "Run unit tests");
 test_step.depend_on(tests);
+
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);
 `;
 }
 
@@ -221,6 +226,12 @@ yo build run
 
 \`\`\`bash
 yo build test
+\`\`\`
+
+## Documentation
+
+\`\`\`bash
+yo build doc
 \`\`\`
 `;
 }

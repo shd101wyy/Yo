@@ -47,7 +47,8 @@ StepKind :: enum(
   SystemLibrary,
   TestSuite,
   Run,
-  Custom
+  Custom,
+  Documentation
 );
 export StepKind;
 
@@ -353,3 +354,57 @@ option :: (fn(comptime(config) : BuildOption) -> comptime(str))(
   __yo_build_option(config.name, config.description, config.default)
 );
 export option;
+
+// ── Documentation generation ─────────────────────────────────────────
+
+/// Configuration for documentation generation.
+DocConfig :: struct(
+  /// Step name (e.g., "doc").
+  name : comptime_string,
+  /// Root source file or directory to document.
+  root : comptime_string,
+  /// Output directory (default: "yo-out/doc").
+  (output : comptime_string) ?= "yo-out/doc",
+  /// Document non-exported (private) items.
+  (include_private : bool) ?= false,
+  /// Document dependencies too.
+  (include_deps : bool) ?= false,
+  /// Custom site title (default: project name).
+  (title : comptime_string) ?= "",
+  /// Path to logo image.
+  (logo : comptime_string) ?= "",
+  /// Path to favicon.
+  (favicon : comptime_string) ?= ""
+);
+export DocConfig;
+
+/// Register a documentation generation step. Returns a Step for dependency wiring.
+///
+/// # Examples
+///
+/// ```rust
+/// build :: import "std/build";
+///
+/// // Minimal — just works with defaults
+/// doc_step :: build.doc({ name: "doc", root: "./src/lib.yo" });
+///
+/// // Full customization
+/// doc_step :: build.doc({
+///   name: "doc",
+///   root: "./src",
+///   output: "docs/api",
+///   title: "My Library API"
+/// });
+///
+/// install :: build.step("install", "Build all artifacts");
+/// install.depend_on(doc_step);
+/// ```
+doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
+  __yo_build_doc(
+    config.name, config.root, config.output,
+    config.include_private, config.include_deps,
+    config.title, config.logo, config.favicon
+  );
+  Step(name: config.name, kind: StepKind.Documentation)
+};
+export doc;

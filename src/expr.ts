@@ -1289,6 +1289,7 @@ export const BuiltinFunctions = {
   __yo_build_add_import: ["__yo_build_add_import"],
   __yo_build_add_cflags: ["__yo_build_add_cflags"],
   __yo_build_dep_module: ["__yo_build_dep_module"],
+  __yo_build_doc: ["__yo_build_doc"],
 
   // Inline assembly
   asm: ["asm"],
