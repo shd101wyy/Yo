@@ -8,6 +8,7 @@
 // And produces a DocModule with fully resolved type signatures and doc text.
 
 import type { Token } from "../token";
+import { TokenType } from "../token";
 import type { ModuleValue } from "../value";
 import { valueToString, isTypeValue } from "../value";
 import { ValueTag } from "../value-tag";
@@ -299,20 +300,113 @@ function getTypeConstructorParams(field: ModuleField): DocParam[] | undefined {
 // ── Helper: collect trait implementations from global impl state ─────
 
 /**
- * Collect trait implementation names from a type's trait fields.
- * Trait fields that have a non-function type with a typeName are trait impls.
+ * Extract trait implementation names per type from the token stream.
+ *
+ * Scans for patterns like:
+ *   impl(TypeName, TraitName(...))
+ *   impl(forall(...), TypeName, TraitName(...))
+ *   impl(forall(...), where(...), TypeName, TraitName(...))
+ *
+ * Returns a map from type name to deduplicated list of trait names.
  */
-function collectTraitImpls(trait: TraitType | undefined): string[] {
-  if (!trait || !trait.fields) return [];
+function extractTraitImplsFromTokens(tokens: Token[]): Map<string, string[]> {
+  const result = new Map<string, Set<string>>();
 
-  const impls: string[] = [];
-  for (const field of trait.fields) {
-    // Fields whose label is empty and whose type is a trait are impl blocks
-    if (field.label === "" && isTraitType(field.type) && field.type.typeName) {
-      impls.push(field.type.typeName);
+  // Filter to non-whitespace, non-comment tokens for easier scanning
+  const toks = tokens.filter(
+    (t) =>
+      t.type !== TokenType.Whitespace &&
+      t.type !== TokenType.SingleLineComment &&
+      t.type !== TokenType.MultiLineComment &&
+      t.type !== TokenType.DocLineComment &&
+      t.type !== TokenType.InnerDocLineComment &&
+      t.type !== TokenType.DocBlockComment &&
+      t.type !== TokenType.InnerDocBlockComment
+  );
+
+  for (let i = 0; i < toks.length; i++) {
+    const tok = toks[i]!;
+    // Look for `impl` `(`
+    if (tok.type !== TokenType.Identifier || tok.value !== "impl") continue;
+    if (i + 1 >= toks.length || toks[i + 1]!.type !== TokenType.LParen)
+      continue;
+
+    // Skip past `impl(`
+    let j = i + 2;
+
+    // Skip `forall(...)` if present
+    if (
+      j < toks.length &&
+      toks[j]!.type === TokenType.Identifier &&
+      toks[j]!.value === "forall"
+    ) {
+      j = skipBalancedParens(toks, j + 1);
+      // Skip comma after forall(...)
+      if (j < toks.length && toks[j]!.type === TokenType.Comma) j++;
     }
+
+    // Skip `where(...)` if present
+    if (
+      j < toks.length &&
+      toks[j]!.type === TokenType.Identifier &&
+      toks[j]!.value === "where"
+    ) {
+      j = skipBalancedParens(toks, j + 1);
+      // Skip comma after where(...)
+      if (j < toks.length && toks[j]!.type === TokenType.Comma) j++;
+    }
+
+    // Now we expect the receiver type name (e.g., `String`, `Array`)
+    if (j >= toks.length || toks[j]!.type !== TokenType.Identifier) continue;
+    const typeName = toks[j]!.value;
+    j++;
+
+    // Skip type parameters like `(T)` or `(T, U)` after the type name
+    if (j < toks.length && toks[j]!.type === TokenType.LParen) {
+      j = skipBalancedParens(toks, j);
+    }
+
+    // If next is comma, the item after is the trait name
+    if (j >= toks.length || toks[j]!.type !== TokenType.Comma) continue;
+    j++; // skip comma
+
+    // The trait name
+    if (j >= toks.length || toks[j]!.type !== TokenType.Identifier) continue;
+    const traitName = toks[j]!.value;
+
+    // Verify it's followed by `(` to confirm it's a trait (not another arg)
+    if (j + 1 >= toks.length || toks[j + 1]!.type !== TokenType.LParen)
+      continue;
+
+    // Add to result
+    let set = result.get(typeName);
+    if (!set) {
+      set = new Set<string>();
+      result.set(typeName, set);
+    }
+    set.add(traitName);
   }
-  return impls;
+
+  // Convert sets to arrays
+  const out = new Map<string, string[]>();
+  for (const [typeName, set] of result) {
+    out.set(typeName, [...set]);
+  }
+  return out;
+}
+
+/** Skip past balanced parentheses starting at `(`. Returns index after `)`. */
+function skipBalancedParens(toks: Token[], start: number): number {
+  if (start >= toks.length || toks[start]!.type !== TokenType.LParen)
+    return start;
+  let depth = 1;
+  let j = start + 1;
+  while (j < toks.length && depth > 0) {
+    if (toks[j]!.type === TokenType.LParen) depth++;
+    else if (toks[j]!.type === TokenType.RParen) depth--;
+    j++;
+  }
+  return j;
 }
 
 // ── Main builder ─────────────────────────────────────────────────────
@@ -342,8 +436,9 @@ export interface BuildDocModuleOptions {
  * 4. Produces structured documentation with resolved type signatures
  */
 export function buildDocModule(options: BuildDocModuleOptions): DocModule {
-  const { name, path, moduleValue, extraction } = options;
+  const { name, path, moduleValue, extraction, tokens } = options;
   const docLookup = buildDocLookup(extraction);
+  const traitImplMap = extractTraitImplsFromTokens(tokens);
 
   const result: DocModule = {
     name,
@@ -389,7 +484,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           typeParams: getTypeConstructorParams(field),
           fields: typeFieldsToDocFields(structType.fields, docLookup),
           methods: extractMethods(structType.trait, fieldName, docLookup),
-          traitImpls: collectTraitImpls(structType.trait),
+          traitImpls: traitImplMap.get(fieldName) ?? [],
           ...extractDocSections(doc),
         });
         continue;
@@ -405,7 +500,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           typeParams: getTypeConstructorParams(field),
           variants: enumVariantsToDocVariants(enumType.variants, docLookup),
           methods: extractMethods(enumType.trait, fieldName, docLookup),
-          traitImpls: collectTraitImpls(enumType.trait),
+          traitImpls: traitImplMap.get(fieldName) ?? [],
           ...extractDocSections(doc),
         });
         continue;
@@ -421,7 +516,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           typeParams: getTypeConstructorParams(field),
           fields: typeFieldsToDocFields(unionType.fields, docLookup),
           methods: [],
-          traitImpls: [],
+          traitImpls: traitImplMap.get(fieldName) ?? [],
           ...extractDocSections(doc),
         });
         continue;
@@ -491,7 +586,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
         kind: "type-alias",
         signature: typeToString(actualType),
         methods: [],
-        traitImpls: [],
+        traitImpls: traitImplMap.get(fieldName) ?? [],
         ...extractDocSections(doc),
       });
       continue;
@@ -513,7 +608,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             typeParams: getTypeConstructorParams(field),
             fields: typeFieldsToDocFields(structType.fields, docLookup),
             methods: extractMethods(structType.trait, fieldName, docLookup),
-            traitImpls: collectTraitImpls(structType.trait),
+            traitImpls: traitImplMap.get(fieldName) ?? [],
             ...extractDocSections(doc),
           });
         } else if (isEnumType(innerType)) {
@@ -526,7 +621,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             typeParams: getTypeConstructorParams(field),
             variants: enumVariantsToDocVariants(enumType.variants, docLookup),
             methods: extractMethods(enumType.trait, fieldName, docLookup),
-            traitImpls: collectTraitImpls(enumType.trait),
+            traitImpls: traitImplMap.get(fieldName) ?? [],
             ...extractDocSections(doc),
           });
         } else if (isTraitType(innerType)) {
@@ -576,7 +671,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             signature: typeToString(field.type),
             typeParams: getTypeConstructorParams(field),
             methods: [],
-            traitImpls: [],
+            traitImpls: traitImplMap.get(fieldName) ?? [],
             ...extractDocSections(doc),
           });
         }
