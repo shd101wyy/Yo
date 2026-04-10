@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -122,3 +124,16 @@ jobs:
           asset_path: ${{ steps.create_vsix.outputs.vsixPath}}
           asset_name: ${{ steps.create_vsix.outputs.vsixPath}}
           asset_content_type: application/vsix
+
+      - name: Generate standard library documentation
+        run: |
+          bun run build
+          ./yo-cli doc ./std -o yo-out/std-doc --name "Yo Standard Library"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: yo-out/std-doc
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

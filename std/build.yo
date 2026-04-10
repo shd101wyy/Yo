@@ -357,6 +357,14 @@ export option;
 
 // ── Documentation generation ─────────────────────────────────────────
 
+/// Output format for documentation generation.
+DocFormat :: enum(
+  Html,
+  Markdown,
+  Json
+);
+export DocFormat;
+
 /// Configuration for documentation generation.
 DocConfig :: struct(
   /// Step name (e.g., "doc").
@@ -365,8 +373,8 @@ DocConfig :: struct(
   root : comptime_string,
   /// Output directory (default: "yo-out/doc").
   (output : comptime_string) ?= "yo-out/doc",
-  /// Output format: "html", "markdown", or "json" (default: "html").
-  (format : comptime_string) ?= "html",
+  /// Output format (default: Html).
+  (format : DocFormat) ?= DocFormat.Html,
   /// Document non-exported (private) items.
   (include_private : bool) ?= false,
   /// Document dependencies too.
@@ -395,6 +403,7 @@ export DocConfig;
 ///   name: "doc",
 ///   root: "./src",
 ///   output: "docs/api",
+///   format: DocFormat.Markdown,
 ///   title: "My Library API"
 /// });
 ///
@@ -402,8 +411,13 @@ export DocConfig;
 /// install.depend_on(doc_step);
 /// ```
 doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
+  fmt_str :: match(config.format,
+    .Html => "html",
+    .Markdown => "markdown",
+    .Json => "json"
+  );
   __yo_build_doc(
-    config.name, config.root, config.output, config.format,
+    config.name, config.root, config.output, fmt_str,
     config.include_private, config.include_deps,
     config.title, config.logo, config.favicon
   );

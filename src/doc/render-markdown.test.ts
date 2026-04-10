@@ -33,7 +33,6 @@ function makeFunction(overrides: Partial<DocFunction> = {}): DocFunction {
     ],
     returnType: "i32",
     isMethod: false,
-    visibility: "public",
     ...overrides,
   };
 }
@@ -51,7 +50,6 @@ function makeType(overrides: Partial<DocType> = {}): DocType {
     typeParams: [],
     traitImpls: [],
     methods: [],
-    visibility: "public",
     ...overrides,
   };
 }
@@ -76,7 +74,6 @@ function makeTrait(overrides: Partial<DocTrait> = {}): DocTrait {
       }),
     ],
     implementors: ["Point", "Color"],
-    visibility: "public",
     ...overrides,
   };
 }
@@ -87,7 +84,6 @@ function makeConstant(overrides: Partial<DocConstant> = {}): DocConstant {
     type: "usize",
     value: "1024",
     doc: "Maximum buffer size.",
-    visibility: "public",
     ...overrides,
   };
 }
@@ -101,7 +97,7 @@ function makeModule(overrides: Partial<DocModule> = {}): DocModule {
     types: [makeType()],
     traits: [makeTrait()],
     constants: [makeConstant()],
-    reExports: [],
+    submodules: [],
     ...overrides,
   };
 }
@@ -109,7 +105,6 @@ function makeModule(overrides: Partial<DocModule> = {}): DocModule {
 function makeModel(overrides: Partial<DocModel> = {}): DocModel {
   return {
     name: "my-project",
-    version: "0.1.0",
     modules: [makeModule()],
     ...overrides,
   };

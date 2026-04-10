@@ -373,9 +373,9 @@ Following the existing patterns in `std/build.yo` (config structs with defaults,
 // ── Doc output formats ───────────────────────────────────────────────
 
 DocFormat :: enum(
-  Html
-  // Markdown,   // future
-  // Json        // future
+  Html,
+  Markdown,
+  Json
 );
 export DocFormat;
 
@@ -389,7 +389,6 @@ DocConfig :: struct(
   (include_private : bool) ?= false,             // Document non-exported items
   (include_deps : bool) ?= false,                // Document dependencies too
   (title : comptime_string) ?= "",                // Custom site title (default: project name)
-  (description : comptime_string) ?= "",          // Site description / subtitle
   (logo : comptime_string) ?= "",                 // Path to logo image
   (favicon : comptime_string) ?= ""               // Path to favicon
 );
@@ -397,11 +396,15 @@ export DocConfig;
 
 // Register a documentation generation step.
 doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
+  fmt_str :: match(config.format,
+    .Html => "html",
+    .Markdown => "markdown",
+    .Json => "json"
+  );
   __yo_build_doc(
-    config.name, config.root, config.output,
-    "html",  // only Html supported for now
+    config.name, config.root, config.output, fmt_str,
     config.include_private, config.include_deps,
-    config.title, config.description, config.logo, config.favicon
+    config.title, config.logo, config.favicon
   );
   Step(name: config.name, kind: StepKind.Documentation)
 };
@@ -421,10 +424,9 @@ doc_step :: build.doc({
   name: "doc",
   root: "./src/lib.yo",
   output: "docs/api",
-  format: DocFormat.Html,
+  format: build.DocFormat.Markdown,
   include_deps: true,
   title: "My Library API",
-  description: "API reference for my-lib",
   logo: "./assets/logo.png"
 });
 

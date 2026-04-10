@@ -8,7 +8,6 @@ import * as os from "os";
 function makeModel(): DocModel {
   return {
     name: "test-project",
-    version: "0.1.0",
     modules: [
       {
         name: "math",
@@ -25,7 +24,6 @@ function makeModel(): DocModel {
             ],
             returnType: "i32",
             isMethod: false,
-            visibility: "public",
           },
         ],
         types: [
@@ -41,12 +39,11 @@ function makeModel(): DocModel {
             typeParams: [],
             traitImpls: ["Display"],
             methods: [],
-            visibility: "public",
           },
         ],
         traits: [],
         constants: [],
-        reExports: [],
+        submodules: [],
       },
     ],
   };
@@ -66,7 +63,6 @@ describe("renderDocJson", () => {
       const parsed = JSON.parse(content);
 
       expect(parsed.name).toBe("test-project");
-      expect(parsed.version).toBe("0.1.0");
       expect(parsed.modules).toHaveLength(1);
       expect(parsed.modules[0].name).toBe("math");
       expect(parsed.modules[0].functions).toHaveLength(1);
