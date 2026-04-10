@@ -1,33 +1,21 @@
-/**
- * ArrayList - A dynamic array implementation for Yo language
- * 
- * Similar to Rust's Vec<T> and Zig's ArrayList, this ArrayList provides:
- * - Dynamic resizing
- * - ~~Memory management via custom allocator~~
- * - Type safety
- * - RAII for automatic cleanup
- */
+//! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
+
 { GlobalAllocator, AllocError } :: import "../allocator.yo";
 { memmove, memcpy, memset } :: import "../libc/string.yo";
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 
-/**
- * ArrayList error types
- */
+/// Error variants for ArrayList operations.
 ArrayListError :: enum(
+  /// Memory allocation failed.
   AllocError(error : AllocError),
+  /// Index is out of bounds for the current length.
   IndexOutOfBounds(index: usize, length: usize),
+  /// Attempted to access an element from an empty list.
   EmptyList
 );
 
-/**
- * ArrayList type - a growable array
- * 
- * Memory layout:
- * - ptr: pointer to the heap-allocated buffer
- * - _length: current number of elements
- * - _capacity: total capacity of the buffer
- */
+/// Generic growable array similar to Rust's `Vec<T>`.
+/// Heap-allocated with automatic resizing and reference-counted cleanup.
 ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     _ptr : ?*(T),

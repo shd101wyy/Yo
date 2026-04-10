@@ -1,78 +1,42 @@
-/**
- * HashSet - A high-performance hash set implementation using SwissTable algorithm
- * 
- * This implementation uses the same SwissTable design as HashMap, providing:
- * - SIMD-accelerated lookup using control bytes
- * - Quadratic probing for collision resolution
- * - 7/8 max load factor for optimal performance
- * - Compact memory layout with metadata array
- * 
- * Memory layout:
- * - ctrl: Array of control bytes (metadata), one per slot
- * - data: Array of elements
- * 
- * Control byte values:
- * - 0xFF (EMPTY): Slot is empty and never used
- * - 0xFE (DELETED): Slot was used but is now deleted
- * - 0x00-0x7F: Lower 7 bits of hash (H2 hash), indicates occupied slot
- * 
- * Hash function splits hash into two parts:
- * - H1: Upper bits used to find slot group
- * - H2: Lower 7 bits stored in control byte for fast SIMD comparison
- */
+//! Hash set using SwissTable algorithm with set-theoretic operations.
+
 { GlobalAllocator, AllocError } :: import "../allocator.yo";
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 
-/**
- * HashSet error types
- */
+/// Error variants for HashSet operations.
 HashSetError :: enum(
+  /// Memory allocation failed.
   AllocError(error : AllocError),
+  /// The element was not found in the set.
   ElementNotFound,
+  /// Capacity calculation overflowed.
   CapacityOverflow
 );
 
-/**
- * Control byte constants for SwissTable
- */
+/// Control byte for an empty slot.
 CTRL_EMPTY :: u8(255);
+/// Control byte for a deleted slot (tombstone).
 CTRL_DELETED :: u8(254);
 
-/**
- * Default initial capacity (must be power of 2)
- */
+/// Default initial capacity (must be power of 2).
 DEFAULT_CAPACITY :: usize(16);
 
-/**
- * Maximum load factor: 7/8 = 0.875
- * We resize when: size > capacity * 7 / 8
- */
+/// Maximum load factor numerator (7/8 = 0.875).
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 
-/**
- * Extract H2 hash (lower 7 bits) from full hash
- */
+/// Extract H2 hash (lower 7 bits) from full hash.
 h2_hash :: (fn(hash: u64) -> u8)
   (u8((hash & u64(127))))
 ;
 
-/**
- * Extract H1 hash (upper bits) for slot index
- */
+/// Extract H1 hash (upper bits) for slot index.
 h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
   ((usize((hash >> u64(7))) % capacity))
 ;
 
-/**
- * HashSet type - high-performance set using SwissTable
- * 
- * Memory layout:
- * - ctrl: Pointer to control bytes array (length = capacity)
- * - data: Pointer to elements array (length = capacity)
- * - capacity: Total number of slots (always power of 2)
- * - size: Current number of occupied slots
- */
+/// High-performance hash set using SwissTable algorithm.
+/// Elements must implement `Eq` and `Hash`. Provides O(1) average lookup and insert.
 HashSet :: (fn(
   comptime(T): Type,
   where(T <: (Eq(T), Hash))
