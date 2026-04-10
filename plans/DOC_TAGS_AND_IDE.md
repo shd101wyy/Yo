@@ -300,54 +300,34 @@ interface Variable {
 
 **Key approach**: The evaluator already has access to tokens via `getTokens()`. For each declaration, we scan backwards from `variable.token` (or `variable.initializedAtToken`) to find doc comment tokens. The existing strip functions from `src/doc/extractor.ts` handle cleaning.
 
-### Phase 5: VS Code Hover + Completion Integration
+### Phase 5: VS Code Hover + Completion Integration ✅
 
 Update the VS Code extension to display doc comments.
 
-**Hover provider changes** (`vscode-extension/src/extension.ts`, ~line 694-758):
+**Hover provider changes** (`vscode-extension/src/extension.ts`):
 
-```typescript
-// After the code block (line 756)
-const docComment = getDocCommentForExpr(expr);
-if (docComment) {
-  markdownContent.appendMarkdown("\n\n---\n\n");
-  markdownContent.appendMarkdown(docComment);
-}
-```
+- Added `varDocComment` tracking alongside other variable fields (`varType`, `varValue`, etc.)
+- After the closing code block, appends doc comment markdown with a horizontal rule separator
+- Falls back to `expr.$?.docComment` if variable lookup has no doc comment
 
-Where `getDocCommentForExpr` checks:
+**Completion provider changes**:
 
-1. `expr.$?.docComment` — directly on the expression
-2. Variable lookup in env — check `variable.docComment`
-3. For function calls — look up the function's doc comment from its definition
-
-**Completion provider changes** (~line 810-848):
-
-```typescript
-if (bestCandidate.$?.docComment || variable?.docComment) {
-  const doc = bestCandidate.$?.docComment ?? variable?.docComment;
-  const summary = doc.split("\n\n")[0]; // First paragraph as summary
-  item.documentation = new vscode.MarkdownString(summary);
-}
-```
-
-**Parameter hover at call sites** (bonus):
-
-- When cursor is on an argument in a `FnCallExpr`, determine parameter index
-- Look up function definition's doc comment
-- If the function definition has inline `///` on parameters, extract and show the matching parameter's doc
+- `createCompletionItem` now looks up `variable.docComment` from the environment
+- Falls back to `bestCandidate.$?.docComment` from the expression
+- Shows doc comment as `MarkdownString` with `supportHtml = true`
+- Falls back to value display when no doc comment is available
 
 ---
 
 ## Phase Summary
 
-| Phase | Description                                      | Files                                  | Tests                       |
-| ----- | ------------------------------------------------ | -------------------------------------- | --------------------------- |
-| 1     | Inline doc extraction for fields/params/variants | `src/doc/extractor.ts`                 | `src/doc/extractor.test.ts` |
-| 2     | Section parser (## headings)                     | `src/doc/sections.ts`                  | `src/doc/sections.test.ts`  |
-| 3     | DocModel + renderer integration                  | `model.ts`, `builder.ts`, renderers    | Update existing tests       |
-| 4     | Evaluator doc propagation                        | `src/expr.ts`, `src/env.ts`, evaluator | New tests                   |
-| 5     | VS Code hover/completion                         | `vscode-extension/src/extension.ts`    | Manual testing              |
+| Phase | Description                                      | Files                                  | Tests                       | Status |
+| ----- | ------------------------------------------------ | -------------------------------------- | --------------------------- | ------ |
+| 1     | Inline doc extraction for fields/params/variants | `src/doc/extractor.ts`                 | `src/doc/extractor.test.ts` | ✅     |
+| 2     | Section parser (## headings)                     | `src/doc/sections.ts`                  | `src/doc/sections.test.ts`  | ✅     |
+| 3     | DocModel + renderer integration                  | `model.ts`, `builder.ts`, renderers    | Update existing tests       | ✅     |
+| 4     | Evaluator doc propagation                        | `src/expr.ts`, `src/env.ts`, evaluator | New tests                   | ✅     |
+| 5     | VS Code hover/completion                         | `vscode-extension/src/extension.ts`    | Manual testing              | ✅     |
 
 ---
 
