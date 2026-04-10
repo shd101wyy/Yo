@@ -81,6 +81,8 @@ impl(String,
     return .Ok(Self(_bytes: .Some(bytes)));
   }),
 
+  /// Convert the string to a null-terminated C string.
+  /// Returns an `ArrayList(u8)` with the string bytes followed by a `\0`.
   to_cstr : (fn(self: Self) -> ArrayList(u8))({
     (bytes_len : usize) = match(self._bytes,
       .Some(b) => b.len(),
@@ -317,7 +319,7 @@ impl(String,
     return Self(_bytes: .Some(new_bytes));
   }),
 
-  // Append another String to this String in-place (mutates self)
+  /// Append another `String` to this string in-place (mutates `self`).
   push_string : (fn(self: *(Self), other: Self) -> unit)({
     (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if((olen > usize(0)), {
@@ -342,6 +344,7 @@ impl(String,
     });
   }),
 
+  /// Append a `str` slice to this string in-place (mutates `self`).
   push_str : (fn(self: *(Self), s: str) -> unit)({
     (slen : usize) = s.len();
     if((slen > usize(0)), {
@@ -358,6 +361,8 @@ impl(String,
     });
   }),
 
+  /// Append a single byte to this string in-place (mutates `self`).
+  /// The caller must ensure the byte maintains valid UTF-8.
   push_byte : (fn(self: *(Self), b: u8) -> unit)({
     match(self.*._bytes,
       .None => {
@@ -371,6 +376,8 @@ impl(String,
     );
   }),
 
+  /// Reserve capacity for at least `additional` more bytes.
+  /// If the string is empty, creates a new buffer with the given capacity.
   reserve : (fn(self: *(Self), additional: usize) -> unit)({
     match(self.*._bytes,
       .None => {
@@ -383,7 +390,7 @@ impl(String,
     );
   }),
 
-  // Clear the string content but keep the allocated buffer for reuse
+  /// Clear the string content but keep the allocated buffer for reuse.
   clear : (fn(self: *(Self)) -> unit)(
     match(self.*._bytes,
       .Some(al) => al.clear(),
@@ -391,7 +398,7 @@ impl(String,
     )
   ),
 
-  // Create a deep copy of this string with its own buffer
+  /// Create a deep copy of this string with its own buffer.
   clone : (fn(self: Self) -> Self)(
     match(self._bytes,
       .None => Self(_bytes: .None),
@@ -406,7 +413,8 @@ impl(String,
     )
   ),
 
-  // Get the number of bytes in the string (not Unicode characters)
+  /// Get the number of bytes in the string (not Unicode characters).
+  /// Use `len()` for Unicode character count.
   bytes_len : (fn(self: Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))
   ),
@@ -1392,6 +1400,7 @@ impl(String,
   )
 );
 
+/// Add trait implementation — concatenate two strings with `+`.
 impl(String, Add(String)(
   Output : String,
   (+) : (fn(self: Self, other: Self) -> Self.Output)({
@@ -1399,6 +1408,7 @@ impl(String, Add(String)(
   })
 ));
 
+/// Eq trait implementation — byte-level comparison of two strings.
 impl(String, Eq(String)(
   (==) : (fn(self: Self, other: Self) -> bool)({
     (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
@@ -1432,6 +1442,7 @@ impl(String, Eq(String)(
   })
 ));
 
+/// Hash trait implementation — FNV-1a hash over the string's bytes.
 impl(String, Hash(
   (hash): (fn(self: *(Self)) -> u64)({
     h := u64(14695981039346656037);
@@ -1457,11 +1468,11 @@ impl(String, Hash(
   })
 ));
 
-// === Iterator support ===
+/// === Iterator support ===
 
 /**
- * Rune iterator for String - yields decoded Unicode runes
- * Used by chars() and into_iter()
+ * Rune iterator for `String` — yields decoded Unicode runes.
+ * Used by `chars()` and `into_iter()`.
  */
 StringChars :: struct(
   _string     : String,
@@ -1499,8 +1510,8 @@ impl(StringChars, Iterator(
 ));
 
 /**
- * Byte iterator for String - yields raw UTF-8 bytes
- * Used by bytes()
+ * Byte iterator for `String` — yields raw UTF-8 bytes.
+ * Used by `bytes()`.
  */
 StringBytes :: struct(
   _string : String,
@@ -1547,7 +1558,7 @@ impl(String,
   )
 );
 
-// === Numeric parsing methods ===
+/// === Numeric parsing methods ===
 
 impl(String,
   /**
@@ -1909,6 +1920,8 @@ impl(String,
   )
 );
 
+/// Index trait implementation — access a single byte by index.
+/// Panics if the string is empty.
 impl(String, Index(usize)(
   Output : u8,
   index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
