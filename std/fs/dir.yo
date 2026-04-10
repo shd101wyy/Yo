@@ -1,22 +1,22 @@
-// std/fs/dir.yo - High-level directory operations
-//
-// Wraps low-level std/sys/dir with typed APIs using Exception effect.
-//
-// Example:
-//   { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
-//   { Path } :: import "std/path";
-//
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) : Exception = {
-//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//         { println(error.to_string()); exit(i32(1)); }
-//       )
-//     };
-//
-//     io.await(create_dir(Path.new(`/tmp/yo_test`)));
-//     entries := io.await(read_dir(Path.new(`/tmp/yo_test`)));
-//     io.await(remove_dir(Path.new(`/tmp/yo_test`)));
-//   });
+//! Async directory operations — create, remove, read, link, rename.
+//!
+//! Wraps low-level `std/sys/dir` with typed APIs using the `Exception` effect.
+//!
+//! Example:
+//!   { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
+//!   { Path } :: import "std/path";
+//!
+//!   main :: (fn(using(io : IO)) -> unit)({
+//!     given(exn) : Exception = {
+//!       throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!         { println(error.to_string()); exit(i32(1)); }
+//!       )
+//!     };
+//!
+//!     io.await(create_dir(Path.new(`/tmp/yo_test`)));
+//!     entries := io.await(read_dir(Path.new(`/tmp/yo_test`)));
+//!     io.await(remove_dir(Path.new(`/tmp/yo_test`)));
+//!   });
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
@@ -39,10 +39,15 @@ IO_file :: import "../sys/file";
 // FileType enum
 // ============================================================================
 
+/// The type of a file system entry.
 FileType :: enum(
+  /// A regular file.
   File,
+  /// A directory.
   Directory,
+  /// A symbolic link.
   Symlink,
+  /// An unknown or unsupported file type.
   Other
 );
 
@@ -52,6 +57,7 @@ export FileType;
 // DirEntry
 // ============================================================================
 
+/// A directory entry containing the entry name, file type, and inode number.
 DirEntry :: struct(
   name      : String,
   file_type : FileType,
@@ -64,7 +70,7 @@ export DirEntry;
 // Directory operations
 // ============================================================================
 
-// Create a directory at the given path.
+/// Create a directory at the given path.
 create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
@@ -77,13 +83,13 @@ create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception
   })
 );
 
-// Create a directory (str version).
+/// Create a directory (`str` path variant).
 create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   create_dir(Path.new(String.from(path)))
 );
 
-// Create a directory and all parent directories.
-// Does not error if the directory already exists.
+/// Create a directory and all missing parent directories.
+/// Does not error if the directory already exists.
 create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     path_s := path.to_string();
@@ -160,12 +166,12 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Excep
   })
 );
 
-// Create a directory and all parents (str version).
+/// Create a directory and all missing parents (`str` path variant).
 create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   create_dir_all(Path.new(String.from(path)))
 );
 
-// Remove an empty directory.
+/// Remove an empty directory. Throws if the directory is not empty.
 remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
@@ -182,7 +188,7 @@ remove_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Except
   remove_dir(Path.new(String.from(path)))
 );
 
-// Remove a file.
+/// Remove a file at the given path.
 remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
@@ -199,7 +205,7 @@ remove_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Excep
   remove_file(Path.new(String.from(path)))
 ;
 
-// Rename/move a file or directory.
+/// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     from_cstr_bytes := from.to_string().to_cstr();
@@ -218,7 +224,7 @@ rename_str :: (fn(from: str, to: str, using(io : IO)) -> Impl(Future(unit, IO, E
   rename(Path.new(String.from(from)), Path.new(String.from(to)))
 ;
 
-// Create a hard link from src to dst.
+/// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     src_cstr_bytes := src.to_string().to_cstr();
@@ -237,7 +243,7 @@ hard_link_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO
   hard_link(Path.new(String.from(src)), Path.new(String.from(dst)))
 ;
 
-// Create a symbolic link at dst pointing to src.
+/// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     src_cstr_bytes := src.to_string().to_cstr();
@@ -260,7 +266,8 @@ symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO, 
 // Directory listing
 // ============================================================================
 
-// Read directory entries from a path.
+/// Read all entries from a directory, returning an `ArrayList(DirEntry)`.
+/// Skips the `.` and `..` entries.
 read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();

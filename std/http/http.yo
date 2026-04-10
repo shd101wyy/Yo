@@ -1,9 +1,11 @@
+//! HTTP core types — methods, headers, requests, and responses.
 // std/http/http.yo - HTTP types and request/response builders
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
 { ToString } :: import "../fmt";
 
+/// Standard HTTP request methods.
 HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH);
 
 impl(HttpMethod, ToString(
@@ -19,14 +21,17 @@ impl(HttpMethod, ToString(
   )
 ));
 
+/// An HTTP header as a name-value pair.
 HttpHeader :: object(name: String, value: String);
 
 impl(HttpHeader,
+  /// Create a new header with the given name and value.
   new : (fn(name: String, value: String) -> Self)(
     Self(name: name, value: value)
   )
 );
 
+/// An HTTP request with method, path, headers, and optional body.
 HttpRequest :: object(
   method: HttpMethod,
   path: String,
@@ -35,32 +40,39 @@ HttpRequest :: object(
 );
 
 impl(HttpRequest,
+  /// Create a new request with the given method and path.
   new : (fn(method: HttpMethod, path: String) -> Self)(
     Self(method: method, path: path, headers: ArrayList(HttpHeader).new(), body: ``)
   ),
 
+  /// Add a header and return the request (builder pattern).
   header : (fn(self: Self, name: String, value: String) -> Self)({
     self.headers.push(HttpHeader.new(name, value));
     self
   }),
 
+  /// Set the request body and return the request (builder pattern).
   with_body : (fn(self: Self, body: String) -> Self)({
     self.body = body;
     self
   }),
 
+  /// Set the Host header.
   set_host : (fn(self: Self, host: String) -> unit)({
     self.headers.push(HttpHeader.new(`Host`, host));
   }),
 
+  /// Append a header to the request.
   set_header : (fn(self: Self, name: String, value: String) -> unit)({
     self.headers.push(HttpHeader.new(name, value));
   }),
 
+  /// Set the request body.
   set_body : (fn(self: Self, body: String) -> unit)({
     self.body = body;
   }),
 
+  /// Serialize the request to an HTTP/1.1 wire-format string.
   to_string : (fn(self: Self) -> String)({
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
     i := usize(0);
@@ -77,6 +89,7 @@ impl(HttpRequest,
   })
 );
 
+/// An HTTP response with status code, headers, and body.
 HttpResponse :: object(
   status_code: i32,
   status_text: String,
@@ -85,10 +98,12 @@ HttpResponse :: object(
 );
 
 impl(HttpResponse,
+  /// Create a new response with the given status code and text.
   new : (fn(status_code: i32, status_text: String) -> Self)(
     Self(status_code: status_code, status_text: status_text, headers: ArrayList(HttpHeader).new(), body: ``)
   ),
 
+  /// Look up a header value by name (case-insensitive).
   get_header : (fn(self: Self, name: String) -> Option(String))({
     lower_name := name.to_lowercase();
     i := usize(0);
@@ -99,19 +114,23 @@ impl(HttpResponse,
     .None
   }),
 
+  /// Return `true` if the status code is in the 2xx range.
   is_ok : (fn(self: Self) -> bool)(
     ((self.status_code >= i32(200)) && (self.status_code < i32(300)))
   ),
 
+  /// Return `true` if the status code is in the 3xx range.
   is_redirect : (fn(self: Self) -> bool)(
     ((self.status_code >= i32(300)) && (self.status_code < i32(400)))
   ),
 
+  /// Return `true` if the status code is 4xx or higher.
   is_error : (fn(self: Self) -> bool)(
     (self.status_code >= i32(400))
   )
 );
 
+/// Parse a raw HTTP response string into an `HttpResponse`.
 parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
   lines := raw.split(`\r\n`);
   cond((lines.len() == usize(0)) => { return .Err(`Empty response`); }, true => ());
@@ -174,6 +193,7 @@ parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
   .Ok(resp)
 });
 
+/// Return the standard status text for an HTTP status code.
 http_status_text :: (fn(code: i32) -> String)(
   cond(
     (code == i32(200)) => `OK`,

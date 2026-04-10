@@ -1,54 +1,40 @@
+//! Cross-platform filesystem path manipulation.
+
 open import "./string";
 open import "./fmt";
 open import "./collections/array_list";
 
-/**
- * Path - Cross-platform path manipulation
- * 
- * Provides utilities for working with filesystem paths similar to Node.js's path module.
- * Path operations are synchronous (pure computation, no I/O).
- */
-
+/// Path parsing error variants.
 PathError :: enum(
+  /// The path string was empty.
   EmptyPath,
+  /// The path string was malformed.
   InvalidPath(message: String)
 );
 export PathError;
 
-/**
- * Path separator for the current platform
- * Unix: '/', Windows: '\\'
- * TODO: Support Windows paths later
- */
+/// Platform-specific path separator: `'/'` on Unix, `'\\'` on Windows.
 PATH_SEPARATOR :: cond(
   (__yo_process_platform() == "windows") => u8(92),  // '\' for Windows
   true => u8(47)  // '/' for Unix
 );
 export PATH_SEPARATOR;
 
-/**
- * Path delimiter for the current platform
- * Unix: ':', Windows: ';'
- * TODO: Support Windows paths later
- */
+/// Platform-specific path list delimiter: `':'` on Unix, `';'` on Windows.
 PATH_DELIMITER :: cond(
   (__yo_process_platform() == "windows") => u8(59),  // ';' for Windows
   true => u8(58)  // ':' for Unix
 );
 export PATH_DELIMITER;
 
-/**
- * Path - Represents a filesystem path
- */
+/// Filesystem path with segment-based operations.
+/// Paths are normalized on construction: `.` segments are removed, `..` pops the parent.
 Path :: object(
   _segments: ArrayList(String),
   _is_absolute: bool
 );
 impl(Path,
-  /**
-   * Create a new path from a string
-   * Example: Path.new("./src/main.yo")
-   */
+  /// Create a new path from a string. Normalizes separators and resolves `.`/`..`.
   new : (fn(path_str: String) -> Self)({
     segments := ArrayList(String).new();
     is_abs := false;
@@ -173,10 +159,7 @@ impl(Path,
     return Self(_segments: segments, _is_absolute: is_abs);
   }),
 
-  /**
-   * Create a path from a C string
-   * Example: Path.from_cstr(c"./src/main.yo")
-   */
+  /// Create a path from a C string pointer.
   from_cstr : (fn(cstr: *(u8)) -> Self)({
     str_result := String.from_cstr(cstr);
     match(str_result,
@@ -190,10 +173,7 @@ impl(Path,
     );
   }),
 
-  /**
-   * Join this path with another path
-   * Example: Path.new("/usr").join(Path.new("local/bin"))
-   */
+  /// Join this path with another. If `other` is absolute, returns `other`.
   join : (fn(self: Self, other: Self) -> Self)({
     // If other is absolute, return other
     cond(
@@ -237,10 +217,7 @@ impl(Path,
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
   }),
 
-  /**
-   * Get the parent path
-   * Example: Path.new("/usr/local/bin").parent() => Some(Path.new("/usr/local"))
-   */
+  /// Get the parent directory path, or `.None` if there are no segments.
   parent : (fn(self: Self) -> Option(Self))({
     cond(
       (self._segments.len() == usize(0)) => {
@@ -266,10 +243,7 @@ impl(Path,
     return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
   }),
 
-  /**
-   * Get the file name (last segment)
-   * Example: Path.new("/usr/local/bin").file_name() => Some("bin")
-   */
+  /// Get the last path segment (filename), or `.None` for empty paths.
   file_name : (fn(self: Self) -> Option(String))({
     cond(
       (self._segments.len() == usize(0)) => {
@@ -281,10 +255,7 @@ impl(Path,
     return self._segments.get((self._segments.len() - usize(1)));
   }),
 
-  /**
-   * Get the file stem (file name without extension)
-   * Example: Path.new("main.yo").file_stem() => Some("main")
-   */
+  /// Get the filename without its extension, or `.None` for empty paths.
   file_stem : (fn(self: Self) -> Option(String))({
     name_opt := self.file_name();
     match(name_opt,
@@ -310,10 +281,7 @@ impl(Path,
     );
   }),
 
-  /**
-   * Get the file extension
-   * Example: Path.new("main.yo").extension() => Some("yo")
-   */
+  /// Get the file extension (without the dot), or `.None` if there is none.
   extension : (fn(self: Self) -> Option(String))({
     name_opt := self.file_name();
     match(name_opt,
@@ -346,10 +314,7 @@ impl(Path,
     );
   }),
 
-  /**
-   * Replace the extension of the path
-   * Example: Path.new("main.yo").with_extension("js") => Path.new("main.js")
-   */
+  /// Return a new path with the extension replaced by `ext`.
   with_extension : (fn(self: Self, ext: String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
@@ -390,10 +355,7 @@ impl(Path,
     );
   }),
 
-  /**
-   * Replace the file name (last segment) with a new name
-   * Example: Path.new("/usr/local/bin").with_file_name("lib") => Path.new("/usr/local/lib")
-   */
+  /// Return a new path with the last segment replaced by `name`.
   with_file_name : (fn(self: Self, name: String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
@@ -424,10 +386,7 @@ impl(Path,
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
   }),
 
-  /**
-   * Check if this path starts with the given base path
-   * Example: Path.new("/usr/local/bin").starts_with(Path.new("/usr")) => true
-   */
+  /// Check if this path starts with the given base path (segment-wise).
   starts_with : (fn(self: Self, base: Self) -> bool)({
     // Absolute vs relative mismatch
     cond(
@@ -476,10 +435,7 @@ impl(Path,
     return true;
   }),
 
-  /**
-   * Check if this path ends with the given suffix path
-   * Example: Path.new("/usr/local/bin").ends_with(Path.new("local/bin")) => true
-   */
+  /// Check if this path ends with the given suffix path (segment-wise).
   ends_with : (fn(self: Self, suffix: Self) -> bool)({
     // Suffix has more segments than self
     cond(
@@ -543,10 +499,7 @@ impl(Path,
     return true;
   }),
 
-  /**
-   * Get all path components as a list of strings
-   * Example: Path.new("/usr/local/bin").components() => ["/", "usr", "local", "bin"]
-   */
+  /// Get all path components as a list. Absolute paths start with `"/"`.
   components : (fn(self: Self) -> ArrayList(String))({
     result := ArrayList(String).with_capacity((self._segments.len() + usize(1)));
     
@@ -575,16 +528,12 @@ impl(Path,
     return result;
   }),
 
-  /**
-   * Check if the path is absolute
-   */
+  /// Check if the path is absolute.
   is_absolute : (fn(self: Self) -> bool)(
     self._is_absolute
   ),
 
-  /**
-   * Check if the path is relative
-   */
+  /// Check if the path is relative (not absolute).
   is_relative : (fn(self: Self) -> bool)(
     !self._is_absolute
   )

@@ -1,28 +1,35 @@
-// std/encoding/toml.yo - Basic TOML parser
-//
-// Parses a subset of TOML into a TomlValue tree.
-// Supports: strings, integers, booleans, table sections, comments.
-//
-// Example:
-//   { toml_parse, TomlValue } :: import "std/encoding/toml";
-//   // Or via the encoding index:
-//   { toml_parse, TomlValue } :: import "std/encoding";
+//! Basic TOML parser for configuration files.
+//!
+//! Parses a subset of TOML into a `TomlValue` tree.
+//! Supports: strings, integers, booleans, table sections, comments.
+//!
+//! Example:
+//!   { toml_parse, TomlValue } :: import "std/encoding/toml";
+//!   // Or via the encoding index:
+//!   { toml_parse, TomlValue } :: import "std/encoding";
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
 
+/// TOML value type — the result of parsing a TOML document.
 TomlValue :: enum(
+  /// A TOML string value.
   Str(value: String),
+  /// A TOML integer value.
   Int(value: i64),
+  /// A TOML boolean value.
   Bool(value: bool),
+  /// A TOML table (ordered key-value map).
   Table(keys: ArrayList(String), values: ArrayList(Self))
 );
 
 impl(TomlValue,
+  /// Create a new empty table.
   new_table : (fn() -> Self)(
     Self.Table(keys: ArrayList(String).new(), values: ArrayList(TomlValue).new())
   ),
 
+  /// Look up a value by key in a table. Returns `.None` if not a table or key is missing.
   get : (fn(self: Self, key: String) -> Option(TomlValue))(
     match(self,
       .Table(keys, values) => {
@@ -41,10 +48,12 @@ impl(TomlValue,
     )
   ),
 
+  /// Check whether the table contains the given key.
   has_key : (fn(self: Self, key: String) -> bool)(
     self.get(key).is_some()
   ),
 
+  /// Insert or update a key-value pair in the table.
   set : (fn(self: Self, key: String, value: TomlValue) -> unit)(
     match(self,
       .Table(keys, values) => {
@@ -72,6 +81,7 @@ impl(TomlValue,
     )
   ),
 
+  /// Return the number of keys in the table, or `0` if not a table.
   table_len : (fn(self: Self) -> usize)(
     match(self,
       .Table(keys, _) => keys.len(),
@@ -79,14 +89,17 @@ impl(TomlValue,
     )
   ),
 
+  /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self: Self) -> Option(String))(
     match(self, .Str(s) => .Some(s), _ => .None)
   ),
 
+  /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self: Self) -> Option(i64))(
     match(self, .Int(n) => .Some(n), _ => .None)
   ),
 
+  /// Extract the boolean value, or `.None` if not a `Bool`.
   as_bool : (fn(self: Self) -> Option(bool))(
     match(self, .Bool(b) => .Some(b), _ => .None)
   )
@@ -129,6 +142,7 @@ _parse_toml_value :: (fn(raw: String) -> Result(TomlValue, String))({
   .Err(`Unknown value: ${trimmed}`)
 });
 
+/// Parse a TOML string into a `TomlValue` tree. Returns `Result(TomlValue, String)`.
 toml_parse :: (fn(input: String) -> Result(TomlValue, String))({
   root_keys := ArrayList(String).new();
   root_vals := ArrayList(TomlValue).new();

@@ -1,3 +1,4 @@
+//! Async HTTP client with high-level fetch API.
 // std/http/client.yo - Async HTTP client using TCP
 //
 // Provides an async HTTP client and a high-level `fetch` function
@@ -35,13 +36,21 @@ open import "../fmt";
 // HttpError
 // ============================================================================
 
+/// HTTP client error variants.
 HttpError :: enum(
+  /// Failed to connect to the remote host.
   ConnectionFailed(msg: String),
+  /// The URL could not be parsed.
   InvalidUrl(msg: String),
+  /// The request timed out.
   Timeout,
+  /// Too many HTTP redirects.
   TooManyRedirects,
+  /// The URL scheme is not supported (only http/https).
   UnsupportedScheme(scheme: String),
+  /// The response body exceeds the size limit.
   ResponseTooLarge,
+  /// An unclassified HTTP error.
   Other(msg: String)
 );
 
@@ -67,6 +76,7 @@ export HttpError;
 // FetchOptions
 // ============================================================================
 
+/// Options for configuring an HTTP request.
 FetchOptions :: object(
   method  : HttpMethod,
   headers : ArrayList(HttpHeader),
@@ -74,6 +84,7 @@ FetchOptions :: object(
 );
 
 impl(FetchOptions,
+  /// Create default options (GET, no headers, empty body).
   new : (fn() -> Self)(
     Self(
       method: .GET,
@@ -82,16 +93,19 @@ impl(FetchOptions,
     )
   ),
 
+  /// Set the HTTP method.
   with_method : (fn(self: Self, method: HttpMethod) -> Self)({
     self.method = method;
     self
   }),
 
+  /// Add a request header.
   with_header : (fn(self: Self, name: String, value: String) -> Self)({
     self.headers.push(HttpHeader.new(name, value));
     self
   }),
 
+  /// Set the request body.
   with_body : (fn(self: Self, body: String) -> Self)({
     self.body = body;
     self
@@ -229,11 +243,11 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
 // fetch — High-level async HTTP request (like JavaScript's fetch)
 // ============================================================================
 
-// Perform an HTTP request with custom options.
-//
-// Example:
-//   opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-//   resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
+/// Perform an HTTP request with custom options.
+///
+/// Example:
+///   opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
+///   resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
 fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
   Impl(Future(HttpResponse, IO, Exception))
 )(
@@ -342,12 +356,12 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
 
 export fetch_with;
 
-// Perform an HTTP GET request to the given URL string.
-// Returns the HttpResponse on success.
-//
-// Example:
-//   resp := io.await(fetch(`http://example.com`, using(io)));
-//   cond(resp.is_ok() => println(resp.body), true => println(`Error`));
+/// Perform an HTTP GET request to the given URL string.
+/// Returns the `HttpResponse` on success.
+///
+/// Example:
+///   resp := io.await(fetch(`http://example.com`, using(io)));
+///   cond(resp.is_ok() => println(resp.body), true => println(`Error`));
 fetch :: (fn(url_str: String, using(io : IO)) ->
   Impl(Future(HttpResponse, IO, Exception))
 )(

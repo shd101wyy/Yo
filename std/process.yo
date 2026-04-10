@@ -1,5 +1,4 @@
-// Process Module
-// Provides access to process information and command-line arguments
+//! Process information, command-line arguments, environment variables, and platform detection.
 
 open import "./collections/array_list";
 open import "./string";
@@ -7,19 +6,12 @@ open import "./path";
 { GlobalAllocator } :: import "./allocator";
 { malloc, free } :: GlobalAllocator;
 
-/**
- * Target platform for the current compilation.
- * Uses standard naming:
- * - "linux"
- * - "macos"
- * - "windows"
- * - "freebsd"
- * - "emscripten"
- * - "wasi"
- */
+/// Current target platform as a compile-time string.
+/// One of: "linux", "macos", "windows", "freebsd", "emscripten", "wasi".
 platform :: __yo_process_platform();
 export platform;
 
+/// Platform constants for compile-time platform comparisons.
 Platform :: {
   Linux : "linux",
   Macos : "macos",
@@ -30,18 +22,12 @@ Platform :: {
 };
 export Platform;
 
-/**
- * Target architecture for the current compilation.
- * Uses standard naming:
- * - "x86_64"
- * - "aarch64"
- * - "x86"
- * - "arm"
- * - "wasm32"
- */
+/// Current target architecture as a compile-time string.
+/// One of: "x86_64", "aarch64", "x86", "arm", "wasm32".
 arch :: __yo_process_arch();
 export arch;
 
+/// Architecture constants for compile-time architecture comparisons.
 Arch :: {
   X86_64 : "x86_64",
   Aarch64 : "aarch64",
@@ -62,21 +48,20 @@ extern "Yo",
 
 // === Raw command-line arguments ===
 
-// Returns the raw command-line arguments as a slice of C strings
-// The first element is the program name
-// Example: ["./program", "arg1", "arg2"]
+/// Get raw command-line arguments as a slice of C strings.
+/// The first element is the program name.
 raw_args :: (fn() -> [*(u8)]) {
   return __yo_args;
 };
 export raw_args;
 
-// Returns the number of command-line arguments (including program name)
+/// Get the number of command-line arguments (including program name).
 argc :: (fn() -> i32) {
   return __yo_argc;
 };
 export argc;
 
-// Return the argv u8** pointer
+/// Get the raw `argv` pointer (`*(*(u8))`).
 argv :: (fn() -> *(*(u8))) {
   return __yo_argv;
 };
@@ -84,9 +69,8 @@ export argv;
 
 // === Convenient command-line arguments ===
 
-// Returns command-line arguments as an ArrayList of Strings
-// The first element is the program name
-// Example: [String("./program"), String("arg1"), String("arg2")]
+/// Get command-line arguments as an `ArrayList(String)`.
+/// The first element is the program name.
 args :: (fn() -> ArrayList(String)) {  
   raw := raw_args();
   i := usize(0);
@@ -104,9 +88,12 @@ args :: (fn() -> ArrayList(String)) {
 };
 export args;
 
+/// Environment variable access and manipulation.
 env :: impl {
   { getenv, setenv } :: import "./libc/stdlib";
 
+  /// Get the value of an environment variable by name.
+  /// Returns `.None` if the variable is not set.
   get :: (fn(name : String) -> Option(String)) {  
     name_cstr := name.to_cstr().ptr().unwrap();
     val_ptr := getenv(*(char)(name_cstr));
@@ -117,6 +104,8 @@ env :: impl {
   };
   export get;
 
+  /// Set an environment variable. If `overwrite` is false and the variable
+  /// already exists, it is not modified. Returns true on success.
   set :: (fn(name : String, value : String, (overwrite : bool) ?= true) -> bool) {
     name_cstr := name.to_cstr().ptr().unwrap();
     value_cstr := value.to_cstr().ptr().unwrap();
@@ -156,10 +145,8 @@ env :: impl {
 };
 export env;
 
-/**
- * Get the current working directory at runtime.
- * Returns a Result with the current directory as a Path, or an error message.
- */
+/// Get the current working directory as a `Path`.
+/// Returns `Err` with a message on failure.
 cwd :: (fn() -> Result(Path, String))(
   cond(
     (platform == Platform.Windows) => {
@@ -265,10 +252,8 @@ cwd :: (fn() -> Result(Path, String))(
 );
 export cwd;
 
-/**
- * Change the current working directory.
- * Returns Ok(()) on success, or an error message on failure.
- */
+/// Change the current working directory to `path`.
+/// Returns `Ok(())` on success, or `Err` with a message on failure.
 chdir :: (fn(path: Path) -> Result(unit, String))(
   cond(
     (platform == Platform.Windows) => {
@@ -301,6 +286,7 @@ chdir :: (fn(path: Path) -> Result(unit, String))(
 );
 export chdir;
 
+/// Exit the process with the given status code.
 exit :: (fn(code : usize) -> unit) {
   { exit : _exit } :: import "./libc/stdlib";
   _exit(int(code));

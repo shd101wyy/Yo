@@ -1,14 +1,10 @@
-// std/error.yo - Error trait
-//
-// Provides a standard Error trait for typed error propagation.
-// All error types in the standard library should implement this trait.
+//! Standard error handling types and traits for Yo.
+
 open import "./string";
 open import "./fmt";
 
-// ============================================================================
-// Error trait
-// ============================================================================
-
+/// Standard error trait for typed error propagation.
+/// All error types should implement this trait along with `ToString`.
 Error :: trait(
   (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
 
@@ -16,32 +12,23 @@ Error :: trait(
 );
 export Error;
 
+/// Type-erased dynamic error type. Wraps any type implementing `Error`.
 AnyError :: Dyn(Error);
 export AnyError;
 
-// ============================================================================
-// Error implementations for standard types
-// ============================================================================
-
+/// Allows using `String` directly as an error type.
 impl(String, Error());
 
-/// === Exception ===
-// This is a non-resumable exception handling.  
-// 
-// Example (function that may throw):
-//
-//   safe_div :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
-//     cond(
-//       (y == i32(0)) => exn.throw(dyn `division by zero`)),
-//       true => (x / y)
-//     )
-//   );
+/// Non-resumable exception handling effect module.
+/// Use `throw` to raise an `AnyError` and abort the current computation.
 Exception :: module(
   throw : (fn(forall(ResumeType : Type), error : AnyError) -> ResumeType)
 );
 export Exception;
 
 
+/// Creates a resumable exception module parameterized by the resume type.
+/// Unlike `Exception`, the handler can return a value to resume the computation.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Module))(
   module(
     throw : (fn(error : AnyError) -> ResumeType)

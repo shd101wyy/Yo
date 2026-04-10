@@ -1,12 +1,12 @@
-// std/encoding/utf16.yo - UTF-8 <-> UTF-16 conversion
-//
-// Converts between Yo's UTF-8 String and UTF-16LE/BE (as ArrayList(u16)).
-//
-// Example:
-//   { utf8_to_utf16, utf16_to_utf8 } :: import "std/encoding/utf16";
-//
-//   words := utf8_to_utf16("hello");
-//   s := utf16_to_utf8(words);
+//! UTF-8 to UTF-16 conversion and vice versa.
+//!
+//! Converts between Yo's UTF-8 `str` and UTF-16 code units (`ArrayList(u16)`).
+//!
+//! Example:
+//!   { utf8_to_utf16, utf16_to_utf8 } :: import "std/encoding/utf16";
+//!
+//!   words := utf8_to_utf16("hello");
+//!   s := utf16_to_utf8(words);
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
@@ -17,6 +17,9 @@ open import "../string";
 // UTF-8 → UTF-16
 // ============================================================================
 
+/// Convert a UTF-8 string to an `ArrayList(u16)` of UTF-16 code units.
+///
+/// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16))({
   out := ArrayList(u16).new();
   i   := usize(0);
@@ -64,6 +67,10 @@ export utf8_to_utf16;
 // UTF-16 → UTF-8
 // ============================================================================
 
+/// Convert UTF-16 code units to a UTF-8 `String`.
+///
+/// Decodes surrogate pairs back into supplementary code points.
+/// Throws via `Exception` on unpaired surrogates.
 utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String)({
   out := ArrayList(u8).new();
   i   := usize(0);

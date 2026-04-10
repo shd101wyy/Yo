@@ -1,13 +1,13 @@
-// HTML entity decoding
-//
-// Decodes named (&amp;), decimal (&#38;), and hex (&#x26;) HTML character references.
-// Uses Legacy mode — entities without trailing semicolon are also decoded.
-//
-// Example:
-//   { decode_html } :: import "std/encoding/html";
-//
-//   result := decode_html(`&amp; &lt; &#38; &#x26;`);
-//   assert((result == `& < & &`), "decoded entities");
+//! HTML entity decoding — named, decimal, and hexadecimal character references.
+//!
+//! Decodes named (&amp;), decimal (&#38;), and hex (&#x26;) HTML character references.
+//! Uses Legacy mode — entities without trailing semicolon are also decoded.
+//!
+//! Example:
+//!   { decode_html } :: import "std/encoding/html";
+//!
+//!   result := decode_html(`&amp; &lt; &#38; &#x26;`);
+//!   assert((result == `& < & &`), "decoded entities");
 
 open import "../string";
 { HashMap } :: import "../collections/hash_map";
@@ -64,7 +64,10 @@ _is_alpha_numeric :: (fn(c: rune) -> bool)(
   ((((c >= rune(u32('a'))) && (c <= rune(u32('z')))) || ((c >= rune(u32('A'))) && (c <= rune(u32('Z'))))) || ((c >= rune(u32('0'))) && (c <= rune(u32('9')))))
 );
 
-// Decode HTML entities in a string (Legacy mode — entities without ; are also decoded).
+/// Decode HTML entities in a string.
+///
+/// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
+/// references. Legacy mode — entities without trailing semicolons are also decoded.
 decode_html :: (fn(input: String) -> String)({
   _ensure_init();
 

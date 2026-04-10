@@ -1,14 +1,14 @@
-// std/encoding/json.yo - JSON parsing and serialisation
-//
-// Provides a dynamically-typed JSON value tree.
-//
-// Example:
-//   { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
-//   { Exception } :: import "std/error";
-//
-//   given(exn) := Exception(throw : ((err) -> { escape (); }));
-//   v := json_parse(`{"x": 1}`);
-//   println(json_stringify(v));
+//! JSON parsing and serialization.
+//!
+//! Provides a dynamically-typed JSON value tree.
+//!
+//! Example:
+//!   { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
+//!   { Exception } :: import "std/error";
+//!
+//!   given(exn) := Exception(throw : ((err) -> { escape (); }));
+//!   v := json_parse(`{"x": 1}`);
+//!   println(json_stringify(v));
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
@@ -20,12 +20,19 @@ open import "../string";
 // JsonError
 // ============================================================================
 
+/// JSON parsing error type.
 JsonError :: enum(
+  /// Encountered an unexpected character at the given position.
   UnexpectedChar(ch: u8, pos: usize),
+  /// Input ended unexpectedly.
   UnexpectedEnd,
+  /// Failed to parse a numeric literal.
   InvalidNumber,
+  /// Invalid escape sequence in a string.
   InvalidEscape,
+  /// Invalid Unicode escape in a string.
   InvalidUnicode,
+  /// Other error with a descriptive message.
   Other(msg: String)
 );
 
@@ -50,12 +57,19 @@ export JsonError;
 // JsonValue
 // ============================================================================
 
+/// Dynamically-typed JSON value tree.
 JsonValue :: enum(
+  /// JSON null.
   Null,
+  /// JSON boolean.
   Bool(value: bool),
+  /// JSON number (IEEE 754 double).
   Number(value: f64),
+  /// JSON string.
   Str(value: String),
+  /// JSON array of values.
   Array(items: ArrayList(Self)),
+  /// JSON object with ordered key-value pairs.
   Object(keys: ArrayList(String), values: ArrayList(Self))
 );
 
@@ -63,13 +77,14 @@ JsonValue :: enum(
 // JsonKV - key/value pair convenience struct for Object
 // ============================================================================
 
+/// Key-value pair for JSON object entries.
 JsonKV :: struct(
   key   : String,
   value : JsonValue
 );
 
 impl(JsonValue,
-  // Get a field from an Object value. Returns .None if not an Object or key missing.
+  /// Get a field from an Object value by key. Returns `.None` if not an Object or key is missing.
   get : (fn(self: Self, key: String) -> Option(JsonValue))(
     match(self,
       .Object(keys, values) => {
@@ -88,7 +103,7 @@ impl(JsonValue,
     )
   ),
 
-  // Get an element from an Array value by index.
+  /// Get an element from an Array value by index.
   at : (fn(self: Self, index: usize) -> Option(JsonValue))(
     match(self,
       .Array(items) => items.get(index),
@@ -96,7 +111,7 @@ impl(JsonValue,
     )
   ),
 
-  // Extract a bool.
+  /// Extract the boolean value, or `.None` if not a `Bool`.
   as_bool : (fn(self: Self) -> Option(bool))(
     match(self,
       .Bool(b) => .Some(b),
@@ -104,7 +119,7 @@ impl(JsonValue,
     )
   ),
 
-  // Extract a number.
+  /// Extract the numeric value, or `.None` if not a `Number`.
   as_number : (fn(self: Self) -> Option(f64))(
     match(self,
       .Number(n) => .Some(n),
@@ -112,7 +127,7 @@ impl(JsonValue,
     )
   ),
 
-  // Extract a string.
+  /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self: Self) -> Option(String))(
     match(self,
       .Str(s) => .Some(s),
@@ -120,7 +135,7 @@ impl(JsonValue,
     )
   ),
 
-  // Extract an array.
+  /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self: Self) -> Option(ArrayList(JsonValue)))(
     match(self,
       .Array(items) => .Some(items),
@@ -128,7 +143,7 @@ impl(JsonValue,
     )
   ),
 
-  // Extract object entries as ArrayList(JsonKV).
+  /// Extract object entries as `ArrayList(JsonKV)`, or `.None` if not an `Object`.
   as_object : (fn(self: Self) -> Option(ArrayList(JsonKV)))(
     match(self,
       .Object(keys, values) => {
@@ -468,6 +483,7 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
 // Public API
 // ============================================================================
 
+/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
 json_parse :: (fn(s: str, using(exn : Exception)) -> JsonValue)({
   p := _Parser.new(s);
   match(_parse_value(p),
@@ -558,13 +574,14 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
   );
 });
 
+/// Serialize a `JsonValue` to a compact JSON string.
 json_stringify :: (fn(value: JsonValue) -> String)({
   out := ArrayList(u8).new();
   _stringify_into(value, out);
   String.from_bytes(out)
 });
 
-// Serialise with pretty-printing (delegates to compact for now).
+/// Serialize a `JsonValue` to a pretty-printed JSON string.
 json_stringify_pretty :: (fn(value: JsonValue, _indent: usize) -> String)(
   json_stringify(value)
 );
