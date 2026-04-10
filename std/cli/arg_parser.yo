@@ -1,17 +1,49 @@
+//! Command-line argument parsing.
+//!
+//! Supports flags (`--verbose`), options (`--output file`), short aliases (`-v`),
+//! and positional arguments. Automatically generates help text.
+//!
+//! # Example
+//!
+//! ```rust
+//! { ArgParser } :: import "std/cli/arg_parser";
+//!
+//! parser := ArgParser.new(`myapp`, `A sample CLI tool`);
+//! parser.flag(`verbose`, `v`, `Enable verbose output`);
+//! parser.option(`output`, `o`, `Output file`, `out.txt`);
+//! args := parser.parse();
+//! ```
+
 open import "../collections/array_list";
 open import "../string";
 
-ArgKind :: enum(Flag, Opt, Positional);
+/// Kind of command-line argument.
+ArgKind :: enum(
+  /// Boolean flag (e.g. `--verbose`).
+  Flag,
+  /// Key-value option (e.g. `--output file`).
+  Opt,
+  /// Positional argument.
+  Positional
+);
 
+/// Definition of a single command-line argument.
 ArgDef :: object(
+  /// Long name (e.g. `"verbose"` for `--verbose`).
   _long_name : String,
+  /// Short name (e.g. `"v"` for `-v`).
   _short_name : String,
+  /// Human-readable description for help text.
   _description : String,
+  /// Kind of argument (flag, option, or positional).
   _kind : ArgKind,
+  /// Default value for options.
   _default_value : String,
+  /// Whether this argument is required.
   _required : bool
 );
 
+/// Result of parsing command-line arguments.
 ParsedArgs :: object(
   _set_flags : ArrayList(String),
   _option_names : ArrayList(String),
@@ -20,9 +52,13 @@ ParsedArgs :: object(
   _positional_names : ArrayList(String)
 );
 
+/// Command-line argument parser.
 ArgParser :: object(
+  /// Application name shown in help text.
   _name : String,
+  /// Application description shown in help text.
   _description : String,
+  /// Registered argument definitions.
   _args : ArrayList(ArgDef)
 );
 

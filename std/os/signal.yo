@@ -1,12 +1,15 @@
-// std/os/signal.yo - High-level signal handling
-//
-// Wraps std/sys/signal with typed Signal enum values.
-//
-// Example:
-//   { on_signal, off_signal, Signal, SignalHandler } :: import "std/os/signal";
-//
-//   handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
-//   on_signal(.Interrupt, handler);
+//! High-level signal handling.
+//!
+//! Wraps `std/sys/signal` with a typed `Signal` enum.
+//!
+//! # Example
+//!
+//! ```rust
+//! { on_signal, off_signal, Signal, SignalHandler } :: import "std/os/signal";
+//!
+//! handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
+//! on_signal(.Interrupt, handler);
+//! ```
 
 { IOError } :: import "../sys/errors";
 {
@@ -19,15 +22,24 @@
 // Signal enum
 // ============================================================================
 
+/// Portable signal identifiers.
 Signal :: enum(
-  Interrupt,   // SIGINT  (Ctrl-C)
-  Terminate,   // SIGTERM
-  Hangup,      // SIGHUP
-  User1,       // SIGUSR1
-  User2,       // SIGUSR2
-  Pipe,        // SIGPIPE
-  Alarm,       // SIGALRM
-  Child        // SIGCHLD
+  /// SIGINT — interrupt from keyboard (Ctrl-C).
+  Interrupt,
+  /// SIGTERM — termination request.
+  Terminate,
+  /// SIGHUP — terminal hangup.
+  Hangup,
+  /// SIGUSR1 — user-defined signal 1.
+  User1,
+  /// SIGUSR2 — user-defined signal 2.
+  User2,
+  /// SIGPIPE — broken pipe.
+  Pipe,
+  /// SIGALRM — timer alarm.
+  Alarm,
+  /// SIGCHLD — child process status change.
+  Child
 );
 
 export Signal;
@@ -73,7 +85,7 @@ _signal_num :: (fn(sig: Signal) -> i32)(
 // on_signal / off_signal
 // ============================================================================
 
-// Register a handler for the given signal.
+/// Register a handler for the given signal.
 on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
   r   := _on_signal(num, handler);
@@ -85,7 +97,7 @@ on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) ->
   );
 });
 
-// Remove the handler for the given signal.
+/// Remove the handler for the given signal.
 off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
   r   := _off_signal(num);
