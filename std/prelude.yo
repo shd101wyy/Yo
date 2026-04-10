@@ -1,19 +1,26 @@
 // @skip_prelude
-// Prelude Module
-// - Calling "import" is prohibited in this prelude module.
+//! Prelude — automatically imported into every Yo source file.
+//!
+//! Provides core language primitives: traits (`Comptime`, `Runtime`, `Clone`,
+//! `Eq`, `Ord`, `Hash`, …), fundamental types (`Option`, `Result`, `Box`,
+//! `Slice`, `Range`, `String`, …), operator traits (`Add`, `Sub`, …), type
+//! reflection (`TypeInfo`), conversion (`Into`, `From`), the async runtime
+//! (`IO`, `Future`, `JoinHandle`), and derive rules.
+//!
+//! **Do NOT import `std/prelude`** — it is loaded automatically and an
+//! explicit import will produce a compile error.
 
-// Traits for determine type availability
-/// Comptime trait - indicates a type that can be used at compile-time.
-/// Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
-/// Non-examples: int, ushort (runtime-only types)
+/// Comptime trait — indicates a type that can be used at compile-time.
+/// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_string`.
+/// Non-examples: `int`, `ushort` (runtime-only types).
 Comptime :: trait(
   id := "Comptime"
 );
 export Comptime;
 
-/// Runtime trait - indicates a type that can be used at runtime.
-/// Examples: i32, bool, *(i32), void
-/// Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
+/// Runtime trait — indicates a type that can be used at runtime.
+/// Examples: `i32`, `bool`, `*(i32)`, `void`.
+/// Non-examples: `comptime_int`, `comptime_float`, `comptime_string`, `Type` (compile-time-only types).
 Runtime :: trait(
   id := "Runtime"
 );
@@ -120,8 +127,9 @@ export __yo_as;
 
 
 
-// unsafe module
+/// The `unsafe` module — provides low-level escape hatches.
 unsafe :: impl {
+  /// Manually drop `value`, running its destructor immediately.
   drop :: (fn(quote(value) : Expr) -> unquote(Expr))
     quote(___drop(unquote(value)));
   export drop;
@@ -156,7 +164,7 @@ export unsafe;
 // };
 // export c_macro;
 
-/// === Traits ===
+/// Send trait — indicates a type that can be safely transferred between threads.
 Send :: trait(
   id := "Send"
 );
@@ -185,7 +193,9 @@ Dispose :: trait(
 );
 export Dispose;
 
-/// === Index ===
+/// Index trait — enables `container(idx)` subscript syntax at runtime.
+/// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
+/// Implementations must define an `Output` associated type and an `index` method.
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -194,6 +204,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 export Index;
 
+/// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -203,23 +214,25 @@ ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(T
 );
 export ComptimeIndex;
 
-/// === Range Types ===
+/// Half-open range `start..end` (excludes `end`).
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
 export Range;
 
+/// Inclusive range `start..=end` (includes `end`).
 RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
 export RangeInclusive;
 
-/// === Range Operator Traits ===
+/// RangeOp trait — enables `start..end` operator syntax.
 RangeOp :: trait(
   (..) : (fn(start: Self, end: Self) -> Range(Self))
 );
 export RangeOp;
 
+/// RangeInclusiveOp trait — enables `start..=end` operator syntax.
 RangeInclusiveOp :: trait(
   (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
 );
@@ -277,15 +290,17 @@ ComptimeRangeInclusiveOp :: trait(
 );
 export ComptimeRangeInclusiveOp;
 
-/// === Arithmetic ===
+/// Add trait — enables `lhs + rhs` operator. Parameterized by `Rhs` type.
 Add :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
+    /// The output type of the addition.
     Output : Type,
     (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
 export Add;
 
+/// Compile-time variant of `Add`.
 ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
     Output : Type,
@@ -295,6 +310,7 @@ ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 );
 export ComptimeAdd;
 
+/// Sub trait — enables `lhs - rhs` operator.
 Sub :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -312,6 +328,7 @@ ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 );
 export ComptimeSub;
 
+/// Mul trait — enables `lhs * rhs` operator.
 Mul :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -329,6 +346,7 @@ ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 );
 export ComptimeMul;
 
+/// Div trait — enables `lhs / rhs` operator.
 Div :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -346,6 +364,7 @@ ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 );
 export ComptimeDiv;
 
+/// Mod trait — enables `lhs % rhs` operator.
 Mod :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -363,6 +382,7 @@ ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 );
 export ComptimeMod;
 
+/// BitLeftShift trait — enables `lhs << rhs` operator.
 BitLeftShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -380,6 +400,7 @@ ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comp
 );
 export ComptimeBitLeftShift;
 
+/// BitRightShift trait — enables `lhs >> rhs` operator.
 BitRightShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -397,6 +418,7 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> com
 );
 export ComptimeBitRightShift;
 
+/// Exponentiation trait — enables `lhs ** rhs` operator.
 Exponentiation :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
   trait(
     Output : Type,
@@ -414,6 +436,7 @@ ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> co
 );
 export ComptimeExponentiation;
 
+/// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
   (neg): (fn(self: Self) -> Self.Output)
@@ -427,7 +450,7 @@ ComptimeNegate :: trait(
 );
 export ComptimeNegate;
 
-/// === Logic ===
+/// LogicalNot trait — enables `!value` boolean negation.
 LogicalNot :: trait
   (!)  : (fn(self: Self)-> bool)
 ;
@@ -439,6 +462,7 @@ ComptimeLogicalNot :: trait
 ;
 export ComptimeLogicalNot;
 
+/// BitNot trait — enables `~value` bitwise complement.
 BitNot :: trait(
   Output : Type,
   (~) : (fn(self: Self) -> Self.Output)
@@ -452,6 +476,7 @@ ComptimeBitNot :: trait(
 );
 export ComptimeBitNot;
 
+/// BitAnd trait — enables `lhs & rhs` bitwise AND.
 BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -469,6 +494,7 @@ ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(T
 );
 export ComptimeBitAnd;
 
+/// BitOr trait — enables `lhs | rhs` bitwise OR.
 BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -486,6 +512,7 @@ ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Tr
 );
 export ComptimeBitOr;
 
+/// BitXor trait — enables `lhs ^ rhs` bitwise XOR.
 BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -590,7 +617,8 @@ impl(bool, ComptimeLogicalNot(
   )
 ));
 
-/// === Eq ===
+/// Eq trait — enables `==` and `!=` comparison operators.
+/// The `!=` method has a default implementation that negates `==`.
 Eq ::
   (fn(comptime(Rhs) : Type) -> comptime(Trait))
   trait(
@@ -618,14 +646,19 @@ ComptimeEq ::
 ;
 export ComptimeEq;
 
-/// === Ord ===
+/// Ordering — result of a comparison.
 Ordering :: enum(
+  /// Left-hand side is less than right-hand side.
   Less,
+  /// Both sides are equal.
   Equal,
+  /// Left-hand side is greater than right-hand side.
   Greater
 );
 export Ordering;
 
+/// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
+/// Requires the type to also implement `Eq`.
 Ord :: (
   fn(
     comptime(Rhs) : Type
@@ -686,20 +719,21 @@ export
   Hash
 ;
 
-// === Clone ===
+/// Clone trait — deep-copy a value.
 Clone :: trait(
+  /// Create an independent clone of `self`.
   clone : 
     fn(self: *(Self)) -> Self
 );
 export Clone;
 
-// === Isolation ===
+/// Isolation trait — runtime check whether a value can be safely transferred.
 Isolation :: trait(
   can_isolate : (fn(self : Self) -> bool)
 );
 export Isolation;
 
-// === ToComptimeString ===
+/// ComptimeToString trait — compile-time string conversion.
 ComptimeToString :: trait(
   to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_string)),
   where(Self <: Comptime)
@@ -3828,14 +3862,20 @@ impl(comptime_string, ComptimeIndex(RangeInclusive(comptime_int))(
   )
 ));
 
-/// str
+/// `str` — an immutable UTF-8 byte string view (newtype over `Slice(u8)`).
+///
+/// String literals `"hello"` produce `str` at runtime.
+/// For heap-allocated growable strings, see `String`.
 str :: newtype(
+  /// The underlying byte slice.
   bytes : Slice(u8)
 );
 impl(str,
+  /// Construct a `str` from a raw pointer and length.
   from_raw_parts : (fn(ptr : *(u8), length : usize) -> Self)(
     Self(bytes: __yo_slice_new(ptr, length))
   ),
+  /// Return the length in bytes.
   len : (fn(self : Self) -> usize)(
     __yo_slice_len(self.bytes)
   ),
@@ -4028,54 +4068,73 @@ impl(Type,
 _Type :: Type;
 export Type : _Type;
 
-// === Type Reflection Metadata Structs ===
+/// Type reflection metadata structs — used by `Type.get_info()`.
 
-// StructKind — discriminant for struct flavors
-StructKind :: enum(Struct, Object, NewType);
+/// StructKind — discriminant for struct flavors.
+StructKind :: enum(
+  /// Regular value struct.
+  Struct,
+  /// Reference-counted object.
+  Object,
+  /// Single-field newtype wrapper.
+  NewType
+);
 impl(StructKind, Comptime());
 export StructKind;
 
-// TypeFieldInfo — Yo representation of TypeField
+/// TypeFieldInfo — metadata for a single struct/object field.
 TypeFieldInfo :: struct(
+  /// Field name.
   name : comptime_string,
+  /// Field type.
   field_type : Type
 );
 impl(TypeFieldInfo, Comptime());
 impl(TypeFieldInfo,
+  /// Convert the field name to an AST expression (for metaprogramming).
   to_expr : (fn(comptime(self): TypeFieldInfo) -> comptime(Expr))(
     __yo_comptime_string_to_expr(self.name)
   )
 );
 export TypeFieldInfo;
 
-// TraitInfo — lightweight trait reference
+/// TraitInfo — lightweight reference to a trait type.
 TraitInfo :: struct(
+  /// The trait's `Type` value.
   trait_type : Type
 );
 impl(TraitInfo, Comptime());
 export TraitInfo;
 
-// TraitFieldInfo — trait field metadata
+/// TraitFieldInfo — metadata for a single trait field.
 TraitFieldInfo :: struct(
+  /// Field name.
   name : comptime_string,
+  /// Field type.
   field_type : Type,
+  /// `true` if this field is an associated type (not a method).
   is_associated_type : bool
 );
 impl(TraitFieldInfo, Comptime());
 export TraitFieldInfo;
 
-// ParamInfo — function parameter metadata
+/// ParamInfo — metadata for a function parameter.
 ParamInfo :: struct(
+  /// Parameter name.
   name : comptime_string,
+  /// Parameter type.
   param_type : Type,
+  /// `true` if the parameter is compile-time (`comptime`).
   is_comptime : bool,
+  /// `true` if the parameter uses `quote`.
   is_quote : bool,
+  /// `true` if the parameter is variadic.
   is_variadic : bool
 );
 impl(ParamInfo, Comptime());
 export ParamInfo;
 
-// ForallParamInfo — forall type parameter
+/// ForallParamInfo — metadata for a forall type parameter.
 ForallParamInfo :: struct(
   name : comptime_string,
   param_type : Type
@@ -4083,7 +4142,7 @@ ForallParamInfo :: struct(
 impl(ForallParamInfo, Comptime());
 export ForallParamInfo;
 
-// ImplicitParamInfo — using/effect parameter
+/// ImplicitParamInfo — metadata for a `using`/effect parameter.
 ImplicitParamInfo :: struct(
   name : comptime_string,
   param_type : Type
@@ -4091,29 +4150,39 @@ ImplicitParamInfo :: struct(
 impl(ImplicitParamInfo, Comptime());
 export ImplicitParamInfo;
 
-// FunctionInfo — shared function type metadata
+/// FunctionInfo — metadata for a function type.
 FunctionInfo :: struct(
+  /// Regular parameters.
   params : ComptimeList(ParamInfo),
+  /// Return type.
   return_type : Type,
+  /// Forall type parameters.
   forall_params : ComptimeList(ForallParamInfo),
+  /// Implicit `using` parameters.
   implicit_params : ComptimeList(ImplicitParamInfo),
+  /// `true` if this is a closure type.
   is_closure : bool
 );
 impl(FunctionInfo, Comptime());
 export FunctionInfo;
 
-// TraitKind — discriminant for trait flavors
+/// TraitKind — discriminant for different trait flavors.
 TraitKind :: enum(
+  /// A Future trait with child type and effects.
   Future(child : Type, effects : ComptimeList(TraitInfo)),
+  /// A callable `Fn` trait with function info.
   Fn(call : FunctionInfo),
+  /// A normal user-defined trait.
   Normal
 );
 impl(TraitKind, Comptime());
 export TraitKind;
 
-// VariantInfo — enum variant metadata
+/// VariantInfo — metadata for an enum variant.
 VariantInfo :: struct(
+  /// Variant name.
   name : comptime_string,
+  /// Variant fields (may be empty for unit variants).
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,
   _variant_index : usize
@@ -4121,7 +4190,8 @@ VariantInfo :: struct(
 impl(VariantInfo, Comptime());
 export VariantInfo;
 
-// TypeInfo — compile-time enum representing rich type metadata
+/// TypeInfo — compile-time enum representing rich type metadata.
+/// Returned by `Type.get_info()` for compile-time type reflection.
 TypeInfo :: enum(
   // Primitives (fieldless)
   Unit, Bool,
@@ -4285,19 +4355,24 @@ impl(TypeInfo,
 );
 export TypeInfo;
 
-// Type.get_info() — returns TypeInfo for the given type
-// Defined after TypeInfo so the return type is available
+/// `Type.get_info()` — returns compile-time type metadata.
+/// Defined after `TypeInfo` so the return type is available.
 impl(Type,
+  /// Return rich metadata about this type at compile-time.
   get_info : (fn(comptime(self): Type) -> comptime(TypeInfo))({
     return __yo_type_get_info(self);
   }),
 
+  /// Return the list of struct fields for this type at compile-time.
+  /// Asserts that the type is a struct.
   get_struct_fields : (fn(comptime(self): Type) -> comptime(ComptimeList(TypeFieldInfo)))({
     info :: __yo_type_get_info(self);
     comptime_assert(info.is_struct(), "Type.get_struct_fields: expected a struct type");
     match(info, .Struct(f, _) => f, _ => comptime_list(TypeFieldInfo("_", unit)))
   }),
 
+  /// Return the list of enum variants for this type at compile-time.
+  /// Asserts that the type is an enum.
   get_enum_variants : (fn(comptime(self): Type) -> comptime(ComptimeList(VariantInfo)))({
     info :: __yo_type_get_info(self);
     comptime_assert(info.is_enum(), "Type.get_enum_variants: expected an enum type");
@@ -4305,32 +4380,42 @@ impl(Type,
   })
 );
 
-// FieldInfo — compile-time struct field metadata for derive rules (legacy alias)
+/// `FieldInfo` — compile-time struct field metadata for derive rules (legacy alias).
 FieldInfo :: struct(name : comptime_string, field_type : Type);
 impl(FieldInfo, Comptime());
 impl(FieldInfo,
+  /// Convert the field name to a quoted expression.
   to_expr : (fn(comptime(self): FieldInfo) -> comptime(Expr))(
     __yo_comptime_string_to_expr(self.name)
   )
 );
 export FieldInfo;
 
-// Type methods that depend on FieldInfo/VariantInfo types
+/// Function type for mapping over struct fields during derive.
 MapFieldsFn :: (fn(comptime(_) : FieldInfo) -> comptime(Expr));
+/// Function type for mapping over enum variants during derive.
 MapVariantsFn :: (fn(comptime(_) : VariantInfo) -> comptime(Expr));
 
 impl(Type,
+  /// Join struct fields by applying a mapper to each field and combining with
+  /// a combiner expression. Used by derive macros.
   join_fields : (fn(comptime(self): Type, comptime(mapper): MapFieldsFn, comptime(combiner): Expr) -> comptime(Expr))({
     return __yo_type_join_fields(self, mapper, combiner);
   }),
 
+  /// Map over enum variants, applying a mapper function to each variant.
+  /// Returns a compile-time list of expressions. Used by derive macros.
   map_variants : (fn(comptime(self): Type, comptime(mapper): MapVariantsFn) -> comptime(ComptimeList(Expr)))({
     return __yo_type_map_variants(self, mapper);
   })
 );
 
-// Variable
+/// `Var` — compile-time variable introspection utilities.
+///
+/// Provides macros for querying metadata about a variable at compile-time,
+/// such as ownership status and alias information.
 Var :: impl({
+  /// Print debug information about a variable at compile-time.
   print_info :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
     return quote {
       __yo_var_print_info(unquote(variable));
@@ -4338,11 +4423,13 @@ Var :: impl({
   };
   export print_info;
 
+  /// Returns whether the variable is the owner of a reference-counted value.
   is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
     return quote __yo_var_is_owning_the_rc_value(unquote(variable));
   };
   export is_owning_the_rc_value;
 
+  /// Returns whether the variable has other aliases pointing to the same value.
   has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
     return quote __yo_var_has_other_aliases(unquote(variable));
   };
@@ -4350,8 +4437,18 @@ Var :: impl({
 });
 export Var;
 
-// === Data Types ===
-/// === Option ===
+/// Option — a value that may or may not be present.
+///
+/// `Option(T)` has two variants:
+/// - `.Some(value)` — contains a value of type `T`
+/// - `.None` — contains no value
+///
+/// # Example
+/// ```rust
+/// (x : Option(i32)) = .Some(i32(42));
+/// assert(x.is_some(), "expected Some");
+/// assert((x.unwrap() == i32(42)), "expected 42");
+/// ```
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     None,
@@ -4359,6 +4456,7 @@ Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(forall(T : Type), Option(T),
+  /// Extract the contained value, panicking with a message if `None`.
   unwrap : (fn(self : Self) -> T)(
     match(self,
       .Some(value) => value,
@@ -4366,6 +4464,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Extract the contained value, or return `or_value` if `None`.
   unwrap_or : (fn(self : Self, or_value : T) -> T)(
     match(self,
       .Some(value) => value,
@@ -4373,6 +4472,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return `true` if the option contains a value.
   is_some : (fn(self : Self) -> bool)(
     match(self,
       .Some(_) => true,
@@ -4380,6 +4480,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return `true` if the option is `None`.
   is_none : (fn(self : Self) -> bool)(
     match(self,
       .None => true,
@@ -4388,8 +4489,9 @@ impl(forall(T : Type), Option(T),
   )
 );
 
-// Functional combinators for Option(T)
+/// Functional combinators for `Option(T)`.
 impl(forall(T : Type), Option(T),
+  /// Apply `f` to the contained value (if `Some`), or return `None`.
   map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> B)) -> Option(B))(
     match(self,
       .Some(value) => Option(B).Some(f(value)),
@@ -4397,6 +4499,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Apply `f` to the contained value (if `Some`) and flatten the result.
   and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> Option(B))) -> Option(B))(
     match(self,
       .Some(value) => f(value),
@@ -4404,6 +4507,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return `Some(value)` if the predicate returns `true`, otherwise `None`.
   filter : (fn(self : Self, predicate : Impl(Fn(a : T) -> bool)) -> Option(T))(
     match(self,
       .Some(value) => cond(
@@ -4414,6 +4518,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return this option if `Some`, otherwise call `f` and return its result.
   or_else : (fn(self : Self, f : Impl(Fn() -> Option(T))) -> Option(T))(
     match(self,
       .Some(value) => Option(T).Some(value),
@@ -4421,6 +4526,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Apply `f` if `Some`, otherwise return `default_val`.
   map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : T) -> B)) -> B)(
     match(self,
       .Some(value) => f(value),
@@ -4428,6 +4534,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Apply `f` if `Some`, otherwise call `default_fn`.
   map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn() -> B), f : Impl(Fn(a : T) -> B)) -> B)(
     match(self,
       .Some(value) => f(value),
@@ -4435,6 +4542,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return `optb` if `self` is `Some`, otherwise `None`.
   and : (fn(forall(B : Type), self : Self, optb : Option(B)) -> Option(B))(
     match(self,
       .Some(_) => optb,
@@ -4442,6 +4550,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Return `self` if `Some`, otherwise return `optb`.
   or : (fn(self : Self, optb : Option(T)) -> Option(T))(
     match(self,
       .Some(value) => Option(T).Some(value),
@@ -4449,6 +4558,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Extract the contained value, or call `f` to produce a default.
   unwrap_or_else : (fn(self : Self, f : Impl(Fn() -> T)) -> T)(
     match(self,
       .Some(value) => value,
@@ -4457,8 +4567,9 @@ impl(forall(T : Type), Option(T),
   )
 );
 
-// Flatten for nested Option
+/// Flatten a nested `Option(Option(T))` into `Option(T)`.
 impl(forall(T : Type), Option(Option(T)),
+  /// Collapse one level of nesting.
   flatten : (fn(self : Self) -> Option(T))(
     match(self,
       .Some(inner) => inner,
@@ -4467,11 +4578,12 @@ impl(forall(T : Type), Option(Option(T)),
   )
 );
 
-// Option(T) implements Comptime when T implements Comptime
+/// `Option(T)` implements `Comptime` when `T` implements `Comptime`.
 impl(forall(T : Type), where(T <: Comptime), Option(T), Comptime());
 
-// Comptime methods for Option(T)
+/// Compile-time methods for `Option(T)`.
 impl(forall(T : Type), where(T <: Comptime), Option(T),
+  /// Compile-time unwrap — panics at compile-time if `None`.
   comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
     match(self,
       .Some(value) => value,
@@ -4501,9 +4613,9 @@ impl(forall(T : Type), where(T <: Comptime), Option(T),
   )
 );
 
-// Alias of the Option type
+/// `?` is a shorthand alias for `Option`.
 ? :: Option;
-// Nullable pointer
+/// `?*(T)` is a nullable pointer — equivalent to `Option(*(T))`.
 (?*) :: (fn(comptime(T): Type) -> comptime(Type))
   Option(*(T))
 ;
@@ -4514,10 +4626,14 @@ export
 ;
 
 
-// DeriveContext — context passed to derive rule functions (needs Option)
+/// DeriveContext — context passed to derive rule functions (needs Option).
+/// Used by the `derive` macro to generate trait implementations.
 DeriveContext :: struct(
+  /// The AST expression for the target type.
   target : Expr,
+  /// Optional forall parameters for generic types.
   forall_params : Option(Expr),
+  /// Optional where clause for constrained generics.
   where_clause : Option(Expr)
 );
 impl(DeriveContext, Comptime());
@@ -5066,7 +5182,17 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
 derive_rule(Ord, __derive_ord);
 
 
-/// === Result ===
+/// Result — a value that is either success (`Ok`) or failure (`Err`).
+///
+/// `Result(OkType, ErrorType)` has two variants:
+/// - `.Ok(value)` — contains a success value of type `OkType`
+/// - `.Err(error)` — contains an error value of type `ErrorType`
+///
+/// # Example
+/// ```rust
+/// (r : Result(i32, str)) = .Ok(i32(42));
+/// assert(r.is_ok(), "expected Ok");
+/// ```
 Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))
   enum(
     Ok(value: OkType),
@@ -5074,6 +5200,7 @@ Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Typ
   )
 ;
 impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
+  /// Extract the `Ok` value, panicking if `Err`.
   unwrap : (fn(self : Self) -> OkType)(
     match(self,
       .Ok(value) => value,
@@ -5081,6 +5208,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Extract the `Err` value, panicking if `Ok`.
   unwrap_err : (fn(self : Self) -> ErrorType)(
     match(self,
       .Err(error) => error,
@@ -5088,6 +5216,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Return `true` if the result is `Ok`.
   is_ok : (fn(self : Self) -> bool)(
     match(self,
       .Ok(_) => true,
@@ -5095,6 +5224,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Return `true` if the result is `Err`.
   is_err : (fn(self : Self) -> bool)(
     match(self,
       .Err(_) => true,
@@ -5103,8 +5233,9 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
   )
 );
 
-// Functional combinators for Result(OkType, ErrorType)
+/// Functional combinators for `Result(OkType, ErrorType)`.
 impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
+  /// Map the `Ok` value with `f`, leaving `Err` untouched.
   map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> B)) -> Result(B, ErrorType))(
     match(self,
       .Ok(value) => Result(B, ErrorType).Ok(f(value)),
@@ -5112,6 +5243,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Map the `Err` value with `f`, leaving `Ok` untouched.
   map_err : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> F)) -> Result(OkType, F))(
     match(self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -5119,6 +5251,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Chain a computation that may fail on the `Ok` value.
   and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(self,
       .Ok(value) => f(value),
@@ -5126,6 +5259,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Chain a recovery computation on the `Err` value.
   or_else : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -5133,6 +5267,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Return `res` if `Ok`, otherwise propagate `Err`.
   and : (fn(forall(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
     match(self,
       .Ok(_) => res,
@@ -5140,6 +5275,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Return `self` if `Ok`, otherwise return `res`.
   or : (fn(forall(F : Type), self : Self, res : Result(OkType, F)) -> Result(OkType, F))(
     match(self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -5147,6 +5283,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Convert to `Option(OkType)`, discarding the error.
   ok : (fn(self : Self) -> Option(OkType))(
     match(self,
       .Ok(value) => Option(OkType).Some(value),
@@ -5154,6 +5291,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Convert to `Option(ErrorType)`, discarding the success value.
   err : (fn(self : Self) -> Option(ErrorType))(
     match(self,
       .Ok(_) => Option(ErrorType).None,
@@ -5161,6 +5299,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Apply `f` if `Ok`, otherwise return `default_val`.
   map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : OkType) -> B)) -> B)(
     match(self,
       .Ok(value) => f(value),
@@ -5168,6 +5307,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
   map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn(a : ErrorType) -> B), f : Impl(Fn(a : OkType) -> B)) -> B)(
     match(self,
       .Ok(value) => f(value),
@@ -5175,6 +5315,7 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
   unwrap_or_else : (fn(self : Self, f : Impl(Fn(a : ErrorType) -> OkType)) -> OkType)(
     match(self,
       .Ok(value) => value,
@@ -5183,8 +5324,9 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
   )
 );
 
-// Option -> Result conversion (defined after Result)
+/// `Option` to `Result` conversion methods (defined after `Result`).
 impl(forall(T : Type), Option(T),
+  /// Convert `Some(value)` to `Ok(value)`, or return `Err(err)` if `None`.
   ok_or : (fn(forall(E : Type), self : Self, err : E) -> Result(T, E))(
     match(self,
       .Some(value) => Result(T, E).Ok(value),
@@ -5192,6 +5334,7 @@ impl(forall(T : Type), Option(T),
     )
   ),
 
+  /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
   ok_or_else : (fn(forall(E : Type), self : Self, err_fn : Impl(Fn() -> E)) -> Result(T, E))(
     match(self,
       .Some(value) => Result(T, E).Ok(value),
@@ -5200,11 +5343,12 @@ impl(forall(T : Type), Option(T),
   )
 );
 
-// Result(OkType, ErrorType) implements Comptime when both types implement Comptime
+/// `Result(OkType, ErrorType)` implements `Comptime` when both types implement `Comptime`.
 impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType), Comptime());
 
-// Comptime methods for Result(OkType, ErrorType)
+/// Compile-time methods for `Result(OkType, ErrorType)`.
 impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType),
+  /// Compile-time unwrap — panics at compile-time if `Err`.
   comptime_unwrap : (fn(comptime(self) : Self) -> comptime(OkType))(
     match(self,
       .Ok(value) => value,
@@ -5238,12 +5382,21 @@ export
   Result
 ;
 
-/// === Box ===
+/// Box — a heap-allocated, reference-counted container for a single value.
+///
+/// Use `box(value)` to allocate. Access the inner value with `b.*`.
+///
+/// # Example
+/// ```rust
+/// b := box(i32(42));
+/// assert((b.* == i32(42)), "inner value is 42");
+/// ```
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
   )
 ;
+/// Allocate a value on the heap, returning a `Box(V)`.
 box :: (fn(forall(V : Type), own(value) : V) -> Box(V))
   Box(V)(value)
 ;
@@ -5270,10 +5423,11 @@ export
   box
 ;
 
-/// === Iso ===
+/// Iso — an isolated reference-counted value that can be sent across threads.
 impl(forall(T : Type), Iso(T), Send());
 impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(forall(T : Type), Iso(T),
+  /// Attempt to extract the inner value if this `Iso` holds the only reference.
   extract : (fn(self : Self) -> Option(T))(
     __yo_iso_extract(self)
   )
@@ -5345,51 +5499,58 @@ extern "Yo",
     (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: _Self) -> BaseType)
 ;
 
+/// MaybeUninit — a wrapper that allows holding an uninitialized value.
+///
+/// Useful for FFI or low-level patterns where a value must be
+/// allocated first and initialized later (e.g., by a C function).
+///
+/// # Example
+/// ```rust
+/// extern "C",
+///   time_t : Type,
+///   time : fn(timer: ?*(time_t)) -> time_t
+/// ;
+///
+/// uninitialized_timer := MaybeUninit(time_t).new();
+/// ptr := uninitialized_timer.as_ptr();
+/// time(.Some(ptr));
+/// timer := uninitialized_timer.assume_init();
+/// ```
 MaybeUninit :: (fn(comptime(BaseType): Type) -> comptime(Type))
   newtype(
     value: BaseType
   )
 ;
 impl(forall(BaseType : Type), MaybeUninit(BaseType),
+  /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
 
+  /// Get a mutable pointer to the underlying value.
   as_ptr : (fn(self: *(Self)) -> *(BaseType))(
     __yo_maybe_uninit_as_ptr(Self, BaseType, self)
   ),
 
+  /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
   assume_init : (fn(own(self) : Self) -> BaseType)(
     __yo_maybe_uninit_assume_init(Self, BaseType, self)
   )
 );
 
-/* EXAMPLE:
-
-extern "C",
-  time_t : Type,
-  time : 
-    fn(timer: ?*(time_t)) -> time_t
-;
-
-uninitialized_timer := MaybeUninit(time_t).new(); // Create an uninitialized MaybeUninit(time_t)
-ptr := uninitialized_timer.as_ptr(); // ptr has type *(time_t)
-time(.Some(ptr)); // initialize the timer
-timer := uninitialized_timer.assume_init(); // now we can assume it's initialized
-
-*/
 export
   MaybeUninit
 ;
 
-// === Traits again ===
-/// === Iterator ===
+/// Iterator trait — lazy, pull-based sequence traversal.
 Iterator :: trait(
+  /// The type of elements yielded by this iterator.
   Item : Type,
+  /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
     fn(self : *(Self)) -> Option(Self.Item)
 );
 export Iterator;
 
-/// === IntoIterator ===
+/// IntoIterator trait — convert a collection into an iterator.
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -5468,27 +5629,36 @@ impl(forall(T : Type), Slice(T),
 
 export SliceIterPtr;
 
-// === Conversion ===
+/// TryFrom trait — fallible conversion from one type to another.
 TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
   trait(
+    /// Error type returned on conversion failure.
     Error : Type,
+    /// Attempt to convert `value` into `Self`.
     try_from :
       (fn(value : From) -> Result(Self, Self.Error))
   )
 );
 export TryFrom;
 
+/// TryInto trait — fallible conversion of `Self` into another type.
 TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
   trait(
+    /// Error type returned on conversion failure.
     Error : Type,
+    /// Attempt to convert `self` into the target type.
     try_into :
       (fn(self : Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
   )
 );
 export TryInto;
 
-// === Macros ===
-/// === if ===
+/// `if` macro — expands to `cond(condition => then, true => else)`.
+///
+/// # Example
+/// ```rust
+/// if(x > 0, println("positive"), println("non-positive"));
+/// ```
 if :: (fn(quote(condition) : Expr,
         quote(then) : Expr,
         (quote(else) : Expr) ?= quote(())
@@ -5502,9 +5672,12 @@ export
   if
 ;
 
-/**
-* try macro for handling Result types.
-*/
+/// `try` macro — unwrap a `Result`, returning early on `Err`.
+///
+/// # Example
+/// ```rust
+/// value := try(might_fail());
+/// ```
 try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
   temp :: gensym("try");
   quote {
@@ -5519,26 +5692,14 @@ try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
 };
 export try;
 
-/**
- * `for` macro to run while loop over an iterator
- * eg:
- * 
- *   for box.into_iter(), (value) => {
- *     printf("value %d\n", value);
- *   };
- *
- * transforms to
- * 
- * iter := box.into_iter();
- * while true, {
- *   value := iter.next();
- *   match(value,
- *     .Some(value) => {
- *       printf("value %d\n", value);
- *     }),
- *     .None => { break; } 
- * }
- */
+/// `for` macro — iterate over a collection using the `Iterator` trait.
+///
+/// # Example
+/// ```rust
+/// for arr.iter(), (value) => {
+///   printf("value %d\n", value.*);
+/// };
+/// ```
 for :: (fn(
   quote(iter) : Expr,
   quote(handle) : Expr
@@ -5580,12 +5741,15 @@ for :: (fn(
 };
 export for;
 
-/// === Modules & Effects ===
-/// === IO related ===
+/// FutureState — the state of an async `Future`.
 FutureState :: enum(
+  /// The future has been created but not yet started.
   Pending = 0,
+  /// The future is actively running.
   Running = 1,
+  /// The future completed successfully.
   Completed = -(1),
+  /// The future was aborted (e.g., via `escape`).
   Aborted = -(2)
 );
 impl(FutureState, Acyclic());
@@ -5597,22 +5761,29 @@ impl(FutureState, Eq(FutureState)(
 ));
 export FutureState;
 
-// JoinHandle(T) — a handle to a spawned async task.
-// Wraps a raw pointer to the spawned future's state machine.
-// Generic over T, the return type of the spawned task.
-// NOTE: __future uses *(T) (not *(void)) so that the type parameter T is visible
-// in the struct fields for generic impl matching to extract T from JoinHandle(T).
+/// JoinHandle — a handle to a spawned async task.
+/// Wraps a raw pointer to the spawned future's state machine.
+/// Generic over `T`, the return type of the spawned task.
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
+    /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
     __future : *(T)
   )
 );
 export JoinHandle;
 
+/// IO module — the async runtime effect.
+///
+/// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
+/// Automatically injected into `main` when declared with `using(io : IO)`.
 IO :: module(
+  /// Create a new `Future` from an async closure.
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  /// Await a `Future`, suspending until its result is ready.
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  /// Inspect the current state of a `Future` without blocking.
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
+  /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 );
 export IO;
@@ -5624,9 +5795,8 @@ extern "Yo",
   __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 ;
 
-// It's intended not to use `given` here.
-// For `main` function with `using(io : IO)`, the compiler will automatically inject the `__yo_builtin_io` in the caller side, which allows the user to use `async` and `await` in `main` without manually passing `__yo_builtin_io`.
-// So it won't automatically inject to other functions.
+/// Built-in IO module instance. Automatically injected for `main` functions
+/// with `using(io : IO)`.
 __yo_builtin_io :: IO(
   async : __yo_io_async,
   await : __yo_io_await,
@@ -5635,7 +5805,7 @@ __yo_builtin_io :: IO(
 );
 export __yo_builtin_io;
 
-// JoinHandle methods — defined after IO so using(io : IO) resolves
+/// JoinHandle methods — defined after IO so `using(io : IO)` resolves.
 extern "Yo",
   __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), using(io : IO)) -> Option(T))
 ;
