@@ -40,6 +40,11 @@ export interface DocExtractionResult {
   declarations: DocAssociation[];
 }
 
+export interface InlineDocResult {
+  /** Per-field/param/variant doc comments, keyed by name */
+  docs: Map<string, string>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function isDocCommentToken(token: Token): boolean {
@@ -322,4 +327,138 @@ function findNextDeclarationName(
     return { name: "", position: null };
   }
   return { name: "", position: null };
+}
+
+// ── Inline doc extractor ─────────────────────────────────────────────
+
+/**
+ * Extract inline doc comments from a token range.
+ *
+ * Scans tokens between `startIndex` (inclusive) and `endIndex` (exclusive)
+ * to associate `///` and doc block comments with the next identifier token
+ * (field names, parameter names, or variant names).
+ *
+ * Consecutive `///` lines are merged into a single doc comment.
+ */
+export function extractInlineDocs(
+  tokens: Token[],
+  startIndex: number,
+  endIndex: number
+): InlineDocResult {
+  const docs = new Map<string, string>();
+  let i = startIndex;
+  const end = Math.min(endIndex, tokens.length);
+
+  while (i < end) {
+    const token = tokens[i]!;
+
+    if (token.type === TokenType.DocLineComment) {
+      // Collect consecutive /// lines
+      const docParts: string[] = [];
+      docParts.push(stripDocLineComment(token.value));
+      i++;
+
+      while (i < end) {
+        // Skip whitespace between consecutive /// lines
+        let j = i;
+        while (j < end && tokens[j]!.type === TokenType.Whitespace) {
+          j++;
+        }
+        if (j < end && tokens[j]!.type === TokenType.DocLineComment) {
+          docParts.push(stripDocLineComment(tokens[j]!.value));
+          i = j + 1;
+        } else {
+          break;
+        }
+      }
+
+      // Find the next identifier to associate with
+      const name = findNextIdentifier(tokens, i, end);
+      if (name !== "") {
+        docs.set(name, docParts.join("\n"));
+      }
+      continue;
+    }
+
+    if (token.type === TokenType.DocBlockComment) {
+      const content = stripDocBlockComment(token.value);
+      i++;
+
+      const name = findNextIdentifier(tokens, i, end);
+      if (name !== "") {
+        docs.set(name, content);
+      }
+      continue;
+    }
+
+    i++;
+  }
+
+  return { docs };
+}
+
+/**
+ * Find the next identifier within a bounded range, skipping whitespace,
+ * regular comments, and doc comments. Returns empty string if not found.
+ */
+function findNextIdentifier(
+  tokens: Token[],
+  startIndex: number,
+  endIndex: number
+): string {
+  let i = startIndex;
+  while (i < endIndex) {
+    const token = tokens[i]!;
+    if (
+      token.type === TokenType.Whitespace ||
+      isWhitespaceOrRegularComment(token)
+    ) {
+      i++;
+      continue;
+    }
+    if (token.type === TokenType.Identifier) {
+      return token.value;
+    }
+    // Hit a non-identifier, non-whitespace token — stop
+    return "";
+  }
+  return "";
+}
+
+/**
+ * Find matching parenthesis indices for a definition token range.
+ *
+ * Given an array of tokens and a starting search index, finds the first `(`
+ * and its matching `)`, accounting for nesting. Returns `null` if no matching
+ * pair is found.
+ *
+ * Useful for finding the token range inside `struct(...)`, `enum(...)`, or
+ * `fn(...)` to pass to `extractInlineDocs()`.
+ */
+export function findMatchingParens(
+  tokens: Token[],
+  searchStart: number
+): { open: number; close: number } | null {
+  let i = searchStart;
+  // Find the opening paren
+  while (i < tokens.length) {
+    if (tokens[i]!.type === TokenType.LParen) {
+      break;
+    }
+    i++;
+  }
+  if (i >= tokens.length) return null;
+
+  const openIndex = i;
+  let depth = 1;
+  i++;
+  while (i < tokens.length && depth > 0) {
+    if (tokens[i]!.type === TokenType.LParen) depth++;
+    else if (tokens[i]!.type === TokenType.RParen) depth--;
+    if (depth === 0) {
+      return { open: openIndex, close: i };
+    }
+    i++;
+  }
+  return null;
 }
