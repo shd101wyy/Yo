@@ -11,11 +11,16 @@ import * as path from "path";
 import { tokenize } from "./lexer";
 import { ModuleManager } from "./module-manager";
 import { extractDocComments } from "./doc/extractor";
-import { buildDocModule, buildCrossReferences } from "./doc/builder";
+import {
+  buildDocModule,
+  buildDocModuleFromTokens,
+  buildCrossReferences,
+} from "./doc/builder";
 import { renderDocSite, destroyMarkdownRenderer } from "./doc/render-html";
 import { renderDocMarkdown } from "./doc/render-markdown";
 import { renderDocJson } from "./doc/render-json";
 import type { DocModel, DocModule } from "./doc/model";
+import type { ModuleValue } from "./value";
 
 export type DocFormat = "html" | "markdown" | "json";
 
@@ -78,8 +83,7 @@ function collectYoFiles(dir: string, files: string[]): void {
     } else if (
       entry.isFile() &&
       entry.name.endsWith(".yo") &&
-      !entry.name.endsWith(".test.yo") &&
-      entry.name !== "build.yo"
+      !entry.name.endsWith(".test.yo")
     ) {
       files.push(fullPath);
     }
@@ -140,38 +144,62 @@ function documentFile(
     console.log(`  Documenting: ${moduleName}`);
   }
 
+  // Read source and tokenize for doc extraction
+  let source: string;
+  let tokens: ReturnType<typeof tokenize>;
   try {
-    // Read source and tokenize for doc extraction
-    const source = fs.readFileSync(filePath, "utf-8");
-    const tokens = tokenize(source, modulePath);
-    const extraction = extractDocComments(tokens);
-
-    // Evaluate the module to get type information
-    const { moduleValue, moduleError } = moduleManager.loadModule(modulePath);
-
-    if (moduleError) {
-      if (verbose) {
-        console.warn(
-          `  Warning: ${moduleName} has evaluation errors — documenting with available info`
-        );
-      }
-    }
-
-    // Build the doc module
-    return buildDocModule({
-      name: moduleName,
-      path: moduleName,
-      moduleValue,
-      extraction,
-      tokens,
-      includePrivate: false,
-    });
+    source = fs.readFileSync(filePath, "utf-8");
+    tokens = tokenize(source, modulePath);
   } catch (err) {
     console.warn(
-      `  Warning: Failed to document ${moduleName}: ${err instanceof Error ? err.message : String(err)}`
+      `  Warning: Failed to read/tokenize ${moduleName}: ${err instanceof Error ? err.message : String(err)}`
     );
     return null;
   }
+
+  const extraction = extractDocComments(tokens);
+
+  // Try to evaluate the module to get type information
+  let moduleValue: ModuleValue | undefined;
+
+  try {
+    const result = moduleManager.loadModule(modulePath);
+    moduleValue = result.moduleValue;
+    if (result.moduleError && verbose) {
+      console.warn(
+        `  Warning: ${moduleName} has evaluation errors — documenting with available info`
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `  Warning: ${moduleName} evaluation failed, using token-only docs: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`
+    );
+  }
+
+  if (moduleValue) {
+    try {
+      return buildDocModule({
+        name: moduleName,
+        path: moduleName,
+        moduleValue,
+        extraction,
+        tokens,
+        includePrivate: false,
+      });
+    } catch (err) {
+      console.warn(
+        `  Warning: ${moduleName} doc build failed, using token-only docs: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`
+      );
+    }
+  }
+
+  // Fallback: build a minimal doc module from token extraction only
+  return buildDocModuleFromTokens({
+    name: moduleName,
+    path: moduleName,
+    extraction,
+    tokens,
+  });
 }
 
 /**

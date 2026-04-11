@@ -24,7 +24,24 @@ import { execSync } from "child_process";
 
 const ROOT = path.resolve(import.meta.dir, "..");
 const GITHUB_REPO = "https://github.com/shd101wyy/Yo";
-const GITHUB_BLOB = `${GITHUB_REPO}/blob/main`;
+
+// Detect the latest release tag for stable links.
+// Falls back to "main" if no tags exist or git fails.
+function getLatestTag(): string {
+  try {
+    const result = execSync("git describe --tags --abbrev=0 2>/dev/null", {
+      cwd: ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+    }).trim();
+    return result || "main";
+  } catch {
+    return "main";
+  }
+}
+
+const GITHUB_REF = getLatestTag();
+const GITHUB_BLOB = `${GITHUB_REPO}/blob/${GITHUB_REF}`;
 
 // ── Parse args ───────────────────────────────────────────────────────
 
@@ -296,7 +313,6 @@ function wrapHomepage(title: string, bodyHtml: string, css: string): string {
         <a href="${GITHUB_REPO}">GitHub</a>
         <a href="std/index.html">Standard Library</a>
         <a href="${GITHUB_BLOB}/docs/en-US/DESIGN.md">Language Design</a>
-        <a href="${GITHUB_BLOB}/docs/en-US/ALGEBRAIC_EFFECTS.md">Algebraic Effects</a>
       </div>
     </div>
     <div class="readme-content">

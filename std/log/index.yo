@@ -2,7 +2,7 @@
 
 open import "../string";
 { ToString } :: import "../fmt";
-{ fwrite, stdout, stderr } :: import "../libc/stdio";
+{ fwrite, stdout, stderr, FILE } :: import "../libc/stdio";
 
 /// Log severity level.
 Level :: enum(Trace, Debug, Info, Warn, Error);
@@ -40,13 +40,13 @@ _global_output := LogOutput.Stderr;
 // Configuration
 // ============================================================================
 
-set_level :: (fn(level: Level) -> unit)(
-  _global_level = level
-);
+set_level :: (fn(level: Level) -> unit)({
+  _global_level = level;
+});
 
-set_output :: (fn(output: LogOutput) -> unit)(
-  _global_output = output
-);
+set_output :: (fn(output: LogOutput) -> unit)({
+  _global_output = output;
+});
 
 export set_level, set_output;
 
@@ -65,7 +65,7 @@ _level_value :: (fn(l: Level) -> i32)(
 );
 
 // Write all bytes from a String to the file handle.
-_write_string :: (fn(s: String, dest: *(void)) -> unit)({
+_write_string :: (fn(s: String, dest: *(FILE)) -> unit)({
   bytes := s.as_bytes();
   cond(
     (bytes.len() > usize(0)) => {

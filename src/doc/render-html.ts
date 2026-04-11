@@ -610,11 +610,56 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   z-index: 20;
 }
 
+/* Mobile menu toggle */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 30;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.sidebar-toggle:hover {
+  background: var(--accent-hover);
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 9;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  .sidebar-toggle { display: block; }
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 15;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-overlay.open {
+    display: block;
+  }
   .main { margin-left: 0; }
-  .content { padding: 16px 20px; }
+  .content { padding: 60px 16px 16px; }
   .item-sig { display: none; }
   .module-grid { grid-template-columns: 1fr; }
 }
@@ -663,6 +708,21 @@ function generateSearchJS(): string {
     });
     btn.addEventListener('click', function() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  // Mobile sidebar toggle
+  var toggle = document.getElementById('sidebar-toggle');
+  var sidebar = document.querySelector('.sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+  if (toggle && sidebar && overlay) {
+    toggle.addEventListener('click', function() {
+      sidebar.classList.toggle('open');
+      overlay.classList.toggle('open');
+    });
+    overlay.addEventListener('click', function() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('open');
     });
   }
 })();
@@ -770,6 +830,8 @@ function wrapPage(
 <style>${cssText}</style>
 </head>
 <body>
+<button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">☰</button>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
 ${sidebar}
 <div class="main">
 <div class="content">

@@ -705,6 +705,73 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
   return result;
 }
 
+// ── Token-only fallback builder ──────────────────────────────────────
+
+export interface BuildDocModuleFromTokensOptions {
+  name: string;
+  path: string;
+  extraction: DocExtractionResult;
+  tokens: Token[];
+}
+
+/**
+ * Build a minimal DocModule from token extraction only (no evaluator).
+ * Used as a fallback when module evaluation fails (circular imports, etc.).
+ * Produces module doc + documented declarations as constants with their doc text.
+ */
+export function buildDocModuleFromTokens(
+  options: BuildDocModuleFromTokensOptions
+): DocModule {
+  const { name, path, extraction, tokens } = options;
+  const traitImplMap = extractTraitImplsFromTokens(tokens);
+
+  const result: DocModule = {
+    name,
+    path,
+    doc: extraction.moduleDoc?.content,
+    functions: [],
+    types: [],
+    traits: [],
+    constants: [],
+    submodules: [],
+  };
+
+  // Extract documented declarations as constants with their doc text.
+  // Without evaluator info we can't classify them, but we preserve the docs.
+  for (const assoc of extraction.declarations) {
+    if (!assoc.declarationName) continue;
+    const declName = assoc.declarationName;
+    const sections = extractDocSections(assoc.comment.content);
+
+    // Look at the trait impl map to detect type names
+    const traitImpls = traitImplMap.get(declName);
+    if (traitImpls) {
+      // Likely a type — add as a type with trait impls
+      result.types.push({
+        name: declName,
+        kind: "struct",
+        signature: declName,
+        typeParams: undefined,
+        fields: undefined,
+        variants: undefined,
+        methods: [],
+        traitImpls,
+        ...sections,
+      });
+    } else {
+      // Add as a constant (generic fallback)
+      result.constants.push({
+        name: declName,
+        type: "(unknown)",
+        value: undefined,
+        ...sections,
+      });
+    }
+  }
+
+  return result;
+}
+
 /**
  * Build a cross-reference map: trait name → list of type names that implement it.
  * Call this after building all DocModules to fill in trait.implementors.
