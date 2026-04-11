@@ -12,10 +12,15 @@ import {
   exprToString,
 } from "../expr";
 import { stringIsOperator, TokenType } from "../token";
-import type { StructType } from "../types/definitions";
-import { isStructType, isTypeHierarchyType } from "../types/guards";
+import type { StructType, Type } from "../types/definitions";
+import {
+  isStructType,
+  isTraitType,
+  isTypeHierarchyType,
+} from "../types/guards";
 import { typeToString } from "../types/utils";
 import { isTypeValue, valueToString } from "../value";
+import type { Value } from "../value";
 import { ValueTag } from "../value-tag";
 import type { LspDocumentManager } from "./document-manager";
 import { findTokenAtPosition, findBestExpressionMatch } from "./utils";
@@ -80,6 +85,19 @@ export function handleHover(
       isCompileTimeOnly = selectedVar.isCompileTimeOnly;
       isUndefined = !selectedVar.initializedAtToken;
       varDocComment = selectedVar.docComment;
+    }
+  }
+
+  // Fallback: if the atom has no type info (e.g., label in `impl(Point, add : ...)`),
+  // look for the parent ":" call and get type/value from the right-hand side
+  if (!varType) {
+    const fieldInfo = findFieldDefinitionInfo(exprs, expr);
+    if (fieldInfo) {
+      varType = fieldInfo.type;
+      varValue = fieldInfo.value;
+      varDocComment = fieldInfo.docComment;
+      foundVariable = true;
+      isCompileTimeOnly = true;
     }
   }
 
@@ -210,6 +228,113 @@ function findVariableByFallback(
   } catch {
     return null;
   }
+}
+
+/**
+ * When hovering a label like `add` in `impl(Point, add : (fn...))` or
+ * a struct field label like `x` in `struct((x : i32) ?= 0)`,
+ * find the parent ":" call and return type/value from the right-hand side.
+ */
+function findFieldDefinitionInfo(
+  exprs: Expr[],
+  targetExpr: AtomExpr
+): { type: Type; value?: Value; docComment?: string } | null {
+  function findParentColonCall(expr: Expr): FnCallExpr | null {
+    if (!exprIsFunctionCall(expr)) return null;
+    const fnExpr = expr as FnCallExpr;
+
+    // Check if this is `label : value` where targetExpr is the label
+    if (
+      exprIsFunctionCallOf(fnExpr, ":") &&
+      fnExpr.args.length >= 2 &&
+      fnExpr.args[0] === targetExpr
+    ) {
+      return fnExpr;
+    }
+
+    // Recurse into sub-expressions
+    let found = findParentColonCall(fnExpr.func);
+    if (found) return found;
+    for (const arg of fnExpr.args) {
+      found = findParentColonCall(arg);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const topExpr of exprs) {
+    const colonCall = findParentColonCall(topExpr);
+    if (colonCall) {
+      const valueExpr = colonCall.args[1];
+      if (valueExpr?.$?.type) {
+        // Look for doc comment on the receiver type's trait fields
+        const fieldName = targetExpr.token.value;
+        let docComment: string | undefined;
+
+        // Walk up to find the impl call and get the receiver type
+        const implInfo = findParentImplCall(topExpr, colonCall);
+        if (implInfo) {
+          const receiverType = implInfo.receiverType;
+          if (receiverType?.trait) {
+            for (const tf of receiverType.trait.fields) {
+              if (tf.label === fieldName && tf.docComment) {
+                docComment = tf.docComment;
+                break;
+              }
+            }
+          }
+        }
+
+        return {
+          type: valueExpr.$.type,
+          value: valueExpr.$.value,
+          docComment,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find a parent `impl(Type, ...)` call that contains the given field expression,
+ * and extract the receiver type.
+ */
+function findParentImplCall(
+  expr: Expr,
+  targetFieldExpr: FnCallExpr
+): { receiverType: Type } | null {
+  if (!exprIsFunctionCall(expr)) return null;
+  const fnExpr = expr as FnCallExpr;
+
+  if (exprIsFunctionCallOf(fnExpr, "impl")) {
+    // Check if the target field is among impl's arguments
+    for (const arg of fnExpr.args) {
+      if (arg === targetFieldExpr) {
+        // The impl's $.type is the trait type itself (tag: "Trait")
+        // with receiverType pointing to the actual struct/enum
+        const implType = fnExpr.$?.type;
+        if (implType && isTraitType(implType) && implType.receiverType) {
+          return { receiverType: implType.receiverType };
+        }
+        // Fallback: get receiver type from the first arg (Point)
+        const firstArg = fnExpr.args[0];
+        if (firstArg?.$?.value && isTypeValue(firstArg.$.value)) {
+          return { receiverType: firstArg.$.value.value };
+        }
+        break;
+      }
+    }
+  }
+
+  // Recurse
+  let found = findParentImplCall(fnExpr.func, targetFieldExpr);
+  if (found) return found;
+  for (const arg of fnExpr.args) {
+    found = findParentImplCall(arg, targetFieldExpr);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
