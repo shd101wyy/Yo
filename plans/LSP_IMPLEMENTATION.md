@@ -165,14 +165,46 @@ src/lsp/
 ├── completion.ts          # textDocument/completion handler
 ├── definition.ts          # textDocument/definition handler
 ├── symbols.ts             # textDocument/documentSymbol handler
+├── references.ts          # textDocument/references handler (same-file)
+├── rename.ts              # textDocument/rename + prepareRename handler
+├── signature-help.ts      # textDocument/signatureHelp handler
+├── folding.ts             # textDocument/foldingRange handler
+├── inlay-hints.ts         # textDocument/inlayHint handler
 └── utils.ts               # Token/position helpers
 
 vscode-extension/
-├── src/extension.ts       # Thin LSP client (~50 lines)
+├── src/extension.ts       # Thin LSP client (~80 lines)
+├── src/extension.old.ts   # Original 1700-line extension (backup)
 ├── syntaxes/              # TextMate grammar (unchanged)
 ├── language-configuration.json (unchanged)
 └── package.json           # + vscode-languageclient dep
 ```
+
+## Current LSP Capabilities (10 total)
+
+| Capability       | LSP Method                      | Status     |
+| ---------------- | ------------------------------- | ---------- |
+| Diagnostics      | textDocument/publishDiagnostics | ✅ Phase 1 |
+| Hover            | textDocument/hover              | ✅ Phase 1 |
+| Completion       | textDocument/completion         | ✅ Phase 1 |
+| Go-to-definition | textDocument/definition         | ✅ Phase 1 |
+| Document symbols | textDocument/documentSymbol     | ✅ Phase 2 |
+| Find references  | textDocument/references         | ✅ Phase 2 |
+| Rename           | textDocument/rename             | ✅ Phase 2 |
+| Signature help   | textDocument/signatureHelp      | ✅ Phase 3 |
+| Folding ranges   | textDocument/foldingRange       | ✅ Phase 3 |
+| Inlay hints      | textDocument/inlayHint          | ✅ Phase 3 |
+
+## Future Capabilities
+
+| Feature             | Description                                         |
+| ------------------- | --------------------------------------------------- |
+| Workspace symbols   | Cross-module symbol search                          |
+| Semantic tokens     | Rich token classification using evaluator type info |
+| Code actions        | Quick fixes from diagnostic info                    |
+| Incremental parsing | Only re-evaluate changed regions                    |
+| Code lens           | Show test run buttons, impl count                   |
+| Document formatting | Yo formatter (needs to be built)                    |
 
 ## On Bootstrapping & Self-Hosting
 
