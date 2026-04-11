@@ -134,24 +134,28 @@ function functionParamsToDocParams(
 }
 
 function forallParamsToDocParams(
-  params: FunctionType["forallParameters"]
+  params: FunctionType["forallParameters"],
+  docLookup?: DocLookup
 ): DocParam[] {
   return params.map((p) => ({
     name: p.label,
     type: typeToString(p.type),
     isComptime: true,
     isImplicit: false,
+    doc: docLookup?.get(p.label),
   }));
 }
 
 function implicitParamsToDocParams(
-  params: FunctionType["implicitParameters"]
+  params: FunctionType["implicitParameters"],
+  docLookup?: DocLookup
 ): DocParam[] {
   return params.map((p) => ({
     name: p.label,
     type: typeToString(p.type),
     isComptime: true,
     isImplicit: true,
+    doc: docLookup?.get(p.label),
   }));
 }
 
@@ -178,11 +182,11 @@ function buildDocFunction(
     returnType: typeToString(funcType.return.type),
     typeParams:
       funcType.forallParameters.length > 0
-        ? forallParamsToDocParams(funcType.forallParameters)
+        ? forallParamsToDocParams(funcType.forallParameters, docLookup)
         : undefined,
     effects:
       funcType.implicitParameters.length > 0
-        ? implicitParamsToDocParams(funcType.implicitParameters)
+        ? implicitParamsToDocParams(funcType.implicitParameters, docLookup)
         : undefined,
     isMethod,
     selfType,

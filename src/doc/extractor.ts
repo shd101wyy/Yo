@@ -322,6 +322,12 @@ function findNextDeclarationName(
     if (token.type === TokenType.Identifier) {
       return { name: token.value, position: token.position };
     }
+    // Skip opening parens so we can reach identifiers inside
+    // `(name : Type) ?= default` optional-field syntax
+    if (token.type === TokenType.LParen) {
+      i++;
+      continue;
+    }
     // If we hit something that's not an identifier (e.g., a keyword, operator),
     // the doc comment doesn't have a clear declaration target
     return { name: "", position: null };
@@ -418,6 +424,12 @@ function findNextIdentifier(
     }
     if (token.type === TokenType.Identifier) {
       return token.value;
+    }
+    // Skip opening parens so we can reach identifiers inside
+    // `(name : Type) ?= default` optional-field syntax
+    if (token.type === TokenType.LParen) {
+      i++;
+      continue;
     }
     // Hit a non-identifier, non-whitespace token — stop
     return "";
