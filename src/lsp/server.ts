@@ -1,0 +1,102 @@
+import {
+  createConnection,
+  ProposedFeatures,
+  TextDocuments,
+  TextDocumentSyncKind,
+  type InitializeParams,
+  type InitializeResult,
+  StreamMessageReader,
+  StreamMessageWriter,
+} from "vscode-languageserver/node";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import { LspDocumentManager } from "./document-manager";
+import { getDiagnosticsForUri } from "./diagnostics";
+import { handleHover } from "./hover";
+import { handleCompletion } from "./completion";
+import { handleDefinition } from "./definition";
+
+// Explicitly use stdio transport
+const connection = createConnection(
+  ProposedFeatures.all,
+  new StreamMessageReader(process.stdin),
+  new StreamMessageWriter(process.stdout)
+);
+
+// Create the text document manager
+const documents = new TextDocuments(TextDocument);
+
+// Our document manager wrapping the Yo evaluator
+let docManager: LspDocumentManager;
+
+connection.onInitialize((params: InitializeParams): InitializeResult => {
+  // Try to find the std path from workspace folders
+  let stdPath: string | undefined;
+  if (params.workspaceFolders && params.workspaceFolders.length > 0) {
+    // The document manager will resolve std path per-file
+    stdPath = undefined;
+  }
+
+  docManager = new LspDocumentManager(stdPath);
+
+  // Wire up document lifecycle to diagnostics
+  docManager.attachToDocuments(documents, (uri: string) => {
+    const diagnostics = getDiagnosticsForUri(uri, docManager);
+    connection.sendDiagnostics({ uri, diagnostics });
+  });
+
+  return {
+    capabilities: {
+      textDocumentSync: TextDocumentSyncKind.Full,
+      hoverProvider: true,
+      completionProvider: {
+        triggerCharacters: [".", ":", "("],
+        resolveProvider: false,
+      },
+      definitionProvider: true,
+    },
+  };
+});
+
+connection.onHover((params) => {
+  return handleHover(
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    docManager
+  );
+});
+
+connection.onCompletion((params) => {
+  // We need the line text for dot-completion detection
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+
+  const lineText =
+    document.getText({
+      start: { line: params.position.line, character: 0 },
+      end: { line: params.position.line + 1, character: 0 },
+    }) ?? "";
+
+  return handleCompletion(
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    lineText,
+    docManager
+  );
+});
+
+connection.onDefinition((params) => {
+  return handleDefinition(
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    docManager
+  );
+});
+
+// Listen for document events
+documents.listen(connection);
+
+// Start listening
+connection.listen();

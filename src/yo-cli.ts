@@ -741,6 +741,22 @@ yo --version                     Show version number
       }
     }
   )
+  .command(
+    "lsp",
+    "Start the Yo Language Server (LSP)",
+    (_yargs) => {
+      _yargs.option("stdio", {
+        describe: "Use stdio transport (default)",
+        type: "boolean",
+        default: true,
+      });
+    },
+    async () => {
+      // The LSP server is a separate entry point; for the CLI command,
+      // we dynamically import and run it.
+      await import("./lsp/server");
+    }
+  )
   .demandCommand(
     1,
     "You need to specify a command (e.g., 'compile', 'build', 'init')"

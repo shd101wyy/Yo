@@ -68,6 +68,20 @@ const esmConfig = {
   // outfile: "./out/esm/index.mjs",
 };
 
+/**
+ * @type {import('esbuild').BuildOptions}
+ */
+const lspConfig = {
+  ...sharedConfig,
+  entryPoints: ["./src/lsp/server.ts"],
+  platform: "node",
+  outfile: "./out/cjs/yo-lsp.cjs",
+  target: "node16",
+  banner: {
+    js: "#!/usr/bin/env node",
+  },
+};
+
 async function main() {
   try {
     // Delete the existing out directory to remove old files
@@ -96,10 +110,17 @@ async function main() {
         sourcemap: true,
       });
 
+      // LSP Server
+      const lspContext = await context({
+        ...lspConfig,
+        sourcemap: true,
+      });
+
       await Promise.all([
         cjsContext.watch(),
         cjsCliContext.watch(),
         esmContext.watch(),
+        lspContext.watch(),
       ]);
     } else {
       // CommonJS
@@ -110,6 +131,9 @@ async function main() {
 
       // ESM
       await build(esmConfig);
+
+      // LSP Server
+      await build(lspConfig);
     }
   } catch (error) {
     console.error(error);
