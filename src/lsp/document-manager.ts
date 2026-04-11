@@ -21,6 +21,9 @@ import { uriToModulePath } from "./utils";
  * Manages ModuleManager instances and document synchronization for the LSP server.
  * Wraps the Yo evaluator's ModuleManager with LSP text document lifecycle.
  */
+/** Module data stored in ModuleManager.modules */
+type ModuleData = NonNullable<ReturnType<ModuleManager["modules"]["get"]>>;
+
 export class LspDocumentManager {
   private moduleManager: ModuleManager;
   private moduleManagerStdPath: string | null = null;
@@ -33,6 +36,13 @@ export class LspDocumentManager {
 
   /** Track in-flight analysis generation per URI to avoid race conditions */
   private analyzeGenerationByUri = new Map<string, number>();
+
+  /**
+   * Cache of the last module evaluation that produced useful AST data.
+   * Used as fallback for completion when the current evaluation has errors
+   * (e.g., user typed `p2.` which is an incomplete expression).
+   */
+  private lastGoodModules = new Map<string, ModuleData>();
 
   constructor(stdPath?: string) {
     this.moduleManager = new ModuleManager({
@@ -61,6 +71,7 @@ export class LspDocumentManager {
       this.moduleManager.deleteModule(modulePath);
       this.lastAnalyzedTextByUri.delete(uri);
       this.analyzeGenerationByUri.delete(uri);
+      this.lastGoodModules.delete(modulePath);
     });
   }
 
@@ -91,6 +102,19 @@ export class LspDocumentManager {
 
     const modulePath = uriToModulePath(uri);
 
+    // Cache the current module if it has useful AST data before re-evaluating
+    const oldModule = this.moduleManager.modules.get(modulePath);
+    if (oldModule && !oldModule.moduleError) {
+      try {
+        const program = oldModule.evaluator.getProgram();
+        if (program.length > 0) {
+          this.lastGoodModules.set(modulePath, oldModule);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     // Clear and re-evaluate the module
     this.moduleManager.deleteModule(modulePath);
     this.moduleManager.loadModule(modulePath, text);
@@ -107,6 +131,29 @@ export class LspDocumentManager {
   getModule(uri: string) {
     const modulePath = uriToModulePath(uri);
     return this.moduleManager.modules.get(modulePath);
+  }
+
+  /**
+   * Get the best module for completion: current module if it has good AST data,
+   * otherwise fall back to the last cached good module.
+   * This handles the case where the user typed e.g. `p2.` which breaks evaluation.
+   */
+  getModuleForCompletion(uri: string): ModuleData | undefined {
+    const modulePath = uriToModulePath(uri);
+    const current = this.moduleManager.modules.get(modulePath);
+    // Prefer current module if it exists (even with errors — partial data may be useful)
+    // But also provide fallback for when inner scope evaluation lost type info
+    if (current) return current;
+    return this.lastGoodModules.get(modulePath);
+  }
+
+  /**
+   * Get the last good (successfully evaluated) module for a URI.
+   * Returns undefined if no good module has been cached.
+   */
+  getLastGoodModule(uri: string): ModuleData | undefined {
+    const modulePath = uriToModulePath(uri);
+    return this.lastGoodModules.get(modulePath);
   }
 
   /**
@@ -127,6 +174,7 @@ export class LspDocumentManager {
       this.moduleManager.stdPath = stdPath;
       this.moduleManagerStdPath = stdPath;
       this.evaluatedBuildProjects.clear();
+      this.lastGoodModules.clear();
       clearModuleImportRoots();
     }
   }

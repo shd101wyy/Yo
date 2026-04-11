@@ -65,16 +65,32 @@ export function handleCompletion(
   docManager: LspDocumentManager
 ): CompletionItem[] {
   const module = docManager.getModule(uri);
-  if (!module || module.moduleError) {
+  if (!module) {
     return getKeywordCompletions("");
   }
 
-  // Check for dot-completion
+  // Check for dot-completion — allow even when module has errors,
+  // since the error is often caused by the incomplete `expr.` being typed
   const textUpToCursor = lineText.substring(0, character);
   const isDotCompletion = textUpToCursor.endsWith(".");
 
   if (isDotCompletion) {
-    return handleDotCompletion(module, line, character, lineText);
+    // Try current module first
+    const items = handleDotCompletion(module, line, character, lineText);
+    if (items.length > 0) return items;
+
+    // Fall back to last good module — the current evaluation may have lost
+    // inner scope type info due to the incomplete `expr.` expression
+    const lastGood = docManager.getLastGoodModule(uri);
+    if (lastGood && lastGood !== module) {
+      return handleDotCompletion(lastGood, line, character, lineText);
+    }
+    return items;
+  }
+
+  // For non-dot completion, bail if module has errors
+  if (module.moduleError) {
+    return getKeywordCompletions("");
   }
 
   // Regular completion: collect variables in scope + keywords
@@ -336,45 +352,57 @@ function handleDotCompletion(
     }
 
     // Collect methods/fields
-    const methods: { name: string; detail: string; documentation: string }[] =
-      [];
+    const members: {
+      name: string;
+      detail: string;
+      documentation: string;
+      kind: CompletionItemKind;
+    }[] = [];
 
     if (isArrayType(fieldAccessType)) {
-      methods.push({
+      members.push({
         name: "len",
         detail: "comptime(usize)",
         documentation: "Get the compile-time known length of the array",
+        kind: CompletionItemKind.Property,
       });
     } else if (isSliceType(fieldAccessType)) {
-      methods.push({
+      members.push({
         name: "len",
         detail: "usize",
         documentation: "Get the runtime length of the slice",
+        kind: CompletionItemKind.Property,
       });
     } else if (isStructType(fieldAccessType)) {
       for (const element of fieldAccessType.fields) {
-        methods.push({
+        const docComment = element.docComment;
+        members.push({
           name: element.label,
           detail: typeToString(element.type),
-          documentation: `Field: ${element.label} : ${typeToString(element.type)}`,
+          documentation:
+            docComment ||
+            `Field: ${element.label} : ${typeToString(element.type)}`,
+          kind: CompletionItemKind.Field,
         });
       }
     } else if (isEnumType(fieldAccessType)) {
       for (const variant of fieldAccessType.variants) {
-        methods.push({
+        members.push({
           name: variant.name,
           detail: variant.fields
             ? `(${variant.fields.map((e) => typeToString(e.type)).join(", ")})`
             : "()",
           documentation: `Variant: ${variant.name}`,
+          kind: CompletionItemKind.EnumMember,
         });
       }
     } else if (isUnionType(fieldAccessType)) {
       for (const element of fieldAccessType.fields) {
-        methods.push({
+        members.push({
           name: element.label,
           detail: typeToString(element.type),
           documentation: `Field: ${element.label} : ${typeToString(element.type)}`,
+          kind: CompletionItemKind.Field,
         });
       }
     }
@@ -383,7 +411,7 @@ function handleDotCompletion(
     if (targetExpr && exprIsAtom(targetExpr)) {
       const env = (targetExpr as AtomExpr).$?.env;
       if (env) {
-        addReceiverMethods(methods, env, originalReceiverType);
+        addReceiverMethods(members, env, originalReceiverType);
       }
     }
 
@@ -394,24 +422,27 @@ function handleDotCompletion(
         env = (targetExpr as AtomExpr).$?.env ?? null;
       }
       addTraitMethods(
-        methods,
+        members,
         fieldAccessType as Type & { trait: NonNullable<Type["trait"]> },
         originalReceiverType,
         env
       );
     }
 
-    // Convert to completion items
+    // Convert to completion items, filtering out internal symbols
     const seenNames = new Set<string>();
-    for (const method of methods) {
-      if (seenNames.has(method.name)) continue;
-      seenNames.add(method.name);
+    for (const member of members) {
+      if (seenNames.has(member.name)) continue;
+      // Skip internal compiler-generated methods
+      if (member.name.startsWith("___") || member.name.startsWith("__yo_"))
+        continue;
+      seenNames.add(member.name);
       items.push({
-        label: method.name,
-        kind: CompletionItemKind.Method,
-        detail: method.detail,
-        documentation: method.documentation,
-        sortText: `0_${method.name}`,
+        label: member.name,
+        kind: member.kind,
+        detail: member.detail,
+        documentation: member.documentation,
+        sortText: `0_${member.name}`,
       });
     }
   } catch (error) {
@@ -543,7 +574,12 @@ const COMMON_METHOD_NAMES = [
 ];
 
 function addReceiverMethods(
-  methods: { name: string; detail: string; documentation: string }[],
+  methods: {
+    name: string;
+    detail: string;
+    documentation: string;
+    kind: CompletionItemKind;
+  }[],
   env: Environment,
   receiverType: Type
 ): void {
@@ -573,6 +609,7 @@ function addReceiverMethods(
                 name: methodName,
                 detail: typeToString(method.type),
                 documentation: `Method ${methodName}`,
+                kind: CompletionItemKind.Method,
               });
             }
           } catch {
@@ -580,6 +617,7 @@ function addReceiverMethods(
               name: methodName,
               detail: typeToString(method.type),
               documentation: `Method ${methodName}`,
+              kind: CompletionItemKind.Method,
             });
           }
         } else {
@@ -587,6 +625,7 @@ function addReceiverMethods(
             name: methodName,
             detail: typeToString(method.type),
             documentation: `Method ${methodName}`,
+            kind: CompletionItemKind.Method,
           });
         }
       }
@@ -597,7 +636,12 @@ function addReceiverMethods(
 }
 
 function addTraitMethods(
-  methods: { name: string; detail: string; documentation: string }[],
+  methods: {
+    name: string;
+    detail: string;
+    documentation: string;
+    kind: CompletionItemKind;
+  }[],
   fieldAccessType: Type & { trait: NonNullable<Type["trait"]> },
   originalReceiverType: Type,
   env: Environment | null
@@ -618,6 +662,7 @@ function addTraitMethods(
             name: element.label,
             detail: typeToString(element.type),
             documentation: `Method ${element.label}`,
+            kind: CompletionItemKind.Method,
           });
         }
       } catch {
@@ -625,6 +670,7 @@ function addTraitMethods(
           name: element.label,
           detail: typeToString(element.type),
           documentation: `Method ${element.label}`,
+          kind: CompletionItemKind.Method,
         });
       }
     } else {
@@ -632,6 +678,7 @@ function addTraitMethods(
         name: element.label,
         detail: typeToString(element.type),
         documentation: `Method ${element.label}`,
+        kind: CompletionItemKind.Method,
       });
     }
   }
