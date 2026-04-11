@@ -79,6 +79,24 @@ export function handleCompletion(
   const isDotCompletion = textUpToCursor.endsWith(".");
 
   if (isDotCompletion) {
+    // Check if this is enum variant dot-prefix completion (e.g., `.Some`, `.None`)
+    // triggered by `.` after `=`, `=>`, `(`, `,`, `return`, or at start of expression
+    const textBeforeDot = textUpToCursor.slice(0, -1).trimEnd();
+    const isEnumDotPrefix =
+      textBeforeDot.length === 0 ||
+      textBeforeDot.endsWith("=") ||
+      textBeforeDot.endsWith("(") ||
+      textBeforeDot.endsWith(",") ||
+      textBeforeDot.endsWith("return") ||
+      textBeforeDot.endsWith("{") ||
+      textBeforeDot.endsWith(";");
+
+    if (isEnumDotPrefix) {
+      const mod = docManager.getLastGoodModule(uri) ?? module;
+      const enumItems = handleEnumVariantCompletion(mod, line, character);
+      if (enumItems.length > 0) return enumItems;
+    }
+
     // Try current module first
     const items = handleDotCompletion(module, line, character, lineText);
     if (items.length > 0) return items;
@@ -409,6 +427,34 @@ function handleDotCompletion(
           kind: CompletionItemKind.Field,
         });
       }
+    } else if (isModuleType(fieldAccessType)) {
+      for (const field of fieldAccessType.fields) {
+        if (!field.label) continue;
+        if (field.label.startsWith("___") || field.label.startsWith("__yo_"))
+          continue;
+        const kind = isFunctionType(field.type)
+          ? CompletionItemKind.Function
+          : isModuleType(field.type)
+            ? CompletionItemKind.Module
+            : isTypeHierarchyType(field.type)
+              ? CompletionItemKind.Class
+              : CompletionItemKind.Field;
+        try {
+          members.push({
+            name: field.label,
+            detail: typeToString(field.type),
+            documentation: field.docComment || `${field.label}`,
+            kind,
+          });
+        } catch {
+          members.push({
+            name: field.label,
+            detail: "",
+            documentation: field.docComment || `${field.label}`,
+            kind,
+          });
+        }
+      }
     }
 
     // Collect methods from trait fields and generic impl registry
@@ -443,6 +489,164 @@ function handleDotCompletion(
   }
 
   return items;
+}
+
+/**
+ * Handle enum variant dot-prefix completion (e.g., `.Some`, `.None`).
+ * Triggered when the user types `.` in a context where an enum value is expected.
+ * Infers the expected enum type by scanning the AST for:
+ * - Typed declarations: `(x : EnumType) = .`
+ * - Match expressions: `match(expr, .`
+ * - Function arguments at the cursor position
+ */
+function handleEnumVariantCompletion(
+  module: { evaluator: { getProgram(): Expr[]; getTokens(): Token[] } },
+  line: number,
+  _character: number
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+
+  try {
+    const program = module.evaluator.getProgram();
+
+    // Strategy 1: Find typed declarations on this line or the surrounding context.
+    // Look for `(var : Type) = expr` where the cursor is at `expr`.
+    // Also look for match/cond branches and function call arguments.
+    const enumType = inferExpectedEnumType(program, line);
+    if (enumType && isEnumType(enumType)) {
+      for (const variant of enumType.variants) {
+        const detail = variant.fields
+          ? `(${variant.fields.map((f) => typeToString(f.type)).join(", ")})`
+          : "";
+        items.push({
+          label: `.${variant.name}`,
+          kind: CompletionItemKind.EnumMember,
+          detail,
+          documentation: `Variant: ${variant.name}`,
+          sortText: `0_${variant.name}`,
+          // Insert without the leading dot since user already typed `.`
+          insertText: variant.name,
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return items;
+}
+
+/**
+ * Infer the expected enum type from context at the given line.
+ * Walks the AST looking for typed declarations and match expressions.
+ */
+function inferExpectedEnumType(program: Expr[], line: number): Type | null {
+  for (const expr of program) {
+    const result = findExpectedTypeAtLine(expr, line);
+    if (result) return result;
+  }
+  return null;
+}
+
+/**
+ * Recursively search the AST for an expression that provides a type context at the given line.
+ */
+function findExpectedTypeAtLine(expr: Expr, line: number): Type | null {
+  if (!exprIsFunctionCall(expr)) return null;
+  const fnExpr = expr as FnCallExpr;
+
+  // Pattern: `(var : Type) = expr` — the `=` call
+  // In Yo AST, `(x : Type) = value` is parsed as `=(:(x, Type), value)`
+  if (exprIsAtom(fnExpr.func) && fnExpr.func.token.value === "=") {
+    if (fnExpr.args.length >= 2) {
+      const lhs = fnExpr.args[0]!;
+      // Check if the RHS is on the target line
+      const rhs = fnExpr.args[1]!;
+      const rhsLine = exprIsAtom(rhs)
+        ? rhs.token.position.row
+        : exprIsFunctionCall(rhs)
+          ? ((rhs as FnCallExpr).token?.position?.row ?? -1)
+          : -1;
+
+      if (rhsLine === line || isExprNearLine(lhs, line)) {
+        // The LHS should be a `:` call like `:(x, Type)`
+        if (exprIsFunctionCall(lhs)) {
+          const lhsFn = lhs as FnCallExpr;
+          if (
+            exprIsAtom(lhsFn.func) &&
+            lhsFn.func.token.value === ":" &&
+            lhsFn.args.length >= 2
+          ) {
+            const typeExpr = lhsFn.args[1]!;
+            // The type expr should have been evaluated
+            if (typeExpr.$?.value && isTypeValue(typeExpr.$.value)) {
+              return typeExpr.$.value.value;
+            }
+            if (typeExpr.$?.type) {
+              return typeExpr.$.type;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Pattern: `match(expr, .Variant => ...)` — provide variants of the matched expression's type
+  if (exprIsAtom(fnExpr.func) && fnExpr.func.token.value === "match") {
+    if (fnExpr.args.length >= 1) {
+      // Check if any match branch is on the target line
+      for (let i = 1; i < fnExpr.args.length; i++) {
+        const arg = fnExpr.args[i]!;
+        if (isExprNearLine(arg, line)) {
+          // The first arg is the matched expression — get its type
+          const matchedExpr = fnExpr.args[0]!;
+          if (matchedExpr.$?.type) {
+            return matchedExpr.$.type;
+          }
+        }
+      }
+    }
+  }
+
+  // Pattern: `cond(expr => result, .Variant => ...)` — similar to match
+  if (exprIsAtom(fnExpr.func) && fnExpr.func.token.value === "cond") {
+    // cond branches use `=>` — check if any branch has the cursor line
+    for (const arg of fnExpr.args) {
+      if (isExprNearLine(arg, line)) {
+        // For cond, the branch condition might be an enum pattern
+        if (arg.$?.type && isEnumType(arg.$.type)) {
+          return arg.$.type;
+        }
+      }
+    }
+  }
+
+  // Recurse into sub-expressions
+  let result = findExpectedTypeAtLine(fnExpr.func, line);
+  if (result) return result;
+  for (const arg of fnExpr.args) {
+    result = findExpectedTypeAtLine(arg, line);
+    if (result) return result;
+  }
+  return null;
+}
+
+/**
+ * Check if an expression is on or near the given line.
+ */
+function isExprNearLine(expr: Expr, line: number): boolean {
+  if (exprIsAtom(expr)) {
+    return expr.token.position.row === line;
+  }
+  if (exprIsFunctionCall(expr)) {
+    const fn = expr as FnCallExpr;
+    if (fn.token?.position?.row === line) return true;
+    if (exprIsAtom(fn.func) && fn.func.token.position.row === line) return true;
+    for (const arg of fn.args) {
+      if (isExprNearLine(arg, line)) return true;
+    }
+  }
+  return false;
 }
 
 function findVariableInScope(
