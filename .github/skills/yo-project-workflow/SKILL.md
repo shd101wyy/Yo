@@ -18,6 +18,7 @@ Use this skill when you need to:
 - understand or edit `build.yo`
 - choose between `yo build`, `yo compile`, and `yo test`
 - manage dependencies with `yo install` or `yo fetch`
+- generate API documentation with `yo doc` or `build.doc()`
 - reason about targets, compilers, or cross-platform setup
 
 ## Workflow
