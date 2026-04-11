@@ -80,6 +80,13 @@ const lspConfig = {
   banner: {
     js: "#!/usr/bin/env node",
   },
+  // Override external: bundle vscode-languageserver deps into the LSP server
+  // so it works standalone when installed as a VS Code extension
+  external: sharedConfig.external.filter(
+    (dep) =>
+      !dep.startsWith("vscode-languageserver") &&
+      dep !== "vscode-languageserver-textdocument"
+  ),
 };
 
 async function main() {
