@@ -213,7 +213,7 @@ function renderTrait(trait: DocTrait): string {
     lines.push("");
   }
 
-  lines.push(`*trait*`);
+  lines.push(`*${trait.kind}*`);
   lines.push("");
   lines.push("```rust");
   lines.push(trait.signature);

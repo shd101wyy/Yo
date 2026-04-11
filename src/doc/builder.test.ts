@@ -322,12 +322,14 @@ describe("buildCrossReferences", () => {
         traits: [
           {
             name: "Display",
+            kind: "trait",
             signature: "trait(display: fn(Self) -> str)",
             methods: [],
             implementors: [],
           },
           {
             name: "Clone",
+            kind: "trait",
             signature: "trait(clone: fn(Self) -> Self)",
             methods: [],
             implementors: [],

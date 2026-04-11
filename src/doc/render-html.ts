@@ -784,7 +784,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
     for (const tr of mod.traits) {
       entries.push({
         name: tr.name,
-        kind: "trait",
+        kind: tr.kind,
         href: `module/${fname}.html#trait-${tr.name}`,
         doc: tr.doc ? firstSentence(tr.doc) : undefined,
         module: mod.name,
@@ -1174,7 +1174,7 @@ function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
   let html = `<div class="item-card${tr.deprecated ? " deprecated" : ""}" id="trait-${escapeHtml(tr.name)}">
 <div class="item-header">
   <a class="item-name" href="#trait-${escapeHtml(tr.name)}">${escapeHtml(tr.name)}</a>
-  <span class="item-kind">trait</span>
+  <span class="item-kind">${tr.kind}</span>
 </div>
 <div class="item-body">
 <div class="decl-signature">${escapeHtml(tr.signature)}</div>`;
@@ -1279,7 +1279,12 @@ function renderModuleCard(md: MarkdownRenderer, mod: DocModule): string {
   const stats = [
     mod.functions.length > 0 ? `${mod.functions.length} fn` : "",
     mod.types.length > 0 ? `${mod.types.length} type` : "",
-    mod.traits.length > 0 ? `${mod.traits.length} trait` : "",
+    mod.traits.filter((t) => t.kind === "trait").length > 0
+      ? `${mod.traits.filter((t) => t.kind === "trait").length} trait`
+      : "",
+    mod.traits.filter((t) => t.kind === "module").length > 0
+      ? `${mod.traits.filter((t) => t.kind === "module").length} module`
+      : "",
     mod.constants.length > 0 ? `${mod.constants.length} const` : "",
   ]
     .filter(Boolean)

@@ -96,6 +96,8 @@ export interface DocType {
 export interface DocTrait {
   name: string;
   doc?: string;
+  /** Whether this is a trait or a module */
+  kind: "trait" | "module";
   signature: string;
   typeParams?: DocParam[];
   associatedTypes?: DocAssociatedType[];

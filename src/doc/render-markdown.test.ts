@@ -57,6 +57,7 @@ function makeType(overrides: Partial<DocType> = {}): DocType {
 function makeTrait(overrides: Partial<DocTrait> = {}): DocTrait {
   return {
     name: "Display",
+    kind: "trait",
     signature: "Display :: trait(display : (fn(self: Self) -> str))",
     doc: "Format a value for display.",
     typeParams: [],

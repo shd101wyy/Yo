@@ -113,6 +113,7 @@ describe("buildSearchIndex", () => {
           traits: [
             {
               name: "Display",
+              kind: "trait",
               signature: "trait(show: fn(self: Self) -> String)",
               methods: [],
               implementors: ["Point"],
@@ -346,6 +347,7 @@ describe("renderDocSite", () => {
           traits: [
             {
               name: "Iterator",
+              kind: "trait",
               doc: "An iterator trait.",
               signature:
                 "trait(Item: Type, next: fn(self: Self) -> Option(Item))",
