@@ -170,10 +170,23 @@ function documentFile(
         `  Warning: ${moduleName} has evaluation errors — documenting with available info`
       );
     }
-  } catch (err) {
-    console.warn(
-      `  Warning: ${moduleName} evaluation failed, using token-only docs: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`
-    );
+  } catch {
+    // Shared evaluator state may cause failures — retry with a fresh ModuleManager
+    // Reset global state first so the fresh manager starts clean
+    moduleManager.resetAllState();
+    try {
+      const freshManager = new ModuleManager();
+      const result = freshManager.loadModule(modulePath);
+      moduleValue = result.moduleValue;
+      freshManager.resetAllState();
+      if (verbose) {
+        console.log(`  Retried ${moduleName} with fresh evaluator — success`);
+      }
+    } catch (retryErr) {
+      console.warn(
+        `  Warning: ${moduleName} evaluation failed, using token-only docs: ${retryErr instanceof Error ? retryErr.message.split("\n")[0] : String(retryErr)}`
+      );
+    }
   }
 
   if (moduleValue) {
