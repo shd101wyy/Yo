@@ -317,15 +317,17 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   color: var(--text-secondary);
 }
 
-.doc-content code {
+code {
   font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--bg-code);
   padding: 2px 5px;
   border-radius: 3px;
+  border: 1px solid var(--border-light);
+  color: var(--text);
 }
 
-.doc-content pre {
+pre {
   background: var(--bg-code-block);
   color: var(--text-code);
   padding: 16px;
@@ -336,11 +338,27 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   line-height: 1.5;
 }
 
-.doc-content pre code {
+pre code {
   background: none;
   padding: 0;
+  border: none;
   color: inherit;
+  font-size: inherit;
 }
+
+/* Syntax highlighting — One Dark inspired */
+.hljs-keyword { color: #c678dd; }
+.hljs-type { color: #e5c07b; }
+.hljs-string { color: #98c379; }
+.hljs-number { color: #d19a66; }
+.hljs-comment { color: #5c6370; font-style: italic; }
+.hljs-function { color: #61afef; }
+.hljs-operator { color: #56b6c2; }
+.hljs-punctuation { color: #abb2bf; }
+.hljs-property { color: #e06c75; }
+.hljs-constant { color: #d19a66; }
+.hljs-builtin { color: #e5c07b; }
+.hljs-attr { color: #d19a66; }
 
 /* Item cards */
 .item-list { margin: 12px 0; }
@@ -729,6 +747,61 @@ function generateSearchJS(): string {
 `.trim();
 }
 
+// ── Syntax highlighting JS ───────────────────────────────────────────
+
+function generateHighlightJS(): string {
+  return `
+(function() {
+  var KEYWORDS = /\\b(fn|struct|enum|union|module|trait|impl|object|newtype|open|import|export|return|escape|recur|match|cond|if|while|for|break|continue|test|assert|comptime|runtime|comptime_assert|comptime_expect_error|forall|using|given|where|defer|dyn|pub|let|const|type|true|false|else|in|as|self|Self)\\b/g;
+  var TYPES = /\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|rune|str|usize|isize|unit|void|Type|comptime_string|comptime_int|comptime_float)\\b/g;
+  var BUILTINS = /\\b(Option|Result|Box|box|String|Future|IO|Impl|Slice|Array|Pointer|Fn|HashMap|ArrayList|BTreeMap|Deque|LinkedList|HashSet|BTreeSet|Rc|Arc|Mutex|Channel|WaitGroup|Thread|JoinHandle|Range)\\b/g;
+  var STRINGS = /(\`(?:[^\`\\\\]|\\\\.)*\`|"(?:[^"\\\\]|\\\\.)*")/g;
+  var NUMBERS = /\\b(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*\\.?[0-9_]*(?:[eE][+-]?[0-9_]+)?)\\b/g;
+  var LINE_COMMENTS = /(\\/\\/(?!\\/)[^\\n]*)/g;
+  var DOC_COMMENTS = /(\\/\\/\\/[^\\n]*|\\/\\/![^\\n]*)/g;
+  var BLOCK_COMMENTS = /(\\/\\*[\\s\\S]*?\\*\\/)/g;
+  var OPERATORS = /([=!<>&|+\\-*\\/%^~]+|::|\\.\\.|=>|\\?=|:=)/g;
+  var PROPERTIES = /\\.([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\(|\\b)/g;
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function highlight(code) {
+    var tokens = [];
+    var src = code;
+    // Extract strings and comments first (they take priority)
+    var protected_ = [];
+    var placeholder = function(match, cls) {
+      var id = '\\x00' + protected_.length + '\\x00';
+      protected_.push('<span class="' + cls + '">' + esc(match) + '</span>');
+      return id;
+    };
+    // Block comments first
+    src = src.replace(BLOCK_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    // Doc comments before line comments
+    src = src.replace(DOC_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    src = src.replace(LINE_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    // Strings (template and double-quoted)
+    src = src.replace(STRINGS, function(m) { return placeholder(m, 'hljs-string'); });
+    // Now highlight the rest
+    src = esc(src);
+    src = src.replace(KEYWORDS, '<span class="hljs-keyword">$1</span>');
+    src = src.replace(TYPES, '<span class="hljs-type">$1</span>');
+    src = src.replace(BUILTINS, '<span class="hljs-builtin">$1</span>');
+    src = src.replace(NUMBERS, '<span class="hljs-number">$1</span>');
+    // Restore protected tokens
+    for (var i = 0; i < protected_.length; i++) {
+      src = src.replace('\\x00' + i + '\\x00', protected_[i]);
+    }
+    return src;
+  }
+
+  document.querySelectorAll('pre > code[class*="language-"]').forEach(function(el) {
+    el.innerHTML = highlight(el.textContent || '');
+  });
+})();
+`.trim();
+}
+
 // ── Search index builder ─────────────────────────────────────────────
 
 interface SearchEntry {
@@ -841,6 +914,7 @@ ${content}
 <button id="back-to-top" class="back-to-top" aria-label="Back to top">&uarr;</button>
 <script>window.__SEARCH_INDEX = ${JSON.stringify(searchIndex)};</script>
 <script>${jsText}</script>
+<script>${generateHighlightJS()}</script>
 </body>
 </html>`;
 }
@@ -1425,6 +1499,7 @@ export {
   firstSentence,
   generateCSS,
   generateSearchJS,
+  generateHighlightJS,
   moduleToFilename,
   moduleDisplayName,
   moduleGroup,
