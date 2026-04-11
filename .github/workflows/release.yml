@@ -125,15 +125,15 @@ jobs:
           asset_name: ${{ steps.create_vsix.outputs.vsixPath}}
           asset_content_type: application/vsix
 
-      - name: Generate standard library documentation
+      - name: Generate documentation website
         run: |
           bun run build
-          ./yo-cli doc ./std -o yo-out/std-doc --name "Yo Standard Library"
+          bun run scripts/build-site.ts --output yo-out/site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: yo-out/std-doc
+          path: yo-out/site
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
