@@ -680,7 +680,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           result.traits.push({
             name: fieldName,
             doc,
-            kind: "trait",
+            kind: "trait-function",
             signature: typeToString(field.type),
             typeParams: getTypeConstructorParams(field),
             associatedTypes:
@@ -713,7 +713,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           result.traits.push({
             name: fieldName,
             doc,
-            kind: "module",
+            kind: "module-function",
             signature: typeToString(field.type),
             typeParams: getTypeConstructorParams(field),
             methods: moduleMethods,
@@ -736,8 +736,8 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
               doc,
               kind:
                 retType.baseType && isModuleType(retType.baseType)
-                  ? "module"
-                  : "trait",
+                  ? "module-function"
+                  : "trait-function",
               signature: typeToString(field.type),
               typeParams: getTypeConstructorParams(field),
               methods: [],
