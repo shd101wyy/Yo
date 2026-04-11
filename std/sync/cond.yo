@@ -1,3 +1,5 @@
+//! Condition variable for thread synchronization.
+
 { __YO_THREAD_SYNC_TYPE, mutex_t, Mutex } :: import "./mutex";
 
 extern "Yo",
@@ -9,6 +11,7 @@ extern "Yo",
   __yo_cond_destroy : (fn(cv : *(__YO_COND_TYPE)) -> unit)
 ;
 
+/// Low-level condition variable (manual lifetime via `destroy`).
 cond_t :: newtype(
   cv : __YO_COND_TYPE
 );
@@ -34,6 +37,7 @@ impl(cond_t,
   })
 );
 
+/// Reference-counted condition variable with automatic cleanup via `Dispose`.
 Cond :: object(
   cv : __YO_COND_TYPE
 );

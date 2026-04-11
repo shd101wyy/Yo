@@ -276,9 +276,11 @@ export interface EvaluatedExprData {
   primitivePatternValues?: (Value | undefined)[];
 
   /**
-   * Comment for the expression.
+   * Doc comment for the expression.
+   * Set during evaluation when the expression (e.g., a declaration) is preceded
+   * by triple-slash or block doc comment tokens.
    */
-  comment?: string;
+  docComment?: string;
 
   /**
    * For closures that capture Rc variables, this contains expressions that
@@ -1289,6 +1291,7 @@ export const BuiltinFunctions = {
   __yo_build_add_import: ["__yo_build_add_import"],
   __yo_build_add_cflags: ["__yo_build_add_cflags"],
   __yo_build_dep_module: ["__yo_build_dep_module"],
+  __yo_build_doc: ["__yo_build_doc"],
 
   // Inline assembly
   asm: ["asm"],

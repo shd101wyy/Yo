@@ -1,12 +1,12 @@
-// std/encoding/hex.yo - Hexadecimal encoding/decoding
-//
-// Converts between raw bytes (ArrayList(u8)) and hex strings.
-//
-// Example:
-//   { hex_encode, hex_decode } :: import "std/encoding/hex";
-//
-//   s := hex_encode(data);         // "deadbeef"
-//   b := hex_decode("deadbeef");
+//! Hexadecimal encoding and decoding.
+//!
+//! Converts between raw bytes (`ArrayList(u8)`) and hex strings.
+//!
+//! Example:
+//!   { hex_encode, hex_decode } :: import "std/encoding/hex";
+//!
+//!   s := hex_encode(data);         // "deadbeef"
+//!   b := hex_decode("deadbeef");
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
@@ -17,8 +17,11 @@ open import "../string";
 // Error type
 // ============================================================================
 
+/// Encoding/decoding error type.
 EncodingError :: enum(
+  /// Invalid character encountered during decoding.
   InvalidChar(ch: u8),
+  /// Input string has odd length (hex requires even length).
   OddLength
 );
 
@@ -55,6 +58,7 @@ _hex_encode_impl :: (fn(data: ArrayList(u8), hex_chars: str) -> String)({
   String.from_bytes(out)
 });
 
+/// Encode bytes as a lowercase hexadecimal string.
 hex_encode :: (fn(data: ArrayList(u8)) -> String)(
   _hex_encode_impl(data, _HEX_CHARS)
 );
@@ -74,7 +78,7 @@ _hex_nibble :: (fn(c: u8, using(exn : Exception)) -> u8)(
   )
 );
 
-// Decode a hexadecimal string into bytes.
+/// Decode a hexadecimal string to bytes. Throws via `Exception` on invalid input.
 hex_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8))({
   cond(
     (((s.len() % usize(2)) != usize(0))) => {

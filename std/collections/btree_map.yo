@@ -1,23 +1,20 @@
-// std/collections/btree_map.yo - Sorted map backed by a sorted ArrayList
-//
-// BTreeMap maintains entries sorted by key, enabling ordered iteration and
-// O(log n) lookups via binary search. Insert is O(n) (shift-based).
-//
-// Example:
-//   { BTreeMap } :: import "std/collections/btree_map";
-//
-//   m := BTreeMap(String, i32).new();
-//   m.set(String.from("b"), 2);
-//   m.set(String.from("a"), 1);
-//   // Iteration order: a, b
+//! Sorted map backed by a sorted array with O(log n) lookup via binary search.
+//!
+//! # Example
+//!
+//! ```rust
+//! { BTreeMap } :: import "std/collections/btree_map";
+//!
+//! m := BTreeMap(String, i32).new();
+//! m.set(String.from("b"), 2);
+//! m.set(String.from("a"), 1);
+//! // Iteration order: a, b
+//! ```
 
 { ArrayList } :: import "./array_list";
 open import "../string";
 
-// ============================================================================
-// BTreeEntry - key/value pair
-// ============================================================================
-
+/// Key-value pair entry stored in a BTreeMap.
 BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(key: K, value: V)
 );
@@ -27,10 +24,8 @@ export BTreeEntry;
 // Internal result from binary search.
 _FindResult :: struct(idx: usize, found: bool);
 
-// ============================================================================
-// BTreeMap
-// ============================================================================
-
+/// Sorted map maintaining entries in key order.
+/// Provides ordered iteration and O(log n) lookup via binary search. Insert is O(n).
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   object(
     _entries : ArrayList(BTreeEntry(K, V))

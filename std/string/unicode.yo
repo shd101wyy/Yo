@@ -1,14 +1,13 @@
-// Unicode-aware case conversion
-//
-// Provides Unicode-aware lowercase/uppercase conversion using C's towlower/towupper,
-// plus hand-coded tables for special case folding entries where one codepoint
-// maps to multiple codepoints.
-//
-// Example:
-//   { unicode_to_lowercase, unicode_to_uppercase } :: import "std/string/unicode";
-//
-//   lower := unicode_to_lowercase(`HELLO WÖRLD`);  // "hello wörld"
-//   upper := unicode_to_uppercase(`hello wörld`);  // "HELLO WÖRLD"
+//! Unicode-aware case conversion using full case folding rules.
+//!
+//! # Example
+//!
+//! ```rust
+//! { unicode_to_lowercase, unicode_to_uppercase } :: import "std/string/unicode";
+//!
+//! lower := unicode_to_lowercase(`HELLO WÖRLD`);  // "hello wörld"
+//! upper := unicode_to_uppercase(`hello wörld`);  // "HELLO WÖRLD"
+//! ```
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
@@ -164,8 +163,8 @@ _special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)({
 });
 
 // Convert a String to lowercase using Unicode-aware case mapping.
-// Handles both ASCII and non-ASCII codepoints via C's towlower,
-// plus special multi-char expansions (e.g., ẞ → ss).
+/// Convert a `String` to lowercase using Unicode case mapping rules.
+/// Handles both ASCII and non-ASCII codepoints, plus special multi-char expansions (e.g., ẞ → ss).
 unicode_to_lowercase :: (fn(input: String) -> String)({
   (bytes : ArrayList(u8)) = input.as_bytes();
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
@@ -202,8 +201,8 @@ unicode_to_lowercase :: (fn(input: String) -> String)({
 });
 
 // Convert a String to uppercase using Unicode-aware case mapping.
-// Handles both ASCII and non-ASCII codepoints via C's towupper,
-// plus special multi-char expansions (e.g., ß → SS, ligatures).
+/// Convert a `String` to uppercase using Unicode case mapping rules.
+/// Handles both ASCII and non-ASCII codepoints, plus special multi-char expansions (e.g., ß → SS).
 unicode_to_uppercase :: (fn(input: String) -> String)({
   (bytes : ArrayList(u8)) = input.as_bytes();
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());

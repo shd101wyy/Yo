@@ -1,3 +1,4 @@
+//! Async DNS resolution.
 // std/net/dns.yo - High-level DNS resolution
 //
 // Wraps std/sys/dns with typed DNS lookup functions.
@@ -36,7 +37,7 @@ IO_dns :: import "../sys/dns";
 // DNS lookup
 // ============================================================================
 
-// Resolve a hostname to a list of IP addresses.
+/// Resolve a hostname to a list of IP addresses.
 lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
     host_cstr_bytes := host.to_cstr();
@@ -84,7 +85,7 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr
   })
 );
 
-// Resolve a hostname and port to a list of socket addresses.
+/// Resolve a hostname and port to a list of socket addresses.
 resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
     addrs := io.await(lookup_host(host, using(io)));

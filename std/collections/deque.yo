@@ -1,22 +1,20 @@
-// std/collections/deque.yo - Double-ended queue (ring buffer)
-//
-// A Deque supports O(1) push/pop at both ends using a circular buffer.
-//
-// Example:
-//   { Deque } :: import "std/collections/deque";
-//
-//   d := Deque(i32).new();
-//   d.push_back(1);
-//   d.push_front(0);
-//   x := d.pop_front().unwrap();  // 0
+//! Double-ended queue (ring buffer) with O(1) push/pop at both ends.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Deque } :: import "std/collections/deque";
+//!
+//! d := Deque(i32).new();
+//! d.push_back(1);
+//! d.push_front(0);
+//! x := d.pop_front().unwrap();  // 0
+//! ```
 
 { GlobalAllocator, AllocError } :: import "../allocator";
 { malloc, realloc, free } :: GlobalAllocator;
 
-// ============================================================================
-// Deque
-// ============================================================================
-
+/// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
     _buf      : ?*(T),

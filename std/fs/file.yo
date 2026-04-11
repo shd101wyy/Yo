@@ -1,28 +1,28 @@
-// std/fs/file.yo - High-level file object
-//
-// Wraps a file descriptor with typed async I/O operations.
-// Uses Exception effect for error handling.
-//
-// Example:
-//   { File, read_string, write_file, OpenMode } :: import "std/fs/file";
-//
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) := Exception(
-//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//         { println(error); panic("Exception found."); }
-//       )
-//     );
-//
-//     // Write a file
-//     io.await(write_file(Path.new(`test.txt`), `hello world`));
-//
-//     // Read it back
-//     content := io.await(read_string(Path.new(`test.txt`)));
-//     println(content);
-//
-//     // Open with OpenMode
-//     f := io.await(File.open(Path.new(`test.txt`), .Read));
-//   });
+//! Async file I/O operations with Exception-based error handling.
+//!
+//! Wraps a file descriptor with typed async I/O operations.
+//! Uses the `Exception` effect for error handling.
+//!
+//! Example:
+//!   { File, read_string, write_file, OpenMode } :: import "std/fs/file";
+//!
+//!   main :: (fn(using(io : IO)) -> unit)({
+//!     given(exn) := Exception(
+//!       throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!         { println(error); panic("Exception found."); }
+//!       )
+//!     );
+//!
+//!     // Write a file
+//!     io.await(write_file(Path.new(`test.txt`), `hello world`));
+//!
+//!     // Read it back
+//!     content := io.await(read_string(Path.new(`test.txt`)));
+//!     println(content);
+//!
+//!     // Open with OpenMode
+//!     f := io.await(File.open(Path.new(`test.txt`), .Read));
+//!   });
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
@@ -49,6 +49,10 @@ IO_seek :: import "../sys/seek";
 // File
 // ============================================================================
 
+/// An open file handle with async read/write operations.
+///
+/// Provides methods for reading, writing, seeking, and querying file metadata.
+/// Files are automatically closed when disposed.
 File :: object(
   _fd       : i32,
   _path     : Path,
@@ -56,7 +60,7 @@ File :: object(
 );
 
 impl(File,
-  // Open a file with OpenMode and custom permissions.
+  /// Open a file at `path` with the given mode and custom permissions.
   open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))({
     flags := _open_mode_to_flags(mode);
     file_mode := cond(
@@ -77,33 +81,33 @@ impl(File,
     })
   }),
 
-  // Open a file from a str path with OpenMode and custom permissions.
+  /// Open a file from a `str` path with the given mode and custom permissions.
   open_with_str : (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
     File.open_with(Path.new(String.from(path)), mode, perm)
   ),
 
-  // Open a file from a C string path with OpenMode and custom permissions.
+  /// Open a file from a C string path with the given mode and custom permissions.
   open_with_cstr : (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
     File.open_with(Path.from_cstr(path), mode, perm)
   ),
 
-  // Open a file with OpenMode and default permissions.
+  /// Open a file at `path` with the given mode and default permissions (0o644).
   open : (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
     File.open_with(path, mode, FilePermission.default())
   ),
 
-  // Open a file from a str path with OpenMode and default permissions.
+  /// Open a file from a `str` path with the given mode and default permissions.
   open_str : (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
     File.open(Path.new(String.from(path)), mode)
   ),
 
-  // Open a file from a C string path with OpenMode and default permissions.
+  /// Open a file from a C string path with the given mode and default permissions.
   open_cstr : (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
     File.open(Path.from_cstr(path), mode)
   ),
 
-  // Read up to `size` bytes into buffer.
-  // Returns number of bytes read.
+  /// Read up to `size` bytes into the buffer `buf`.
+  /// Returns the number of bytes actually read.
   read : (fn(self: Self, buf: *(u8), size: u32, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
@@ -112,8 +116,8 @@ impl(File,
     })
   }),
 
-  // Write a String to the file.
-  // Returns number of bytes written.
+  /// Write a `String` to the file.
+  /// Returns the number of bytes written.
   write_string : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
@@ -128,8 +132,8 @@ impl(File,
     })
   }),
 
-  // Write bytes from an ArrayList to the file.
-  // Returns number of bytes written.
+  /// Write bytes from an `ArrayList(u8)` to the file.
+  /// Returns the number of bytes written.
   write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) =>
@@ -143,7 +147,7 @@ impl(File,
     )
   }),
 
-  // Read the entire file into a byte list.
+  /// Read the entire file contents into an `ArrayList(u8)`.
   read_bytes : (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
@@ -174,7 +178,7 @@ impl(File,
     })
   }),
 
-  // Read the entire file into a String.
+  /// Read the entire file contents into a `String`.
   read_string : (fn(self: Self, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
     io.async((using(io, exn)) => {
       bytes := io.await(self.read_bytes());
@@ -182,7 +186,7 @@ impl(File,
     })
   ),
 
-  // Sync file data to disk.
+  /// Flush (fsync) file data to disk.
   flush : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
@@ -194,7 +198,7 @@ impl(File,
     })
   }),
 
-  // Seek to a position. Returns the new absolute position.
+  /// Seek to a position relative to `from`. Returns the new absolute byte offset.
   seek : (fn(self: Self, offset: i64, from: SeekFrom, using(exn : Exception)) -> i64)({
     result := IO_seek.lseek(self._fd, offset, _seek_from_to_whence(from));
     cond(
@@ -203,17 +207,17 @@ impl(File,
     )
   }),
 
-  // Get the current file position.
+  /// Get the current file position (byte offset from the beginning).
   position : (fn(self: Self) -> i64)(
     IO_seek.lseek(self._fd, i64(0), IO_seek.SEEK_CUR)
   ),
 
-  // Get the file size.
+  /// Get the file size in bytes.
   size : (fn(self: Self) -> i64)(
     IO_file.file_size(self._fd)
   ),
 
-  // Close the file.
+  /// Close the file descriptor. Safe to call multiple times.
   close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) =>
@@ -231,17 +235,17 @@ impl(File,
     )
   }),
 
-  // Get the file descriptor.
+  /// Get the underlying file descriptor.
   fd : (fn(self: Self) -> i32)(
     self._fd
   ),
 
-  // Get the file path.
+  /// Get the path this file was opened with.
   path : (fn(self: Self) -> Path)(
     self._path
   ),
 
-  // Get file metadata.
+  /// Get file metadata (size, permissions, timestamps).
   metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
     _metadata_mod.metadata(self._path)
   )
@@ -265,7 +269,7 @@ export File, OpenMode, FilePermission, SeekFrom;
 // Convenience functions
 // ============================================================================
 
-// Read an entire file into a String (Path version).
+/// Read an entire file into a `String`.
 read_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Read));
@@ -275,17 +279,17 @@ read_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(String, IO, Except
   })
 );
 
-// Read an entire file into a String (str version).
+/// Read an entire file into a `String` (`str` path variant).
 read_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
   read_string(Path.new(String.from(path)))
 );
 
-// Read an entire file into a String (C string version).
+/// Read an entire file into a `String` (C string path variant).
 read_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(String, IO, Exception)))(
   read_string(Path.from_cstr(path))
 );
 
-// Read an entire file into bytes (Path version).
+/// Read an entire file into a byte list (`ArrayList(u8)`).
 read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Read));
@@ -295,17 +299,17 @@ read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, E
   })
 );
 
-// Read an entire file into bytes (str version).
+/// Read an entire file into bytes (`str` path variant).
 read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
   read_file(Path.new(String.from(path)))
 );
 
-// Read an entire file into bytes (C string version).
+/// Read an entire file into bytes (C string path variant).
 read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
   read_file(Path.from_cstr(path))
 );
 
-// Write a String to a file (creates or truncates) (Path version).
+/// Write a `String` to a file, creating or truncating it.
 write_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Write));
@@ -314,17 +318,17 @@ write_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit,
   })
 );
 
-// Write a str to a file (creates or truncates) (str path version).
+/// Write a `str` to a file, creating or truncating it (`str` path variant).
 write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   write_file(Path.new(String.from(path)), String.from(data))
 );
 
-// Write a str to a file (creates or truncates) (C string path version).
+/// Write a `str` to a file, creating or truncating it (C string path variant).
 write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   write_file(Path.from_cstr(path), String.from(data))
 );
 
-// Write bytes to a file (creates or truncates) (Path version).
+/// Write bytes to a file, creating or truncating it.
 write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Write));
@@ -333,7 +337,7 @@ write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Futu
   })
 );
 
-// Append a str to a file (creates if not exists) (Path version).
+/// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Append));
@@ -342,7 +346,7 @@ append_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit
   })
 );
 
-// Append a str to a file (str path version).
+/// Append a `str` to a file (`str` path variant).
 append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   append_file(Path.new(String.from(path)), String.from(data))
 );
@@ -351,8 +355,8 @@ extern "Yo",
   __yo_statx_buf_size : (fn() -> usize)
 ;
 
-// Check if a path exists (Path version).
-// Does NOT use Exception — returns false for any error (including file not found).
+/// Check if a path exists. Returns `false` for any error including file not found.
+/// Does not use the `Exception` effect.
 exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   io.async((using(io : IO)) => {
     cstr_bytes := path.to_string().to_cstr();
@@ -365,18 +369,17 @@ exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   })
 );
 
-// Check if a path exists (str version).
+/// Check if a path exists (`str` path variant).
 exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO)))(
   exists(Path.new(String.from(path)), using(io))
 );
 
-// Check if a path exists (C string version).
+/// Check if a path exists (C string path variant).
 exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
   exists(Path.from_cstr(path), using(io))
 );
 
-// Check if a path is a regular file.
-// Returns false for any error (including file not found).
+/// Check if a path is a regular file. Returns `false` for any error.
 is_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   io.async((using(io : IO)) => {
     path_str := path.to_string();
@@ -397,18 +400,17 @@ is_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   })
 );
 
-// Check if a path is a regular file (str version).
+/// Check if a path is a regular file (`str` path variant).
 is_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO)))(
   is_file(Path.new(String.from(path)), using(io))
 );
 
-// Check if a path is a regular file (C string version).
+/// Check if a path is a regular file (C string path variant).
 is_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
   is_file(Path.from_cstr(path), using(io))
 );
 
-// Check if a path is a directory.
-// Returns false for any error (including file not found).
+/// Check if a path is a directory. Returns `false` for any error.
 is_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   io.async((using(io : IO)) => {
     path_str := path.to_string();
@@ -429,18 +431,18 @@ is_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
   })
 );
 
-// Check if a path is a directory (str version).
+/// Check if a path is a directory (`str` path variant).
 is_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO)))(
   is_dir(Path.new(String.from(path)), using(io))
 );
 
-// Check if a path is a directory (C string version).
+/// Check if a path is a directory (C string path variant).
 is_dir_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
   is_dir(Path.from_cstr(path), using(io))
 );
 
-// Resolve a path to its canonical absolute form (resolves symlinks, . and ..).
-// Throws on error (e.g. path does not exist).
+/// Resolve a path to its canonical absolute form (resolves symlinks, `.` and `..`).
+/// Throws if the path does not exist.
 canonical :: (fn(path: Path, using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
   io.async((using(io, exn)) => {
     path_str := path.to_string();
@@ -468,12 +470,12 @@ canonical :: (fn(path: Path, using(io : IO)) -> Impl(Future(Path, IO, Exception)
   })
 );
 
-// Resolve a path to its canonical absolute form (str version).
+/// Resolve a path to its canonical absolute form (`str` path variant).
 canonical_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
   canonical(Path.new(String.from(path)))
 );
 
-// Resolve a path to its canonical absolute form (C string version).
+/// Resolve a path to its canonical absolute form (C string path variant).
 canonical_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
   canonical(Path.from_cstr(path))
 );

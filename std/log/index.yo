@@ -1,22 +1,10 @@
-// std/log - Structured logging
-//
-// Provides a global logger with configurable level and output destination.
-//
-// Example:
-//   { info, warn, error, set_level, Level } :: import "std/log";
-//
-//   set_level(.Info);
-//   info(String.from("application started"));
-//   warn(String.from("disk usage high"));
+//! Structured logging with configurable level and output destination.
 
 open import "../string";
 { ToString } :: import "../fmt";
-{ fwrite, stdout, stderr } :: import "../libc/stdio";
+{ fwrite, stdout, stderr, FILE } :: import "../libc/stdio";
 
-// ============================================================================
-// Level
-// ============================================================================
-
+/// Log severity level.
 Level :: enum(Trace, Debug, Info, Warn, Error);
 
 impl(Level, ToString(
@@ -33,10 +21,7 @@ impl(Level, ToString(
 
 export Level;
 
-// ============================================================================
-// LogOutput
-// ============================================================================
-
+/// Where log messages are written.
 LogOutput :: enum(
   Stderr,
   Stdout
@@ -55,13 +40,13 @@ _global_output := LogOutput.Stderr;
 // Configuration
 // ============================================================================
 
-set_level :: (fn(level: Level) -> unit)(
-  _global_level = level
-);
+set_level :: (fn(level: Level) -> unit)({
+  _global_level = level;
+});
 
-set_output :: (fn(output: LogOutput) -> unit)(
-  _global_output = output
-);
+set_output :: (fn(output: LogOutput) -> unit)({
+  _global_output = output;
+});
 
 export set_level, set_output;
 
@@ -80,7 +65,7 @@ _level_value :: (fn(l: Level) -> i32)(
 );
 
 // Write all bytes from a String to the file handle.
-_write_string :: (fn(s: String, dest: *(void)) -> unit)({
+_write_string :: (fn(s: String, dest: *(FILE)) -> unit)({
   bytes := s.as_bytes();
   cond(
     (bytes.len() > usize(0)) => {

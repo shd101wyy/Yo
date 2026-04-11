@@ -47,6 +47,20 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 - Pointer arithmetic: `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=`
 - No NULL in Yo. Nullable pointer: `Option(*(T))` or `?*(T)`. `Option(*(T)).None` is optimized as NULL in C codegen.
 
+## Unsafe operations
+
+The `unsafe` module in `prelude.yo` provides low-level escape hatches:
+
+- `unsafe.drop(value)` — manually drop `value`, running its destructor immediately.
+- `unsafe.cast(value, TargetType)` — reinterpret cast (alias for the internal `__yo_as` builtin).
+
+```rust
+// Cast between types (use sparingly)
+result := unsafe.cast(ptr, *(u8));
+```
+
+**Note:** `__yo_as` is still exported from prelude as a top-level symbol because the evaluator internally transforms type casts (e.g., `u32(x)`) into `__yo_as` calls. Do not remove `export __yo_as;`.
+
 ## SomeType
 
 - `SomeType` automatically implements the `Runtime` trait by default.

@@ -1,18 +1,14 @@
-/**
- * FNV-1a (Fowler-Noll-Vo) hash function
- * A fast, non-cryptographic hash function with good distribution
- * 
- * Constants:
- * - FNV_OFFSET_BASIS: 14695981039346656037 (0xcbf29ce484222325)
- * - FNV_PRIME: 1099511628211 (0x100000001b3)
- */
+//! FNV-1a (Fowler-Noll-Vo) hash function.
+//!
+//! A fast, non-cryptographic hash function with good distribution.
+//! Used internally by `HashMap` and `HashSet`.
+
+/// FNV offset basis constant (0xcbf29ce484222325).
 FNV_OFFSET_BASIS :: u64(14695981039346656037);
+/// FNV prime constant (0x100000001b3).
 FNV_PRIME :: u64(1099511628211);
 
-/**
- * Hash a sequence of bytes using FNV-1a
- * This is the core hash function used for most types
- */
+/// Hash a byte sequence using FNV-1a.
 fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
   {
     hash := FNV_OFFSET_BASIS;
@@ -26,18 +22,10 @@ fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
   }
 ;
 
-/**
- * Combine two hash values
- * Used for hashing composite types (tuples, structs, etc.)
- * 
- * This uses a simple but effective mixing function:
- * hash = hash * 31 + other_hash
- * 
- * The constant 31 is chosen because:
- * - It's prime (better distribution)
- * - It's close to a power of 2 (fast multiplication)
- * - It's been proven effective in Java's hashCode()
- */
+/// Combine two hash values using `hash * 31 + other`.
+///
+/// The constant 31 is chosen because it is prime, close to a power of 2
+/// (fast multiplication), and proven effective in practice.
 hash_combine :: (fn(hash: u64, other: u64) -> u64)
   ((hash * u64(31)) + other)
 ;

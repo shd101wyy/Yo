@@ -1,3 +1,4 @@
+//! Network error types.
 // std/net/errors.yo - Network error type
 //
 // Higher-level network error that wraps IOError with network-specific variants.
@@ -14,22 +15,34 @@ open import "../string";
 // NetError
 // ============================================================================
 
+/// Network-specific error type wrapping lower-level I/O errors.
 NetError :: enum(
+  /// The remote host refused the connection.
   ConnectionRefused,
+  /// The connection was reset by the remote host.
   ConnectionReset,
+  /// The connection was aborted locally.
   ConnectionAborted,
+  /// The address is already in use.
   AddrInUse,
+  /// The requested address is not available.
   AddrNotAvailable,
+  /// The operation timed out.
   TimedOut,
+  /// The remote host is unreachable.
   HostUnreachable,
+  /// The network is unreachable.
   NetworkUnreachable,
+  /// DNS resolution failed.
   DNSFailed(msg: String),
+  /// A wrapped lower-level I/O error.
   IO(err: IOError),
+  /// An unclassified network error with a message.
   Other(msg: String)
 );
 
 impl(NetError,
-  // Convert an IOError to a NetError.
+  /// Convert an `IOError` into the corresponding `NetError` variant.
   from_io : (fn(err: IOError) -> Self)(
     match(err,
       .ConnectionRefused => .ConnectionRefused,
@@ -67,7 +80,8 @@ impl(NetError, ToString(
 impl(NetError, Error());
 
 impl(NetError,
-  // Check a raw result (positive = ok, negative = -errno) and throw on error.
+  /// Check a raw syscall result and throw on error.
+  /// Positive values are returned as-is; negative values are converted to a `NetError` and thrown.
   check : (fn(result: i32, using(exn : Exception)) -> i32)(
     cond(
       (result >= i32(0)) => result,

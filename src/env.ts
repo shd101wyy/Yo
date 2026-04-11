@@ -210,6 +210,13 @@ export interface Variable {
    * rather than function-local variables, so they can be accessed by all module functions.
    */
   isModuleLevel?: boolean;
+
+  /**
+   * Doc comment associated with this declaration.
+   * Set during initialization-assignment evaluation when the declaration
+   * is preceded by triple-slash or block doc comment tokens.
+   */
+  docComment?: string;
 }
 
 export type WhereClauseConstraints = {

@@ -1,6 +1,4 @@
-// std/sys/errors.yo - IOError type
-//
-// Comprehensive I/O error type with errno-to-error mapping.
+//! `IOError` type — comprehensive I/O error type with errno-to-error mapping.
 
 { String } :: import "../string";
 { ToString } :: import "../fmt";
@@ -17,44 +15,75 @@
 // IOError - I/O error type
 // ============================================================================
 
+/// Comprehensive I/O error type with errno-to-error mapping.
 IOError :: enum(
-  // File system errors
+  /// File or directory not found (ENOENT).
   NotFound,
+  /// Permission denied (EACCES, EPERM).
   PermissionDenied,
+  /// File or directory already exists (EEXIST).
   AlreadyExists,
+  /// Not a directory (ENOTDIR).
   NotADirectory,
+  /// Is a directory (EISDIR).
   IsADirectory,
+  /// Directory not empty (ENOTEMPTY).
   DirectoryNotEmpty,
+  /// Broken pipe (EPIPE).
   BrokenPipe,
+  /// Operation would block (EAGAIN, EWOULDBLOCK).
   WouldBlock,
+  /// Invalid argument (EINVAL).
   InvalidInput,
+  /// Interrupted system call (EINTR).
   Interrupted,
+  /// Too many open files (EMFILE, ENFILE).
   TooManyOpenFiles,
+  /// File too large (EFBIG).
   FileTooLarge,
+  /// No space left on device (ENOSPC).
   NoSpace,
+  /// Read-only filesystem (EROFS).
   ReadOnlyFilesystem,
+  /// Cross-device link (EXDEV).
   CrossDeviceLink,
+  /// Too many links (EMLINK).
   TooManyLinks,
+  /// File name too long (ENAMETOOLONG).
   NameTooLong,
+  /// Operation not supported (ENOTSUP, EOPNOTSUPP).
   NotSupported,
+  /// Operation timed out (ETIMEDOUT).
   TimedOut,
+  /// Resource busy (EBUSY).
   Busy,
+  /// Bad file descriptor (EBADF).
   BadFileDescriptor,
+  /// Generic I/O error (EIO).
   IOError,
 
-  // Network errors
+  /// Connection refused (ECONNREFUSED).
   ConnectionRefused,
+  /// Connection reset by peer (ECONNRESET).
   ConnectionReset,
+  /// Connection aborted (ECONNABORTED).
   ConnectionAborted,
+  /// Not connected (ENOTCONN).
   NotConnected,
+  /// Address already in use (EADDRINUSE).
   AddressInUse,
+  /// Address not available (EADDRNOTAVAIL).
   AddressNotAvailable,
+  /// Network unreachable (ENETUNREACH).
   NetworkUnreachable,
+  /// Host unreachable (EHOSTUNREACH).
   HostUnreachable,
+  /// Network is down (ENETDOWN).
   NetworkDown,
+  /// Already connected (EISCONN).
   AlreadyConnected,
 
-  // Generic
+  /// Other error with raw errno code.
   Other(code: i32)
 );
 

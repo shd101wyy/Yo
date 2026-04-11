@@ -1128,7 +1128,8 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_module_link) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_import) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_add_cflags) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_module)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_module) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_doc)
     ) {
       // Evaluate args before dispatching — builtins expect resolved values
       for (let i = 0; i < expr.args.length; i++) {

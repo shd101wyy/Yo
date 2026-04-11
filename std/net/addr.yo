@@ -1,3 +1,4 @@
+//! Network address types — IP addresses and socket addresses.
 // std/net/addr.yo - Network address types
 //
 // High-level IP address and socket address types.
@@ -25,14 +26,17 @@ _ASCII_DOT  :: u8(46);  // '.'
 _ASCII_ZERO :: u8(48);  // '0'
 _ASCII_NINE :: u8(57);  // '9'
 
+/// An IP address, either IPv4 or IPv6.
 IpAddr :: enum(
+  /// An IPv4 address represented as four octets.
   V4(a: u8, b: u8, c: u8, d: u8),
+  /// An IPv6 address represented as eight 16-bit segments.
   V6(segments: Array(u16, usize(8)))
 );
 
 impl(IpAddr,
-  // Parse an IPv4 address from a String like "127.0.0.1".
-  // Only supports IPv4 dotted-decimal notation.
+  /// Parse an IPv4 address from a dotted-decimal `String` (e.g. "127.0.0.1").
+  /// Throws on invalid input.
   parse_v4 : (fn(s: String, using(exn : Exception)) -> IpAddr)({
     bytes := s.as_bytes();
     parts := Array(u8, usize(4)).fill(u8(0));
@@ -86,24 +90,24 @@ impl(IpAddr,
     .V4(parts(usize(0)), parts(usize(1)), parts(usize(2)), parts(usize(3)))
   }),
 
-  // IPv4 loopback address (127.0.0.1).
+  /// Return the IPv4 loopback address (127.0.0.1).
   loopback_v4 : (fn() -> IpAddr)(
     .V4(u8(127), u8(0), u8(0), u8(1))
   ),
 
-  // IPv6 loopback address (::1).
+  /// Return the IPv6 loopback address (::1).
   loopback_v6 : (fn() -> IpAddr)({
     segs := Array(u16, usize(8)).fill(u16(0));
     segs(usize(7)) = u16(1);
     .V6(segs)
   }),
 
-  // IPv4 any address (0.0.0.0).
+  /// Return the IPv4 unspecified address (0.0.0.0).
   any_v4 : (fn() -> IpAddr)(
     .V4(u8(0), u8(0), u8(0), u8(0))
   ),
 
-  // Check if this is a loopback address.
+  /// Return `true` if this is a loopback address.
   is_loopback : (fn(self: Self) -> bool)(
     match(self,
       .V4(a, _, _, _) => (a == u8(127)),
@@ -123,7 +127,7 @@ impl(IpAddr,
     )
   ),
 
-  // Check if this is an IPv4 address.
+  /// Return `true` if this is an IPv4 address.
   is_v4 : (fn(self: Self) -> bool)(
     match(self,
       .V4(_, _, _, _) => true,
@@ -131,7 +135,7 @@ impl(IpAddr,
     )
   ),
 
-  // Check if this is an IPv6 address.
+  /// Return `true` if this is an IPv6 address.
   is_v6 : (fn(self: Self) -> bool)(
     match(self,
       .V4(_, _, _, _) => false,
@@ -171,23 +175,26 @@ export IpAddr;
 // SocketAddr
 // ============================================================================
 
+/// An IP address paired with a port number.
 SocketAddr :: struct(
+  /// The IP address.
   ip   : IpAddr,
+  /// The port number.
   port : u16
 );
 
 impl(SocketAddr,
-  // Create a new socket address.
+  /// Create a new socket address from an IP and port.
   new : (fn(ip: IpAddr, port: u16) -> Self)(
     Self(ip: ip, port: port)
   ),
 
-  // Create a socket address for IPv4 loopback with given port.
+  /// Create an IPv4 loopback socket address (127.0.0.1) with the given port.
   loopback : (fn(port: u16) -> Self)(
     Self(ip: IpAddr.loopback_v4(), port: port)
   ),
 
-  // Create a socket address for any IPv4 address with given port.
+  /// Create an IPv4 unspecified socket address (0.0.0.0) with the given port.
   any : (fn(port: u16) -> Self)(
     Self(ip: IpAddr.any_v4(), port: port)
   )

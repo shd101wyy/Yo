@@ -58,6 +58,8 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `src/lock-file.ts`                   | `yo.lock` parse/write                                                 |
 | `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`)                         |
 | `src/init.ts`                        | `yo init` — project scaffolding                                       |
+| `src/doc-command.ts`                 | `yo doc` CLI — documentation generation                               |
+| `src/doc/`                           | Doc pipeline: extractor, builder, model, renderers                    |
 | `src/pkg-config.ts`                  | pkg-config integration for system libraries                           |
 | `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                 |
 | `plans/BUILD_SYSTEM.md`              | Build system design document                                          |
@@ -128,6 +130,11 @@ Always save verbose output to a file to avoid terminal truncation:
 ./yo-cli build test         # Run tests
 ./yo-cli build --list-steps # List available steps
 ./yo-cli build -Dname=value # Pass build options
+
+# Generate documentation
+./yo-cli doc ./std           # Generate docs for directory
+./yo-cli doc -o ./yo-out/doc # Custom output directory
+./yo-cli doc --format json   # Output as JSON (default: html)
 
 # Dependency management
 ./yo-cli fetch              # Fetch all git dependencies

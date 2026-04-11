@@ -1,45 +1,44 @@
-// std/fmt/writer.yo - String Writer
-//
-// A composable, chainable string builder backed by ArrayList(u8).
-// Useful for constructing formatted strings without intermediate allocations.
-//
-// Example:
-//   { Writer, Alignment } :: import "std/fmt/writer";
-//
-//   w := Writer.new()
-//     .write_str("hello ")
-//     .write_str("world")
-//     .write_byte(u8(33));
-//   s := w.to_string();  // "hello world!"
+//! Chainable string builder for composing formatted output.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Writer, Alignment } :: import "std/fmt/writer";
+//!
+//! w := Writer.new()
+//!   .write_str("hello ")
+//!   .write_str("world")
+//!   .write_byte(u8(33));
+//! s := w.to_string();  // "hello world!"
+//! ```
 
 { String } :: import "../string";
 { ArrayList } :: import "../collections/array_list";
 { rune } :: import "../string/rune";
 { snprintf } :: import "../libc/stdio";
 
+/// Text alignment for padded output.
 Alignment :: enum(Left, Right, Center);
 export Alignment;
 
-// ============================================================================
-// Writer - chainable string builder
-// ============================================================================
-
+/// Chainable string builder backed by `ArrayList(u8)`.
+/// Useful for constructing formatted strings without intermediate allocations.
 Writer :: object(
   buf : ArrayList(u8)
 );
 
 impl(Writer,
-  // Create a new empty Writer.
+  /// Create a new empty Writer.
   new : (fn() -> Self)(
     Self(buf: ArrayList(u8).new())
   ),
 
-  // Create a Writer pre-allocated with the given byte capacity.
+  /// Create a Writer pre-allocated with the given byte capacity.
   with_capacity : (fn(cap: usize) -> Self)(
     Self(buf: ArrayList(u8).with_capacity(cap))
   ),
 
-  // Append a str literal (byte slice) to the Writer.
+  /// Append a `str` literal (byte slice) to the Writer.
   write_str : (fn(self: Self, s: str) -> Self)({
     i := usize(0);
     while (i < s.len()),
@@ -50,7 +49,7 @@ impl(Writer,
     self
   }),
 
-  // Append a String (owned UTF-8) to the Writer.
+  /// Append a String (owned UTF-8) to the Writer.
   write_string : (fn(self: Self, s: String) -> Self)({
     bytes := s.as_bytes();
     i := usize(0);
@@ -62,13 +61,13 @@ impl(Writer,
     self
   }),
 
-  // Append a single byte to the Writer.
+  /// Append a single byte to the Writer.
   write_byte : (fn(self: Self, b: u8) -> Self)({
     self.buf.push(b);
     self
   }),
 
-  // Append an ArrayList(u8) of bytes to the Writer.
+  /// Append an ArrayList(u8) of bytes to the Writer.
   write_bytes : (fn(self: Self, data: ArrayList(u8)) -> Self)({
     i := usize(0);
     while (i < data.len()),
@@ -79,7 +78,7 @@ impl(Writer,
     self
   }),
 
-  // Append a Unicode code point encoded as UTF-8.
+  /// Append a Unicode code point encoded as UTF-8.
   write_rune : (fn(self: Self, r: rune) -> Self)({
     v := u32(r.char);
     cond(
@@ -105,7 +104,7 @@ impl(Writer,
     self
   }),
 
-  // Append a signed 64-bit integer in decimal.
+  /// Append a signed 64-bit integer in decimal.
   write_i64 : (fn(self: Self, n: i64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -114,7 +113,7 @@ impl(Writer,
     self.write_string(s)
   }),
 
-  // Append an unsigned 64-bit integer in decimal.
+  /// Append an unsigned 64-bit integer in decimal.
   write_u64 : (fn(self: Self, n: u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -123,7 +122,7 @@ impl(Writer,
     self.write_string(s)
   }),
 
-  // Append a 64-bit float with the given number of decimal places.
+  /// Append a 64-bit float with the given number of decimal places.
   write_f64 : (fn(self: Self, n: f64, precision: i32) -> Self)({
     buf := Array(u8, usize(64)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -132,7 +131,7 @@ impl(Writer,
     self.write_string(s)
   }),
 
-  // Append a bool as "true" or "false".
+  /// Append a bool as "true" or "false".
   write_bool : (fn(self: Self, b: bool) -> Self)(
     cond(
       b => self.write_str("true"),
@@ -140,7 +139,7 @@ impl(Writer,
     )
   ),
 
-  // Append an unsigned 64-bit integer in lowercase hexadecimal.
+  /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self: Self, n: u64) -> Self)({
     buf := Array(u8, usize(20)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -149,7 +148,7 @@ impl(Writer,
     self.write_string(s)
   }),
 
-  // Append an unsigned 64-bit integer in octal.
+  /// Append an unsigned 64-bit integer in octal.
   write_octal : (fn(self: Self, n: u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -158,7 +157,7 @@ impl(Writer,
     self.write_string(s)
   }),
 
-  // Append an unsigned 64-bit integer in binary (no stdlib support — manual).
+  /// Append an unsigned 64-bit integer in binary (no stdlib support — manual).
   write_binary : (fn(self: Self, n: u64) -> Self)({
     cond(
       (n == u64(0)) => {
@@ -186,7 +185,7 @@ impl(Writer,
     self
   }),
 
-  // Append a str padded to width using the given pad rune and alignment.
+  /// Append a str padded to width using the given pad rune and alignment.
   write_padded : (fn(self: Self, s: str, width: usize, pad: rune, align: Alignment) -> Self)({
     len := s.len();
     cond(
@@ -227,12 +226,12 @@ impl(Writer,
     )
   }),
 
-  // Consume the Writer and return an owned String.
+  /// Consume the Writer and return an owned String.
   to_string : (fn(self: Self) -> String)(
     String.from_bytes(self.buf)
   ),
 
-  // Return the current byte length of the buffer.
+  /// Return the current byte length of the buffer.
   len : (fn(self: Self) -> usize)(
     self.buf.len()
   )

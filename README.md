@@ -216,6 +216,7 @@ $ yo build                  # Build all artifacts
 $ yo build run              # Build and run the executable
 $ yo build test             # Run tests
 $ yo build --list-steps     # List available build steps
+$ yo build doc              # Generate HTML documentation
 ```
 
 ## Prelude
@@ -234,7 +235,15 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 
 _Still In Design_
 
-Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see **[Standard Library Modules](./docs/en-US/STD_LIBRARY_MODULES.md)**.
+Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see the **[Standard Library Documentation](https://shd101wyy.github.io/Yo/std)**.
+
+You can generate documentation for your own project with `yo doc`:
+
+```bash
+$ yo doc ./src -o docs --title "My Project"
+```
+
+Or add a documentation step to your `build.yo` — see `yo doc --help` for details.
 
 ## Code examples
 

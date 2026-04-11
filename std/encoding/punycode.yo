@@ -1,14 +1,14 @@
-// Punycode codec (RFC 3492)
-//
-// Provides punycode encoding/decoding and IDN hostname conversion.
-//
-// Example:
-//   { punycode_decode, punycode_encode, to_unicode, to_ascii } :: import "std/encoding/punycode";
-//
-//   encoded := punycode_encode(`München`);
-//   decoded := punycode_decode(encoded);
-//   ascii_domain := to_ascii(`münchen.de`);  // "xn--mnchen-3ya.de"
-//   unicode_domain := to_unicode(ascii_domain);  // "münchen.de"
+//! Punycode encoding/decoding (RFC 3492) for internationalized domain names.
+//!
+//! Provides punycode encoding/decoding and IDN hostname conversion.
+//!
+//! Example:
+//!   { punycode_decode, punycode_encode, to_unicode, to_ascii } :: import "std/encoding/punycode";
+//!
+//!   encoded := punycode_encode(`München`);
+//!   decoded := punycode_decode(encoded);
+//!   ascii_domain := to_ascii(`münchen.de`);  // "xn--mnchen-3ya.de"
+//!   unicode_domain := to_unicode(ascii_domain);  // "münchen.de"
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
@@ -122,8 +122,9 @@ _string_to_codepoints :: (fn(s: String) -> ArrayList(i32))({
   cps
 });
 
-// Decode a punycode-encoded string (without the xn-- prefix).
-// Returns .Some(decoded) on success, .None on error.
+/// Decode a punycode-encoded string (without the `xn--` prefix).
+///
+/// Returns `.Some(decoded)` on success, `.None` on invalid input.
 punycode_decode :: (fn(input: String) -> Option(String))({
   (bytes : ArrayList(u8)) = input.as_bytes();
   (input_len : i32) = i32(bytes.len());
@@ -220,7 +221,7 @@ punycode_decode :: (fn(input: String) -> Option(String))({
   .Some(String.from_bytes(result_bytes))
 });
 
-// Encode a Unicode string to punycode (without the xn-- prefix).
+/// Encode a Unicode string to punycode (without the `xn--` prefix).
 punycode_encode :: (fn(input: String) -> String)({
   (cps : ArrayList(i32)) = _string_to_codepoints(input);
   (cp_count : i32) = i32(cps.len());
@@ -300,8 +301,9 @@ punycode_encode :: (fn(input: String) -> String)({
   String.from_bytes(out)
 });
 
-// Convert an IDN hostname to Unicode display form.
-// Splits on '.', decodes xn-- labels, keeps original on failure.
+/// Convert an IDN hostname to Unicode display form.
+///
+/// Splits on `.`, decodes `xn--` labels via punycode, and keeps original labels on failure.
 to_unicode :: (fn(hostname: String) -> String)({
   (parts : ArrayList(String)) = hostname.split(`.`);
   (result : String) = ``;
@@ -331,8 +333,9 @@ to_unicode :: (fn(hostname: String) -> String)({
   result
 });
 
-// Convert a Unicode hostname to ASCII punycode form.
-// Non-ASCII labels get xn-- prefix.
+/// Convert a Unicode hostname to ASCII-compatible encoding.
+///
+/// Non-ASCII labels are punycode-encoded with the `xn--` prefix.
 to_ascii :: (fn(hostname: String) -> String)({
   (parts : ArrayList(String)) = hostname.split(`.`);
   (result : String) = ``;

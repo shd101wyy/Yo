@@ -15,6 +15,8 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
+| Generate docs for project | `yo doc ./src`                                            |
+| Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
 | Install dependency        | `yo install user/repo`                                    |
 | Install pinned dependency | `yo install user/repo@v1.2.3`                             |
 | Fetch dependency graph    | `yo fetch`                                                |
@@ -34,7 +36,7 @@ my-project/
     └── main.test.yo
 ```
 
-- `build.yo` defines artifacts and named steps
+- `build.yo` defines artifacts, named steps, and doc generation
 - `deps.yo` tracks installed dependencies
 - `src/main.yo` is the executable entry point
 - `src/lib.yo` is the library module root
@@ -66,6 +68,10 @@ run_step.depend_on(run_exe);
 
 test_step :: build.step("test", "Run the tests");
 test_step.depend_on(tests);
+
+docs :: build.doc({ name: "my-project", root: "./src" });
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);
 ```
 
 - `build.yo` is ordinary Yo code evaluated at compile time
@@ -131,6 +137,78 @@ yo test ./tests/main.test.yo --target wasm-wasi
 - `--cc emcc` targets Emscripten-based WebAssembly
 - `--target wasm-wasi` targets standalone WASI
 - Prefer the host target for routine development unless the task is explicitly cross-platform
+
+### WASM library targets in build.yo
+
+For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Emscripten` and `add_c_flags(...)` for Emscripten settings:
+
+```rust
+build :: import "std/build";
+
+wasm_api :: build.executable({
+  name: "my_lib_wasm_api",
+  root: "./src/wasm_api.yo",
+  target: build.CompilationTarget.Wasm32_Emscripten,
+  optimize: build.Optimize.ReleaseSmall,
+  allocator: build.Allocator.Libc
+});
+wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_my_func,_wasm_alloc,_wasm_free -sEXPORTED_RUNTIME_METHODS=HEAPU8");
+
+wasm_step :: build.step("wasm_api", "Build WASM module");
+wasm_step.depend_on(wasm_api);
+```
+
+Key API:
+
+- `build.executable({...})` — `Executable` struct fields: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`
+- `step.add_c_flags("...")` — append compiler/linker flags (Emscripten `-s` options go here)
+- `step.add_import_list(imports)` — add module dependencies
+- `build.CompilationTarget.Wasm32_Emscripten` — Emscripten target
+- `build.CompilationTarget.Wasm32_Wasi` — WASI target
+
+See the [yo-wasm-integration](../yo-wasm-integration/SKILL.md) skill for full npm packaging patterns.
+
+## Documentation
+
+### `yo doc` — Generate API documentation
+
+```bash
+yo doc ./src                         # Document all .yo files in directory
+yo doc ./src/main.yo                 # Document single file
+yo doc -o ./docs                     # Custom output directory
+yo doc --title "My Project"          # Set doc site title
+yo doc --format markdown             # Output as Markdown (default: html)
+yo doc --format json                 # Output as JSON
+yo doc --document-private            # Include non-exported items
+```
+
+### `build.doc()` — Documentation build step
+
+In `build.yo`:
+
+```rust
+build :: import "std/build";
+
+docs :: build.doc({ name: "docs", root: "./src" });
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);
+```
+
+Then run: `yo build doc`
+
+### Doc comments
+
+````rust
+/// Brief description of the function.
+///
+/// ## Examples
+/// ```rust
+/// add(i32(1), i32(2))
+/// ```
+add :: (fn(a: i32, b: i32) -> i32)((a + b));
+````
+
+Use `///` for item documentation and `//!` at the top of a file for module-level docs.
 
 ## Dependency management
 

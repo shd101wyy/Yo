@@ -1,28 +1,11 @@
-// std/url - URL parsing and formatting
-//
-// Parse, manipulate, and format URLs per RFC 3986 (simplified).
-//
-// Example:
-//   { Url, UrlError } :: import "std/url";
-//
-//   url := Url.parse("https://example.com:8080/path?q=1#frag").unwrap();
-//   assert(url.scheme() == `https`);
-//   assert(url.host() == .Some(`example.com`));
-//   assert(url.port() == .Some(u16(8080)));
-//   assert(url.path() == `/path`));
-//   assert(url.query() == .Some(`q=1`));
-//   assert(url.fragment() == .Some(`frag`));
-//   println(url.to_string());  // "https://example.com:8080/path?q=1#frag"
+//! URL parsing and formatting per RFC 3986 (simplified).
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
 { ToString } :: import "../fmt";
 { Error, AnyError, Exception } :: import "../error";
 
-// ============================================================================
-// UrlError
-// ============================================================================
-
+/// Errors that can occur during URL parsing.
 UrlError :: enum(
   EmptyInput,
   MissingScheme,
@@ -101,6 +84,7 @@ _parse_port :: (fn(s: str, start: usize, end: usize, using(exn : Exception)) -> 
   u16(val)
 });
 
+/// Parsed URL with scheme, host, port, path, query, and fragment components.
 Url :: object(
   _scheme   : String,
   _host     : Option(String),

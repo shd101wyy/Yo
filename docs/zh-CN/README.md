@@ -216,6 +216,7 @@ $ yo build                  # 构建所有产物
 $ yo build run              # 构建并运行可执行文件
 $ yo build test             # 运行测试
 $ yo build --list-steps     # 列出可用构建步骤
+$ yo build doc              # 生成 HTML 文档
 ```
 
 ## 预导入模块（Prelude）
@@ -234,7 +235,15 @@ $ yo build --list-steps     # 列出可用构建步骤
 
 _设计中_
 
-Yo 附带一个全面的标准库，涵盖字符串、集合、文件 I/O、网络、编码、正则表达式、加密等。完整模块参考，请参阅 **[标准库模块](./STD_LIBRARY_MODULES.md)**。
+Yo 附带一个全面的标准库，涵盖字符串、集合、文件 I/O、网络、编码、正则表达式、加密等。完整模块参考，请参阅 **[标准库文档](https://shd101wyy.github.io/Yo/std)**。
+
+你可以使用 `yo doc` 为自己的项目生成文档：
+
+```bash
+$ yo doc ./src -o docs --title "我的项目"
+```
+
+或者在 `build.yo` 中添加文档步骤 — 详见 `yo doc --help`。
 
 ## 代码示例
 

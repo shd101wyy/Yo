@@ -1,30 +1,28 @@
-// std/sync/waitgroup.yo - WaitGroup
-//
-// Wait for a group of tasks to complete. Similar to Go's sync.WaitGroup.
-//
-// Example:
-//   { WaitGroup } :: import "std/sync/waitgroup";
-//   { Thread } :: import "std/thread";
-//
-//   wg := WaitGroup.new();
-//   wg.add(i32(3));
-//   i := i32(0);
-//   while runtime((i < i32(3))), {
-//     t := Thread.spawn(() => {
-//       // ... do work ...
-//       wg.done();
-//     });
-//     i = (i + i32(1));
-//   };
-//   wg.wait();  // blocks until all 3 tasks call done()
+//! Wait for a group of tasks to complete, similar to Go's `sync.WaitGroup`.
+//!
+//! # Example
+//!
+//! ```rust
+//! { WaitGroup } :: import "std/sync/waitgroup";
+//! { Thread } :: import "std/thread";
+//!
+//! wg := WaitGroup.new();
+//! wg.add(i32(3));
+//! i := i32(0);
+//! while runtime((i < i32(3))), {
+//!   t := Thread.spawn(() => {
+//!     // ... do work ...
+//!     wg.done();
+//!   });
+//!   i = (i + i32(1));
+//! };
+//! wg.wait();  // blocks until all 3 tasks call done()
+//! ```
 
 { Mutex } :: import "./mutex";
 { Cond } :: import "./cond";
 
-// ============================================================================
-// WaitGroup
-// ============================================================================
-
+/// Synchronization primitive that blocks until a counter reaches zero.
 WaitGroup :: object(
   _count : i32,
   _mutex : Mutex,

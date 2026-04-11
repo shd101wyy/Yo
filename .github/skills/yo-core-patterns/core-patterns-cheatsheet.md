@@ -20,6 +20,20 @@ println("plain str is also fine");
 - Prefer template strings for constant `String` values instead of `String.from("...")`
 - Prefer `print`/`println` when a type implements `ToString`
 
+### String type disambiguation
+
+| Type              | When you see it                              | Key behavior                           |
+| ----------------- | -------------------------------------------- | -------------------------------------- |
+| `str`             | `"hello"` in runtime contexts                | Slice of bytes, no ownership           |
+| `String`          | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
+| `comptime_string` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
+
+Key rules:
+
+- In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
+- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string`. It does NOT auto-convert to `str`. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if a comptime function needs to return `str`.
+- For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+
 ## Import patterns
 
 ```rust

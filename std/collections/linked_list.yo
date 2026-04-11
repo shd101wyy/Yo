@@ -1,29 +1,14 @@
-/**
- * LinkedList - A doubly-linked list implementation for Yo language
- * 
- * Features:
- * - O(1) push/pop from front and back
- * - O(1) insertion/removal at known positions (with node reference)
- * - RAII for automatic cleanup
- * - True linked list using object indirection
- * 
- * Memory layout:
- * - Each node is an object (reference-counted)
- * - Nodes contain: value, optional next node, optional prev node
- */
+//! Doubly-linked list with O(1) push/pop at both ends.
 
-/**
- * LinkedList error types
- */
+/// Error variants for LinkedList operations.
 LinkedListError :: enum(
+  /// Index is out of bounds for the current length.
   IndexOutOfBounds(index: usize, length: usize),
+  /// Attempted to access an element from an empty list.
   EmptyList
 );
 
-/**
- * Node - Internal structure for linked list nodes
- * Since Node is an object (reference-counted), no Box needed
- */
+/// Internal node for the linked list. Reference-counted via `object`.
 Node :: (fn(comptime(T): Type) -> comptime(Type))
   object(
     value : T,
@@ -32,9 +17,7 @@ Node :: (fn(comptime(T): Type) -> comptime(Type))
   )
 ;
 
-/**
- * LinkedList - Doubly-linked list with O(1) operations at both ends
- */
+/// Doubly-linked list with O(1) push/pop at both ends.
 LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
   object(
     head : Option(Node(T)),

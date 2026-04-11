@@ -712,6 +712,7 @@ export function activate(context: vscode.ExtensionContext) {
         let isUndefined = false;
         let foundVariable = false;
         let isCompileTimeOnly = false;
+        let varDocComment: string | undefined;
 
         if (expr.$?.env) {
           const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
@@ -724,6 +725,7 @@ export function activate(context: vscode.ExtensionContext) {
             varValue = selectedVar.value?.[0];
             isCompileTimeOnly = selectedVar.isCompileTimeOnly;
             isUndefined = !selectedVar.initializedAtToken;
+            varDocComment = selectedVar.docComment;
           }
         }
 
@@ -754,6 +756,15 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Close the code block
         markdownContent.appendMarkdown("\n```");
+
+        // Append doc comment if available
+        if (varDocComment) {
+          markdownContent.appendMarkdown("\n\n---\n\n");
+          markdownContent.appendMarkdown(varDocComment);
+        } else if (expr.$?.docComment) {
+          markdownContent.appendMarkdown("\n\n---\n\n");
+          markdownContent.appendMarkdown(expr.$.docComment);
+        }
 
         return new vscode.Hover(markdownContent);
       }
@@ -814,7 +825,7 @@ export function activate(context: vscode.ExtensionContext) {
           kind: vscode.CompletionItemKind
         ) => {
           let detail = "";
-          let documentation = "";
+          let docComment: string | undefined;
 
           // Try to get type information if available
           if (bestCandidate.$?.type) {
@@ -825,17 +836,39 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
 
-          if (bestCandidate.$?.value) {
+          // Try to get doc comment from the variable in the environment
+          if (bestCandidate.$?.env) {
             try {
-              documentation = `Value: ${valueToString(bestCandidate.$.value)}`;
+              const variables = getVariablesFromEnv(bestCandidate.$.env, name);
+              if (variables && variables.length > 0) {
+                const selectedVar = variables[variables.length - 1];
+                docComment = selectedVar?.docComment;
+              }
             } catch (error) {
-              // Ignore value conversion errors
+              // Ignore variable lookup errors
             }
+          }
+
+          // Fall back to expression-level doc comment
+          if (!docComment) {
+            docComment = bestCandidate.$?.docComment;
           }
 
           const item = new vscode.CompletionItem(name, kind);
           if (detail) item.detail = detail;
-          if (documentation) item.documentation = documentation;
+
+          if (docComment) {
+            // Show doc comment as rich markdown documentation
+            const md = new vscode.MarkdownString(docComment);
+            md.supportHtml = true;
+            item.documentation = md;
+          } else if (bestCandidate.$?.value) {
+            try {
+              item.documentation = `Value: ${valueToString(bestCandidate.$.value)}`;
+            } catch (error) {
+              // Ignore value conversion errors
+            }
+          }
 
           // Sort priority: items starting with prefix get higher priority
           if (name.toLowerCase().startsWith(prefix.toLowerCase())) {

@@ -1,38 +1,47 @@
+//! OS thread creation and management with per-thread IO event loops.
+
 extern "Yo",
-  // Thread utilities
   __yo_thread_get_hardware_threads : (fn() -> usize),
   __yo_get_thread_id : (fn() -> usize),
   __yo_get_cpu_id : (fn() -> i32)
 ;
 
-// Low-level runtime types and functions for Thread
 extern "Yo",
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
 ;
 
-// High-level Thread wrapper - a simple struct (stack allocated)
+/// OS thread handle. Each spawned thread gets its own IO event loop.
 Thread :: struct(
   handle : __yo_thread_t
 );
 impl(Thread,
-  // Spawn a new OS thread running the given closure.
-  // The closure receives its own per-thread IO event loop.
+  /// Spawn a new OS thread running the given closure.
+  /// The closure receives its own per-thread IO event loop.
   spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> Self)({
     raw := __yo_thread_spawn(cb);
     Self(raw)
   }),
   
-  // Wait for the thread to complete (blocking)
+  /// Block the current thread until this thread completes.
   join : (fn(self : *(Self)) -> unit)(
     __yo_thread_join(self.handle)
   )
 );
 
+/// Get the number of hardware threads (CPU cores) available.
+get_hardware_threads :: __yo_thread_get_hardware_threads;
+
+/// Get the current OS thread ID.
+get_thread_id :: __yo_get_thread_id;
+
+/// Get the current CPU core ID.
+get_cpu_id :: __yo_get_cpu_id;
+
 export
-  get_hardware_threads : __yo_thread_get_hardware_threads,
-  get_thread_id : __yo_get_thread_id,
-  get_cpu_id : __yo_get_cpu_id,
+  get_hardware_threads,
+  get_thread_id,
+  get_cpu_id,
   Thread
 ;

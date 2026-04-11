@@ -55,7 +55,11 @@ export default class Parser {
       tokens[index] &&
       (tokens[index]!.type === TokenType.Whitespace ||
         tokens[index]!.type === TokenType.SingleLineComment ||
-        tokens[index]!.type === TokenType.MultiLineComment)
+        tokens[index]!.type === TokenType.MultiLineComment ||
+        tokens[index]!.type === TokenType.DocLineComment ||
+        tokens[index]!.type === TokenType.InnerDocLineComment ||
+        tokens[index]!.type === TokenType.DocBlockComment ||
+        tokens[index]!.type === TokenType.InnerDocBlockComment)
     ) {
       index = index + 1;
     }
@@ -67,7 +71,11 @@ export default class Parser {
       tokens[index] &&
       (tokens[index]!.type === TokenType.Whitespace ||
         tokens[index]!.type === TokenType.SingleLineComment ||
-        tokens[index]!.type === TokenType.MultiLineComment)
+        tokens[index]!.type === TokenType.MultiLineComment ||
+        tokens[index]!.type === TokenType.DocLineComment ||
+        tokens[index]!.type === TokenType.InnerDocLineComment ||
+        tokens[index]!.type === TokenType.DocBlockComment ||
+        tokens[index]!.type === TokenType.InnerDocBlockComment)
     ) {
       index = index - 1;
     }
@@ -1370,7 +1378,11 @@ or ) to end the function call`,
         case TokenType.Whitespace:
         case TokenType.Semicolon:
         case TokenType.SingleLineComment:
-        case TokenType.MultiLineComment: {
+        case TokenType.MultiLineComment:
+        case TokenType.DocLineComment:
+        case TokenType.InnerDocLineComment:
+        case TokenType.DocBlockComment:
+        case TokenType.InnerDocBlockComment: {
           // ignore
           index = index + 1;
           continue;

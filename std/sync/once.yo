@@ -1,25 +1,23 @@
-// std/sync/once.yo - One-time initialization
-//
-// Execute a function exactly once, thread-safely.
-//
-// Example:
-//   { Once } :: import "std/sync/once";
-//
-//   init := Once.new();
-//   // Only the first call executes the function
-//   init.call(() => {
-//     println("initialized!");
-//   });
-//   init.call(() => {
-//     println("this will NOT run");
-//   });
+//! One-time initialization primitive.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Once } :: import "std/sync/once";
+//!
+//! init := Once.new();
+//! // Only the first call executes the function
+//! init.call(() => {
+//!   println("initialized!");
+//! });
+//! init.call(() => {
+//!   println("this will NOT run");
+//! });
+//! ```
 
 { Mutex } :: import "./mutex";
 
-// ============================================================================
-// Once
-// ============================================================================
-
+/// Execute a function exactly once, thread-safely.
 Once :: object(
   _done  : bool,
   _mutex : Mutex

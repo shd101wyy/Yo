@@ -1,25 +1,26 @@
-// std/fs/walker.yo - Recursive directory traversal
-//
-// Walks a directory tree and collects entries.
-//
-// Example:
-//   { walk, WalkEntry } :: import "std/fs/walker";
-//
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) : Exception = {
-//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//         { println(error.to_string()); exit(i32(1)); }
-//       )
-//     };
-//
-//     entries := io.await(walk(`/tmp`));
-//     i := usize(0);
-//     while runtime((i < entries.len())), {
-//       e := entries.get(i).unwrap();
-//       println(e.path);
-//       i = (i + usize(1));
-//     };
-//   });
+//! Recursive directory traversal.
+//!
+//! # Example
+//!
+//! ```rust
+//! { walk, WalkEntry } :: import "std/fs/walker";
+//!
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) : Exception = {
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error.to_string()); exit(i32(1)); }
+//!     )
+//!   };
+//!
+//!   entries := io.await(walk(`/tmp`));
+//!   i := usize(0);
+//!   while runtime((i < entries.len())), {
+//!     e := entries.get(i).unwrap();
+//!     println(e.path);
+//!     i = (i + usize(1));
+//!   };
+//! });
+//! ```
 
 { ArrayList } :: import "../collections/array_list";
 open import "../string";
@@ -30,10 +31,7 @@ open import "../string";
 { DirEntry } :: import "./dir";
 _dir :: import "./dir";
 
-// ============================================================================
-// WalkEntry
-// ============================================================================
-
+/// Entry returned by the directory walker.
 WalkEntry :: struct(
   path      : Path,
   name      : String,
@@ -43,10 +41,7 @@ WalkEntry :: struct(
 
 export WalkEntry;
 
-// ============================================================================
-// WalkOptions
-// ============================================================================
-
+/// Options controlling directory walk behavior.
 WalkOptions :: struct(
   max_depth     : ?(u32),
   follow_symlinks : bool,
@@ -147,7 +142,7 @@ walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl
   walk_with(Path.from_cstr(root), options)
 );
 
-// Walk a directory tree with default options.
+/// Walk a directory tree with default options.
 walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
   walk_with(root, WalkOptions.defaults())
 ;

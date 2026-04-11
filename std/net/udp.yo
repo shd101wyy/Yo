@@ -1,3 +1,4 @@
+//! Async UDP networking — connectionless datagram sockets.
 // std/net/udp.yo - High-level UDP socket
 //
 // Wraps std/sys/udp with typed UdpSocket object.
@@ -59,6 +60,7 @@ _throw_net_io :: (fn(errno_val: i32, using(exn : Exception)) -> unit)(
 // UdpSocket
 // ============================================================================
 
+/// A UDP socket for sending and receiving datagrams.
 UdpSocket :: object(
   _fd         : i32,
   _local_addr : SocketAddr,
@@ -66,7 +68,7 @@ UdpSocket :: object(
 );
 
 impl(UdpSocket,
-  // Create and bind a UDP socket to the given address.
+  /// Create and bind a UDP socket to the given address.
   bind : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
@@ -89,8 +91,8 @@ impl(UdpSocket,
     })
   ),
 
-  // Send a datagram to a specific address.
-  // Returns the number of bytes sent.
+  /// Send a datagram to a specific address.
+  /// Returns the number of bytes sent.
   send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -101,8 +103,8 @@ impl(UdpSocket,
     })
   }),
 
-  // Receive a datagram.
-  // Returns the number of bytes received.
+  /// Receive a datagram into the provided buffer.
+  /// Returns the number of bytes received.
   recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -111,8 +113,8 @@ impl(UdpSocket,
     })
   }),
 
-  // Receive a datagram and get the source address.
-  // Returns the number of bytes received.
+  /// Receive a datagram and retrieve the sender's address.
+  /// Returns the number of bytes received.
   recv_from : (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -121,7 +123,7 @@ impl(UdpSocket,
     })
   }),
 
-  // Send data on a connected socket (after connect()).
+  /// Send data on a connected socket (requires prior connect).
   send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -130,7 +132,7 @@ impl(UdpSocket,
     })
   }),
 
-  // Close the socket.
+  /// Close the socket.
   close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -148,7 +150,7 @@ impl(UdpSocket,
     })
   }),
 
-  // Enable/disable SO_BROADCAST.
+  /// Enable or disable SO_BROADCAST on the socket.
   set_broadcast : (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
@@ -162,12 +164,12 @@ impl(UdpSocket,
     })
   }),
 
-  // Get the local address.
+  /// Get the local address this socket is bound to.
   local_addr : (fn(self: Self) -> SocketAddr)(
     self._local_addr
   ),
 
-  // Get the file descriptor.
+  /// Get the underlying file descriptor.
   fd : (fn(self: Self) -> i32)(
     self._fd
   )

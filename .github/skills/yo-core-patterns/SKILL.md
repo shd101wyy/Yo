@@ -29,7 +29,7 @@ Use this skill when you need to:
 
 ## High-signal rules
 
-- `"` creates `str`; template strings create `String`.
+- `"` creates `str` in runtime code; template strings create `String`. In `comptime` functions, `"hello"` is `comptime_string` (distinct from `str`).
 - Prefer template strings for constant `String` values.
 - Prefer `print`/`println` from `std/fmt` over `printf`.
 - `Option(T)` and `Result(T, E)` are the default nullable/error carriers.

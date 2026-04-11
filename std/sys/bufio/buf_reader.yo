@@ -1,19 +1,22 @@
-// std/sys/bufio/buf_reader.yo - Buffered reader for file descriptors
-//
-// Wraps a file descriptor with an internal buffer for efficient reads.
-// Reduces the number of system calls by reading data in larger chunks.
-//
-// Example:
-//   { BufReader } :: import "std/sys/bufio/buf_reader";
-//   IO_file :: import "std/sys/file";
-//
-//   reader := BufReader.new(fd);
-//   line := io.await(reader.read_line(using(io)));
-//   match(line,
-//     .Ok(.Some(s)) => println(s),
-//     .Ok(.None) => println("EOF"),
-//     .Err(e) => println(e.to_string())
-//   );
+//! Buffered reader for file descriptors.
+//!
+//! Wraps a file descriptor with an internal buffer for efficient reads.
+//! Reduces the number of system calls by reading data in larger chunks.
+//!
+//! # Example
+//!
+//! ```rust
+//! { BufReader } :: import "std/sys/bufio/buf_reader";
+//! IO_file :: import "std/sys/file";
+//!
+//! reader := BufReader.new(fd);
+//! line := io.await(reader.read_line(using(io)));
+//! match(line,
+//!   .Ok(.Some(s)) => println(s),
+//!   .Ok(.None) => println("EOF"),
+//!   .Err(e) => println(e.to_string())
+//! );
+//! ```
 
 { ArrayList } :: import "../../collections/array_list";
 open import "../../string";

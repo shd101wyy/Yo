@@ -1,15 +1,14 @@
-// std/crypto/random.yo - Cryptographically secure random number generation
-//
-// Uses OS entropy sources:
-//   Linux/others: getrandom()
-//   macOS:        arc4random_buf()
-//   Windows:      BCryptGenRandom()
-//   WASI/WASM:    getentropy()
-//
-// Example:
-//   { random_u64, uuid_v4 } :: import "std/crypto/random";
-//
-//   id := uuid_v4();  // "550e8400-e29b-41d4-a716-446655440000"
+//! Cryptographically secure random number generation.
+//! Uses OS entropy sources (getrandom on Linux, arc4random_buf on macOS,
+//! BCryptGenRandom on Windows, getentropy on WASI).
+//!
+//! # Example
+//!
+//! ```rust
+//! { random_u64, uuid_v4 } :: import "std/crypto/random";
+//!
+//! id := uuid_v4();  // "550e8400-e29b-41d4-a716-446655440000"
+//! ```
 
 { ArrayList } :: import "../collections/array_list";
 { platform, Platform } :: import "../process";
@@ -23,8 +22,11 @@ open import "../string";
 // Error type
 // ============================================================================
 
+/// Errors that can occur during cryptographic random operations.
 CryptoError :: enum(
+  /// Platform does not support secure random generation.
   Unavailable,
+  /// Other platform-specific error.
   Other(msg: String)
 );
 

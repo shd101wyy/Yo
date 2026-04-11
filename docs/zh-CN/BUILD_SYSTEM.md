@@ -1109,6 +1109,150 @@ Actions:
 
 可通过 `YO_CACHE_DIR` 环境变量覆盖缓存位置。
 
+## 文档生成
+
+Yo 内置了文档生成功能，能够从源代码中提取文档注释并生成 API 参考网站。
+
+### 文档注释语法
+
+Yo 支持四种文档注释样式，与 Rust 的约定一致：
+
+| 样式     | 示例                       | 用途                        |
+| -------- | -------------------------- | --------------------------- |
+| `///`    | `/// 将两个数相加。`       | 外部行文档 — 记录下一个声明 |
+| `//!`    | `//! 此模块提供数学工具。` | 内部行文档 — 记录所属模块   |
+| `/** */` | `/** 将两个数相加。 */`    | 外部块文档 — 记录下一个声明 |
+| `/*! */` | `/*! 模块级文档。 */`      | 内部块文档 — 记录所属模块   |
+
+普通注释（`//`、`/* */`）**不是**文档注释 — 它们是内部注解和属性载体。
+
+````rust
+//! Yo 标准库的数学工具模块。
+
+/// 将两个整数相加。
+///
+/// # 示例
+///
+/// ```rust
+/// result :: add(i32(1), i32(2));
+/// assert((result == i32(3)), "1 + 2 = 3");
+/// ```
+add :: (fn(a : i32, b : i32) -> i32)((a + b));
+export add;
+````
+
+### `yo doc` 命令
+
+生成文档的最简方式 — 无需任何配置：
+
+```bash
+# 为当前目录生成文档
+yo doc
+
+# 为特定文件或目录生成文档
+yo doc ./src/lib.yo
+yo doc ./std
+
+# 选择输出格式
+yo doc --format html        # 默认：静态 HTML 网站
+yo doc --format markdown    # Markdown 文件
+yo doc --format json        # 机器可读的 JSON
+
+# 其他选项
+yo doc -o docs/api          # 自定义输出目录
+yo doc --name "My Library"  # 覆盖项目名称
+yo doc --document-private   # 包含非导出项
+```
+
+### 构建系统集成
+
+对于高级项目，可在 `build.yo` 中配置文档生成：
+
+```rust
+build :: import "std/build";
+
+// 定义文档配置
+docs :: build.doc({
+  name: "docs",
+  root: "./src",
+  output: "yo-out/doc",
+  format: build.DocFormat.Html,
+  title: "My Project API"
+});
+
+// 接入构建 DAG
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(doc_step);
+```
+
+然后运行：
+
+```bash
+yo build doc          # 生成文档
+yo build --list-steps # 查看所有步骤（包括 doc）
+```
+
+### `DocFormat`
+
+```rust
+DocFormat :: enum(
+  Html,       // 完全离线的静态 HTML 网站（默认）
+  Markdown,   // README.md + module/<name>.md 文件
+  Json        // 机器可读的 doc.json
+);
+```
+
+### `DocConfig`
+
+```rust
+DocConfig :: struct(
+  name : comptime_string,                            // 步骤名称
+  root : comptime_string,                            // 源码根文件/目录
+  (output : comptime_string) ?= "yo-out/doc",       // 输出目录
+  (format : DocFormat) ?= DocFormat.Html,             // 输出格式
+  (include_private : bool) ?= false,                 // 文档化非导出项
+  (include_deps : bool) ?= false,                    // 文档化依赖项
+  (title : comptime_string) ?= "",                   // 自定义站点标题
+  (logo : comptime_string) ?= "",                    // Logo 图片路径
+  (favicon : comptime_string) ?= ""                  // Favicon 路径
+);
+```
+
+### 输出格式
+
+**HTML**（默认）：生成完全自包含的静态网站，包括：
+
+- 暗色模式、响应式布局
+- 客户端搜索
+- 侧边栏导航
+- 所有 CSS/JS 内联 — 可从 `file://` URL 直接打开，无需 CDN
+- 使用 [markdown_yo](https://www.npmjs.com/package/markdown_yo) 进行 Markdown 渲染
+
+**Markdown**：生成 `README.md`（模块索引）和 `module/<name>.md`（每模块页面）。适合嵌入 GitHub 仓库或其他基于 Markdown 的文档系统。
+
+**JSON**：将完整的文档模型序列化为 `doc.json`。适合自定义工具链、IDE 集成或接入其他渲染器。
+
+## `yo doc` 参考
+
+```
+yo doc [path]
+
+生成 API 文档
+
+位置参数:
+  path                   要文档化的文件或目录（默认："."）
+
+选项:
+  -o, --output           输出目录（默认："yo-out/doc"）
+  -f, --format           输出格式：html、markdown、json（默认："html"）
+      --name             项目名称（默认：自动推断）
+      --document-private 包含非导出声明
+  -v, --verbose          详细输出
+```
+
 ## 另请参阅
 
 - [BUILD_SYSTEM.md](../../plans/BUILD_SYSTEM.md) — 包含实现细节的完整设计文档

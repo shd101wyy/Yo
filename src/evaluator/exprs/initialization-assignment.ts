@@ -407,6 +407,9 @@ Use \`::\` for compile-time definitions inside impl.`,
       !effectiveIsCompileTimeOnly &&
       !context.isEvaluatingFunctionBodyOrAsyncBlock;
 
+    // Look up doc comment for this declaration from the pre-computed lookup
+    const docComment = context.docCommentLookup?.get(varName);
+
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -425,6 +428,7 @@ Use \`::\` for compile-time definitions inside impl.`,
         isReassignable: !isImplicit,
         isImplicit,
         isModuleLevel,
+        docComment,
       },
     });
     env = nextEnv;

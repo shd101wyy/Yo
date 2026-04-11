@@ -111,16 +111,23 @@ export function tokenize(input: string, modulePath: string): Token[] {
       // comments
       case "/":
         if (input[i + 1] === "/") {
-          // single line comment
+          // Determine comment type: /// (doc), //! (inner doc), or // (regular)
+          let commentType: TokenType;
+          if (input[i + 2] === "/" && input[i + 3] !== "/") {
+            commentType = TokenType.DocLineComment;
+          } else if (input[i + 2] === "!") {
+            commentType = TokenType.InnerDocLineComment;
+          } else {
+            commentType = TokenType.SingleLineComment;
+          }
           let comment = "";
           let k = i;
           while (input[k] !== "\n" && k < input.length) {
-            // ignore the rest of the line
             comment += input[k];
             k = k + 1;
           }
           tokens.push({
-            type: TokenType.SingleLineComment,
+            type: commentType,
             value: comment,
             position: {
               row: line,
@@ -132,7 +139,15 @@ export function tokenize(input: string, modulePath: string): Token[] {
           });
           i = k - 1;
         } else if (input[i + 1] === "*") {
-          // multi line comment
+          // Determine comment type: /** (doc), /*! (inner doc), or /* (regular)
+          let blockCommentType: TokenType;
+          if (input[i + 2] === "*" && input[i + 3] !== "/") {
+            blockCommentType = TokenType.DocBlockComment;
+          } else if (input[i + 2] === "!") {
+            blockCommentType = TokenType.InnerDocBlockComment;
+          } else {
+            blockCommentType = TokenType.MultiLineComment;
+          }
           let k = i;
           let comment = "";
           const currentLine = line;
@@ -178,7 +193,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           }
 
           tokens.push({
-            type: TokenType.MultiLineComment,
+            type: blockCommentType,
             value: comment,
             position: {
               row: currentLine,

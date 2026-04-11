@@ -31,6 +31,12 @@ export enum TokenType {
   SingleLineComment = "single_line_comment",
   MultiLineComment = "multi_line_comment",
 
+  // doc comment
+  DocLineComment = "doc_line_comment", // ///
+  InnerDocLineComment = "inner_doc_line_comment", // //!
+  DocBlockComment = "doc_block_comment", // /** */
+  InnerDocBlockComment = "inner_doc_block_comment", // /*! */
+
   // whitespace
   // ' ' | '\t' | '\n' | '\r'
   Whitespace = "whitespace",

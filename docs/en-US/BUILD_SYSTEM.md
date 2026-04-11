@@ -1111,6 +1111,150 @@ Actions:
 
 The cache location can be overridden via the `YO_CACHE_DIR` environment variable.
 
+## Documentation Generation
+
+Yo includes built-in documentation generation that extracts doc comments from source code and produces API reference sites.
+
+### Doc Comment Syntax
+
+Yo supports four styles of documentation comments, matching Rust conventions:
+
+| Style    | Example                                    | Purpose                                          |
+| -------- | ------------------------------------------ | ------------------------------------------------ |
+| `///`    | `/// Adds two numbers.`                    | Outer line doc — documents the next declaration  |
+| `//!`    | `//! This module provides math utilities.` | Inner line doc — documents the enclosing module  |
+| `/** */` | `/** Adds two numbers. */`                 | Outer block doc — documents the next declaration |
+| `/*! */` | `/*! Module-level documentation. */`       | Inner block doc — documents the enclosing module |
+
+Regular comments (`//`, `/* */`) are **not** documentation comments — they are internal notes and attribute carriers.
+
+````rust
+//! Math utilities for the Yo standard library.
+
+/// Add two integers.
+///
+/// # Examples
+///
+/// ```rust
+/// result :: add(i32(1), i32(2));
+/// assert((result == i32(3)), "1 + 2 = 3");
+/// ```
+add :: (fn(a : i32, b : i32) -> i32)((a + b));
+export add;
+````
+
+### `yo doc` Command
+
+The simplest way to generate docs — zero configuration required:
+
+```bash
+# Document current directory
+yo doc
+
+# Document a specific file or directory
+yo doc ./src/lib.yo
+yo doc ./std
+
+# Choose output format
+yo doc --format html        # Default: static HTML site
+yo doc --format markdown    # Markdown files
+yo doc --format json        # Machine-readable JSON
+
+# Other options
+yo doc -o docs/api          # Custom output directory
+yo doc --name "My Library"  # Override project name
+yo doc --document-private   # Include non-exported items
+```
+
+### Build System Integration
+
+For advanced projects, configure documentation generation in `build.yo`:
+
+```rust
+build :: import "std/build";
+
+// Define doc config
+docs :: build.doc({
+  name: "docs",
+  root: "./src",
+  output: "yo-out/doc",
+  format: build.DocFormat.Html,
+  title: "My Project API"
+});
+
+// Wire into the build DAG
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(doc_step);
+```
+
+Then run:
+
+```bash
+yo build doc          # Generate documentation
+yo build --list-steps # See all steps including doc
+```
+
+### `DocFormat`
+
+```rust
+DocFormat :: enum(
+  Html,       // Fully offline static HTML site (default)
+  Markdown,   // README.md + module/<name>.md files
+  Json        // Machine-readable doc.json
+);
+```
+
+### `DocConfig`
+
+```rust
+DocConfig :: struct(
+  name : comptime_string,                            // Step name
+  root : comptime_string,                            // Source root file/directory
+  (output : comptime_string) ?= "yo-out/doc",       // Output directory
+  (format : DocFormat) ?= DocFormat.Html,             // Output format
+  (include_private : bool) ?= false,                 // Document non-exported items
+  (include_deps : bool) ?= false,                    // Document dependencies too
+  (title : comptime_string) ?= "",                   // Custom site title
+  (logo : comptime_string) ?= "",                    // Logo image path
+  (favicon : comptime_string) ?= ""                  // Favicon path
+);
+```
+
+### Output Formats
+
+**HTML** (default): Generates a fully self-contained static site with:
+
+- Dark mode, responsive layout
+- Client-side search
+- Sidebar navigation
+- All CSS/JS inlined — works from `file://` URLs, no CDN needed
+- Uses [markdown_yo](https://www.npmjs.com/package/markdown_yo) for Markdown rendering
+
+**Markdown**: Generates `README.md` (module index) and `module/<name>.md` (per-module pages). Useful for embedding in GitHub repos or other Markdown-based documentation systems.
+
+**JSON**: Serializes the full documentation model to `doc.json`. Useful for custom tooling, IDE integration, or feeding into other renderers.
+
+## `yo doc` Reference
+
+```
+yo doc [path]
+
+Generate API documentation
+
+Positionals:
+  path                   File or directory to document (default: ".")
+
+Options:
+  -o, --output           Output directory (default: "yo-out/doc")
+  -f, --format           Output format: html, markdown, json (default: "html")
+      --name             Project name (default: inferred)
+      --document-private Include non-exported declarations
+  -v, --verbose          Verbose output
+```
+
 ## See Also
 
 - [BUILD_SYSTEM.md](../../plans/BUILD_SYSTEM.md) — Full design document with implementation details
