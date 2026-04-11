@@ -46,9 +46,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
   // Wire up document lifecycle to diagnostics
   docManager.attachToDocuments(documents, (uri: string) => {
-    console.error(`[LSP] Diagnostics triggered for ${uri}`);
     const diagnostics = getDiagnosticsForUri(uri, docManager);
-    console.error(`[LSP] ${diagnostics.length} diagnostics for ${uri}`);
     connection.sendDiagnostics({ uri, diagnostics });
   });
 
@@ -76,19 +74,12 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 connection.onHover((params) => {
-  const result = handleHover(
+  return handleHover(
     params.textDocument.uri,
     params.position.line,
     params.position.character,
     docManager
   );
-  if (!result) {
-    const mod = docManager.getModule(params.textDocument.uri);
-    console.error(
-      `[LSP hover] uri=${params.textDocument.uri} line=${params.position.line} char=${params.position.character} module=${!!mod} tokens=${mod?.evaluator?.getTokens()?.length ?? 0} exprs=${mod?.evaluator?.getProgram()?.length ?? 0} moduleError=${!!mod?.moduleError}`
-    );
-  }
-  return result;
 });
 
 connection.onCompletion((params) => {

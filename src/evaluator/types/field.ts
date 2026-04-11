@@ -379,11 +379,15 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   if (labelExpr) {
+    const fieldDocComment = label
+      ? context.docCommentLookup?.get(label)
+      : undefined;
     labelExpr.$ = {
       env,
       type: fieldType,
       value: assignedValue ?? defaultValue ?? undefined,
       pathCollection: [],
+      docComment: fieldDocComment,
     };
   }
 
@@ -411,6 +415,7 @@ Given type: ${typeToString(defaultValueType)}`,
     },
     defaultValue,
     assignedValue,
+    docComment: label ? context.docCommentLookup?.get(label) : undefined,
   };
 
   return {

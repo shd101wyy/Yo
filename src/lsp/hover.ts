@@ -8,9 +8,12 @@ import {
   ExprTag,
   exprIsAtom,
   exprIsFunctionCall,
+  exprIsFunctionCallOf,
   exprToString,
 } from "../expr";
 import { stringIsOperator, TokenType } from "../token";
+import type { StructType } from "../types/definitions";
+import { isStructType } from "../types/guards";
 import { typeToString } from "../types/utils";
 import { valueToString } from "../value";
 import { ValueTag } from "../value-tag";
@@ -105,8 +108,11 @@ export function handleHover(
 
   content += "\n```";
 
-  // Append doc comment
-  const docComment = varDocComment ?? expr.$?.docComment;
+  // Append doc comment — also check struct field doc comments for property access
+  let docComment = varDocComment ?? expr.$?.docComment;
+  if (!docComment) {
+    docComment = findFieldDocComment(exprs, expr);
+  }
   if (docComment) {
     content += "\n\n---\n\n" + docComment;
   }
@@ -204,4 +210,57 @@ function findVariableByFallback(
   } catch {
     return null;
   }
+}
+
+/**
+ * Find the doc comment for a struct field when hovering over a property access
+ * like `p1.x`. Walks the AST to find the parent `.` call, resolves the
+ * receiver's struct type, and returns the field's docComment.
+ */
+function findFieldDocComment(
+  exprs: Expr[],
+  targetExpr: AtomExpr
+): string | undefined {
+  const fieldName = targetExpr.token.value;
+
+  // Walk AST to find a "." call where targetExpr is the second arg (field name)
+  function findParentDotCall(expr: Expr): FnCallExpr | null {
+    if (!exprIsFunctionCall(expr)) return null;
+    const fnExpr = expr as FnCallExpr;
+
+    if (
+      exprIsFunctionCallOf(fnExpr, ".") &&
+      fnExpr.args.length === 2 &&
+      fnExpr.args[1] === targetExpr
+    ) {
+      return fnExpr;
+    }
+
+    // Recurse
+    let found = findParentDotCall(fnExpr.func);
+    if (found) return found;
+    for (const arg of fnExpr.args) {
+      found = findParentDotCall(arg);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const topExpr of exprs) {
+    const dotCall = findParentDotCall(topExpr);
+    if (dotCall) {
+      const receiver = dotCall.args[0];
+      const receiverType = receiver?.$?.type;
+      if (receiverType && isStructType(receiverType)) {
+        const field = (receiverType as StructType).fields.find(
+          (f) => f.label === fieldName
+        );
+        if (field?.docComment) {
+          return field.docComment;
+        }
+      }
+    }
+  }
+
+  return undefined;
 }

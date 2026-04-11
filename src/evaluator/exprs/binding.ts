@@ -193,6 +193,9 @@ Use \`::\` for compile-time definitions inside impl.`,
   const isModuleLevel =
     !isCompileTimeOnly && !context.isEvaluatingFunctionBodyOrAsyncBlock;
 
+  // Look up doc comment for this binding from the pre-computed lookup
+  const docComment = context.docCommentLookup?.get(variableName);
+
   // Add the variable to the env
   // console.log("(5) addVariableToEnv");
   const { env: nextEnv } = addVariableToEnv({
@@ -211,6 +214,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       isOwningTheRcValue: typeContainsRcType(userDefinedType),
       isImplicit,
       isModuleLevel,
+      docComment,
     },
   });
   env = nextEnv;
