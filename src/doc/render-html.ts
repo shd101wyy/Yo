@@ -918,7 +918,7 @@ function renderSidebar(model: DocModel, activeModule?: string): string {
         html += `\n</div>`;
       }
       if (mod.traits.length > 0) {
-        html += `\n<div class="sidebar-section">\n  <h3>Traits</h3>`;
+        html += `\n<div class="sidebar-section">\n  <h3>Traits / Modules</h3>`;
         for (const tr of mod.traits) {
           html += `\n  <a href="#trait-${escapeHtml(tr.name)}">${escapeHtml(tr.name)}</a>`;
         }
@@ -1309,9 +1309,9 @@ function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
     html += `\n</div>`;
   }
 
-  // Traits section
+  // Traits / Modules section
   if (mod.traits.length > 0) {
-    html += `<h2>Traits</h2>\n<div class="item-list">`;
+    html += `<h2>Traits / Modules</h2>\n<div class="item-list">`;
     for (const tr of mod.traits) {
       html += renderTrait(md, tr);
     }
