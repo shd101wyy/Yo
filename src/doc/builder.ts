@@ -465,8 +465,11 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
     // Skip empty-label fields (anonymous impl blocks)
     if (!fieldName) continue;
 
-    // Skip compiler-internal names
+    // Skip compiler-internal names (triple underscore prefix)
     if (fieldName.startsWith("___")) continue;
+
+    // Skip internal __yo_* symbols (compiler builtins)
+    if (fieldName.startsWith("__yo_")) continue;
 
     // ── Type declarations (value holds the actual type) ──
     // When `Point :: struct(...)`, the evaluator stores:
