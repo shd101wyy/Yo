@@ -32,6 +32,7 @@ import {
   isModuleType,
   isUnionType,
   isFunctionTypeAndIsTypeFunction,
+  isTypeHierarchyType,
 } from "../types/guards";
 import { typeToString } from "../types/utils";
 import type { DocExtractionResult } from "./extractor";
@@ -663,17 +664,36 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             ...extractDocSections(doc),
           });
         } else {
-          // Generic type constructor that we can't resolve
-          result.types.push({
-            name: fieldName,
-            doc,
-            kind: "type-alias",
-            signature: typeToString(field.type),
-            typeParams: getTypeConstructorParams(field),
-            methods: [],
-            traitImpls: traitImplMap.get(fieldName) ?? [],
-            ...extractDocSections(doc),
-          });
+          // Check if the function returns comptime(Trait) — classify as trait
+          const funcType = field.type as FunctionType;
+          const retType = funcType.return.type;
+          if (
+            isTypeHierarchyType(retType) &&
+            retType.level >= 1 &&
+            (!retType.baseType || isTraitType(retType.baseType))
+          ) {
+            result.traits.push({
+              name: fieldName,
+              doc,
+              signature: typeToString(field.type),
+              typeParams: getTypeConstructorParams(field),
+              methods: [],
+              implementors: [],
+              ...extractDocSections(doc),
+            });
+          } else {
+            // Generic type constructor that we can't resolve
+            result.types.push({
+              name: fieldName,
+              doc,
+              kind: "type-alias",
+              signature: typeToString(field.type),
+              typeParams: getTypeConstructorParams(field),
+              methods: [],
+              traitImpls: traitImplMap.get(fieldName) ?? [],
+              ...extractDocSections(doc),
+            });
+          }
         }
         continue;
       }
