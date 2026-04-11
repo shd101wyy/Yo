@@ -857,7 +857,7 @@ function renderSidebar(model: DocModel, activeModule?: string): string {
 </div>
 <div id="search-results" class="search-results"></div>
 <div class="sidebar-section">
-  <h3>Modules</h3>
+  <h3>Project Modules</h3>
   <a href="index.html"${!activeModule ? ' class="active"' : ""}>Overview</a>`;
 
   // Group modules by directory for tree view
@@ -1231,7 +1231,7 @@ function renderIndexContent(md: MarkdownRenderer, model: DocModel): string {
     return html;
   }
 
-  html += `<h2>Modules</h2>`;
+  html += `<h2>Project Modules</h2>`;
 
   // Group modules by directory
   const groups = new Map<string, DocModule[]>();
