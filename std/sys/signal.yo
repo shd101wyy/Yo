@@ -9,7 +9,7 @@ SignalHandler :: (fn(data: *(u8)) -> unit);
 // Register a signal handler.
 // Returns 0 on success, -errno on failure.
 on_signal :: (fn(signum: i32, handler: SignalHandler) -> i32)({
-  __yo_signal_start(signum, __yo_as(handler, *(u8)))
+  __yo_signal_start(signum, unsafe.cast(handler, *(u8)))
 });
 
 // Remove a signal handler (reset to default).

@@ -1,31 +1,6 @@
-T1 :: trait(
-  get_number : (fn(self : Self) -> i32)
-);
-
-T2 :: trait(
-  get_number : (fn(self : Self) -> i32)
-);
-
-Point :: struct(x : i32, y : i32);
-impl(Point, T1(
-  get_number : (self -> self.x)
-));
-impl(Point, T2(
-  get_number : (self -> self.y)
-));
-
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
-  return self.get_number();
-};
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
-  return (T <: T2).get_number(self);
-};
-
 main :: (fn() -> unit) {
-  point := Point(10, 20);
-  x := use_t1(point);
-  y := use_t2(point);
-  assert((x == 10), "use_t1 should return x");
-  assert((y == 20), "use_t2 should return y");
+  x := 12;
+  y := unsafe.cast(x, f32);
+  assert(y == 12.0);
 };
 export main;
