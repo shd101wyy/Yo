@@ -17,6 +17,7 @@ import type {
   EnumType,
   FunctionType,
   ModuleField,
+  ModuleType,
   StructType,
   TraitType,
   Type,
@@ -567,15 +568,34 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
       }
 
       if (isModuleType(actualType)) {
-        result.submodules.push({
+        const directModuleType = actualType as ModuleType;
+        const moduleMethods: DocFunction[] = [];
+        for (const mField of directModuleType.fields) {
+          if (
+            isFunctionType(mField.type) &&
+            !mField.label.startsWith("___") &&
+            mField.label
+          ) {
+            moduleMethods.push(
+              buildDocFunction(
+                mField.label,
+                mField.type,
+                docLookup.get(mField.label),
+                true,
+                fieldName,
+                docLookup
+              )
+            );
+          }
+        }
+        result.traits.push({
           name: fieldName,
-          path: `${path}/${fieldName}`,
           doc,
-          functions: [],
-          types: [],
-          traits: [],
-          constants: [],
-          submodules: [],
+          signature: typeToString(actualType),
+          typeParams: getTypeConstructorParams(field),
+          methods: moduleMethods,
+          implementors: [],
+          ...extractDocSections(doc),
         });
         continue;
       }
@@ -663,14 +683,46 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             implementors: [],
             ...extractDocSections(doc),
           });
+        } else if (isModuleType(innerType)) {
+          const resolvedModuleType = innerType as ModuleType;
+          const moduleMethods: DocFunction[] = [];
+          for (const mField of resolvedModuleType.fields) {
+            if (
+              isFunctionType(mField.type) &&
+              !mField.label.startsWith("___") &&
+              mField.label
+            ) {
+              moduleMethods.push(
+                buildDocFunction(
+                  mField.label,
+                  mField.type,
+                  docLookup.get(mField.label),
+                  true,
+                  fieldName,
+                  docLookup
+                )
+              );
+            }
+          }
+          result.traits.push({
+            name: fieldName,
+            doc,
+            signature: typeToString(field.type),
+            typeParams: getTypeConstructorParams(field),
+            methods: moduleMethods,
+            implementors: [],
+            ...extractDocSections(doc),
+          });
         } else {
-          // Check if the function returns comptime(Trait) — classify as trait
+          // Check if the function returns comptime(Trait) or comptime(Module)
           const funcType = field.type as FunctionType;
           const retType = funcType.return.type;
           if (
             isTypeHierarchyType(retType) &&
             retType.level >= 1 &&
-            (!retType.baseType || isTraitType(retType.baseType))
+            (!retType.baseType ||
+              isTraitType(retType.baseType) ||
+              isModuleType(retType.baseType))
           ) {
             result.traits.push({
               name: fieldName,
