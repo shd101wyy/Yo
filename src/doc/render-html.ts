@@ -477,6 +477,20 @@ pre code {
   font-size: 14px;
 }
 
+.method-header code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.decl-signature code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
 .method-body {
   padding: 12px 16px;
 }
@@ -796,6 +810,10 @@ function generateHighlightJS(): string {
   }
 
   document.querySelectorAll('pre > code[class*="language-"]').forEach(function(el) {
+    el.innerHTML = highlight(el.textContent || '');
+  });
+
+  document.querySelectorAll('.method-header code, .decl-signature').forEach(function(el) {
     el.innerHTML = highlight(el.textContent || '');
   });
 })();
