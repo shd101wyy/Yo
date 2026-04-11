@@ -785,7 +785,7 @@ function generateHighlightJS(): string {
     // Extract strings and comments first (they take priority)
     var protected_ = [];
     var placeholder = function(match, cls) {
-      var id = '\\x00' + protected_.length + '\\x00';
+      var id = '\\x00_' + protected_.length + '_\\x00';
       protected_.push('<span class="' + cls + '">' + esc(match) + '</span>');
       return id;
     };
@@ -804,7 +804,7 @@ function generateHighlightJS(): string {
     src = src.replace(NUMBERS, '<span class="hljs-number">$1</span>');
     // Restore protected tokens
     for (var i = 0; i < protected_.length; i++) {
-      src = src.replace('\\x00' + i + '\\x00', protected_[i]);
+      src = src.replace('\\x00_' + i + '_\\x00', protected_[i]);
     }
     return src;
   }
