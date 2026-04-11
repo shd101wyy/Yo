@@ -508,6 +508,9 @@ export interface ModuleField {
   assignedValue?: Value;
 
   exprs: FieldExprs;
+
+  // Doc comment extracted from `///` comments preceding this field definition.
+  docComment?: string;
 }
 
 /**

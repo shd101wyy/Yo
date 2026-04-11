@@ -21,11 +21,18 @@ import {
   isPtrType,
   isSliceType,
   isStructType,
+  isTypeHierarchyType,
   isUnionType,
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
 import { typeToString } from "../types/utils";
-import { isFunctionValue, isTraitValue, valueToString } from "../value";
+import {
+  isFunctionValue,
+  isTraitValue,
+  isTypeValue,
+  valueToString,
+} from "../value";
+import type { Value } from "../value";
 import type { LspDocumentManager } from "./document-manager";
 
 /** Cached set of basic keywords */
@@ -464,6 +471,17 @@ function findVariableInScope(
   return null;
 }
 
+/**
+ * If the variable type is the `Type` meta-type and the value is a TypeValue,
+ * unwrap to the inner type so `Point.` shows methods/fields of the actual type.
+ */
+function unwrapTypeValueIfNeeded(type: Type, value?: [Value]): Type {
+  if (isTypeHierarchyType(type) && value && value[0] && isTypeValue(value[0])) {
+    return value[0].value;
+  }
+  return type;
+}
+
 function extractTypeFromExpr(
   targetExpr: Expr | null,
   tokenBeforeDot: Token,
@@ -473,7 +491,18 @@ function extractTypeFromExpr(
   if (targetExpr) {
     if (exprIsAtom(targetExpr)) {
       const atomExpr = targetExpr as AtomExpr;
-      if (atomExpr.$?.type) return atomExpr.$.type;
+      if (atomExpr.$?.type) {
+        // If the type is `Type` (meta-type) and the value is a TypeValue,
+        // unwrap to the inner type so `Point.` shows methods/fields of Point
+        if (
+          isTypeHierarchyType(atomExpr.$.type) &&
+          atomExpr.$.value &&
+          isTypeValue(atomExpr.$.value)
+        ) {
+          return atomExpr.$.value.value;
+        }
+        return atomExpr.$.type;
+      }
       if (atomExpr.$?.env) {
         try {
           const variables = getVariablesFromEnv(
@@ -481,7 +510,10 @@ function extractTypeFromExpr(
             atomExpr.token.value
           );
           if (variables && variables.length > 0) {
-            return variables[variables.length - 1]?.type ?? null;
+            const variable = variables[variables.length - 1];
+            if (variable) {
+              return unwrapTypeValueIfNeeded(variable.type, variable.value);
+            }
           }
         } catch {
           /* ignore */
@@ -533,7 +565,10 @@ function extractTypeFromExpr(
     });
 
     if (localVariables.length > 0) {
-      return localVariables[localVariables.length - 1]?.type ?? null;
+      const variable = localVariables[localVariables.length - 1];
+      if (variable) {
+        return unwrapTypeValueIfNeeded(variable.type, variable.value);
+      }
     }
   } catch {
     /* ignore */
@@ -561,21 +596,21 @@ function addAllMethods(
 ): void {
   const seenNames = new Set(members.map((m) => m.name));
 
-  function addMethod(name: string, type: Type): void {
+  function addMethod(name: string, type: Type, docComment?: string): void {
     if (seenNames.has(name)) return;
     seenNames.add(name);
     try {
       members.push({
         name,
         detail: typeToString(type),
-        documentation: `Method ${name}`,
+        documentation: docComment || `Method ${name}`,
         kind: CompletionItemKind.Method,
       });
     } catch {
       members.push({
         name,
         detail: "",
-        documentation: `Method ${name}`,
+        documentation: docComment || `Method ${name}`,
         kind: CompletionItemKind.Method,
       });
     }
@@ -586,11 +621,11 @@ function addAllMethods(
     for (const f of fieldAccessType.trait.fields) {
       // Direct function-typed fields (from anonymous impl blocks)
       if (f.label && isFunctionType(f.type)) {
-        addMethod(f.label, f.type);
+        addMethod(f.label, f.type, f.docComment);
       }
       // Module-typed fields
       else if (f.label && isModuleType(f.type)) {
-        addMethod(f.label, f.type);
+        addMethod(f.label, f.type, f.docComment);
       }
       // Named trait impl entries (stored with label="" and TraitValue assignedValue)
       else if (
@@ -608,7 +643,7 @@ function addAllMethods(
               isFunctionValue(value) && value.specializedType
                 ? value.specializedType
                 : sf.type;
-            addMethod(sf.label, methodType);
+            addMethod(sf.label, methodType, sf.docComment);
           }
         }
       }
@@ -647,18 +682,19 @@ function addDirectTraitMethods(
   for (const f of fieldAccessType.trait.fields) {
     if (f.label && isFunctionType(f.type) && !seenNames.has(f.label)) {
       seenNames.add(f.label);
+      const doc = f.docComment || `Method ${f.label}`;
       try {
         members.push({
           name: f.label,
           detail: typeToString(f.type),
-          documentation: `Method ${f.label}`,
+          documentation: doc,
           kind: CompletionItemKind.Method,
         });
       } catch {
         members.push({
           name: f.label,
           detail: "",
-          documentation: `Method ${f.label}`,
+          documentation: doc,
           kind: CompletionItemKind.Method,
         });
       }

@@ -868,6 +868,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
       defaultValue,
       assignedValue,
       unassignedSomeType,
+      docComment: label ? context.docCommentLookup?.get(label) : undefined,
     },
     env,
   };

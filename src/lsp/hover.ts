@@ -13,9 +13,9 @@ import {
 } from "../expr";
 import { stringIsOperator, TokenType } from "../token";
 import type { StructType } from "../types/definitions";
-import { isStructType } from "../types/guards";
+import { isStructType, isTypeHierarchyType } from "../types/guards";
 import { typeToString } from "../types/utils";
-import { valueToString } from "../value";
+import { isTypeValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
 import type { LspDocumentManager } from "./document-manager";
 import { findTokenAtPosition, findBestExpressionMatch } from "./utils";
@@ -250,13 +250,33 @@ function findFieldDocComment(
     const dotCall = findParentDotCall(topExpr);
     if (dotCall) {
       const receiver = dotCall.args[0];
-      const receiverType = receiver?.$?.type;
-      if (receiverType && isStructType(receiverType)) {
-        const field = (receiverType as StructType).fields.find(
-          (f) => f.label === fieldName
-        );
-        if (field?.docComment) {
-          return field.docComment;
+      let receiverType = receiver?.$?.type;
+      // Unwrap TypeValue for type-level access (e.g., `Point.add`)
+      if (
+        receiverType &&
+        isTypeHierarchyType(receiverType) &&
+        receiver?.$?.value &&
+        isTypeValue(receiver.$.value)
+      ) {
+        receiverType = receiver.$.value.value;
+      }
+      if (receiverType) {
+        // Check struct fields
+        if (isStructType(receiverType)) {
+          const field = (receiverType as StructType).fields.find(
+            (f) => f.label === fieldName
+          );
+          if (field?.docComment) {
+            return field.docComment;
+          }
+        }
+        // Check trait fields (methods from impl blocks)
+        if (receiverType.trait) {
+          for (const tf of receiverType.trait.fields) {
+            if (tf.label === fieldName && tf.docComment) {
+              return tf.docComment;
+            }
+          }
         }
       }
     }

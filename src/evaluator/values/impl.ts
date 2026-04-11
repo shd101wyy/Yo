@@ -514,6 +514,8 @@ function evaluateImplFieldList({
       });
       env = nextEnv;
 
+      const fieldDocComment = context.docCommentLookup?.get(label);
+
       // Add to anonymous trait fields
       traitType.fields.push({
         label,
@@ -521,6 +523,7 @@ function evaluateImplFieldList({
         assignedValue: fieldValue,
         defaultValue: undefined,
         exprs: { expr },
+        docComment: fieldDocComment,
       });
       traitElementValues.push(fieldValue);
       hasAnonymousFields = true;
@@ -533,6 +536,7 @@ function evaluateImplFieldList({
           assignedValue: fieldValue,
           defaultValue: undefined,
           exprs: { expr },
+          docComment: fieldDocComment,
         });
       }
 
@@ -2171,6 +2175,7 @@ function attachTraitToReceiverType(
         type: field.type,
         assignedValue: value,
         sourceModulePath,
+        docComment: field.docComment,
         exprs: {
           expr,
         },
