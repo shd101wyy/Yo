@@ -1288,6 +1288,54 @@ export function findMethodsFromGenericImpls({
 }
 
 /**
+ * Enumerate all method names available on a concrete type through generic impls.
+ * Used by the LSP for dot-completion — collects method names without performing
+ * full specialization (which is expensive and may fail on incomplete code).
+ */
+export function enumerateMethodNamesFromGenericImpls({
+  concreteType,
+  env,
+}: {
+  concreteType: Type;
+  env: Environment;
+}): { name: string; type: FunctionType }[] {
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
+  const results: { name: string; type: FunctionType }[] = [];
+  const seenNames = new Set<string>();
+
+  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      let match: GenericImplMatchResult;
+      try {
+        match = tryMatchGenericImpl({ concreteType, impl, env });
+      } catch {
+        continue;
+      }
+      if (!match.matched) continue;
+
+      for (const field of impl.traitType.fields) {
+        if (
+          field.label &&
+          isFunctionType(field.type) &&
+          !seenNames.has(field.label)
+        ) {
+          seenNames.add(field.label);
+          results.push({ name: field.label, type: field.type });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Find an associated type from generic impls for a concrete type.
  * This handles cases like `Self.Item` where `Self` is a type with a generic impl
  * of `Iterator(T)` — the `Item` associated type needs to be resolved through

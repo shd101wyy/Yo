@@ -1,10 +1,7 @@
 import type { CompletionItem } from "vscode-languageserver";
 import { CompletionItemKind, MarkupKind } from "vscode-languageserver";
-import {
-  getReceiverMethodsByNameFromEnv,
-  getVariablesFromEnv,
-  type Environment,
-} from "../env";
+import { getVariablesFromEnv, type Environment } from "../env";
+import { enumerateMethodNamesFromGenericImpls } from "../evaluator/values/impl";
 import {
   type AtomExpr,
   type Expr,
@@ -15,12 +12,12 @@ import {
   exprIsFunctionCall,
 } from "../expr";
 import { TokenType, type Token } from "../token";
-import { areTypesCompatible } from "../types/compatibility";
 import type { Type } from "../types/definitions";
 import {
   isArrayType,
   isEnumType,
   isFunctionType,
+  isModuleType,
   isPtrType,
   isSliceType,
   isStructType,
@@ -28,7 +25,7 @@ import {
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
 import { typeToString } from "../types/utils";
-import { valueToString } from "../value";
+import { isFunctionValue, isTraitValue, valueToString } from "../value";
 import type { LspDocumentManager } from "./document-manager";
 
 /** Cached set of basic keywords */
@@ -407,26 +404,15 @@ function handleDotCompletion(
       }
     }
 
-    // Try receiver method lookup from environment
+    // Collect methods from trait fields and generic impl registry
     if (targetExpr && exprIsAtom(targetExpr)) {
       const env = (targetExpr as AtomExpr).$?.env;
       if (env) {
-        addReceiverMethods(members, env, originalReceiverType);
+        addAllMethods(members, env, fieldAccessType, originalReceiverType);
       }
-    }
-
-    // Check trait methods
-    if (fieldAccessType.trait) {
-      let env: Environment | null = null;
-      if (targetExpr && exprIsAtom(targetExpr)) {
-        env = (targetExpr as AtomExpr).$?.env ?? null;
-      }
-      addTraitMethods(
-        members,
-        fieldAccessType as Type & { trait: NonNullable<Type["trait"]> },
-        originalReceiverType,
-        env
-      );
+    } else if (fieldAccessType.trait) {
+      // No env available — collect what we can from direct trait fields
+      addDirectTraitMethods(members, fieldAccessType);
     }
 
     // Convert to completion items, filtering out internal symbols
@@ -556,130 +542,126 @@ function extractTypeFromExpr(
   return null;
 }
 
-const COMMON_METHOD_NAMES = [
-  "is_atom",
-  "is_fn_call",
-  "get_callee",
-  "get_args",
-  "cons",
-  "to_string",
-  "clone",
-  "equals",
-  "map",
-  "filter",
-  "fold",
-  "len",
-  "head",
-  "tail",
-];
-
-function addReceiverMethods(
-  methods: {
+/**
+ * Add all methods available on a type, from three sources:
+ * 1. Direct trait fields (from anonymous impl blocks — flattened onto receiverType.trait)
+ * 2. Named trait impl entries (stored with label="" and TraitValue assignedValue)
+ * 3. Generic impl registry (for generic impl blocks like `impl(forall(T), ArrayList(T), ...)`)
+ */
+function addAllMethods(
+  members: {
     name: string;
     detail: string;
     documentation: string;
     kind: CompletionItemKind;
   }[],
   env: Environment,
-  receiverType: Type
+  fieldAccessType: Type,
+  originalReceiverType: Type
 ): void {
-  for (const methodName of COMMON_METHOD_NAMES) {
+  const seenNames = new Set(members.map((m) => m.name));
+
+  function addMethod(name: string, type: Type): void {
+    if (seenNames.has(name)) return;
+    seenNames.add(name);
     try {
-      const foundMethods = getReceiverMethodsByNameFromEnv({
-        env,
-        methodName,
-        receiverType,
-        context: { stdPath: env.modulePath },
+      members.push({
+        name,
+        detail: typeToString(type),
+        documentation: `Method ${name}`,
+        kind: CompletionItemKind.Method,
       });
-      if (!foundMethods || foundMethods.length === 0) continue;
+    } catch {
+      members.push({
+        name,
+        detail: "",
+        documentation: `Method ${name}`,
+        kind: CompletionItemKind.Method,
+      });
+    }
+  }
 
-      for (const method of foundMethods) {
-        if (!method || !isFunctionType(method.type)) continue;
-
-        if (method.type.parameters.length > 0) {
-          const firstParamType = method.type.parameters[0]!.type;
-          try {
-            if (
-              areTypesCompatible(
-                { type: receiverType, env },
-                { type: firstParamType, env }
-              )
-            ) {
-              methods.push({
-                name: methodName,
-                detail: typeToString(method.type),
-                documentation: `Method ${methodName}`,
-                kind: CompletionItemKind.Method,
-              });
-            }
-          } catch {
-            methods.push({
-              name: methodName,
-              detail: typeToString(method.type),
-              documentation: `Method ${methodName}`,
-              kind: CompletionItemKind.Method,
-            });
+  // Source 1 & 2: Walk trait fields on the type
+  if (fieldAccessType.trait) {
+    for (const f of fieldAccessType.trait.fields) {
+      // Direct function-typed fields (from anonymous impl blocks)
+      if (f.label && isFunctionType(f.type)) {
+        addMethod(f.label, f.type);
+      }
+      // Module-typed fields
+      else if (f.label && isModuleType(f.type)) {
+        addMethod(f.label, f.type);
+      }
+      // Named trait impl entries (stored with label="" and TraitValue assignedValue)
+      else if (
+        f.label === "" &&
+        f.assignedValue &&
+        isTraitValue(f.assignedValue)
+      ) {
+        const traitVal = f.assignedValue;
+        const traitType = traitVal.type;
+        for (let i = 0; i < traitType.fields.length; i++) {
+          const sf = traitType.fields[i]!;
+          if (sf.label && isFunctionType(sf.type)) {
+            const value = traitVal.fields[i];
+            const methodType =
+              isFunctionValue(value) && value.specializedType
+                ? value.specializedType
+                : sf.type;
+            addMethod(sf.label, methodType);
           }
-        } else {
-          methods.push({
-            name: methodName,
-            detail: typeToString(method.type),
-            documentation: `Method ${methodName}`,
-            kind: CompletionItemKind.Method,
-          });
         }
       }
-    } catch {
-      /* ignore */
     }
+  }
+
+  // Source 3: Generic impl registry
+  try {
+    const genericMethods = enumerateMethodNamesFromGenericImpls({
+      concreteType: originalReceiverType,
+      env,
+    });
+    for (const m of genericMethods) {
+      addMethod(m.name, m.type);
+    }
+  } catch {
+    /* ignore — generic impl matching can fail on incomplete types */
   }
 }
 
-function addTraitMethods(
-  methods: {
+/**
+ * Fallback: add methods from direct trait fields only (no env available).
+ */
+function addDirectTraitMethods(
+  members: {
     name: string;
     detail: string;
     documentation: string;
     kind: CompletionItemKind;
   }[],
-  fieldAccessType: Type & { trait: NonNullable<Type["trait"]> },
-  originalReceiverType: Type,
-  env: Environment | null
+  fieldAccessType: Type
 ): void {
-  for (const element of fieldAccessType.trait.fields) {
-    if (!isFunctionType(element.type)) continue;
+  if (!fieldAccessType.trait) return;
+  const seenNames = new Set(members.map((m) => m.name));
 
-    if (element.type.parameters.length > 0 && env) {
-      const firstParamType = element.type.parameters[0]!.type;
+  for (const f of fieldAccessType.trait.fields) {
+    if (f.label && isFunctionType(f.type) && !seenNames.has(f.label)) {
+      seenNames.add(f.label);
       try {
-        if (
-          areTypesCompatible(
-            { type: originalReceiverType, env },
-            { type: firstParamType, env }
-          )
-        ) {
-          methods.push({
-            name: element.label,
-            detail: typeToString(element.type),
-            documentation: `Method ${element.label}`,
-            kind: CompletionItemKind.Method,
-          });
-        }
+        members.push({
+          name: f.label,
+          detail: typeToString(f.type),
+          documentation: `Method ${f.label}`,
+          kind: CompletionItemKind.Method,
+        });
       } catch {
-        methods.push({
-          name: element.label,
-          detail: typeToString(element.type),
-          documentation: `Method ${element.label}`,
+        members.push({
+          name: f.label,
+          detail: "",
+          documentation: `Method ${f.label}`,
           kind: CompletionItemKind.Method,
         });
       }
-    } else {
-      methods.push({
-        name: element.label,
-        detail: typeToString(element.type),
-        documentation: `Method ${element.label}`,
-        kind: CompletionItemKind.Method,
-      });
     }
   }
 }

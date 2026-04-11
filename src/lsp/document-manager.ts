@@ -102,9 +102,10 @@ export class LspDocumentManager {
 
     const modulePath = uriToModulePath(uri);
 
-    // Cache the current module if it has useful AST data before re-evaluating
+    // Cache the current module if it has useful AST data before re-evaluating.
+    // We cache even modules with errors — partial type info is better than none.
     const oldModule = this.moduleManager.modules.get(modulePath);
-    if (oldModule && !oldModule.moduleError) {
+    if (oldModule) {
       try {
         const program = oldModule.evaluator.getProgram();
         if (program.length > 0) {
@@ -227,12 +228,11 @@ export class LspDocumentManager {
     if (this.evaluatedBuildProjects.has(buildInfo.projectDir)) return;
     this.evaluatedBuildProjects.set(buildInfo.projectDir, true);
 
+    const buildModuleManager = new ModuleManager();
     try {
       clearBuildRegistry();
-      const buildModuleManager = new ModuleManager();
       const modulePath = `file://${realpathSync(buildInfo.buildFile)}`;
       buildModuleManager.loadModule(modulePath);
-      buildModuleManager.resetAllState();
 
       const registry: BuildRegistry = getBuildRegistry();
 
@@ -265,6 +265,10 @@ export class LspDocumentManager {
       clearBuildRegistry();
     } catch {
       // build.yo evaluation failed — skip silently
+    } finally {
+      // Always clean up global state from the temporary module manager
+      // to avoid polluting the main module manager with stale prelude type data
+      buildModuleManager.resetAllState();
     }
   }
 
@@ -293,10 +297,9 @@ export class LspDocumentManager {
     if (!existsSync(depBuildFile)) return;
 
     const parentRegistry = swapBuildRegistry(new BuildRegistry());
+    const depMm = new ModuleManager();
     try {
-      const depMm = new ModuleManager();
       depMm.loadModule(`file://${realpathSync(depBuildFile)}`);
-      depMm.resetAllState();
 
       const depRegistry = getBuildRegistry();
       const depModule =
@@ -313,6 +316,7 @@ export class LspDocumentManager {
     } catch {
       // skip silently
     } finally {
+      depMm.resetAllState();
       swapBuildRegistry(parentRegistry);
     }
   }
