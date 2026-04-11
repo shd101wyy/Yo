@@ -159,7 +159,7 @@ function documentFile(
 
     // Build the doc module
     return buildDocModule({
-      name: path.basename(filePath, ".yo"),
+      name: moduleName,
       path: moduleName,
       moduleValue,
       extraction,

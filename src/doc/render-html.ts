@@ -62,6 +62,25 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
+// ── Module path helpers ──────────────────────────────────────────────
+
+/** Convert module name (e.g., "collections/array_list") to safe filename ("collections__array_list") */
+function moduleToFilename(name: string): string {
+  return name.replace(/\//g, "__");
+}
+
+/** Get the display name for a module (last path segment) */
+function moduleDisplayName(name: string): string {
+  const parts = name.split("/");
+  return parts[parts.length - 1]!;
+}
+
+/** Get the directory/group part of a module path, or empty for top-level */
+function moduleGroup(name: string): string {
+  const idx = name.lastIndexOf("/");
+  return idx >= 0 ? name.slice(0, idx) : "";
+}
+
 // ── CSS styles ───────────────────────────────────────────────────────
 
 function generateCSS(): string {
@@ -173,6 +192,41 @@ body {
 .sidebar-section a.active {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* Sidebar tree groups */
+.sidebar-group {
+  margin: 2px 0;
+}
+
+.sidebar-group-header {
+  display: block;
+  padding: 3px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-group-header::before {
+  content: "▸ ";
+  font-size: 10px;
+  display: inline-block;
+  width: 14px;
+}
+
+.sidebar-group.open > .sidebar-group-header::before {
+  content: "▾ ";
+}
+
+.sidebar-group-items {
+  display: none;
+  padding-left: 14px;
+}
+
+.sidebar-group.open > .sidebar-group-items {
+  display: block;
 }
 
 /* Main content */
@@ -514,6 +568,14 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   color: var(--text-secondary);
 }
 
+.module-group-header {
+  margin: 24px 0 4px;
+  font-size: 18px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 4px;
+}
+
 /* Breadcrumb */
 .breadcrumb {
   font-size: 14px;
@@ -621,10 +683,11 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
   const entries: SearchEntry[] = [];
 
   for (const mod of model.modules) {
+    const fname = moduleToFilename(mod.name);
     entries.push({
       name: mod.name,
       kind: "module",
-      href: `module/${mod.name}.html`,
+      href: `module/${fname}.html`,
       doc: mod.doc ? firstSentence(mod.doc) : undefined,
       module: mod.name,
     });
@@ -633,7 +696,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
       entries.push({
         name: fn.name,
         kind: "function",
-        href: `module/${mod.name}.html#fn-${fn.name}`,
+        href: `module/${fname}.html#fn-${fn.name}`,
         doc: fn.doc ? firstSentence(fn.doc) : undefined,
         module: mod.name,
       });
@@ -643,7 +706,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
       entries.push({
         name: t.name,
         kind: t.kind,
-        href: `module/${mod.name}.html#type-${t.name}`,
+        href: `module/${fname}.html#type-${t.name}`,
         doc: t.doc ? firstSentence(t.doc) : undefined,
         module: mod.name,
       });
@@ -651,7 +714,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
         entries.push({
           name: `${t.name}.${m.name}`,
           kind: "method",
-          href: `module/${mod.name}.html#method-${t.name}-${m.name}`,
+          href: `module/${fname}.html#method-${t.name}-${m.name}`,
           doc: m.doc ? firstSentence(m.doc) : undefined,
           module: mod.name,
         });
@@ -662,7 +725,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
       entries.push({
         name: tr.name,
         kind: "trait",
-        href: `module/${mod.name}.html#trait-${tr.name}`,
+        href: `module/${fname}.html#trait-${tr.name}`,
         doc: tr.doc ? firstSentence(tr.doc) : undefined,
         module: mod.name,
       });
@@ -672,7 +735,7 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
       entries.push({
         name: c.name,
         kind: "constant",
-        href: `module/${mod.name}.html#const-${c.name}`,
+        href: `module/${fname}.html#const-${c.name}`,
         doc: c.doc ? firstSentence(c.doc) : undefined,
         module: mod.name,
       });
@@ -735,9 +798,48 @@ function renderSidebar(model: DocModel, activeModule?: string): string {
   <h3>Modules</h3>
   <a href="index.html"${!activeModule ? ' class="active"' : ""}>Overview</a>`;
 
+  // Group modules by directory for tree view
+  const groups = new Map<string, DocModule[]>();
+  const topLevel: DocModule[] = [];
   for (const mod of model.modules) {
+    const group = moduleGroup(mod.name);
+    if (group === "") {
+      topLevel.push(mod);
+    } else {
+      const list = groups.get(group);
+      if (list) {
+        list.push(mod);
+      } else {
+        groups.set(group, [mod]);
+      }
+    }
+  }
+
+  // Render top-level modules first
+  for (const mod of topLevel) {
     const active = mod.name === activeModule ? ' class="active"' : "";
-    html += `\n  <a href="module/${escapeHtml(mod.name)}.html"${active}>${escapeHtml(mod.name)}</a>`;
+    const fname = moduleToFilename(mod.name);
+    html += `\n  <a href="module/${escapeHtml(fname)}.html"${active}>${escapeHtml(mod.name)}</a>`;
+  }
+
+  // Render grouped modules with collapsible tree sections
+  const sortedGroups = [...groups.keys()].sort();
+  for (const group of sortedGroups) {
+    const mods = groups.get(group)!;
+    const isActiveGroup = activeModule
+      ? moduleGroup(activeModule) === group
+      : false;
+    html += `\n  <div class="sidebar-group${isActiveGroup ? " open" : ""}">`;
+    html += `\n    <div class="sidebar-group-header" onclick="this.parentElement.classList.toggle('open')">${escapeHtml(group)}/</div>`;
+    html += `\n    <div class="sidebar-group-items">`;
+    for (const mod of mods) {
+      const active = mod.name === activeModule ? ' class="active"' : "";
+      const fname = moduleToFilename(mod.name);
+      const display = moduleDisplayName(mod.name);
+      html += `\n      <a href="module/${escapeHtml(fname)}.html"${active}>${escapeHtml(display)}</a>`;
+    }
+    html += `\n    </div>`;
+    html += `\n  </div>`;
   }
 
   html += `\n</div>`;
@@ -1067,28 +1169,65 @@ function renderIndexContent(md: MarkdownRenderer, model: DocModel): string {
     return html;
   }
 
-  html += `<h2>Modules</h2>\n<div class="module-grid">`;
+  html += `<h2>Modules</h2>`;
 
+  // Group modules by directory
+  const groups = new Map<string, DocModule[]>();
+  const topLevel: DocModule[] = [];
   for (const mod of model.modules) {
-    const desc = mod.doc ? firstSentence(mod.doc) : "No description";
-    const stats = [
-      mod.functions.length > 0 ? `${mod.functions.length} fn` : "",
-      mod.types.length > 0 ? `${mod.types.length} type` : "",
-      mod.traits.length > 0 ? `${mod.traits.length} trait` : "",
-      mod.constants.length > 0 ? `${mod.constants.length} const` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const group = moduleGroup(mod.name);
+    if (group === "") {
+      topLevel.push(mod);
+    } else {
+      const list = groups.get(group);
+      if (list) {
+        list.push(mod);
+      } else {
+        groups.set(group, [mod]);
+      }
+    }
+  }
 
-    html += `\n<div class="module-card">
-  <h3><a href="module/${escapeHtml(mod.name)}.html">${escapeHtml(mod.name)}</a></h3>
+  // Render top-level modules first
+  if (topLevel.length > 0) {
+    html += `\n<div class="module-grid">`;
+    for (const mod of topLevel) {
+      html += renderModuleCard(md, mod);
+    }
+    html += `\n</div>`;
+  }
+
+  // Render grouped modules with section headers
+  const sortedGroups = [...groups.keys()].sort();
+  for (const group of sortedGroups) {
+    const mods = groups.get(group)!;
+    html += `\n<h3 class="module-group-header">${escapeHtml(group)}/</h3>`;
+    html += `\n<div class="module-grid">`;
+    for (const mod of mods) {
+      html += renderModuleCard(md, mod);
+    }
+    html += `\n</div>`;
+  }
+
+  return html;
+}
+
+function renderModuleCard(md: MarkdownRenderer, mod: DocModule): string {
+  const desc = mod.doc ? firstSentence(mod.doc) : "No description";
+  const stats = [
+    mod.functions.length > 0 ? `${mod.functions.length} fn` : "",
+    mod.types.length > 0 ? `${mod.types.length} type` : "",
+    mod.traits.length > 0 ? `${mod.traits.length} trait` : "",
+    mod.constants.length > 0 ? `${mod.constants.length} const` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `\n<div class="module-card">
+  <h3><a href="module/${escapeHtml(moduleToFilename(mod.name))}.html">${escapeHtml(mod.name)}</a></h3>
   <div class="module-desc">${renderMarkdown(md, desc)}</div>
   <div class="module-stats">${stats}</div>
 </div>`;
-  }
-
-  html += `\n</div>`;
-  return html;
 }
 
 // ── Module page ──────────────────────────────────────────────────────
@@ -1183,6 +1322,7 @@ export async function renderDocSite(options: RenderHtmlOptions): Promise<void> {
 
   // Generate module pages
   for (const mod of model.modules) {
+    const fname = moduleToFilename(mod.name);
     // For module pages, fix relative paths (we're in module/ subdir)
     const modSidebar = renderSidebar(model, mod.name)
       .replace(/href="module\//g, 'href="')
@@ -1203,7 +1343,7 @@ export async function renderDocSite(options: RenderHtmlOptions): Promise<void> {
       jsText
     );
     fs.writeFileSync(
-      path.join(outputDir, "module", `${mod.name}.html`),
+      path.join(outputDir, "module", `${fname}.html`),
       modPage,
       "utf-8"
     );
@@ -1218,4 +1358,7 @@ export {
   firstSentence,
   generateCSS,
   generateSearchJS,
+  moduleToFilename,
+  moduleDisplayName,
+  moduleGroup,
 };
