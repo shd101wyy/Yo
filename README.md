@@ -318,7 +318,26 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 ## Editor Support
 
-- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.
+- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) with built-in **Language Server Protocol (LSP)** support, providing:
+
+  - **Hover information** — types, values, and doc comments for any identifier
+  - **Auto-completion** — struct fields, enum variants, module members, impl methods, keywords
+  - **Go to definition** — jump to any symbol's definition
+  - **Find references** — locate all usages of a symbol
+  - **Rename symbol** — rename across all references
+  - **Document symbols** — outline view of top-level declarations
+  - **Signature help** — parameter hints while typing function calls
+  - **Diagnostics** — real-time error reporting
+  - **Inlay hints** — inline type annotations for inferred types
+  - **Code folding** — collapse function bodies, structs, impl blocks
+
+  The LSP server can also be used with other editors via stdio JSON-RPC:
+
+  ```bash
+  node out/cjs/yo-lsp.cjs --stdio
+  ```
+
+  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for full documentation.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
