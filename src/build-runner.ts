@@ -1987,7 +1987,7 @@ async function runDocGeneration(
     outputDir: outputPath,
     includePrivate: docConfig.includePrivate,
     verbose: ctx.verbose ?? false,
-    name: docConfig.title || undefined,
+    title: docConfig.title || undefined,
     format,
   });
 }

@@ -79,7 +79,7 @@ Examples:
   $ yo doc ./src                 Document all .yo files in ./src
   $ yo doc ./src/main.yo         Document a single file
   $ yo doc -o docs               Output to ./docs directory
-  $ yo doc --name "My Project"   Set project name
+  $ yo doc --title "My Project"  Set doc site title
 
 yo --help                        Show this help message
 yo --version                     Show version number
@@ -681,8 +681,8 @@ yo --version                     Show version number
           type: "string",
           default: "yo-out/doc",
         })
-        .option("name", {
-          describe: "Project name (default: inferred from directory/package)",
+        .option("title", {
+          describe: "Doc site title (default: inferred from directory/package)",
           type: "string",
         })
         .option("document-private", {
@@ -711,7 +711,7 @@ yo --version                     Show version number
         outputDir: argv.o as string,
         includePrivate: argv.documentPrivate as boolean,
         verbose: argv.verbose as boolean,
-        name: argv.name as string | undefined,
+        title: argv.title as string | undefined,
         format: argv.format as "html" | "markdown" | "json",
       });
     }

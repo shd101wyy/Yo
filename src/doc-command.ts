@@ -33,8 +33,8 @@ export interface DocCommandOptions {
   includePrivate: boolean;
   /** Verbose output */
   verbose: boolean;
-  /** Project name override */
-  name?: string;
+  /** Doc site title override */
+  title?: string;
   /** Output format (default: html) */
   format?: DocFormat;
 }
@@ -225,7 +225,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
     outputDir,
     includePrivate: _includePrivate,
     verbose,
-    name,
+    title,
     format = "html",
   } = options;
 
@@ -243,7 +243,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
   console.log(`Found ${files.length} file${files.length === 1 ? "" : "s"}`);
 
   // Determine project name
-  const projectName = name ?? inferProjectName(basePath);
+  const projectName = title ?? inferProjectName(basePath);
 
   // Create module manager for evaluation
   const moduleManager = new ModuleManager();

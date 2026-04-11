@@ -16,7 +16,7 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
 | Generate docs for project | `yo doc ./src`                                            |
-| Generate docs (custom)    | `yo doc ./src -o docs --name "My Project"`                |
+| Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
 | Install dependency        | `yo install user/repo`                                    |
 | Install pinned dependency | `yo install user/repo@v1.2.3`                             |
 | Fetch dependency graph    | `yo fetch`                                                |
@@ -176,7 +176,7 @@ See the [yo-wasm-integration](../yo-wasm-integration/SKILL.md) skill for full np
 yo doc ./src                         # Document all .yo files in directory
 yo doc ./src/main.yo                 # Document single file
 yo doc -o ./docs                     # Custom output directory
-yo doc --name "My Project"           # Override project name
+yo doc --title "My Project"          # Set doc site title
 yo doc --format markdown             # Output as Markdown (default: html)
 yo doc --format json                 # Output as JSON
 yo doc --document-private            # Include non-exported items

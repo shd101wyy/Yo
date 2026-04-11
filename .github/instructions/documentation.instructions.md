@@ -56,7 +56,7 @@ fn_name :: (fn(name: i32) -> i32)(...);
 yo doc [path]                    # Document file or directory (default: cwd)
 yo doc ./src/                    # All .yo files in directory
 yo doc -o docs                   # Custom output directory (default: yo-out/doc)
-yo doc --name "My Project"       # Set project name
+yo doc --title "My Project"      # Set doc site title
 yo doc --format html|markdown|json  # Output format (default: html)
 yo doc --document-private        # Include non-exported items
 ```
