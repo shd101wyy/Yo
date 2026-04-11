@@ -216,7 +216,7 @@ $ yo build                  # Build all artifacts
 $ yo build run              # Build and run the executable
 $ yo build test             # Run tests
 $ yo build --list-steps     # List available build steps
-$ yo doc ./src              # Generate HTML documentation
+$ yo build doc              # Generate HTML documentation
 ```
 
 ## Prelude
