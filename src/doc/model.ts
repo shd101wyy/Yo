@@ -15,7 +15,8 @@ export type DocItemKind =
   | "trait"
   | "module"
   | "constant"
-  | "type-alias";
+  | "type-alias"
+  | "type-function";
 
 // ── Parameter & field documentation ──────────────────────────────────
 

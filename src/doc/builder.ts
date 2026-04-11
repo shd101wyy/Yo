@@ -738,7 +738,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             result.types.push({
               name: fieldName,
               doc,
-              kind: "type-alias",
+              kind: "type-function",
               signature: typeToString(field.type),
               typeParams: getTypeConstructorParams(field),
               methods: [],
