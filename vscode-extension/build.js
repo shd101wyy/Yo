@@ -16,6 +16,26 @@ const nativeConfig = {
   external: ["vscode"],
 };
 
+/**
+ * Copy the LSP server bundle into the extension's out/ directory
+ * so it's included in the .vsix package.
+ */
+function copyLspServer() {
+  const src = path.join(__dirname, "..", "out", "cjs", "yo-lsp.cjs");
+  const dest = path.join(__dirname, "out", "yo-lsp.cjs");
+
+  if (!fs.existsSync(src)) {
+    console.warn(
+      `⚠ LSP server not found at ${src}. Run 'bun run build' in the project root first.`
+    );
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+  console.log(`Copied LSP server → ${dest}`);
+}
+
 async function main() {
   try {
     if (process.argv.includes("--watch")) {
@@ -28,6 +48,7 @@ async function main() {
     } else {
       await build(nativeConfig);
     }
+    copyLspServer();
   } catch (error) {
     console.error(error);
   }
