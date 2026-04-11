@@ -624,4 +624,30 @@ describe("extractInlineDocs", () => {
     expect(docs.size).toBe(1);
     expect(docs.get("x")).toBe("The **bold** value.\n\nExample: `x = 42`");
   });
+
+  it("extracts docs for optional fields with ?= syntax", () => {
+    const docs = inlineDocsFromSource(`Config :: struct(
+      /// Step name.
+      name : comptime_string,
+      /// Compilation target triple.
+      (target : comptime_string) ?= "host",
+      /// Optimization level.
+      (optimize : i32) ?= 0
+    );`);
+
+    expect(docs.size).toBe(3);
+    expect(docs.get("name")).toBe("Step name.");
+    expect(docs.get("target")).toBe("Compilation target triple.");
+    expect(docs.get("optimize")).toBe("Optimization level.");
+  });
+
+  it("extracts top-level doc for ?= field via extractDocComments", () => {
+    const source = `/// Target doc.\n(target : i32) ?= 0;\n`;
+    const tokens = tokenize(source, "test.yo");
+    const result = extractDocComments(tokens);
+
+    expect(result.declarations.length).toBe(1);
+    expect(result.declarations[0]!.declarationName).toBe("target");
+    expect(result.declarations[0]!.comment.content).toBe("Target doc.");
+  });
 });

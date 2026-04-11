@@ -75,6 +75,42 @@ function escapeHtml(s: string): string {
  * - `https://shd101wyy.github.io/Yo/` → `std/index.html` (relative, same site)
  * - `#anchor` links → kept as-is
  */
+/**
+ * Generate a GitHub-compatible slug from heading text.
+ * - Strip HTML tags
+ * - Lowercase
+ * - Replace spaces with hyphens
+ * - Remove non-alphanumeric characters (except hyphens)
+ */
+function slugify(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, "") // strip HTML tags
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * Add `id` attributes to heading elements so that #anchor links work.
+ * Handles duplicate slugs by appending `-1`, `-2`, etc.
+ */
+function injectHeadingIds(html: string): string {
+  const slugCounts = new Map<string, number>();
+  return html.replace(
+    /<(h[1-6])>([\s\S]*?)<\/\1>/gi,
+    (_match: string, tag: string, content: string) => {
+      let slug = slugify(content);
+      const count = slugCounts.get(slug) ?? 0;
+      slugCounts.set(slug, count + 1);
+      if (count > 0) slug = `${slug}-${count}`;
+      return `<${tag} id="${slug}">${content}</${tag}>`;
+    }
+  );
+}
+
 function rewriteReadmeLinks(html: string): string {
   // Rewrite the generated docs link to relative std/ path (same site)
   html = html.replace(
@@ -383,6 +419,7 @@ async function main(): Promise<void> {
   });
 
   let readmeHtml = md.render(readmeSrc);
+  readmeHtml = injectHeadingIds(readmeHtml);
   readmeHtml = rewriteReadmeLinks(readmeHtml);
 
   const css = generateHomepageCSS();

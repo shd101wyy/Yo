@@ -81,6 +81,58 @@ function moduleGroup(name: string): string {
   return idx >= 0 ? name.slice(0, idx) : "";
 }
 
+// ── Symbol link resolution ────────────────────────────────────────────
+
+/** Map from symbol name → relative URL (from module/ directory) */
+type SymbolLinks = Map<string, string>;
+
+/** Build a lookup map from every documented symbol to its URL. */
+function buildSymbolLinks(model: DocModel): SymbolLinks {
+  const links: SymbolLinks = new Map();
+  for (const mod of model.modules) {
+    const fname = moduleToFilename(mod.name);
+    for (const t of mod.types) {
+      links.set(t.name, `${fname}.html#type-${t.name}`);
+    }
+    for (const tr of mod.traits) {
+      links.set(tr.name, `${fname}.html#trait-${tr.name}`);
+    }
+    for (const fn of mod.functions) {
+      links.set(fn.name, `${fname}.html#fn-${fn.name}`);
+    }
+    for (const c of mod.constants) {
+      links.set(c.name, `${fname}.html#const-${c.name}`);
+    }
+  }
+  return links;
+}
+
+/**
+ * Replace known PascalCase symbol names in a type string with clickable links.
+ * Handles types like `Option(T)`, `HashMap(K, V)`, `Result(T, E)`, etc.
+ */
+function linkifyType(
+  typeStr: string,
+  symbolLinks: SymbolLinks,
+  currentModuleFilename?: string
+): string {
+  const escaped = escapeHtml(typeStr);
+  // Match PascalCase identifiers (start with uppercase letter)
+  return escaped.replace(/\b([A-Z][a-zA-Z0-9_]*)\b/g, (match) => {
+    const href = symbolLinks.get(match);
+    if (!href) return match;
+    // Optimize same-page links to just anchors
+    if (
+      currentModuleFilename &&
+      href.startsWith(`${currentModuleFilename}.html#`)
+    ) {
+      const anchor = href.slice(href.indexOf("#"));
+      return `<a class="type-link" href="${anchor}">${match}</a>`;
+    }
+    return `<a class="type-link" href="${href}">${match}</a>`;
+  });
+}
+
 // ── CSS styles ───────────────────────────────────────────────────────
 
 function generateCSS(): string {
@@ -317,15 +369,17 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   color: var(--text-secondary);
 }
 
-.doc-content code {
+code {
   font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--bg-code);
   padding: 2px 5px;
   border-radius: 3px;
+  border: 1px solid var(--border-light);
+  color: var(--text);
 }
 
-.doc-content pre {
+pre {
   background: var(--bg-code-block);
   color: var(--text-code);
   padding: 16px;
@@ -336,11 +390,27 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   line-height: 1.5;
 }
 
-.doc-content pre code {
+pre code {
   background: none;
   padding: 0;
+  border: none;
   color: inherit;
+  font-size: inherit;
 }
+
+/* Syntax highlighting — One Dark inspired */
+.hljs-keyword { color: #c678dd; }
+.hljs-type { color: #e5c07b; }
+.hljs-string { color: #98c379; }
+.hljs-number { color: #d19a66; }
+.hljs-comment { color: #5c6370; font-style: italic; }
+.hljs-function { color: #61afef; }
+.hljs-operator { color: #56b6c2; }
+.hljs-punctuation { color: #abb2bf; }
+.hljs-property { color: #e06c75; }
+.hljs-constant { color: #d19a66; }
+.hljs-builtin { color: #e5c07b; }
+.hljs-attr { color: #d19a66; }
 
 /* Item cards */
 .item-list { margin: 12px 0; }
@@ -444,6 +514,15 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   white-space: nowrap;
 }
 
+.type-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent);
+}
+.type-link:hover {
+  border-bottom-style: solid;
+}
+
 /* Methods section */
 .method-item {
   margin: 16px 0;
@@ -457,6 +536,20 @@ h4 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
   padding: 8px 16px;
   font-family: var(--font-mono);
   font-size: 14px;
+}
+
+.method-header code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.decl-signature code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
 }
 
 .method-body {
@@ -729,6 +822,65 @@ function generateSearchJS(): string {
 `.trim();
 }
 
+// ── Syntax highlighting JS ───────────────────────────────────────────
+
+function generateHighlightJS(): string {
+  return `
+(function() {
+  var KEYWORDS = /\\b(fn|struct|enum|union|module|trait|impl|object|newtype|open|import|export|return|escape|recur|match|cond|if|while|for|break|continue|test|assert|comptime|runtime|comptime_assert|comptime_expect_error|forall|using|given|where|defer|dyn|pub|let|const|type|true|false|else|in|as|self|Self)\\b/g;
+  var TYPES = /\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|rune|str|usize|isize|unit|void|Type|comptime_string|comptime_int|comptime_float)\\b/g;
+  var BUILTINS = /\\b(Option|Result|Box|box|String|Future|IO|Impl|Slice|Array|Pointer|Fn|HashMap|ArrayList|BTreeMap|Deque|LinkedList|HashSet|BTreeSet|Rc|Arc|Mutex|Channel|WaitGroup|Thread|JoinHandle|Range)\\b/g;
+  var STRINGS = /(\`(?:[^\`\\\\]|\\\\.)*\`|"(?:[^"\\\\]|\\\\.)*")/g;
+  var NUMBERS = /\\b(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*\\.?[0-9_]*(?:[eE][+-]?[0-9_]+)?)\\b/g;
+  var LINE_COMMENTS = /(\\/\\/(?!\\/)[^\\n]*)/g;
+  var DOC_COMMENTS = /(\\/\\/\\/[^\\n]*|\\/\\/![^\\n]*)/g;
+  var BLOCK_COMMENTS = /(\\/\\*[\\s\\S]*?\\*\\/)/g;
+  var OPERATORS = /([=!<>&|+\\-*\\/%^~]+|::|\\.\\.|=>|\\?=|:=)/g;
+  var PROPERTIES = /\\.([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\(|\\b)/g;
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function highlight(code) {
+    var tokens = [];
+    var src = code;
+    // Extract strings and comments first (they take priority)
+    var protected_ = [];
+    var placeholder = function(match, cls) {
+      var id = '\\x00_' + protected_.length + '_\\x00';
+      protected_.push('<span class="' + cls + '">' + esc(match) + '</span>');
+      return id;
+    };
+    // Block comments first
+    src = src.replace(BLOCK_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    // Doc comments before line comments
+    src = src.replace(DOC_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    src = src.replace(LINE_COMMENTS, function(m) { return placeholder(m, 'hljs-comment'); });
+    // Strings (template and double-quoted)
+    src = src.replace(STRINGS, function(m) { return placeholder(m, 'hljs-string'); });
+    // Now highlight the rest
+    src = esc(src);
+    src = src.replace(KEYWORDS, '<span class="hljs-keyword">$1</span>');
+    src = src.replace(TYPES, '<span class="hljs-type">$1</span>');
+    src = src.replace(BUILTINS, '<span class="hljs-builtin">$1</span>');
+    src = src.replace(NUMBERS, '<span class="hljs-number">$1</span>');
+    // Restore protected tokens
+    for (var i = 0; i < protected_.length; i++) {
+      src = src.replace('\\x00_' + i + '_\\x00', protected_[i]);
+    }
+    return src;
+  }
+
+  document.querySelectorAll('pre > code[class*="language-"]').forEach(function(el) {
+    el.innerHTML = highlight(el.textContent || '');
+  });
+
+  document.querySelectorAll('.method-header code, .decl-signature').forEach(function(el) {
+    el.innerHTML = highlight(el.textContent || '');
+  });
+})();
+`.trim();
+}
+
 // ── Search index builder ─────────────────────────────────────────────
 
 interface SearchEntry {
@@ -841,6 +993,7 @@ ${content}
 <button id="back-to-top" class="back-to-top" aria-label="Back to top">&uarr;</button>
 <script>window.__SEARCH_INDEX = ${JSON.stringify(searchIndex)};</script>
 <script>${jsText}</script>
+<script>${generateHighlightJS()}</script>
 </body>
 </html>`;
 }
@@ -993,7 +1146,9 @@ function renderSections(
 function renderParamsTable(
   md: MarkdownRenderer,
   params: DocParam[],
-  label: string = "Parameters"
+  label: string = "Parameters",
+  links?: SymbolLinks,
+  currentModFile?: string
 ): string {
   if (params.length === 0) return "";
 
@@ -1009,7 +1164,10 @@ function renderParamsTable(
     const docCell = hasDoc
       ? `<td>${p.doc ? renderMarkdown(md, p.doc) : ""}</td>`
       : "";
-    html += `\n<tr><td><code>${escapeHtml(p.name)}</code></td><td class="type-col">${escapeHtml(p.type)}</td><td>${notes.join(", ")}</td>${docCell}</tr>`;
+    const typeHtml = links
+      ? linkifyType(p.type, links, currentModFile)
+      : escapeHtml(p.type);
+    html += `\n<tr><td><code>${escapeHtml(p.name)}</code></td><td class="type-col">${typeHtml}</td><td>${notes.join(", ")}</td>${docCell}</tr>`;
   }
   html += `\n</tbody></table>`;
   return html;
@@ -1017,13 +1175,21 @@ function renderParamsTable(
 
 // ── Fields table rendering ───────────────────────────────────────────
 
-function renderFieldsTable(md: MarkdownRenderer, fields: DocField[]): string {
+function renderFieldsTable(
+  md: MarkdownRenderer,
+  fields: DocField[],
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
   if (fields.length === 0) return "";
 
   let html = `<h4>Fields</h4>\n<table class="fields-table">\n<thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>\n<tbody>`;
   for (const f of fields) {
     const docText = f.doc ? renderMarkdown(md, f.doc) : "";
-    html += `\n<tr><td><code>${escapeHtml(f.name)}</code></td><td class="type-col">${escapeHtml(f.type)}</td><td>${docText}</td></tr>`;
+    const typeHtml = links
+      ? linkifyType(f.type, links, currentModFile)
+      : escapeHtml(f.type);
+    html += `\n<tr><td><code>${escapeHtml(f.name)}</code></td><td class="type-col">${typeHtml}</td><td>${docText}</td></tr>`;
   }
   html += `\n</tbody></table>`;
   return html;
@@ -1033,7 +1199,9 @@ function renderFieldsTable(md: MarkdownRenderer, fields: DocField[]): string {
 
 function renderVariantsTable(
   md: MarkdownRenderer,
-  variants: DocVariant[]
+  variants: DocVariant[],
+  links?: SymbolLinks,
+  currentModFile?: string
 ): string {
   if (variants.length === 0) return "";
 
@@ -1041,7 +1209,12 @@ function renderVariantsTable(
   for (const v of variants) {
     const fieldsStr = v.fields
       ? v.fields
-          .map((f) => `${escapeHtml(f.name)}: ${escapeHtml(f.type)}`)
+          .map((f) => {
+            const typeHtml = links
+              ? linkifyType(f.type, links, currentModFile)
+              : escapeHtml(f.type);
+            return `${escapeHtml(f.name)}: ${typeHtml}`;
+          })
           .join(", ")
       : "";
     const docText = v.doc ? renderMarkdown(md, v.doc) : "";
@@ -1055,14 +1228,21 @@ function renderVariantsTable(
 
 function renderAssociatedTypes(
   md: MarkdownRenderer,
-  types: DocAssociatedType[] | undefined
+  types: DocAssociatedType[] | undefined,
+  links?: SymbolLinks,
+  currentModFile?: string
 ): string {
   if (!types || types.length === 0) return "";
 
   let html = `<h4>Associated Types</h4>\n<table class="fields-table">\n<thead><tr><th>Name</th><th>Constraint</th><th>Description</th></tr></thead>\n<tbody>`;
   for (const t of types) {
     const docText = t.doc ? renderMarkdown(md, t.doc) : "";
-    html += `\n<tr><td><code>${escapeHtml(t.name)}</code></td><td class="type-col">${t.constraint ? escapeHtml(t.constraint) : ""}</td><td>${docText}</td></tr>`;
+    const constraintHtml = t.constraint
+      ? links
+        ? linkifyType(t.constraint, links, currentModFile)
+        : escapeHtml(t.constraint)
+      : "";
+    html += `\n<tr><td><code>${escapeHtml(t.name)}</code></td><td class="type-col">${constraintHtml}</td><td>${docText}</td></tr>`;
   }
   html += `\n</tbody></table>`;
   return html;
@@ -1073,7 +1253,9 @@ function renderAssociatedTypes(
 function renderMethods(
   md: MarkdownRenderer,
   methods: DocFunction[],
-  parentName: string
+  parentName: string,
+  links?: SymbolLinks,
+  currentModFile?: string
 ): string {
   if (methods.length === 0) return "";
 
@@ -1085,9 +1267,18 @@ function renderMethods(
     html += renderDeprecatedBanner(md, m.deprecated);
     html += renderDoc(md, m.doc);
     if (m.parameters.length > 0) {
-      html += renderParamsTable(md, m.parameters);
+      html += renderParamsTable(
+        md,
+        m.parameters,
+        "Parameters",
+        links,
+        currentModFile
+      );
     }
-    html += `\n<p>Returns: <code>${escapeHtml(m.returnType)}</code></p>`;
+    const retHtml = links
+      ? linkifyType(m.returnType, links, currentModFile)
+      : escapeHtml(m.returnType);
+    html += `\n<p>Returns: <code>${retHtml}</code></p>`;
     html += renderSections(md, m);
     html += `\n</div></div>`;
   }
@@ -1096,12 +1287,25 @@ function renderMethods(
 
 // ── Trait impls rendering ────────────────────────────────────────────
 
-function renderTraitImpls(impls: string[]): string {
+function renderTraitImpls(
+  impls: string[],
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
   if (impls.length === 0) return "";
 
   let html = `<h4>Trait Implementations</h4>\n<div class="trait-impl-list">`;
   for (const name of impls) {
-    html += `\n<span class="trait-impl-badge">${escapeHtml(name)}</span>`;
+    const href = links?.get(name);
+    if (href) {
+      const resolvedHref =
+        currentModFile && href.startsWith(`${currentModFile}.html#`)
+          ? href.slice(href.indexOf("#"))
+          : href;
+      html += `\n<a class="trait-impl-badge" href="${resolvedHref}">${escapeHtml(name)}</a>`;
+    } else {
+      html += `\n<span class="trait-impl-badge">${escapeHtml(name)}</span>`;
+    }
   }
   html += `\n</div>`;
   return html;
@@ -1109,7 +1313,12 @@ function renderTraitImpls(impls: string[]): string {
 
 // ── Function rendering ───────────────────────────────────────────────
 
-function renderFunction(md: MarkdownRenderer, fn: DocFunction): string {
+function renderFunction(
+  md: MarkdownRenderer,
+  fn: DocFunction,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
   let html = `<div class="item-card${fn.deprecated ? " deprecated" : ""}" id="fn-${escapeHtml(fn.name)}">
 <div class="item-header">
   <a class="item-name" href="#fn-${escapeHtml(fn.name)}">${escapeHtml(fn.name)}</a>
@@ -1121,16 +1330,31 @@ function renderFunction(md: MarkdownRenderer, fn: DocFunction): string {
   html += renderDoc(md, fn.doc);
 
   if (fn.typeParams && fn.typeParams.length > 0) {
-    html += renderParamsTable(md, fn.typeParams, "Type Parameters");
+    html += renderParamsTable(
+      md,
+      fn.typeParams,
+      "Type Parameters",
+      links,
+      currentModFile
+    );
   }
   if (fn.parameters.length > 0) {
-    html += renderParamsTable(md, fn.parameters);
+    html += renderParamsTable(
+      md,
+      fn.parameters,
+      "Parameters",
+      links,
+      currentModFile
+    );
   }
   if (fn.effects && fn.effects.length > 0) {
-    html += renderParamsTable(md, fn.effects, "Effects");
+    html += renderParamsTable(md, fn.effects, "Effects", links, currentModFile);
   }
 
-  html += `\n<p>Returns: <code>${escapeHtml(fn.returnType)}</code></p>`;
+  const retHtml = links
+    ? linkifyType(fn.returnType, links, currentModFile)
+    : escapeHtml(fn.returnType);
+  html += `\n<p>Returns: <code>${retHtml}</code></p>`;
   html += renderSections(md, fn);
   html += `\n</div></div>`;
   return html;
@@ -1138,7 +1362,12 @@ function renderFunction(md: MarkdownRenderer, fn: DocFunction): string {
 
 // ── Type rendering ───────────────────────────────────────────────────
 
-function renderType(md: MarkdownRenderer, t: DocType): string {
+function renderType(
+  md: MarkdownRenderer,
+  t: DocType,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
   let html = `<div class="item-card${t.deprecated ? " deprecated" : ""}" id="type-${escapeHtml(t.name)}">
 <div class="item-header">
   <a class="item-name" href="#type-${escapeHtml(t.name)}">${escapeHtml(t.name)}</a>
@@ -1150,16 +1379,22 @@ function renderType(md: MarkdownRenderer, t: DocType): string {
   html += renderDoc(md, t.doc);
 
   if (t.typeParams && t.typeParams.length > 0) {
-    html += renderParamsTable(md, t.typeParams, "Type Parameters");
+    html += renderParamsTable(
+      md,
+      t.typeParams,
+      "Type Parameters",
+      links,
+      currentModFile
+    );
   }
   if (t.fields && t.fields.length > 0) {
-    html += renderFieldsTable(md, t.fields);
+    html += renderFieldsTable(md, t.fields, links, currentModFile);
   }
   if (t.variants && t.variants.length > 0) {
-    html += renderVariantsTable(md, t.variants);
+    html += renderVariantsTable(md, t.variants, links, currentModFile);
   }
-  html += renderTraitImpls(t.traitImpls);
-  html += renderMethods(md, t.methods, t.name);
+  html += renderTraitImpls(t.traitImpls, links, currentModFile);
+  html += renderMethods(md, t.methods, t.name, links, currentModFile);
   if (t.examples) {
     html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, t.examples)}</div></div>`;
   }
@@ -1170,7 +1405,12 @@ function renderType(md: MarkdownRenderer, t: DocType): string {
 
 // ── Trait rendering ──────────────────────────────────────────────────
 
-function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
+function renderTrait(
+  md: MarkdownRenderer,
+  tr: DocTrait,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
   let html = `<div class="item-card${tr.deprecated ? " deprecated" : ""}" id="trait-${escapeHtml(tr.name)}">
 <div class="item-header">
   <a class="item-name" href="#trait-${escapeHtml(tr.name)}">${escapeHtml(tr.name)}</a>
@@ -1182,10 +1422,16 @@ function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
   html += renderDoc(md, tr.doc);
 
   if (tr.typeParams && tr.typeParams.length > 0) {
-    html += renderParamsTable(md, tr.typeParams, "Type Parameters");
+    html += renderParamsTable(
+      md,
+      tr.typeParams,
+      "Type Parameters",
+      links,
+      currentModFile
+    );
   }
-  html += renderAssociatedTypes(md, tr.associatedTypes);
-  html += renderMethods(md, tr.methods, tr.name);
+  html += renderAssociatedTypes(md, tr.associatedTypes, links, currentModFile);
+  html += renderMethods(md, tr.methods, tr.name, links, currentModFile);
   if (tr.examples) {
     html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, tr.examples)}</div></div>`;
   }
@@ -1193,7 +1439,16 @@ function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
   if (tr.implementors.length > 0) {
     html += `\n<h4>Implementors</h4>\n<div class="trait-impl-list">`;
     for (const name of tr.implementors) {
-      html += `\n<span class="trait-impl-badge">${escapeHtml(name)}</span>`;
+      const href = links?.get(name);
+      if (href) {
+        const resolvedHref =
+          currentModFile && href.startsWith(`${currentModFile}.html#`)
+            ? href.slice(href.indexOf("#"))
+            : href;
+        html += `\n<a class="trait-impl-badge" href="${resolvedHref}">${escapeHtml(name)}</a>`;
+      } else {
+        html += `\n<span class="trait-impl-badge">${escapeHtml(name)}</span>`;
+      }
     }
     html += `\n</div>`;
   }
@@ -1204,12 +1459,20 @@ function renderTrait(md: MarkdownRenderer, tr: DocTrait): string {
 
 // ── Constant rendering ───────────────────────────────────────────────
 
-function renderConstant(md: MarkdownRenderer, c: DocConstant): string {
+function renderConstant(
+  md: MarkdownRenderer,
+  c: DocConstant,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
+  const typeHtml = links
+    ? linkifyType(c.type, links, currentModFile)
+    : escapeHtml(c.type);
   let html = `<div class="item-card${c.deprecated ? " deprecated" : ""}" id="const-${escapeHtml(c.name)}">
 <div class="item-header">
   <a class="item-name" href="#const-${escapeHtml(c.name)}">${escapeHtml(c.name)}</a>
   <span class="item-kind">constant</span>
-  <span class="item-sig">${escapeHtml(c.type)}</span>
+  <span class="item-sig">${typeHtml}</span>
 </div>
 <div class="item-body">`;
   html += renderDeprecatedBanner(md, c.deprecated);
@@ -1299,7 +1562,12 @@ function renderModuleCard(md: MarkdownRenderer, mod: DocModule): string {
 
 // ── Module page ──────────────────────────────────────────────────────
 
-function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
+function renderModuleContent(
+  md: MarkdownRenderer,
+  mod: DocModule,
+  links?: SymbolLinks
+): string {
+  const currentModFile = moduleToFilename(mod.name);
   let html = `<div class="breadcrumb"><a href="../index.html">Home</a> &rsaquo; ${escapeHtml(mod.name)}</div>`;
   html += `<h1>Module <code>${escapeHtml(mod.name)}</code></h1>`;
   html += `<div class="module-path">${escapeHtml(mod.path)}</div>`;
@@ -1309,7 +1577,7 @@ function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
   if (mod.types.length > 0) {
     html += `<h2>Types</h2>\n<div class="item-list">`;
     for (const t of mod.types) {
-      html += renderType(md, t);
+      html += renderType(md, t, links, currentModFile);
     }
     html += `\n</div>`;
   }
@@ -1318,7 +1586,7 @@ function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
   if (mod.traits.length > 0) {
     html += `<h2>Traits / Modules</h2>\n<div class="item-list">`;
     for (const tr of mod.traits) {
-      html += renderTrait(md, tr);
+      html += renderTrait(md, tr, links, currentModFile);
     }
     html += `\n</div>`;
   }
@@ -1327,7 +1595,7 @@ function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
   if (mod.functions.length > 0) {
     html += `<h2>Functions</h2>\n<div class="item-list">`;
     for (const fn of mod.functions) {
-      html += renderFunction(md, fn);
+      html += renderFunction(md, fn, links, currentModFile);
     }
     html += `\n</div>`;
   }
@@ -1336,7 +1604,7 @@ function renderModuleContent(md: MarkdownRenderer, mod: DocModule): string {
   if (mod.constants.length > 0) {
     html += `<h2>Constants</h2>\n<div class="item-list">`;
     for (const c of mod.constants) {
-      html += renderConstant(md, c);
+      html += renderConstant(md, c, links, currentModFile);
     }
     html += `\n</div>`;
   }
@@ -1369,6 +1637,7 @@ export async function renderDocSite(options: RenderHtmlOptions): Promise<void> {
   const cssText = generateCSS();
   const jsText = generateSearchJS();
   const searchIdx = buildSearchIndex(model);
+  const symbolLinks = buildSymbolLinks(model);
 
   // Ensure output directories exist
   fs.mkdirSync(outputDir, { recursive: true });
@@ -1395,7 +1664,7 @@ export async function renderDocSite(options: RenderHtmlOptions): Promise<void> {
       .replace(/href="module\//g, 'href="')
       .replace('href="index.html"', 'href="../index.html"');
 
-    const modContent = renderModuleContent(md, mod);
+    const modContent = renderModuleContent(md, mod, symbolLinks);
     const modSearchIdx = searchIdx.map((e) => ({
       ...e,
       href: e.href.startsWith("module/") ? e.href.slice(7) : `../${e.href}`,
@@ -1422,9 +1691,12 @@ export async function renderDocSite(options: RenderHtmlOptions): Promise<void> {
 export {
   escapeHtml,
   buildSearchIndex,
+  buildSymbolLinks,
+  linkifyType,
   firstSentence,
   generateCSS,
   generateSearchJS,
+  generateHighlightJS,
   moduleToFilename,
   moduleDisplayName,
   moduleGroup,

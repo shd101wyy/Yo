@@ -3,26 +3,29 @@
 //! Wraps a file descriptor with typed async I/O operations.
 //! Uses the `Exception` effect for error handling.
 //!
-//! Example:
-//!   { File, read_string, write_file, OpenMode } :: import "std/fs/file";
+//! # Example
 //!
-//!   main :: (fn(using(io : IO)) -> unit)({
-//!     given(exn) := Exception(
-//!       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//!         { println(error); panic("Exception found."); }
-//!       )
-//!     );
+//! ```rust
+//! { File, read_string, write_file, OpenMode } :: import "std/fs/file";
 //!
-//!     // Write a file
-//!     io.await(write_file(Path.new(`test.txt`), `hello world`));
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) := Exception(
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error); panic("Exception found."); }
+//!     )
+//!   );
 //!
-//!     // Read it back
-//!     content := io.await(read_string(Path.new(`test.txt`)));
-//!     println(content);
+//!   // Write a file
+//!   io.await(write_file(Path.new(`test.txt`), `hello world`));
 //!
-//!     // Open with OpenMode
-//!     f := io.await(File.open(Path.new(`test.txt`), .Read));
-//!   });
+//!   // Read it back
+//!   content := io.await(read_string(Path.new(`test.txt`)));
+//!   println(content);
+//!
+//!   // Open with OpenMode
+//!   f := io.await(File.open(Path.new(`test.txt`), .Read));
+//! });
+//! ```
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
