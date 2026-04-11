@@ -678,6 +678,7 @@ use_id :: (fn(forall(T : Type),
         isOwningTheRcValue: isOwningTheRcValue,
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
         isReassignable: false, // Mark as not reassigable
+        docComment: label ? context.docCommentLookup?.get(label) : undefined,
       },
       allowVariableShadowing,
     });
@@ -2215,6 +2216,7 @@ export function evaluateFunctionParameters({
             isOwningTheRcValue: createdVariadicParameter.isOwningTheRcValue,
             isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
+            docComment: context.docCommentLookup?.get(parameterName),
           },
         });
         env = nextEnv;

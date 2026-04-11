@@ -2065,6 +2065,23 @@ export function clearImplsFromModule(modulePath: string): void {
 }
 
 /**
+ * Snapshot all trait field arrays across ALL modules in the implRegistry.
+ * Used by LSP before deleteModule (which invalidates multiple modules)
+ * to preserve trait fields for lastGoodModule cache.
+ */
+export function snapshotAllImplTraitFields(): Map<TraitType, TraitField[]> {
+  const snapshots = new Map<TraitType, TraitField[]>();
+  for (const typesWithImpls of implRegistry.values()) {
+    for (const traitType of typesWithImpls) {
+      if (!snapshots.has(traitType)) {
+        snapshots.set(traitType, [...traitType.fields]);
+      }
+    }
+  }
+  return snapshots;
+}
+
+/**
  * Register that a type has an impl field from the specified trait.
  */
 function registerImpl(modulePath: string, traitType: TraitType): void {

@@ -13,8 +13,10 @@ import {
   swapBuildRegistry,
   BuildRegistry,
 } from "../evaluator/builtins/build";
+import { snapshotAllImplTraitFields } from "../evaluator/values/impl";
 import { resolveDependencyPath } from "../fetch";
 import { ModuleManager } from "../module-manager";
+import type { TraitField, TraitType } from "../types/definitions";
 import { uriToModulePath } from "./utils";
 
 /**
@@ -23,6 +25,12 @@ import { uriToModulePath } from "./utils";
  */
 /** Module data stored in ModuleManager.modules */
 type ModuleData = NonNullable<ReturnType<ModuleManager["modules"]["get"]>>;
+
+/** Cached module with trait field snapshots (since deleteModule mutates types in-place) */
+interface CachedModule {
+  module: ModuleData;
+  traitFieldSnapshots: Map<TraitType, TraitField[]>;
+}
 
 export class LspDocumentManager {
   private moduleManager: ModuleManager;
@@ -41,8 +49,9 @@ export class LspDocumentManager {
    * Cache of the last module evaluation that produced useful AST data.
    * Used as fallback for completion when the current evaluation has errors
    * (e.g., user typed `p2.` which is an incomplete expression).
+   * Includes trait field snapshots because deleteModule mutates type objects in-place.
    */
-  private lastGoodModules = new Map<string, ModuleData>();
+  private lastGoodModules = new Map<string, CachedModule>();
 
   constructor(stdPath?: string) {
     this.moduleManager = new ModuleManager({
@@ -104,12 +113,19 @@ export class LspDocumentManager {
 
     // Cache the current module if it has useful AST data before re-evaluating.
     // We cache even modules with errors — partial type info is better than none.
+    // We must snapshot trait fields because deleteModule mutates type objects in-place.
     const oldModule = this.moduleManager.modules.get(modulePath);
     if (oldModule) {
       try {
         const program = oldModule.evaluator.getProgram();
         if (program.length > 0) {
-          this.lastGoodModules.set(modulePath, oldModule);
+          // Snapshot ALL trait fields across all modules because deleteModule
+          // invalidates not just this module but also std library modules.
+          const traitFieldSnapshots = snapshotAllImplTraitFields();
+          this.lastGoodModules.set(modulePath, {
+            module: oldModule,
+            traitFieldSnapshots,
+          });
         }
       } catch {
         /* ignore */
@@ -145,16 +161,23 @@ export class LspDocumentManager {
     // Prefer current module if it exists (even with errors — partial data may be useful)
     // But also provide fallback for when inner scope evaluation lost type info
     if (current) return current;
-    return this.lastGoodModules.get(modulePath);
+    return this.getLastGoodModule(uri);
   }
 
   /**
    * Get the last good (successfully evaluated) module for a URI.
+   * Restores trait field snapshots since deleteModule mutates types in-place.
    * Returns undefined if no good module has been cached.
    */
   getLastGoodModule(uri: string): ModuleData | undefined {
     const modulePath = uriToModulePath(uri);
-    return this.lastGoodModules.get(modulePath);
+    const cached = this.lastGoodModules.get(modulePath);
+    if (!cached) return undefined;
+    // Restore trait fields that were stripped by deleteModule
+    for (const [traitType, fields] of cached.traitFieldSnapshots) {
+      traitType.fields = fields;
+    }
+    return cached.module;
   }
 
   /**
