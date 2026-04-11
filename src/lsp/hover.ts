@@ -34,14 +34,7 @@ export function handleHover(
   const exprs = module.evaluator.getProgram();
   const tokens = module.evaluator.getTokens();
 
-  const tokenAtPosition = findTokenAtPosition(
-    tokens,
-    line,
-    character,
-    TokenType.Whitespace,
-    TokenType.SingleLineComment,
-    TokenType.MultiLineComment
-  );
+  const tokenAtPosition = findTokenAtPosition(tokens, line, character);
 
   if (!tokenAtPosition) {
     return null;

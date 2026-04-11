@@ -1,7 +1,7 @@
 import type { Location } from "vscode-languageserver";
 import type { Environment } from "../env";
 import { type AtomExpr, exprIsAtom } from "../expr";
-import { TokenType, type Token } from "../token";
+import type { Token } from "../token";
 import { isModuleValue, type ModuleValue } from "../value";
 import type { LspDocumentManager } from "./document-manager";
 import {
@@ -27,14 +27,7 @@ export function handleDefinition(
   const exprs = module.evaluator.getProgram();
   const tokens = module.evaluator.getTokens();
 
-  const tokenAtPosition = findTokenAtPosition(
-    tokens,
-    line,
-    character,
-    TokenType.Whitespace,
-    TokenType.SingleLineComment,
-    TokenType.MultiLineComment
-  );
+  const tokenAtPosition = findTokenAtPosition(tokens, line, character);
 
   if (!tokenAtPosition) {
     return null;

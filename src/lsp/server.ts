@@ -14,6 +14,9 @@ import { getDiagnosticsForUri } from "./diagnostics";
 import { handleHover } from "./hover";
 import { handleCompletion } from "./completion";
 import { handleDefinition } from "./definition";
+import { handleDocumentSymbol } from "./symbols";
+import { handleReferences } from "./references";
+import { handleRename, handlePrepareRename } from "./rename";
 
 // Explicitly use stdio transport
 const connection = createConnection(
@@ -53,6 +56,11 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         resolveProvider: false,
       },
       definitionProvider: true,
+      documentSymbolProvider: true,
+      referencesProvider: true,
+      renameProvider: {
+        prepareProvider: true,
+      },
     },
   };
 });
@@ -88,6 +96,32 @@ connection.onCompletion((params) => {
 
 connection.onDefinition((params) => {
   return handleDefinition(
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    docManager
+  );
+});
+
+connection.onDocumentSymbol((params) => {
+  return handleDocumentSymbol(params.textDocument.uri, docManager);
+});
+
+connection.onReferences((params) => {
+  return handleReferences(
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    docManager
+  );
+});
+
+connection.onRenameRequest((params) => {
+  return handleRename(params, docManager);
+});
+
+connection.onPrepareRename((params) => {
+  return handlePrepareRename(
     params.textDocument.uri,
     params.position.line,
     params.position.character,

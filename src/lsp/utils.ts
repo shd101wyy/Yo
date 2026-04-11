@@ -5,7 +5,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
 } from "../expr";
-import type { Token, TokenType } from "../token";
+import { TokenType, type Token } from "../token";
 
 /**
  * Find a token at a given (line, character) position within a list of tokens.
@@ -14,10 +14,7 @@ import type { Token, TokenType } from "../token";
 export function findTokenAtPosition(
   tokens: Token[],
   line: number,
-  character: number,
-  TokenTypeWhitespace: TokenType,
-  TokenTypeSingleLineComment: TokenType,
-  TokenTypeMultiLineComment: TokenType
+  character: number
 ): Token | null {
   return (
     tokens.find((token) => {
@@ -25,9 +22,9 @@ export function findTokenAtPosition(
         token.position.row === line &&
         character >= token.position.column &&
         character < token.position.column + token.value.length &&
-        token.type !== TokenTypeWhitespace &&
-        token.type !== TokenTypeSingleLineComment &&
-        token.type !== TokenTypeMultiLineComment
+        token.type !== TokenType.Whitespace &&
+        token.type !== TokenType.SingleLineComment &&
+        token.type !== TokenType.MultiLineComment
       );
     }) || null
   );
