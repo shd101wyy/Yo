@@ -2,24 +2,24 @@
 //!
 //! Wraps low-level `std/sys/dir` with typed APIs using the `Exception` effect.
 //!
-//! Example:
+//! # Example
 //!
-//!   ```yo
-//!   { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
-//!   { Path } :: import "std/path";
+//! ```rust
+//! { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
+//! { Path } :: import "std/path";
 //!
-//!   main :: (fn(using(io : IO)) -> unit)({
-//!     given(exn) : Exception = {
-//!       throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//!         { println(error.to_string()); exit(i32(1)); }
-//!       )
-//!     };
+//! main :: (fn(using(io : IO)) -> unit)({
+//!   given(exn) : Exception = {
+//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//!       { println(error.to_string()); exit(i32(1)); }
+//!     )
+//!   };
 //!
-//!     io.await(create_dir(Path.new(`/tmp/yo_test`)));
-//!     entries := io.await(read_dir(Path.new(`/tmp/yo_test`)));
-//!     io.await(remove_dir(Path.new(`/tmp/yo_test`)));
-//!   });
-//!   ```
+//!   io.await(create_dir(Path.new(`/tmp/yo_test`)));
+//!   entries := io.await(read_dir(Path.new(`/tmp/yo_test`)));
+//!   io.await(remove_dir(Path.new(`/tmp/yo_test`)));
+//! });
+//! ```
 
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;

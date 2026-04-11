@@ -245,9 +245,12 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
 
 /// Perform an HTTP request with custom options.
 ///
-/// Example:
-///   opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-///   resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
+/// # Example
+///
+/// ```rust
+/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
+/// ```
 fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
   Impl(Future(HttpResponse, IO, Exception))
 )(
@@ -359,9 +362,12 @@ export fetch_with;
 /// Perform an HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
 ///
-/// Example:
-///   resp := io.await(fetch(`http://example.com`, using(io)));
-///   cond(resp.is_ok() => println(resp.body), true => println(`Error`));
+/// # Example
+///
+/// ```rust
+/// resp := io.await(fetch(`http://example.com`, using(io)));
+/// cond(resp.is_ok() => println(resp.body), true => println(`Error`));
+/// ```
 fetch :: (fn(url_str: String, using(io : IO)) ->
   Impl(Future(HttpResponse, IO, Exception))
 )(
