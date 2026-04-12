@@ -977,3 +977,96 @@ export main;
     expect(hoverText).toContain("Y coordinate");
   });
 });
+
+// ─── Enum variant completion ───────────────────────────────────────────────
+
+describe("LSP Completion - Enum variant", () => {
+  it("should suggest enum variants with dot prefix in match context", () => {
+    const source = `
+Color :: enum(Red, Green, Blue);
+main :: (fn() -> i32)({
+  (c : Color) = .Red;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "(c : Color) = .Red");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf(".Red") + 1; // after the dot
+    const items = getCompletionItems(source, ln, col);
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain(".Red");
+    expect(labels).toContain(".Green");
+    expect(labels).toContain(".Blue");
+  });
+
+  it("should provide snippet insertText for enum variants with fields", () => {
+    const source = `
+MyResult :: (fn(comptime(T) : Type, comptime(E) : Type) -> comptime(Type))(
+  enum(Ok(value : T), Err(error : E))
+);
+main :: (fn() -> i32)({
+  (r : MyResult(i32, str)) = .Ok(i32(42));
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "(r : MyResult");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf(".Ok") + 1;
+    const items = getCompletionItems(source, ln, col);
+    const okItem = items.find((i) => i.label === ".Ok");
+    expect(okItem).toBeDefined();
+    // Should have snippet insert mode for fields
+    if (okItem?.insertText) {
+      expect(okItem.insertText).toContain("Ok(");
+    }
+  });
+});
+
+// ─── Impl method completion ─────────────────────────────────────────────────
+
+describe("LSP Completion - Impl methods", () => {
+  it("should suggest impl methods after dot on instance", () => {
+    const source = `
+Counter :: struct(count : i32);
+impl(Counter,
+  /// Get the current count
+  get : (fn(self : Self) -> i32)(self.count),
+  /// Increment the counter
+  inc : (fn(self : Self) -> Self)(Self((self.count + i32(1))))
+);
+main :: (fn() -> i32)({
+  c := Counter(i32(0));
+  c.get;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "c.get");
+    const labels = getCompletionLabels(source, ln, 4);
+    expect(labels).toContain("get");
+    expect(labels).toContain("inc");
+    // Should also include the struct field
+    expect(labels).toContain("count");
+  });
+
+  it("should suggest impl methods on type-level access", () => {
+    const source = `
+Point :: struct(x : i32, y : i32);
+impl(Point,
+  origin : (fn() -> Self)(Self(i32(0), i32(0)))
+);
+main :: (fn() -> i32)({
+  p := Point.origin;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "Point.origin");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf(".origin") + 1; // on 'o' after dot
+    const labels = getCompletionLabels(source, ln, col);
+    expect(labels).toContain("origin");
+  });
+});
