@@ -34,9 +34,16 @@ export function handleHover(
   character: number,
   docManager: LspDocumentManager
 ): Hover | null {
-  const module = docManager.getModule(uri);
+  let module = docManager.getModule(uri);
+  // Fall back to last good module when current module has errors
+  // (e.g., user is typing and buffer has incomplete expressions)
   if (!module || module.moduleError) {
-    return null;
+    const fallback = docManager.getLastGoodModule(uri);
+    if (fallback) {
+      module = fallback;
+    } else if (!module) {
+      return null;
+    }
   }
 
   const exprs = module.evaluator.getProgram();

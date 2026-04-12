@@ -19,7 +19,6 @@ import { handleReferences } from "./references";
 import { handleRename, handlePrepareRename } from "./rename";
 import { handleSignatureHelp } from "./signature-help";
 import { handleFoldingRange } from "./folding";
-import { handleInlayHint } from "./inlay-hints";
 
 // Explicitly use stdio transport
 const connection = createConnection(
@@ -68,7 +67,6 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         triggerCharacters: ["(", ","],
       },
       foldingRangeProvider: true,
-      inlayHintProvider: true,
     },
   };
 });
@@ -148,10 +146,6 @@ connection.onSignatureHelp((params) => {
 
 connection.onFoldingRanges((params) => {
   return handleFoldingRange(params.textDocument.uri, docManager);
-});
-
-connection.languages.inlayHint.on((params) => {
-  return handleInlayHint(params.textDocument.uri, docManager);
 });
 
 // Listen for document events

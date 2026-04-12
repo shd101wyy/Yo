@@ -328,7 +328,6 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
   - **Document symbols** — outline view of top-level declarations
   - **Signature help** — parameter hints while typing function calls
   - **Diagnostics** — real-time error reporting
-  - **Inlay hints** — inline type annotations for inferred types
   - **Code folding** — collapse function bodies, structs, impl blocks
 
   The LSP server can also be used with other editors via stdio JSON-RPC:

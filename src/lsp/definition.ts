@@ -19,9 +19,14 @@ export function handleDefinition(
   character: number,
   docManager: LspDocumentManager
 ): Location | null {
-  const module = docManager.getModule(uri);
+  let module = docManager.getModule(uri);
   if (!module || module.moduleError) {
-    return null;
+    const fallback = docManager.getLastGoodModule(uri);
+    if (fallback) {
+      module = fallback;
+    } else if (!module) {
+      return null;
+    }
   }
 
   const exprs = module.evaluator.getProgram();

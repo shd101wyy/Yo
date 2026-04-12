@@ -360,4 +360,58 @@ export main;
       expect(content).toContain("get_x");
     });
   });
+
+  describe("hover fallback on dirty buffer", () => {
+    it("should fall back to last good module when current has errors", () => {
+      const stdPath = path.resolve(__dirname, "../../std");
+      const docManager = new LspDocumentManager(stdPath);
+      activeDocManagers.push(docManager);
+
+      const modulePath = `file://${path.resolve(__dirname, "hover_fallback.yo")}`;
+      const goodSource = `
+Point :: struct(x : i32, y : i32);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p;
+  return i32(0);
+});
+export main;
+`;
+      // Load the good version first
+      docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+      // Simulate the user typing something that breaks evaluation.
+      // analyzeDocument caches the old module, then re-evaluates with broken code.
+      const brokenSource = `
+Point :: struct(x : i32, y : i32);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  Option
+  return i32(0);
+});
+export main;
+`;
+      const fakeDocument = {
+        uri: modulePath,
+        getText: () => brokenSource,
+      };
+      docManager.analyzeDocument(
+        fakeDocument as import("vscode-languageserver-textdocument").TextDocument,
+        () => {}
+      );
+
+      // Now hover on "Point" in the broken buffer
+      // The current module has errors but the last good module should be used
+      const ln = 1; // "Point :: struct(...)" is line 1 (0-indexed, line 0 is blank)
+      const hover = handleHover(modulePath, ln, 0, docManager);
+      expect(hover).not.toBeNull();
+      const content =
+        typeof hover!.contents === "string"
+          ? hover!.contents
+          : "value" in hover!.contents
+            ? hover!.contents.value
+            : "";
+      expect(content).toContain("Point");
+    });
+  });
 });

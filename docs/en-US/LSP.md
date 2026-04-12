@@ -79,11 +79,7 @@ Type `(` after a function name to see parameter hints as you type.
 
 Code folding for function bodies, struct definitions, impl blocks, and other multi-line constructs.
 
-### 9. Inlay Hints
-
-Inline type hints for variable declarations where the type is inferred.
-
-### 10. Diagnostics
+### 9. Diagnostics
 
 Real-time error reporting as you type, powered by the Yo evaluator.
 

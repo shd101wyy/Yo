@@ -27,7 +27,10 @@ export function handleSignatureHelp(
   docManager: LspDocumentManager
 ): SignatureHelp | null {
   try {
-    const mod = docManager.getModule(uri);
+    let mod = docManager.getModule(uri);
+    if (!mod) {
+      mod = docManager.getLastGoodModule(uri);
+    }
     if (!mod) return null;
 
     const exprs = mod.evaluator.getProgram();
