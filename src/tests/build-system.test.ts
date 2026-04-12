@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -265,6 +265,29 @@ describe("Documentation site helpers", () => {
     expect(content).not.toContain(
       "./yo-cli init ./tmp/hello-world --name hello-world"
     );
+  });
+});
+
+describe("Postinstall liburing messaging", () => {
+  test("check-liburing stays silent on non-Linux platforms", () => {
+    const scriptPath = path.resolve(
+      __dirname,
+      "../../scripts/check-liburing.js"
+    );
+
+    for (const platform of ["darwin", "win32"]) {
+      const output = execFileSync(
+        "node",
+        [
+          "-e",
+          `const os = require("os"); os.platform = () => ${JSON.stringify(
+            platform
+          )}; require(${JSON.stringify(scriptPath)});`,
+        ],
+        { encoding: "utf-8" }
+      );
+      expect(output).toBe("");
+    }
   });
 });
 
