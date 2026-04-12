@@ -1070,3 +1070,85 @@ export main;
     expect(labels).toContain("origin");
   });
 });
+
+describe("LSP Definition - Enum variant", () => {
+  it("should navigate from enum variant constructor to enum definition", () => {
+    const source = `
+Color :: enum(Red, Green, Blue);
+main :: (fn() -> i32)({
+  (c : Color) = .Red;
+  return i32(0);
+});
+export main;
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, ".Red");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf("Red");
+    const def = handleDefinition(uri, ln, col, docManager);
+    expect(def).not.toBeNull();
+    // Should navigate to "Red" in "enum(Red, Green, Blue)"
+    const defLine = lineOf(source, "enum(Red");
+    expect(def!.range.start.line).toBe(defLine);
+    const enumLine = source.split("\n")[defLine]!;
+    expect(def!.range.start.character).toBe(enumLine.indexOf("Red"));
+  });
+
+  it("should navigate to variant with fields in enum definition", () => {
+    const source = `
+Shape :: enum(Circle(radius : i32), Square(side : i32));
+main :: (fn() -> i32)({
+  (s : Shape) = .Square(i32(5));
+  return i32(0);
+});
+export main;
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, ".Square");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf("Square");
+    const def = handleDefinition(uri, ln, col, docManager);
+    expect(def).not.toBeNull();
+    // Should navigate to "Square" in enum definition
+    const defLine = lineOf(source, "enum(Circle");
+    expect(def!.range.start.line).toBe(defLine);
+    const enumLine = source.split("\n")[defLine]!;
+    expect(def!.range.start.character).toBe(enumLine.indexOf("Square"));
+  });
+});
+
+describe("LSP Hover - improved display", () => {
+  it("should not show runtime value for method hover", () => {
+    const source = `
+Counter :: struct(count : i32);
+impl(Counter,
+  /// Get the count
+  get : (fn(self: Self) -> i32)(
+    self.count
+  )
+);
+main :: (fn() -> i32)({
+  (c : Counter) = Counter(i32(0));
+  c.get;
+  return i32(0);
+});
+export main;
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, "c.get;");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf("get");
+    const hover = handleHover(uri, ln, col, docManager);
+    expect(hover).not.toBeNull();
+    const hoverText =
+      typeof hover!.contents === "string"
+        ? hover!.contents
+        : "value" in hover!.contents
+          ? hover!.contents.value
+          : "";
+    // Should NOT contain <runtime value>
+    expect(hoverText).not.toContain("<runtime value>");
+    // Should contain the type info
+    expect(hoverText).toContain("get");
+  });
+});

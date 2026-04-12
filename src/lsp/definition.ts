@@ -9,8 +9,9 @@ import {
   exprIsFunctionCallOf,
 } from "../expr";
 import { TokenType, type Token } from "../token";
-import type { StructType } from "../types/definitions";
+import type { EnumType, StructType } from "../types/definitions";
 import {
+  isEnumType,
   isModuleType,
   isPtrType,
   isStructType,
@@ -91,6 +92,14 @@ export function handleDefinition(
     tokenAtPosition
   );
   if (fieldDefLocation) return fieldDefLocation;
+
+  // Check if this is an enum variant constructor (e.g., `Red` in `.Red`)
+  const enumVariantLocation = findEnumVariantDefinition(
+    expr,
+    tokenText,
+    docManager
+  );
+  if (enumVariantLocation) return enumVariantLocation;
 
   const foundDefinition = findVariableDefinition(env, tokenText);
 
@@ -423,9 +432,139 @@ function findFieldDefinitionLocation(
 }
 
 /**
- * Walk the AST to find a "." function call where the target expression
- * is the second argument (the field name).
+ * Find the definition of an enum variant constructor (e.g., `Red` in `.Red`).
+ * Searches the AST of the module where the enum is defined for the `enum()` call
+ * that contains the variant name as an argument.
  */
+function findEnumVariantDefinition(
+  expr: AtomExpr,
+  variantName: string,
+  docManager: LspDocumentManager
+): Location | null {
+  let enumType: EnumType | null = null;
+
+  const type = expr.$?.type;
+  if (type && isEnumType(type)) {
+    // Direct enum type (e.g., `Red` in `.Red` for simple variants)
+    enumType = type as EnumType;
+  } else if (
+    type &&
+    isTypeHierarchyType(type) &&
+    expr.$?.value &&
+    isTypeValue(expr.$.value)
+  ) {
+    // TypeValue wrapping an enum (e.g., `Square` in `.Square(i32(5))`)
+    const innerType = expr.$.value.value;
+    if (isEnumType(innerType)) {
+      enumType = innerType as EnumType;
+    }
+  }
+
+  if (!enumType) return null;
+
+  // Verify this variant exists in the enum
+  if (!enumType.variants.some((v) => v.name === variantName)) return null;
+
+  // Find the module where the enum is defined
+  const enumModulePath = enumType.env.modulePath;
+  if (!enumModulePath) return null;
+
+  const enumModule = docManager.getModule(modulePathToUri(enumModulePath));
+  if (!enumModule) return null;
+
+  const enumExprs = enumModule.evaluator.getProgram();
+  return findEnumVariantTokenInAst(enumExprs, variantName, enumType.typeName);
+}
+
+/**
+ * Search an AST for an `enum()` call assigned to `enumTypeName` and return
+ * the token of a matching variant arg.
+ */
+function findEnumVariantTokenInAst(
+  exprs: Expr[],
+  variantName: string,
+  enumTypeName: string | undefined
+): Location | null {
+  let result: Location | null = null;
+
+  const search = (expr: Expr, insideTargetEnum: boolean) => {
+    if (result) return;
+    if (!exprIsFunctionCall(expr)) return;
+    const fnExpr = expr as FnCallExpr;
+
+    // Check for `TypeName :: enum(...)` assignment pattern
+    if (
+      exprIsFunctionCallOf(fnExpr, "::") &&
+      fnExpr.args.length >= 2 &&
+      exprIsAtom(fnExpr.args[0]!) &&
+      enumTypeName &&
+      (fnExpr.args[0] as AtomExpr).token.value === enumTypeName
+    ) {
+      // Recurse into the RHS with insideTargetEnum=true
+      search(fnExpr.args[1]!, true);
+      return;
+    }
+
+    if (insideTargetEnum && exprIsFunctionCallOf(fnExpr, "enum")) {
+      for (const arg of fnExpr.args) {
+        const variantToken = getVariantNameToken(arg);
+        if (variantToken && variantToken.value === variantName) {
+          result = {
+            uri: modulePathToUri(variantToken.modulePath),
+            range: {
+              start: {
+                line: variantToken.position.row,
+                character: variantToken.position.column,
+              },
+              end: {
+                line: variantToken.position.row,
+                character:
+                  variantToken.position.column + variantToken.value.length,
+              },
+            },
+          };
+          return;
+        }
+      }
+    }
+
+    // Recurse into sub-expressions
+    search(fnExpr.func, insideTargetEnum);
+    for (const arg of fnExpr.args) {
+      search(arg, insideTargetEnum);
+    }
+  };
+
+  for (const topExpr of exprs) {
+    search(topExpr, false);
+  }
+  return result;
+}
+
+/**
+ * Extract the variant name token from an enum variant arg expression.
+ * Variants can be: bare identifier `Red`, call with fields `Some(value : T)`,
+ * or GADT form with `-> recur(...)`.
+ */
+function getVariantNameToken(expr: Expr): Token | null {
+  // Bare identifier: `Red`
+  if (exprIsAtom(expr)) {
+    return (expr as AtomExpr).token;
+  }
+  // Call with fields: `Some(value : T)` or GADT: `IntVal(i : i32) -> recur(i32)`
+  // or discriminant: `(Red) = 0`
+  if (exprIsFunctionCall(expr)) {
+    const fnExpr = expr as FnCallExpr;
+    // `Some(value : T)` — func is the variant name atom
+    if (exprIsAtom(fnExpr.func)) {
+      return (fnExpr.func as AtomExpr).token;
+    }
+    // Could be wrapped in other calls (e.g., GADT `->` call or discriminant `=`)
+    // Try recursing into func
+    return getVariantNameToken(fnExpr.func);
+  }
+  return null;
+}
 function findParentDotCallForExpr(
   exprs: Expr[],
   targetExpr: Expr

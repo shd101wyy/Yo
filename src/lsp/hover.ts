@@ -21,7 +21,6 @@ import {
 import { typeToString } from "../types/utils";
 import { isTypeValue, valueToString } from "../value";
 import type { Value } from "../value";
-import { ValueTag } from "../value-tag";
 import type { LspDocumentManager } from "./document-manager";
 import { findTokenAtPosition, findBestExpressionMatch } from "./utils";
 
@@ -149,9 +148,9 @@ export function handleHover(
     content += "\nundefined";
   } else {
     const valueString = valueToString(varValue);
-    if (varValue?.tag === ValueTag.Type) {
-      content += `\n= ${valueString}`;
-    } else {
+    // Skip displaying "= <runtime value>" when the type already provides
+    // sufficient information (e.g., function types, struct types)
+    if (valueString !== "<runtime value>") {
       content += `\n= ${valueString}`;
     }
   }
