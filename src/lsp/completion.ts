@@ -17,7 +17,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
 } from "../expr";
-import { TokenType, type Token } from "../token";
+import { stringIsOperator, TokenType, type Token } from "../token";
 import type { FunctionType, Type } from "../types/definitions";
 import {
   isArrayType,
@@ -28,6 +28,7 @@ import {
   isPtrType,
   isSliceType,
   isStructType,
+  isTraitType,
   isTypeHierarchyType,
   isUnionType,
 } from "../types/guards";
@@ -41,6 +42,7 @@ import {
 } from "../value";
 import type { Value } from "../value";
 import type { LspDocumentManager } from "./document-manager";
+import { selectBestVariableAtPosition } from "./utils";
 
 /** Cached set of basic keywords */
 let cachedBasicKeywords: string[] | null = null;
@@ -133,9 +135,22 @@ export function handleCompletion(
     // Last resort: text-based type resolution for expressions like `Option(i32).`
     // Parse the text before the dot and try to resolve the type from available envs
     if (textBeforeDot) {
-      const bestModule = lastGood ?? module;
-      const textItems = handleTextBasedDotCompletion(bestModule, textBeforeDot);
-      if (textItems.length > 0) return textItems;
+      const currentTextItems = handleTextBasedDotCompletion(
+        module,
+        textBeforeDot,
+        line,
+        character
+      );
+      if (currentTextItems.length > 0) return currentTextItems;
+      if (lastGood && lastGood !== module) {
+        const lastGoodTextItems = handleTextBasedDotCompletion(
+          lastGood,
+          textBeforeDot,
+          line,
+          character
+        );
+        if (lastGoodTextItems.length > 0) return lastGoodTextItems;
+      }
     }
     return items;
   }
@@ -394,7 +409,11 @@ function handleIdentifierCompletion(
         try {
           const variables = getVariablesFromEnv(best.$.env, varName);
           if (variables && variables.length > 0) {
-            docComment = variables[variables.length - 1]?.docComment;
+            const selectedVariable = selectBestVariableAtPosition(variables, {
+              position: { row: line, column: character, character },
+              modulePath: best.token.modulePath,
+            });
+            docComment = selectedVariable?.docComment;
           }
         } catch {
           /* ignore */
@@ -509,6 +528,16 @@ function handleDotCompletion(
       );
     });
 
+    if (tokenBeforeDot) {
+      const tokenTextInCurrentLine = lineText.substring(
+        tokenBeforeDot.position.column,
+        dotPosition
+      );
+      if (tokenTextInCurrentLine !== tokenBeforeDot.value) {
+        tokenBeforeDot = undefined;
+      }
+    }
+
     if (!tokenBeforeDot) {
       // Fallback: parse the identifier before the dot from the text
       const textBeforeDot = lineText.substring(0, dotPosition).trim();
@@ -564,11 +593,67 @@ function handleDotCompletion(
       }
     }
 
+    // Fallback for closing-paren: `(T <: Trait).` patterns.
+    // When the token before `.` is `)`, search for FnCallExprs on this line
+    // whose func token is before the dot — pick the leftmost (outermost) one.
+    // Only applies when the found expression has a TraitType (either directly
+    // or as the inner type of a TypeValue). Otherwise let handleTextBasedDotCompletion
+    // handle it (which supports addAllMethods for regular types).
+    if (
+      !targetExpr &&
+      tokenBeforeDot.value === ")" &&
+      tokenBeforeDot.type === TokenType.RParen
+    ) {
+      let outermostFnCall: FnCallExpr | null = null;
+      let outermostCol = Infinity;
+      const isFnCallWithTraitType = (fc: FnCallExpr): boolean => {
+        if (!fc.$?.type) return false;
+        if (isTraitType(fc.$.type)) return true;
+        // `(T <: Trait)` has type = TypeHierarchyType, value = TypeValue(TraitType)
+        if (
+          isTypeHierarchyType(fc.$.type) &&
+          fc.$.value &&
+          isTypeValue(fc.$.value) &&
+          isTraitType(fc.$.value.value)
+        )
+          return true;
+        return false;
+      };
+      const searchFnCallsOnLine = (expr: Expr) => {
+        if (exprIsFunctionCall(expr)) {
+          const fc = expr as FnCallExpr;
+          const row = fc.func.token?.position?.row;
+          const col = fc.func.token?.position?.column ?? Infinity;
+          if (
+            row === line &&
+            col < dotPosition &&
+            isFnCallWithTraitType(fc) &&
+            col < outermostCol
+          ) {
+            outermostFnCall = fc;
+            outermostCol = col;
+          }
+          searchFnCallsOnLine(fc.func);
+          for (const arg of fc.args) searchFnCallsOnLine(arg);
+        }
+      };
+      for (const expr of program) searchFnCallsOnLine(expr);
+      if (outermostFnCall) targetExpr = outermostFnCall;
+    }
+
     // Extract the type
+    const targetTokenForLookup = {
+      position: {
+        row: line,
+        column: dotPosition,
+        character: dotPosition,
+      },
+      modulePath: tokenBeforeDot.modulePath,
+    } satisfies Pick<Token, "position" | "modulePath">;
     const variableType = extractTypeFromExpr(
       targetExpr,
       tokenBeforeDot,
-      line,
+      targetTokenForLookup,
       program
     );
     if (!variableType) return items;
@@ -630,7 +715,7 @@ function handleDotCompletion(
       }
       items.push(item);
     }
-  } catch (error) {
+  } catch {
     // Return empty on error
   }
 
@@ -647,22 +732,44 @@ function handleDotCompletion(
  */
 function handleTextBasedDotCompletion(
   module: { evaluator: { getProgram(): Expr[]; getTokens(): Token[] } },
-  textBeforeDot: string
+  textBeforeDot: string,
+  line: number,
+  character: number
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
 
   try {
     const program = module.evaluator.getProgram();
 
-    // Find the deepest env available in this module
+    // Find the deepest env available at or before the cursor position.
     let deepestEnv: Environment | null = null;
     let deepestDepth = -1;
+    let deepestEnvRow = -1;
+    let deepestEnvColumn = -1;
 
     const findDeepEnv = (expr: Expr) => {
       if (exprIsAtom(expr)) {
-        if (expr.$?.env && expr.$.env.frames.length > deepestDepth) {
-          deepestEnv = expr.$.env;
-          deepestDepth = expr.$.env.frames.length;
+        if (expr.$?.env) {
+          const tokenLine = expr.token.position.row;
+          const tokenColumn = expr.token.position.column;
+          const isAtOrBeforeCursor =
+            tokenLine < line ||
+            (tokenLine === line && tokenColumn <= character);
+          if (!isAtOrBeforeCursor) return;
+
+          const envDepth = expr.$.env.frames.length;
+          const isBetterMatch =
+            envDepth > deepestDepth ||
+            (envDepth === deepestDepth &&
+              (tokenLine > deepestEnvRow ||
+                (tokenLine === deepestEnvRow &&
+                  tokenColumn > deepestEnvColumn)));
+          if (isBetterMatch) {
+            deepestEnv = expr.$.env;
+            deepestDepth = envDepth;
+            deepestEnvRow = tokenLine;
+            deepestEnvColumn = tokenColumn;
+          }
         }
       } else if (exprIsFunctionCall(expr)) {
         const funcCallExpr = expr as FnCallExpr;
@@ -676,27 +783,35 @@ function handleTextBasedDotCompletion(
       findDeepEnv(expr);
     }
     if (!deepestEnv) return items;
+    const resolvedEnv: Environment = deepestEnv;
 
     // Parse the text to extract function name and check if it's a call
     // The text might include assignment context like "x := Option(i32)"
     // so we extract the last expression: match `Name(...)` or just `Name` at the end
+    const subtypeMatch = textBeforeDot.match(
+      /\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*<:\s*([A-Za-z_][a-zA-Z0-9_]*)(?:\s*\(([^()]*(?:\([^()]*\))*[^()]*)\))?\s*\)\s*$/
+    );
     const callMatch = textBeforeDot.match(
       /([A-Z][a-zA-Z0-9_]*)\s*\(([^()]*(?:\([^()]*\))*[^()]*)\)\s*$/
     );
     const simpleMatch = textBeforeDot.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
 
-    const typeName = callMatch?.[1] ?? simpleMatch?.[1];
+    const typeName = subtypeMatch?.[2] ?? callMatch?.[1] ?? simpleMatch?.[1];
     if (!typeName) return items;
 
-    const variables = getVariablesFromEnv(deepestEnv, typeName);
+    const variables = getVariablesFromEnv(resolvedEnv, typeName);
     if (!variables || variables.length === 0) return items;
 
-    const variable = variables[variables.length - 1];
+    const variable =
+      selectBestVariableAtPosition(variables, {
+        position: { row: line, column: character, character },
+        modulePath: resolvedEnv.modulePath,
+      }) ?? variables[variables.length - 1];
     if (!variable) return items;
 
     let resolvedType: Type | null = null;
 
-    if (callMatch) {
+    if (callMatch || subtypeMatch) {
       // For `Option(i32)`, search the AST for any expression where
       // this constructor was previously called, and use that result type.
       resolvedType = findTypeConstructorResult(program, typeName);
@@ -904,6 +1019,48 @@ function collectTypeMembers(
         });
       }
     }
+  } else if (isTraitType(fieldAccessType)) {
+    // `(T <: Trait).` — show the trait's fields and methods
+    for (const field of fieldAccessType.fields) {
+      if (!field.label) continue;
+      if (field.label.startsWith("___") || field.label.startsWith("__yo_"))
+        continue;
+      const kind = isFunctionType(field.type)
+        ? CompletionItemKind.Method
+        : isModuleType(field.type)
+          ? CompletionItemKind.Module
+          : isTypeHierarchyType(field.type)
+            ? CompletionItemKind.Class
+            : CompletionItemKind.Property;
+      const snippet = isFunctionType(field.type)
+        ? generateMethodSnippet(field.label, field.type)
+        : undefined;
+      try {
+        members.push({
+          name: field.label,
+          detail: typeToString(field.type),
+          documentation:
+            field.docComment ||
+            (isFunctionType(field.type)
+              ? `Trait method: ${field.label}`
+              : `Trait member: ${field.label}`),
+          kind,
+          ...snippet,
+        });
+      } catch {
+        members.push({
+          name: field.label,
+          detail: "",
+          documentation:
+            field.docComment ||
+            (isFunctionType(field.type)
+              ? `Trait method: ${field.label}`
+              : `Trait member: ${field.label}`),
+          kind,
+          ...snippet,
+        });
+      }
+    }
   }
 }
 function handleEnumVariantCompletion(
@@ -1105,7 +1262,7 @@ function unwrapTypeValueIfNeeded(type: Type, value?: [Value]): Type {
 function extractTypeFromExpr(
   targetExpr: Expr | null,
   tokenBeforeDot: Token,
-  currentLine: number,
+  targetToken: Pick<Token, "position" | "modulePath">,
   program: Expr[]
 ): Type | null {
   if (targetExpr) {
@@ -1114,12 +1271,30 @@ function extractTypeFromExpr(
       if (atomExpr.$?.type) {
         // If the type is `Type` (meta-type) and the value is a TypeValue,
         // unwrap to the inner type so `Point.` shows methods/fields of Point
-        if (
-          isTypeHierarchyType(atomExpr.$.type) &&
-          atomExpr.$.value &&
-          isTypeValue(atomExpr.$.value)
-        ) {
-          return atomExpr.$.value.value;
+        if (isTypeHierarchyType(atomExpr.$.type)) {
+          if (atomExpr.$.value && isTypeValue(atomExpr.$.value)) {
+            return atomExpr.$.value.value;
+          }
+          // Value may not be on the atom — check the env for the actual TypeValue
+          // (e.g. `x :: (i32 <: Add(i32))` — the LHS atom has type but no value)
+          if (atomExpr.$?.env) {
+            try {
+              const variables = getVariablesFromEnv(
+                atomExpr.$.env,
+                atomExpr.token.value
+              );
+              if (variables && variables.length > 0) {
+                const variable =
+                  selectBestVariableAtPosition(variables, targetToken) ??
+                  variables[variables.length - 1];
+                if (variable) {
+                  return unwrapTypeValueIfNeeded(variable.type, variable.value);
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          }
         }
         return atomExpr.$.type;
       }
@@ -1130,7 +1305,9 @@ function extractTypeFromExpr(
             atomExpr.token.value
           );
           if (variables && variables.length > 0) {
-            const variable = variables[variables.length - 1];
+            const variable =
+              selectBestVariableAtPosition(variables, targetToken) ??
+              variables[variables.length - 1];
             if (variable) {
               return unwrapTypeValueIfNeeded(variable.type, variable.value);
             }
@@ -1138,6 +1315,19 @@ function extractTypeFromExpr(
         } catch {
           /* ignore */
         }
+      }
+    } else if (exprIsFunctionCall(targetExpr)) {
+      // Handle FnCallExpr as targetExpr (e.g. `(i32 <: Add(i32)).`)
+      const fc = targetExpr as FnCallExpr;
+      if (fc.$?.type) {
+        if (
+          isTypeHierarchyType(fc.$.type) &&
+          fc.$.value &&
+          isTypeValue(fc.$.value)
+        ) {
+          return fc.$.value.value;
+        }
+        return fc.$.type;
       }
     }
   }
@@ -1152,7 +1342,7 @@ function extractTypeFromExpr(
     if (exprIsAtom(expr)) {
       if (
         expr.$?.env &&
-        expr.token.position.row < currentLine &&
+        expr.token.position.row < targetToken.position.row &&
         expr.token.position.row > bestExprPosition
       ) {
         bestEnv = expr.$.env;
@@ -1176,24 +1366,9 @@ function extractTypeFromExpr(
     const variables = getVariablesFromEnv(bestEnv, tokenBeforeDot.value);
     if (!variables || variables.length === 0) return null;
 
-    // Prefer variables declared before the cursor line
-    const localVariables = variables.filter((v) => {
-      if (v.initializedAtToken) {
-        const varRow = v.initializedAtToken.position.row;
-        return varRow > 2 && varRow < currentLine;
-      }
-      return false;
-    });
-
-    if (localVariables.length > 0) {
-      const variable = localVariables[localVariables.length - 1];
-      if (variable) {
-        return unwrapTypeValueIfNeeded(variable.type, variable.value);
-      }
-    }
-
-    // Fallback: use any variable with this name (includes prelude symbols)
-    const variable = variables[variables.length - 1];
+    const variable =
+      selectBestVariableAtPosition(variables, targetToken) ??
+      variables[variables.length - 1];
     if (variable) {
       return unwrapTypeValueIfNeeded(variable.type, variable.value);
     }
@@ -1217,13 +1392,14 @@ function generateMethodSnippet(
   | undefined {
   if (!isFunctionType(type)) return undefined;
   const funcType = type as FunctionType;
+  const completionName = stringIsOperator(name) ? `(${name})` : name;
   // Filter out self parameter and implicit parameters
   const callParams = funcType.parameters.filter(
     (p) => p.label !== "self" && !p.isImplicit
   );
   if (callParams.length === 0) {
     return {
-      insertText: `${name}()`,
+      insertText: `${completionName}()`,
       insertTextFormat: InsertTextFormat.Snippet,
     };
   }
@@ -1231,7 +1407,7 @@ function generateMethodSnippet(
     .map((p, i) => `\${${i + 1}:${p.label || typeToString(p.type)}}`)
     .join(", ");
   return {
-    insertText: `${name}(${snippetParams})`,
+    insertText: `${completionName}(${snippetParams})`,
     insertTextFormat: InsertTextFormat.Snippet,
   };
 }

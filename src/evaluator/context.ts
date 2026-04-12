@@ -261,7 +261,7 @@ export interface EvaluatorContext {
   isEvaluatingGenericImplSpecialization?: boolean;
 
   /**
-   * Lookup map from declaration name to doc comment content.
+   * Lookup map from declaration token location to doc comment content.
    * Built by extractDocComments() before evaluation starts.
    * Used by initialization-assignment to set Variable.docComment.
    */

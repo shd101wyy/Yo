@@ -1,4 +1,5 @@
 import { addVariableToEnv, type Environment } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -408,7 +409,9 @@ Use \`::\` for compile-time definitions inside impl.`,
       !context.isEvaluatingFunctionBodyOrAsyncBlock;
 
     // Look up doc comment for this declaration from the pre-computed lookup
-    const docComment = context.docCommentLookup?.get(varName);
+    const docComment = context.docCommentLookup?.get(
+      getDocCommentLookupKey(actualLhs.token)
+    );
 
     const { env: nextEnv } = addVariableToEnv({
       env,

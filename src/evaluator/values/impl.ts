@@ -6,6 +6,7 @@ import {
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -514,7 +515,9 @@ function evaluateImplFieldList({
       });
       env = nextEnv;
 
-      const fieldDocComment = context.docCommentLookup?.get(label);
+      const fieldDocComment = context.docCommentLookup?.get(
+        getDocCommentLookupKey(labelExpr.token)
+      );
 
       // Add to anonymous trait fields
       traitType.fields.push({

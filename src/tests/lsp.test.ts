@@ -733,6 +733,40 @@ export main;
       expect(content).toContain("Option");
     });
   });
+
+  describe("hover doc comment resolution", () => {
+    it("should prefer the local variable over same-named field docs", () => {
+      const source = `
+Point :: struct(
+  /// This is the x coordinate of the point.
+  x : i32,
+  y : i32
+);
+
+main :: (fn() -> unit)({
+  x := (i32 <: Add(i32)).(+)(i32(3), i32(4));
+  x;
+});
+export main;
+`;
+      const { uri, docManager } = loadSource(source, "hover_local_x.yo");
+      const ln = lineOf(
+        source,
+        "  x := (i32 <: Add(i32)).(+)(i32(3), i32(4));"
+      );
+      const hover = handleHover(uri, ln, 2, docManager);
+      expect(hover).not.toBeNull();
+      const content =
+        typeof hover!.contents === "string"
+          ? hover!.contents
+          : "value" in hover!.contents
+            ? hover!.contents.value
+            : "";
+      expect(content).toContain("x");
+      expect(content).toContain(": i32");
+      expect(content).not.toContain("This is the x coordinate of the point.");
+    });
+  });
 });
 
 describe("LSP Completion - Import paths", () => {
@@ -1265,6 +1299,111 @@ export main;
     expect(labels).toContain("and_then");
     expect(labels).toContain("ok");
     expect(labels).toContain("err");
+  });
+});
+
+// ─── Trait type dot completion ──────────────────────────────────────────────
+
+describe("LSP Completion - Trait type", () => {
+  it("should suggest Add trait members when accessing comptime TraitType variable", () => {
+    // `x :: (i32 <: Add(i32))` is valid: comptime binding holds a TraitType value.
+    // `x.` should offer the trait's members as completions.
+    const goodSource = `
+main :: (fn() -> unit)({
+  x :: (i32 <: Add(i32));
+});
+export main;
+`;
+    const stdPath = path.resolve(__dirname, "../../std");
+    const docManager = new LspDocumentManager(stdPath);
+    activeDocManagers.push(docManager);
+    const modulePath = `file://${path.resolve(__dirname, "trait_dot.yo")}`;
+    docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+    // Simulate typing `x.` — causes eval error due to incomplete expression
+    const dirtySource = `
+main :: (fn() -> unit)({
+  x :: (i32 <: Add(i32));
+  x.
+});
+export main;
+`;
+    const fakeDoc = {
+      uri: modulePath,
+      getText: () => dirtySource,
+    };
+    docManager.analyzeDocument(
+      fakeDoc as import("vscode-languageserver-textdocument").TextDocument,
+      () => {}
+    );
+
+    const ln = lineOf(dirtySource, "  x.");
+    const lineText = dirtySource.split("\n")[ln]!;
+    const character = lineText.indexOf("x.") + 2; // after dot
+
+    const items = handleCompletion(
+      modulePath,
+      ln,
+      character,
+      lineText,
+      docManager
+    );
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("Output");
+    expect(labels).toContain("+");
+    const plusItem = items.find((item) => item.label === "+");
+    expect(plusItem).toBeDefined();
+    expect(plusItem!.insertText).toContain("(+)");
+  });
+
+  it("should suggest trait methods via RParen fallback for inline `(i32 <: Add(i32)).`", () => {
+    // The good module has the `<:` expression on a specific line; when the dirty
+    // buffer adds `.` after the `)`, the RParen fallback should find the TraitType.
+    const stdPath = path.resolve(__dirname, "../../std");
+    const docManager = new LspDocumentManager(stdPath);
+    activeDocManagers.push(docManager);
+    const modulePath = `file://${path.resolve(__dirname, "trait_rparen.yo")}`;
+
+    // Good source: the <: expression stands alone so it's evaluated and has type info
+    const goodSource = `
+main :: (fn() -> unit)({
+  _ :: (i32 <: Add(i32));
+});
+export main;
+`;
+    docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+    // Dirty source adds `.` after `(i32 <: Add(i32))` on a line
+    const dirtySource = `
+main :: (fn() -> unit)({
+  _ :: (i32 <: Add(i32));
+  (i32 <: Add(i32)).
+});
+export main;
+`;
+    const fakeDoc = {
+      uri: modulePath,
+      getText: () => dirtySource,
+    };
+    docManager.analyzeDocument(
+      fakeDoc as import("vscode-languageserver-textdocument").TextDocument,
+      () => {}
+    );
+
+    const ln = lineOf(dirtySource, "(i32 <: Add(i32)).");
+    const lineText = dirtySource.split("\n")[ln]!;
+    const character = lineText.indexOf(".") + 1;
+
+    const items = handleCompletion(
+      modulePath,
+      ln,
+      character,
+      lineText,
+      docManager
+    );
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("Output");
+    expect(labels).toContain("+");
   });
 });
 

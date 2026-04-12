@@ -1,4 +1,5 @@
 import type { Environment } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -379,9 +380,9 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   if (labelExpr) {
-    const fieldDocComment = label
-      ? context.docCommentLookup?.get(label)
-      : undefined;
+    const fieldDocComment = context.docCommentLookup?.get(
+      getDocCommentLookupKey(labelExpr.token)
+    );
     labelExpr.$ = {
       env,
       type: fieldType,
@@ -415,7 +416,9 @@ Given type: ${typeToString(defaultValueType)}`,
     },
     defaultValue,
     assignedValue,
-    docComment: label ? context.docCommentLookup?.get(label) : undefined,
+    docComment: labelExpr
+      ? context.docCommentLookup?.get(getDocCommentLookupKey(labelExpr.token))
+      : undefined,
   };
 
   return {

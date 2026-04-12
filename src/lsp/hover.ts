@@ -11,7 +11,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
 } from "../expr";
-import { stringIsOperator, TokenType } from "../token";
+import { stringIsOperator, TokenType, type Token } from "../token";
 import type { StructType, Type } from "../types/definitions";
 import {
   isStructType,
@@ -22,7 +22,11 @@ import { typeToString } from "../types/utils";
 import { isTypeValue, valueToString } from "../value";
 import type { Value } from "../value";
 import type { LspDocumentManager } from "./document-manager";
-import { findTokenAtPosition, findBestExpressionMatch } from "./utils";
+import {
+  findTokenAtPosition,
+  findBestExpressionMatch,
+  selectBestVariableAtPosition,
+} from "./utils";
 
 /**
  * Handle textDocument/hover requests.
@@ -80,7 +84,8 @@ export function handleHover(
     const fallbackExprs = fallbackModule.evaluator.getProgram();
     foundExpr = findVariableByNameInAnyEnv(
       fallbackExprs,
-      tokenAtPosition.value
+      tokenAtPosition.value,
+      tokenAtPosition
     );
   }
 
@@ -107,10 +112,13 @@ export function handleHover(
 
   if (expr.$?.env) {
     const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
-    foundVariable = variables !== undefined && variables.length > 0;
+    const selectedVar =
+      variables && variables.length > 0
+        ? selectBestVariableAtPosition(variables, tokenAtPosition)
+        : undefined;
+    foundVariable = selectedVar !== undefined;
 
-    if (foundVariable && variables) {
-      const selectedVar = variables[variables.length - 1]!;
+    if (selectedVar) {
       varType = selectedVar.type;
       varValue = selectedVar.value?.[0];
       isCompileTimeOnly = selectedVar.isCompileTimeOnly;
@@ -269,7 +277,8 @@ function findVariableByFallback(
  */
 function findVariableByNameInAnyEnv(
   exprs: Expr[],
-  name: string
+  name: string,
+  targetToken: Token
 ): AtomExpr | null {
   let bestEnv: Environment | null = null;
   let bestDepth = -1;
@@ -299,7 +308,9 @@ function findVariableByNameInAnyEnv(
     const variables = getVariablesFromEnv(bestEnv, name);
     if (!variables || variables.length === 0) return null;
 
-    const selectedVariable = variables[variables.length - 1];
+    const selectedVariable =
+      selectBestVariableAtPosition(variables, targetToken) ??
+      variables[variables.length - 1];
     if (!selectedVariable?.type) return null;
 
     return {
@@ -307,8 +318,8 @@ function findVariableByNameInAnyEnv(
       token: {
         value: name,
         type: TokenType.Identifier,
-        position: { row: 0, column: 0 },
-        modulePath: "",
+        position: targetToken.position,
+        modulePath: targetToken.modulePath,
       },
       $: {
         type: selectedVariable.type,

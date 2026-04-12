@@ -238,6 +238,36 @@ name = "minimal"
   });
 });
 
+describe("Documentation site helpers", () => {
+  test("site builder avoids shell-specific git redirection and uses node CLI entrypoint", () => {
+    const content = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-site.ts"),
+      "utf-8"
+    );
+    expect(content).toContain(
+      'execFileSync("git", ["describe", "--tags", "--abbrev=0"]'
+    );
+    expect(content).not.toContain("2>/dev/null");
+    expect(content).toContain('command: "node"');
+    expect(content).toContain('path.join(rootDir, "out", "cjs", "yo-cli.cjs")');
+    expect(content).toContain("timeout: 600_000");
+  });
+
+  test("workflow smoke tests use the portable node CLI entrypoint", () => {
+    const content = fs.readFileSync(
+      path.resolve(__dirname, "../../.github/workflows/test.yml"),
+      "utf-8"
+    );
+    expect(content).toContain(
+      "node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world"
+    );
+    expect(content).toContain("node ../../out/cjs/yo-cli.cjs build run");
+    expect(content).not.toContain(
+      "./yo-cli init ./tmp/hello-world --name hello-world"
+    );
+  });
+});
+
 describe("Lock file serialization", () => {
   test("roundtrip single dependency", () => {
     const lockFile: LockFile = {

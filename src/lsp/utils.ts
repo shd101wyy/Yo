@@ -1,3 +1,4 @@
+import type { Variable } from "../env";
 import {
   type AtomExpr,
   type Expr,
@@ -112,6 +113,72 @@ export function findBestExpressionMatch(
   });
 
   return candidateExprs[0] ?? null;
+}
+
+function compareVariablesByDeclarationPosition(
+  a: Variable,
+  b: Variable
+): number {
+  const aToken = a.initializedAtToken;
+  const bToken = b.initializedAtToken;
+  if (!aToken && !bToken) return 0;
+  if (!aToken) return 1;
+  if (!bToken) return -1;
+  if (aToken.position.row !== bToken.position.row) {
+    return bToken.position.row - aToken.position.row;
+  }
+  return bToken.position.column - aToken.position.column;
+}
+
+function isVariableVisibleAtPosition(
+  variable: Variable,
+  targetToken: Pick<Token, "position" | "modulePath">
+): boolean {
+  const initToken = variable.initializedAtToken;
+  if (!initToken) return false;
+  if (initToken.modulePath !== targetToken.modulePath) return false;
+  if (initToken.position.row < targetToken.position.row) return true;
+  return (
+    initToken.position.row === targetToken.position.row &&
+    initToken.position.column <= targetToken.position.column
+  );
+}
+
+export function selectBestVariableAtPosition(
+  variables: Variable[],
+  targetToken: Pick<Token, "position" | "modulePath">
+): Variable | undefined {
+  const exactMatches = variables.filter((variable) => {
+    const initToken = variable.initializedAtToken;
+    return (
+      initToken !== undefined &&
+      initToken.modulePath === targetToken.modulePath &&
+      initToken.position.row === targetToken.position.row &&
+      initToken.position.column === targetToken.position.column
+    );
+  });
+  if (exactMatches.length > 0) {
+    return [...exactMatches].sort(compareVariablesByDeclarationPosition)[0];
+  }
+
+  const visibleVariables = variables.filter((variable) =>
+    isVariableVisibleAtPosition(variable, targetToken)
+  );
+  if (visibleVariables.length > 0) {
+    return [...visibleVariables].sort(compareVariablesByDeclarationPosition)[0];
+  }
+
+  const sameModuleVariables = variables.filter(
+    (variable) =>
+      variable.initializedAtToken?.modulePath === targetToken.modulePath
+  );
+  if (sameModuleVariables.length > 0) {
+    return [...sameModuleVariables].sort(
+      compareVariablesByDeclarationPosition
+    )[0];
+  }
+
+  return variables[variables.length - 1];
 }
 
 /**
