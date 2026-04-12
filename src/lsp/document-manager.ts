@@ -62,6 +62,13 @@ export class LspDocumentManager {
   }
 
   /**
+   * Get the current std library path.
+   */
+  getStdPath(): string | null {
+    return this.moduleManagerStdPath;
+  }
+
+  /**
    * Attach to an LSP TextDocuments manager, wiring up document lifecycle events.
    */
   attachToDocuments(

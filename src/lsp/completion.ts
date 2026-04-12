@@ -1,5 +1,7 @@
 import type { CompletionItem } from "vscode-languageserver";
 import { CompletionItemKind, MarkupKind } from "vscode-languageserver";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { getVariablesFromEnv, type Environment } from "../env";
 import { enumerateMethodNamesFromGenericImpls } from "../evaluator/values/impl";
 import {
@@ -68,6 +70,15 @@ export function handleCompletion(
   lineText: string,
   docManager: LspDocumentManager
 ): CompletionItem[] {
+  // Check for import path completion first (works even without a valid module)
+  const textUpToCursor = lineText.substring(0, character);
+  const importPathItems = handleImportPathCompletion(
+    textUpToCursor,
+    uri,
+    docManager
+  );
+  if (importPathItems.length > 0) return importPathItems;
+
   const module = docManager.getModule(uri);
   if (!module) {
     return getKeywordCompletions("");
@@ -75,7 +86,7 @@ export function handleCompletion(
 
   // Check for dot-completion — allow even when module has errors,
   // since the error is often caused by the incomplete `expr.` being typed
-  const textUpToCursor = lineText.substring(0, character);
+
   const isDotCompletion = textUpToCursor.endsWith(".");
 
   if (isDotCompletion) {
@@ -124,9 +135,21 @@ export function handleCompletion(
     return items;
   }
 
-  // For non-dot completion, bail if module has errors
+  // For non-dot completion, try to provide identifier completions
+  // even when the module has errors by using the last good module
   if (module.moduleError) {
-    return getKeywordCompletions("");
+    const prefix = extractPrefix(lineText, character);
+    const lastGood = docManager.getLastGoodModule(uri);
+    if (lastGood) {
+      const items = handleIdentifierCompletion(
+        lastGood,
+        line,
+        character,
+        prefix
+      );
+      if (items.length > 0) return items;
+    }
+    return getKeywordCompletions(prefix);
   }
 
   // Regular completion: collect variables in scope + keywords
@@ -163,6 +186,85 @@ function getKeywordCompletions(prefix: string): CompletionItem[] {
     }
   }
   return items;
+}
+
+/**
+ * Handle import path completion (e.g., `import "std/` or `import "./`).
+ * Provides file/directory completions for import paths.
+ */
+function handleImportPathCompletion(
+  textUpToCursor: string,
+  uri: string,
+  docManager: LspDocumentManager
+): CompletionItem[] {
+  // Match patterns like: import "std/..., open import "std/..., { X } :: import "./...
+  const importMatch = textUpToCursor.match(/import\s+"([^"]*?)([^"/]*)$/);
+  if (!importMatch) return [];
+
+  const fullPath = importMatch[1]! + importMatch[2]!;
+  const prefix = importMatch[2]!;
+
+  let basePath: string;
+  if (fullPath.startsWith("std/")) {
+    // Resolve from std library
+    const stdPath = docManager.getStdPath();
+    if (!stdPath) return [];
+    const subPath = fullPath.slice(4); // Remove "std/"
+    const lastSlash = subPath.lastIndexOf("/");
+    if (lastSlash >= 0) {
+      basePath = path.join(stdPath, subPath.slice(0, lastSlash));
+    } else {
+      basePath = stdPath;
+    }
+  } else if (fullPath.startsWith("./") || fullPath.startsWith("../")) {
+    // Resolve relative to current file
+    const filePath = uri.startsWith("file://") ? uri.slice(7) : uri;
+    const fileDir = path.dirname(filePath);
+    const subPath = fullPath;
+    const lastSlash = subPath.lastIndexOf("/");
+    if (lastSlash >= 0) {
+      basePath = path.resolve(fileDir, subPath.slice(0, lastSlash));
+    } else {
+      basePath = fileDir;
+    }
+  } else {
+    return [];
+  }
+
+  try {
+    if (!fs.existsSync(basePath)) return [];
+    const entries = fs.readdirSync(basePath, { withFileTypes: true });
+    const items: CompletionItem[] = [];
+    const lowerPrefix = prefix.toLowerCase();
+
+    for (const entry of entries) {
+      const name = entry.name;
+      // Skip hidden files and non-yo files
+      if (name.startsWith(".")) continue;
+
+      if (entry.isDirectory()) {
+        if (!name.toLowerCase().startsWith(lowerPrefix)) continue;
+        items.push({
+          label: name,
+          kind: CompletionItemKind.Folder,
+          sortText: `0_${name}`,
+        });
+      } else if (name.endsWith(".yo")) {
+        const nameWithoutExt = name.slice(0, -3);
+        if (!nameWithoutExt.toLowerCase().startsWith(lowerPrefix)) continue;
+        // Don't show index.yo directly — it's the directory's module
+        if (name === "index.yo") continue;
+        items.push({
+          label: nameWithoutExt,
+          kind: CompletionItemKind.File,
+          sortText: `1_${nameWithoutExt}`,
+        });
+      }
+    }
+    return items;
+  } catch {
+    return [];
+  }
 }
 
 /**

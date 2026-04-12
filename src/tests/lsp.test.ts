@@ -626,6 +626,41 @@ export main;
   });
 });
 
+describe("LSP Completion - Import paths", () => {
+  it("should suggest std modules for import path", () => {
+    const source = `
+open import "std/";
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, 'import "std/');
+    const lineText = source.split("\n")[ln]!;
+    const col = lineText.indexOf('"std/') + 5; // After "std/
+    const items = handleCompletion(uri, ln, col, lineText, docManager);
+    const labels = items.map((i) => i.label);
+    // Should include known std modules
+    expect(labels).toContain("string");
+    expect(labels).toContain("fmt");
+    expect(labels).toContain("collections");
+    expect(labels.length).toBeGreaterThan(5);
+  });
+
+  it("should suggest subdirectories in std/collections/", () => {
+    const source = `
+open import "std/collections/";
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, 'import "std/collections/');
+    const lineText = source.split("\n")[ln]!;
+    // Position cursor right after "std/collections/" — inside the quotes
+    const target = 'open import "std/collections/';
+    const col = target.length;
+    const items = handleCompletion(uri, ln, col, lineText, docManager);
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("array_list");
+    expect(labels).toContain("hash_map");
+  });
+});
+
 describe("LSP Definition", () => {
   describe("import path go-to-definition", () => {
     const source = `

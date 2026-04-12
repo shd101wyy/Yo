@@ -59,6 +59,10 @@ Type any prefix to see matching variables, functions, and keywords in scope.
 
 `Ctrl+Click` or `F12` on any identifier to jump to its definition.
 
+- **Variables**: Jump to the declaration site
+- **Import paths**: Click on `"std/string"` to open the imported file
+- **Struct/enum/function names**: Jump to the type or function definition
+
 ### 4. Document Symbols
 
 `Ctrl+Shift+O` to see all top-level declarations in the current file.
@@ -115,6 +119,16 @@ node out/cjs/yo-lsp.cjs --stdio
 
 ## Implementation Details
 
+### Dirty Buffer Support
+
+When the buffer has unsaved/incomplete code (e.g., `p.` or `Option(i32).`), the LSP uses a multi-level fallback strategy:
+
+1. **Current module** — attempt evaluation of the latest text
+2. **Last good module** — fall back to the most recent successful evaluation
+3. **Text-based resolution** — parse the text before the cursor to resolve types without evaluation
+
+This ensures completions and hover remain available even while typing incomplete expressions.
+
 ### Module Caching
 
 The LSP maintains a "last good module" cache. When the user is typing (e.g., `p2.`), the incomplete expression may cause evaluation errors. The server falls back to the last successful evaluation to provide completions.
@@ -146,11 +160,16 @@ bun test src/tests/lsp.test.ts --timeout 60000
 The test suite covers:
 
 - Struct field completion
-- Enum variant completion
+- Enum variant completion (value and type level)
 - Module member completion (with doc comments)
 - Array `.len` completion
 - Impl method completion
 - Type-level completion (static methods)
+- Self-completion inside methods
+- Prelude type completion (e.g., `Option` methods)
+- Dirty buffer dot-completion (type constructors, simple variables)
 - Keyword completion
 - Variable, type, and function hover
 - Impl field label hover
+- Hover fallback on dirty buffers
+- Go-to-definition for variables and import paths
