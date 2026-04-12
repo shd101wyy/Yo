@@ -54,7 +54,12 @@ match(color,
 
 #### Identifier completion
 
-Type any prefix to see matching variables, functions, and keywords in scope.
+Type any prefix to see matching variables, functions, and keywords in scope. This includes:
+
+- **Prelude types**: `Option`, `Result`, `Box`, `IO`, and other types available without imports
+- **Imported types**: Types and functions from `open import` statements
+- **Local variables**: Variables declared earlier in the same scope
+- **Internal names filtered**: `__yo_*` and `___*` compiler-internal symbols are hidden
 
 ### 3. Go to Definition
 
@@ -63,6 +68,7 @@ Type any prefix to see matching variables, functions, and keywords in scope.
 - **Variables**: Jump to the declaration site
 - **Import paths**: Click on `"std/string"` to open the imported file
 - **Struct/enum/function names**: Jump to the type or function definition
+- **Enum variants**: `.Red`, `.Some(...)` — jump to the variant definition in the enum
 
 ### 4. Document Symbols
 
@@ -175,5 +181,7 @@ The test suite covers:
 - Variable, type, and function hover
 - Impl field label hover
 - Hover fallback on dirty buffers
-- Go-to-definition for variables and import paths
+- Go-to-definition for variables, import paths, and enum variants
 - Import path completion (std library and subdirectories)
+- Environment-based identifier completion (prelude types, imported symbols)
+- Generic type method completion (`Option(i32).`, `Result(T,E).`)
