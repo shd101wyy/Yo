@@ -10,6 +10,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { getCurrentYoVersion } from "./version";
 
 export interface InitOptions {
   /** Directory to initialize (default: cwd) */
@@ -74,6 +75,12 @@ export function initProject(options: InitOptions): void {
     fs.writeFileSync(gitignorePath, generateGitignore());
   }
 
+  // Generate .yo-version (pin to current Yo version)
+  const yoVersionPath = path.join(projectDir, ".yo-version");
+  if (!fs.existsSync(yoVersionPath)) {
+    fs.writeFileSync(yoVersionPath, getCurrentYoVersion() + "\n");
+  }
+
   // Generate README.md
   const readmePath = path.join(projectDir, "README.md");
   if (!fs.existsSync(readmePath)) {
@@ -89,6 +96,7 @@ export function initProject(options: InitOptions): void {
   console.log(`    src/lib.yo`);
   console.log(`    tests/main.test.yo`);
   console.log(`    .gitignore`);
+  console.log(`    .yo-version`);
   console.log(`    README.md`);
   console.log();
   console.log("  Get started:");

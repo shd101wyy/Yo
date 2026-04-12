@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import yargs from "yargs";
@@ -20,14 +21,101 @@ import {
   parseTarget,
 } from "./target";
 import { findTestFiles, runTests } from "./test-runner";
+import { getCurrentYoVersion, readYoVersion } from "./version";
+import {
+  cleanVersionCache,
+  ensureCachedVersion,
+  fetchRemoteVersions,
+  findJsRuntime,
+  isVersionCached,
+  listCachedVersions,
+} from "./version-cache";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
-yargs(hideBin(process.argv))
-  .scriptName("yo")
-  .wrap(null)
-  .usage(
-    `The Yo Programming Language ${packageJson.version}
+// ── Version re-dispatch ─────────────────────────────────────────────────
+// Before yargs processes any command, check `.yo-version` and re-dispatch
+// to the pinned version if it differs from the currently running version.
+// Skip re-dispatch for:
+//   - `yo version ...` commands (manage versions locally)
+//   - `yo lsp` (LSP handles its own std path resolution)
+//   - When already dispatched (YO_VERSION_DISPATCHED=1)
+
+const rawArgs = hideBin(process.argv);
+const firstArg = rawArgs[0];
+const shouldSkipDispatch =
+  process.env.YO_VERSION_DISPATCHED === "1" ||
+  firstArg === "version" ||
+  firstArg === "lsp" ||
+  firstArg === "--help" ||
+  firstArg === "-h" ||
+  firstArg === "--version";
+
+const dispatchCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+
+if (!shouldSkipDispatch) {
+  const pinnedVersion = readYoVersion(dispatchCwd);
+  if (pinnedVersion && pinnedVersion !== getCurrentYoVersion()) {
+    // Synchronously ensure the version is cached and re-dispatch
+    (async () => {
+      try {
+        const cachedDir = await ensureCachedVersion(pinnedVersion);
+        const cliPath = path.join(cachedDir, "out", "cjs", "yo-cli.cjs");
+
+        if (!fs.existsSync(cliPath)) {
+          console.error(
+            `Error: Cached Yo v${pinnedVersion} is missing yo-cli.cjs at ${cliPath}`
+          );
+          process.exit(1);
+        }
+
+        const runtime = findJsRuntime();
+        // execFileSync throws on non-zero exit; success returns here
+        execFileSync(runtime, [cliPath, ...rawArgs], {
+          stdio: "inherit",
+          cwd: dispatchCwd,
+          env: {
+            ...process.env,
+            YO_VERSION_DISPATCHED: "1",
+            YO_ORIGINAL_CWD: dispatchCwd,
+          },
+        });
+        process.exit(0);
+      } catch (err) {
+        if (
+          err &&
+          typeof err === "object" &&
+          "status" in err &&
+          typeof (err as { status: unknown }).status === "number"
+        ) {
+          // Child process exited with non-zero status
+          process.exit((err as { status: number }).status);
+        }
+        console.error(
+          `Error dispatching to Yo v${pinnedVersion}:`,
+          err instanceof Error ? err.message : err
+        );
+        process.exit(1);
+      }
+    })();
+    // The async IIFE above calls process.exit, so the code below this
+    // block will not run for the re-dispatch case. However, for TypeScript
+    // control flow, we don't continue to yargs setup below.
+    // We use a module-level guard to prevent yargs from running.
+  } else {
+    // No re-dispatch needed — continue to yargs
+    runCli();
+  }
+} else {
+  runCli();
+}
+
+function runCli(): void {
+  yargs(hideBin(process.argv))
+    .scriptName("yo")
+    .wrap(null)
+    .usage(
+      `The Yo Programming Language ${packageJson.version}
 Usage:
 
 yo compile <file> [options]      Compile a '.yo' file
@@ -81,686 +169,841 @@ Examples:
   $ yo doc -o docs               Output to ./docs directory
   $ yo doc --title "My Project"  Set doc site title
 
+yo version                       Manage Yo versions
+Examples:
+  $ yo version                     Show current version and .yo-version
+  $ yo version pin                 Pin current version to .yo-version
+  $ yo version pin 0.1.12          Pin specific version
+  $ yo version install 0.1.12      Pre-download a version
+  $ yo version list                List cached versions
+  $ yo version clean               Remove all cached versions
+
 yo --help                        Show this help message
 yo --version                     Show version number
 `
-  )
-  .command(
-    "compile <file>",
-    "Compile a '.yo' file",
-    (_yargs) => {
-      _yargs
-        .positional("file", {
-          describe: "File to compile",
-          type: "string",
-          demandOption: true,
-        })
-        .option("o", {
-          alias: "output",
-          describe: "Output file",
-          type: "string",
-          demandOption: false,
-          default: "a.out",
-        })
-        .option("cc", {
-          alias: "c-compiler",
-          describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
-          type: "string",
-          demandOption: false,
-          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
-        })
-        .option("t", {
-          alias: "target",
-          describe:
-            "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable. Defaults to host.",
-          type: "string",
-          demandOption: false,
-        })
-        .option("sysroot", {
-          describe: "Sysroot directory for cross-compilation.",
-          type: "string",
-          demandOption: false,
-        })
-        .option("I", {
-          alias: "include-path",
-          describe:
-            "Add directory to include search path (like gcc -I). Can be specified multiple times.",
-          type: "array",
-          demandOption: false,
-          default: [],
-        })
-        .option("L", {
-          alias: "library-path",
-          describe:
-            "Add directory to library search path (like gcc -L). Can be specified multiple times.",
-          type: "array",
-          demandOption: false,
-          default: [],
-        })
-        .option("l", {
-          alias: "library",
-          describe:
-            "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
-          type: "array",
-          demandOption: false,
-          default: [],
-        })
-        .option("D", {
-          alias: "define",
-          describe:
-            "Define preprocessor macro (like gcc -D). Can be specified multiple times. Example: -D DEBUG -D VERSION=1",
-          type: "array",
-          demandOption: false,
-          default: [],
-        })
-        .option("emit-c", {
-          describe: "Print C code generated.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("skip-codegen", {
-          describe: "Do not compile the code.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("skip-c-compiler", {
-          describe: "Generate C code but skip running the C compiler.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("debug-gc", {
-          describe:
-            "Enable debug logging for GC and reference counting operations.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("debug-parallelism", {
-          describe:
-            "Enable debug logging for parallel worker thread operations.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("debug-async-await", {
-          describe:
-            "Enable debug logging for async/await state machine operations.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("allocator", {
-          describe: "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
-          type: "string",
-          demandOption: false,
-          default: "libc",
-          choices: ["mimalloc", "libc"],
-        })
-        .option("release", {
-          describe:
-            "Build in release mode with optimizations (-O2, no warnings).",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("optimize", {
-          describe: "Set optimization level (0, 1, 2, 3). Overrides --release.",
-          type: "string",
-          demandOption: false,
-          choices: ["0", "1", "2", "3"],
-        })
-        .option("extern", {
-          describe:
-            "External C files to link with. eg: --extern extern1.c extern2.c",
-          type: "array",
-          demandOption: false,
-          default: [],
-        })
-        .option("sanitize", {
-          describe:
-            "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
-          type: "string",
-          demandOption: false,
-          choices: ["address", "leak"],
-        })
-        .option("g", {
-          alias: "debug-symbols",
-          describe: "Include debug symbols in the binary (like gcc -g).",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("s", {
-          alias: "strip",
-          describe:
-            "Strip symbols from the binary to reduce size (like gcc -s).",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("static", {
-          describe: "Produce a statically linked binary.",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("static-library", {
-          describe: "Compile as a static library (.a archive).",
-          type: "boolean",
-          demandOption: false,
-          default: false,
-        })
-        .option("cflags", {
-          describe:
-            "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
-          type: "string",
-          demandOption: false,
+    )
+    .command(
+      "compile <file>",
+      "Compile a '.yo' file",
+      (_yargs) => {
+        _yargs
+          .positional("file", {
+            describe: "File to compile",
+            type: "string",
+            demandOption: true,
+          })
+          .option("o", {
+            alias: "output",
+            describe: "Output file",
+            type: "string",
+            demandOption: false,
+            default: "a.out",
+          })
+          .option("cc", {
+            alias: "c-compiler",
+            describe:
+              "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
+            type: "string",
+            demandOption: false,
+            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+          })
+          .option("t", {
+            alias: "target",
+            describe:
+              "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable. Defaults to host.",
+            type: "string",
+            demandOption: false,
+          })
+          .option("sysroot", {
+            describe: "Sysroot directory for cross-compilation.",
+            type: "string",
+            demandOption: false,
+          })
+          .option("I", {
+            alias: "include-path",
+            describe:
+              "Add directory to include search path (like gcc -I). Can be specified multiple times.",
+            type: "array",
+            demandOption: false,
+            default: [],
+          })
+          .option("L", {
+            alias: "library-path",
+            describe:
+              "Add directory to library search path (like gcc -L). Can be specified multiple times.",
+            type: "array",
+            demandOption: false,
+            default: [],
+          })
+          .option("l", {
+            alias: "library",
+            describe:
+              "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
+            type: "array",
+            demandOption: false,
+            default: [],
+          })
+          .option("D", {
+            alias: "define",
+            describe:
+              "Define preprocessor macro (like gcc -D). Can be specified multiple times. Example: -D DEBUG -D VERSION=1",
+            type: "array",
+            demandOption: false,
+            default: [],
+          })
+          .option("emit-c", {
+            describe: "Print C code generated.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("skip-codegen", {
+            describe: "Do not compile the code.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("skip-c-compiler", {
+            describe: "Generate C code but skip running the C compiler.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("debug-gc", {
+            describe:
+              "Enable debug logging for GC and reference counting operations.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("debug-parallelism", {
+            describe:
+              "Enable debug logging for parallel worker thread operations.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("debug-async-await", {
+            describe:
+              "Enable debug logging for async/await state machine operations.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("allocator", {
+            describe:
+              "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
+            type: "string",
+            demandOption: false,
+            default: "libc",
+            choices: ["mimalloc", "libc"],
+          })
+          .option("release", {
+            describe:
+              "Build in release mode with optimizations (-O2, no warnings).",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("optimize", {
+            describe:
+              "Set optimization level (0, 1, 2, 3). Overrides --release.",
+            type: "string",
+            demandOption: false,
+            choices: ["0", "1", "2", "3"],
+          })
+          .option("extern", {
+            describe:
+              "External C files to link with. eg: --extern extern1.c extern2.c",
+            type: "array",
+            demandOption: false,
+            default: [],
+          })
+          .option("sanitize", {
+            describe:
+              "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
+            type: "string",
+            demandOption: false,
+            choices: ["address", "leak"],
+          })
+          .option("g", {
+            alias: "debug-symbols",
+            describe: "Include debug symbols in the binary (like gcc -g).",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("s", {
+            alias: "strip",
+            describe:
+              "Strip symbols from the binary to reduce size (like gcc -s).",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("static", {
+            describe: "Produce a statically linked binary.",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("static-library", {
+            describe: "Compile as a static library (.a archive).",
+            type: "boolean",
+            demandOption: false,
+            default: false,
+          })
+          .option("cflags", {
+            describe:
+              "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
+            type: "string",
+            demandOption: false,
+          });
+      },
+      (argv) => {
+        const file = argv.file as string;
+        if (!fs.existsSync(file)) {
+          console.log(`File ${file} does not exist`);
+          return;
+        }
+
+        let cCompiler = argv.cc as string | undefined;
+        const targetTripleArg = argv.t as string | undefined;
+
+        // Auto-select emcc for WASM targets
+        if (!cCompiler && targetTripleArg?.startsWith("wasm")) {
+          cCompiler = "emcc";
+        }
+
+        if (!cCompiler) {
+          const availableCompiler = findAvailableCompiler();
+          if (!availableCompiler) {
+            console.error(
+              "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
+            );
+            process.exit(1);
+          }
+          cCompiler = availableCompiler;
+        }
+
+        // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
+        const isEmcc = cCompiler === "emcc";
+        const targetTriple =
+          targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
+
+        const absolutePath = `file://` + fs.realpathSync(file);
+        const targetInfo = targetTriple
+          ? parseTarget(targetTriple)
+          : hostTarget();
+        const requestedOutput = argv.o as string;
+        // Auto-add extension when output has no extension
+        let outputPath: string;
+        if (isEmcc && path.extname(requestedOutput) === "") {
+          outputPath = isTargetStandaloneWasi(targetInfo)
+            ? `${requestedOutput}.wasm`
+            : `${requestedOutput}.html`;
+        } else if (
+          isTargetWindows(targetInfo) &&
+          path.extname(requestedOutput) === ""
+        ) {
+          outputPath = `${requestedOutput}.exe`;
+        } else {
+          outputPath = requestedOutput;
+        }
+
+        const codeGenerator = new CodeGenerator();
+        codeGenerator.compileModule(absolutePath, {
+          output: outputPath,
+          cCompiler,
+          target: "c",
+          targetTriple,
+          sysroot: argv.sysroot as string | undefined,
+          extern: (argv.extern ?? []) as string[],
+          includePaths: (argv.I ?? []) as string[],
+          libraryPaths: (argv.L ?? []) as string[],
+          libraries: (argv.l ?? []) as string[],
+          defines: (argv.D ?? []) as string[],
+          emitC: argv.emitC as boolean,
+          skipCodegen: argv.skipCodegen as boolean,
+          skipCCompiler: argv.skipCCompiler as boolean,
+          debugGc: argv.debugGc as boolean,
+          debugParallelism: argv.debugParallelism as boolean,
+          debugAsyncAwait: argv.debugAsyncAwait as boolean,
+          release: argv.release as boolean,
+          optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
+          allocator: argv.allocator as "mimalloc" | "libc",
+          sanitize: argv.sanitize as "address" | "leak" | undefined,
+          debugSymbols: argv.g as boolean,
+          strip: argv.s as boolean,
+          static: argv.static as boolean,
+          staticLibrary: argv.staticLibrary as boolean,
+          cflags: argv.cflags as string | undefined,
         });
-    },
-    (argv) => {
-      const file = argv.file as string;
-      if (!fs.existsSync(file)) {
-        console.log(`File ${file} does not exist`);
-        return;
       }
+    )
+    .command(
+      "test [path]",
+      "Run tests in .test.yo files",
+      (_yargs) => {
+        _yargs
+          .positional("path", {
+            describe:
+              "Path to test file or directory (default: current directory)",
+            type: "string",
+            default: ".",
+          })
+          .option("cc", {
+            alias: "c-compiler",
+            describe:
+              "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
+            type: "string",
+            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+          })
+          .option("target", {
+            describe:
+              "Target triple (e.g., 'wasm-emscripten', 'wasm-wasi', 'x86_64-linux-musl'). Must match host architecture; WASM targets are always cross-compilable.",
+            type: "string",
+          })
+          .option("verbose", {
+            alias: "v",
+            describe: "Show detailed error messages",
+            type: "boolean",
+            default: false,
+          })
+          .option("bail", {
+            alias: "b",
+            describe: "Stop running tests after the first failure",
+            type: "boolean",
+            default: false,
+          })
+          .option("test-name-pattern", {
+            describe: "Only run tests with names matching this regex pattern",
+            type: "string",
+          })
+          .option("parallel", {
+            alias: "p",
+            describe:
+              "Number of test files to run in parallel (0 = auto/max CPUs, 1 = sequential)",
+            type: "number",
+            default: 0,
+          })
+          .option("keep-generated-files", {
+            alias: "k",
+            describe:
+              "Keep generated .yo and .c test files for debugging (not deleted after test)",
+            type: "boolean",
+            default: false,
+          })
+          .option("json-summary", {
+            describe:
+              "Internal: print machine-readable summary line for isolated parallel test execution",
+            type: "boolean",
+            default: false,
+          })
+          .option("profile", {
+            describe:
+              "Print per-test timing breakdown (Yo compile, C compile, run) and heap usage",
+            type: "boolean",
+            default: false,
+          });
+      },
+      async (argv) => {
+        const targetPath = argv.path as string;
+        const testFiles = findTestFiles(targetPath);
 
-      let cCompiler = argv.cc as string | undefined;
-      const targetTripleArg = argv.t as string | undefined;
+        if (testFiles.length === 0) {
+          console.log("No test files found.");
+          process.exit(0);
+        }
 
-      // Auto-select emcc for WASM targets
-      if (!cCompiler && targetTripleArg?.startsWith("wasm")) {
-        cCompiler = "emcc";
-      }
-
-      if (!cCompiler) {
-        const availableCompiler = findAvailableCompiler();
-        if (!availableCompiler) {
-          console.error(
-            "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
-          );
+        const parallel = argv.parallel as number;
+        if (parallel < 0) {
+          console.error("Error: --parallel value cannot be negative");
           process.exit(1);
         }
-        cCompiler = availableCompiler;
-      }
 
-      // When using emcc (Emscripten), auto-set target to wasm32-emscripten if not specified
-      const isEmcc = cCompiler === "emcc";
-      const targetTriple =
-        targetTripleArg ?? (isEmcc ? "wasm32-emscripten" : undefined);
+        let cCompiler = argv.cc as string | undefined;
+        const target = argv.target as string | undefined;
 
-      const absolutePath = `file://` + fs.realpathSync(file);
-      const targetInfo = targetTriple
-        ? parseTarget(targetTriple)
-        : hostTarget();
-      const requestedOutput = argv.o as string;
-      // Auto-add extension when output has no extension
-      let outputPath: string;
-      if (isEmcc && path.extname(requestedOutput) === "") {
-        outputPath = isTargetStandaloneWasi(targetInfo)
-          ? `${requestedOutput}.wasm`
-          : `${requestedOutput}.html`;
-      } else if (
-        isTargetWindows(targetInfo) &&
-        path.extname(requestedOutput) === ""
-      ) {
-        outputPath = `${requestedOutput}.exe`;
-      } else {
-        outputPath = requestedOutput;
-      }
-
-      const codeGenerator = new CodeGenerator();
-      codeGenerator.compileModule(absolutePath, {
-        output: outputPath,
-        cCompiler,
-        target: "c",
-        targetTriple,
-        sysroot: argv.sysroot as string | undefined,
-        extern: (argv.extern ?? []) as string[],
-        includePaths: (argv.I ?? []) as string[],
-        libraryPaths: (argv.L ?? []) as string[],
-        libraries: (argv.l ?? []) as string[],
-        defines: (argv.D ?? []) as string[],
-        emitC: argv.emitC as boolean,
-        skipCodegen: argv.skipCodegen as boolean,
-        skipCCompiler: argv.skipCCompiler as boolean,
-        debugGc: argv.debugGc as boolean,
-        debugParallelism: argv.debugParallelism as boolean,
-        debugAsyncAwait: argv.debugAsyncAwait as boolean,
-        release: argv.release as boolean,
-        optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
-        allocator: argv.allocator as "mimalloc" | "libc",
-        sanitize: argv.sanitize as "address" | "leak" | undefined,
-        debugSymbols: argv.g as boolean,
-        strip: argv.s as boolean,
-        static: argv.static as boolean,
-        staticLibrary: argv.staticLibrary as boolean,
-        cflags: argv.cflags as string | undefined,
-      });
-    }
-  )
-  .command(
-    "test [path]",
-    "Run tests in .test.yo files",
-    (_yargs) => {
-      _yargs
-        .positional("path", {
-          describe:
-            "Path to test file or directory (default: current directory)",
-          type: "string",
-          default: ".",
-        })
-        .option("cc", {
-          alias: "c-compiler",
-          describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
-          type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
-        })
-        .option("target", {
-          describe:
-            "Target triple (e.g., 'wasm-emscripten', 'wasm-wasi', 'x86_64-linux-musl'). Must match host architecture; WASM targets are always cross-compilable.",
-          type: "string",
-        })
-        .option("verbose", {
-          alias: "v",
-          describe: "Show detailed error messages",
-          type: "boolean",
-          default: false,
-        })
-        .option("bail", {
-          alias: "b",
-          describe: "Stop running tests after the first failure",
-          type: "boolean",
-          default: false,
-        })
-        .option("test-name-pattern", {
-          describe: "Only run tests with names matching this regex pattern",
-          type: "string",
-        })
-        .option("parallel", {
-          alias: "p",
-          describe:
-            "Number of test files to run in parallel (0 = auto/max CPUs, 1 = sequential)",
-          type: "number",
-          default: 0,
-        })
-        .option("keep-generated-files", {
-          alias: "k",
-          describe:
-            "Keep generated .yo and .c test files for debugging (not deleted after test)",
-          type: "boolean",
-          default: false,
-        })
-        .option("json-summary", {
-          describe:
-            "Internal: print machine-readable summary line for isolated parallel test execution",
-          type: "boolean",
-          default: false,
-        })
-        .option("profile", {
-          describe:
-            "Print per-test timing breakdown (Yo compile, C compile, run) and heap usage",
-          type: "boolean",
-          default: false,
-        });
-    },
-    async (argv) => {
-      const targetPath = argv.path as string;
-      const testFiles = findTestFiles(targetPath);
-
-      if (testFiles.length === 0) {
-        console.log("No test files found.");
-        process.exit(0);
-      }
-
-      const parallel = argv.parallel as number;
-      if (parallel < 0) {
-        console.error("Error: --parallel value cannot be negative");
-        process.exit(1);
-      }
-
-      let cCompiler = argv.cc as string | undefined;
-      const target = argv.target as string | undefined;
-
-      // Auto-select emcc for WASM targets
-      if (
-        target &&
-        (target.includes("wasm") ||
-          target.includes("emscripten") ||
-          target.includes("wasi")) &&
-        !cCompiler
-      ) {
-        cCompiler = "emcc";
-      }
-
-      if (!cCompiler) {
-        const availableCompiler = findAvailableCompiler();
-        if (!availableCompiler) {
-          console.error(
-            "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
-          );
-          process.exit(1);
+        // Auto-select emcc for WASM targets
+        if (
+          target &&
+          (target.includes("wasm") ||
+            target.includes("emscripten") ||
+            target.includes("wasi")) &&
+          !cCompiler
+        ) {
+          cCompiler = "emcc";
         }
-        cCompiler = availableCompiler;
+
+        if (!cCompiler) {
+          const availableCompiler = findAvailableCompiler();
+          if (!availableCompiler) {
+            console.error(
+              "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
+            );
+            process.exit(1);
+          }
+          cCompiler = availableCompiler;
+        }
+
+        const summary = await runTests(testFiles, {
+          cCompiler,
+          target,
+          verbose: argv.verbose as boolean,
+          bail: argv.bail as boolean,
+          testNamePattern: argv.testNamePattern as string | undefined,
+          parallel,
+          keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
+          profile: argv.profile as boolean,
+        });
+
+        if (argv.jsonSummary as boolean) {
+          console.log(`${TEST_SUMMARY_MARKER}${JSON.stringify(summary)}`);
+        }
+
+        process.exit(summary.failed > 0 ? 1 : 0);
       }
-
-      const summary = await runTests(testFiles, {
-        cCompiler,
-        target,
-        verbose: argv.verbose as boolean,
-        bail: argv.bail as boolean,
-        testNamePattern: argv.testNamePattern as string | undefined,
-        parallel,
-        keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
-        profile: argv.profile as boolean,
-      });
-
-      if (argv.jsonSummary as boolean) {
-        console.log(`${TEST_SUMMARY_MARKER}${JSON.stringify(summary)}`);
+    )
+    .command(
+      "init [dir]",
+      "Initialize a new Yo project",
+      (_yargs) => {
+        _yargs
+          .positional("dir", {
+            describe: "Directory to initialize (default: current directory)",
+            type: "string",
+            default: ".",
+          })
+          .option("name", {
+            describe: "Project name (default: directory name)",
+            type: "string",
+          });
+      },
+      (argv) => {
+        initProject({
+          dir: argv.dir as string,
+          name: argv.name as string | undefined,
+        });
       }
+    )
+    .command(
+      "fetch",
+      "Fetch git dependencies into global cache",
+      (_yargs) => {
+        _yargs
+          .option("build-file", {
+            describe: "Path to build file",
+            type: "string",
+            default: "./build.yo",
+          })
+          .option("verbose", {
+            alias: "v",
+            describe: "Verbose output",
+            type: "boolean",
+            default: false,
+          })
+          .option("update", {
+            alias: "u",
+            describe:
+              "Re-resolve git refs to latest commits and update yo.lock",
+            type: "boolean",
+            default: false,
+          });
+      },
+      async (argv) => {
+        const { runFetch } = await import("./fetch-command");
+        await runFetch({
+          buildFile: argv.buildFile as string,
+          verbose: argv.verbose as boolean,
+          update: argv.update as boolean,
+        });
+      }
+    )
+    .command(
+      "install <package>",
+      "Install a dependency from GitHub",
+      (_yargs) => {
+        _yargs
+          .positional("package", {
+            describe:
+              "Package specifier: github.com/user/repo, user/repo, or URL. " +
+              "Append @version to pin (e.g., github.com/user/repo@v1.0.0)",
+            type: "string",
+            demandOption: true,
+          })
+          .option("build-file", {
+            describe: "Path to build file",
+            type: "string",
+            default: "./build.yo",
+          })
+          .option("verbose", {
+            alias: "v",
+            describe: "Verbose output",
+            type: "boolean",
+            default: false,
+          });
+      },
+      async (argv) => {
+        const { runInstall } = await import("./install-command");
+        await runInstall({
+          package: argv.package as string,
+          buildFile: argv.buildFile as string,
+          verbose: argv.verbose as boolean,
+        });
+      }
+    )
+    .command(
+      "build [steps..]",
+      "Build project using build.yo",
+      (_yargs) => {
+        _yargs
+          .positional("steps", {
+            describe:
+              "Named steps to run (default: install). Common: run, test",
+            type: "string",
+            array: true,
+          })
+          .option("cc", {
+            alias: "c-compiler",
+            describe:
+              "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
+            type: "string",
+            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+          })
+          .option("t", {
+            alias: "target",
+            describe:
+              "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable.",
+            type: "string",
+          })
+          .option("sysroot", {
+            describe: "Sysroot directory for cross-compilation.",
+            type: "string",
+          })
+          .option("build-file", {
+            describe: "Path to build file",
+            type: "string",
+            default: "./build.yo",
+          })
+          .option("list-steps", {
+            describe: "List available build steps",
+            type: "boolean",
+            default: false,
+          })
+          .option("dry-run", {
+            describe: "Show what would be built without building",
+            type: "boolean",
+            default: false,
+          })
+          .option("verbose", {
+            alias: "v",
+            describe: "Verbose build output",
+            type: "boolean",
+            default: false,
+          })
+          .option("summary", {
+            describe: "Print build summary tree after completion",
+            type: "boolean",
+            default: false,
+          })
+          .parserConfiguration({ "unknown-options-as-args": true });
 
-      process.exit(summary.failed > 0 ? 1 : 0);
-    }
-  )
-  .command(
-    "init [dir]",
-    "Initialize a new Yo project",
-    (_yargs) => {
-      _yargs
-        .positional("dir", {
-          describe: "Directory to initialize (default: current directory)",
-          type: "string",
-          default: ".",
-        })
-        .option("name", {
-          describe: "Project name (default: directory name)",
-          type: "string",
-        });
-    },
-    (argv) => {
-      initProject({
-        dir: argv.dir as string,
-        name: argv.name as string | undefined,
-      });
-    }
-  )
-  .command(
-    "fetch",
-    "Fetch git dependencies into global cache",
-    (_yargs) => {
-      _yargs
-        .option("build-file", {
-          describe: "Path to build file",
-          type: "string",
-          default: "./build.yo",
-        })
-        .option("verbose", {
-          alias: "v",
-          describe: "Verbose output",
-          type: "boolean",
-          default: false,
-        })
-        .option("update", {
-          alias: "u",
-          describe: "Re-resolve git refs to latest commits and update yo.lock",
-          type: "boolean",
-          default: false,
-        });
-    },
-    async (argv) => {
-      const { runFetch } = await import("./fetch-command");
-      await runFetch({
-        buildFile: argv.buildFile as string,
-        verbose: argv.verbose as boolean,
-        update: argv.update as boolean,
-      });
-    }
-  )
-  .command(
-    "install <package>",
-    "Install a dependency from GitHub",
-    (_yargs) => {
-      _yargs
-        .positional("package", {
-          describe:
-            "Package specifier: github.com/user/repo, user/repo, or URL. " +
-            "Append @version to pin (e.g., github.com/user/repo@v1.0.0)",
-          type: "string",
-          demandOption: true,
-        })
-        .option("build-file", {
-          describe: "Path to build file",
-          type: "string",
-          default: "./build.yo",
-        })
-        .option("verbose", {
-          alias: "v",
-          describe: "Verbose output",
-          type: "boolean",
-          default: false,
-        });
-    },
-    async (argv) => {
-      const { runInstall } = await import("./install-command");
-      await runInstall({
-        package: argv.package as string,
-        buildFile: argv.buildFile as string,
-        verbose: argv.verbose as boolean,
-      });
-    }
-  )
-  .command(
-    "build [steps..]",
-    "Build project using build.yo",
-    (_yargs) => {
-      _yargs
-        .positional("steps", {
-          describe: "Named steps to run (default: install). Common: run, test",
-          type: "string",
-          array: true,
-        })
-        .option("cc", {
-          alias: "c-compiler",
-          describe:
-            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
-          type: "string",
-          choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
-        })
-        .option("t", {
-          alias: "target",
-          describe:
-            "Target triple (e.g. x86_64-linux-gnu, x86_64-linux-musl, wasm32-emscripten). Must match host architecture; WASM targets are always cross-compilable.",
-          type: "string",
-        })
-        .option("sysroot", {
-          describe: "Sysroot directory for cross-compilation.",
-          type: "string",
-        })
-        .option("build-file", {
-          describe: "Path to build file",
-          type: "string",
-          default: "./build.yo",
-        })
-        .option("list-steps", {
-          describe: "List available build steps",
-          type: "boolean",
-          default: false,
-        })
-        .option("dry-run", {
-          describe: "Show what would be built without building",
-          type: "boolean",
-          default: false,
-        })
-        .option("verbose", {
-          alias: "v",
-          describe: "Verbose build output",
-          type: "boolean",
-          default: false,
-        })
-        .option("summary", {
-          describe: "Print build summary tree after completion",
-          type: "boolean",
-          default: false,
-        })
-        .parserConfiguration({ "unknown-options-as-args": true });
-
-      // When --help is requested, evaluate build.yo to discover project options
-      if (process.argv.includes("--help") || process.argv.includes("-h")) {
-        try {
-          const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
-          const buildFile = path.resolve(userCwd, "./build.yo");
-          if (fs.existsSync(buildFile)) {
-            clearBuildRegistry();
-            const modulePath = `file://${fs.realpathSync(buildFile)}`;
-            const moduleManager = new ModuleManager();
-            moduleManager.loadModule(modulePath);
-            moduleManager.resetAllState();
-            const registry = getBuildRegistry();
-            if (registry.declaredOptions.size > 0) {
-              let epilog = "Project-Specific Options:";
-              for (const [name, opt] of registry.declaredOptions) {
-                epilog += `\n  -D${name}\t${opt.description} [default: ${opt.defaultValue}]`;
+        // When --help is requested, evaluate build.yo to discover project options
+        if (process.argv.includes("--help") || process.argv.includes("-h")) {
+          try {
+            const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+            const buildFile = path.resolve(userCwd, "./build.yo");
+            if (fs.existsSync(buildFile)) {
+              clearBuildRegistry();
+              const modulePath = `file://${fs.realpathSync(buildFile)}`;
+              const moduleManager = new ModuleManager();
+              moduleManager.loadModule(modulePath);
+              moduleManager.resetAllState();
+              const registry = getBuildRegistry();
+              if (registry.declaredOptions.size > 0) {
+                let epilog = "Project-Specific Options:";
+                for (const [name, opt] of registry.declaredOptions) {
+                  epilog += `\n  -D${name}\t${opt.description} [default: ${opt.defaultValue}]`;
+                }
+                _yargs.epilog(epilog);
               }
-              _yargs.epilog(epilog);
+            }
+          } catch (e) {
+            // Silently ignore — build.yo may not exist or may have errors
+            if (process.env.YO_DEBUG_HELP) {
+              console.error("Debug: build.yo evaluation failed:", e);
             }
           }
-        } catch (e) {
-          // Silently ignore — build.yo may not exist or may have errors
-          if (process.env.YO_DEBUG_HELP) {
-            console.error("Debug: build.yo evaluation failed:", e);
+        }
+      },
+      async (argv) => {
+        // Parse -Dname=value flags from process.argv (yargs doesn't handle -D natively)
+        const defines: Record<string, string> = {};
+        for (const arg of process.argv) {
+          if (arg.startsWith("-D")) {
+            const rest = arg.slice(2);
+            const eqIdx = rest.indexOf("=");
+            if (eqIdx >= 0) {
+              defines[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
+            } else {
+              defines[rest] = "true";
+            }
           }
         }
-      }
-    },
-    async (argv) => {
-      // Parse -Dname=value flags from process.argv (yargs doesn't handle -D natively)
-      const defines: Record<string, string> = {};
-      for (const arg of process.argv) {
-        if (arg.startsWith("-D")) {
-          const rest = arg.slice(2);
-          const eqIdx = rest.indexOf("=");
-          if (eqIdx >= 0) {
-            defines[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
-          } else {
-            defines[rest] = "true";
-          }
-        }
-      }
-      await runBuild({
-        buildFile: argv.buildFile as string,
-        targetTriple: argv.t as string | undefined,
-        sysroot: argv.sysroot as string | undefined,
-        verbose: argv.verbose as boolean,
-        dryRun: argv.dryRun as boolean,
-        listSteps: argv.listSteps as boolean,
-        steps: argv.steps as string[] | undefined,
-        cCompiler: argv.cc as string | undefined,
-        defines: Object.keys(defines).length > 0 ? defines : undefined,
-        summary: argv.summary as boolean,
-      });
-    }
-  )
-  .command(
-    "doc [path]",
-    "Generate API documentation",
-    (_yargs) => {
-      _yargs
-        .positional("path", {
-          describe:
-            "File or directory to document (default: current directory)",
-          type: "string",
-          default: ".",
-        })
-        .option("o", {
-          alias: "output",
-          describe: "Output directory",
-          type: "string",
-          default: "yo-out/doc",
-        })
-        .option("title", {
-          describe: "Doc site title (default: inferred from directory/package)",
-          type: "string",
-        })
-        .option("document-private", {
-          describe: "Include non-exported (private) declarations",
-          type: "boolean",
-          default: false,
-        })
-        .option("verbose", {
-          alias: "v",
-          describe: "Verbose output",
-          type: "boolean",
-          default: false,
-        })
-        .option("format", {
-          alias: "f",
-          describe: "Output format",
-          type: "string",
-          choices: ["html", "markdown", "json"],
-          default: "html",
+        await runBuild({
+          buildFile: argv.buildFile as string,
+          targetTriple: argv.t as string | undefined,
+          sysroot: argv.sysroot as string | undefined,
+          verbose: argv.verbose as boolean,
+          dryRun: argv.dryRun as boolean,
+          listSteps: argv.listSteps as boolean,
+          steps: argv.steps as string[] | undefined,
+          cCompiler: argv.cc as string | undefined,
+          defines: Object.keys(defines).length > 0 ? defines : undefined,
+          summary: argv.summary as boolean,
         });
-    },
-    async (argv) => {
-      const { runDoc } = await import("./doc-command");
-      await runDoc({
-        input: argv.path as string,
-        outputDir: argv.o as string,
-        includePrivate: argv.documentPrivate as boolean,
-        verbose: argv.verbose as boolean,
-        title: argv.title as string | undefined,
-        format: argv.format as "html" | "markdown" | "json",
-      });
-    }
-  )
-  .command(
-    "cache <action>",
-    "Manage the global dependency cache",
-    (_yargs) => {
-      _yargs.positional("action", {
-        describe: "Cache action",
-        choices: ["path", "clean"],
-        type: "string",
-      });
-    },
-    (argv) => {
-      const action = argv.action as string;
-      if (action === "path") {
-        console.log(getGlobalCacheDir());
-      } else if (action === "clean") {
-        const cacheDir = getGlobalCacheDir();
-        if (fs.existsSync(cacheDir)) {
-          fs.rmSync(cacheDir, { recursive: true, force: true });
-          console.log(`Removed cache directory: ${cacheDir}`);
-        } else {
-          console.log(`Cache directory does not exist: ${cacheDir}`);
+      }
+    )
+    .command(
+      "doc [path]",
+      "Generate API documentation",
+      (_yargs) => {
+        _yargs
+          .positional("path", {
+            describe:
+              "File or directory to document (default: current directory)",
+            type: "string",
+            default: ".",
+          })
+          .option("o", {
+            alias: "output",
+            describe: "Output directory",
+            type: "string",
+            default: "yo-out/doc",
+          })
+          .option("title", {
+            describe:
+              "Doc site title (default: inferred from directory/package)",
+            type: "string",
+          })
+          .option("document-private", {
+            describe: "Include non-exported (private) declarations",
+            type: "boolean",
+            default: false,
+          })
+          .option("verbose", {
+            alias: "v",
+            describe: "Verbose output",
+            type: "boolean",
+            default: false,
+          })
+          .option("format", {
+            alias: "f",
+            describe: "Output format",
+            type: "string",
+            choices: ["html", "markdown", "json"],
+            default: "html",
+          });
+      },
+      async (argv) => {
+        const { runDoc } = await import("./doc-command");
+        await runDoc({
+          input: argv.path as string,
+          outputDir: argv.o as string,
+          includePrivate: argv.documentPrivate as boolean,
+          verbose: argv.verbose as boolean,
+          title: argv.title as string | undefined,
+          format: argv.format as "html" | "markdown" | "json",
+        });
+      }
+    )
+    .command(
+      "cache <action>",
+      "Manage the global dependency cache",
+      (_yargs) => {
+        _yargs.positional("action", {
+          describe: "Cache action",
+          choices: ["path", "clean"],
+          type: "string",
+        });
+      },
+      (argv) => {
+        const action = argv.action as string;
+        if (action === "path") {
+          console.log(getGlobalCacheDir());
+        } else if (action === "clean") {
+          const cacheDir = getGlobalCacheDir();
+          if (fs.existsSync(cacheDir)) {
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+            console.log(`Removed cache directory: ${cacheDir}`);
+          } else {
+            console.log(`Cache directory does not exist: ${cacheDir}`);
+          }
         }
       }
-    }
-  )
-  .command(
-    "lsp",
-    "Start the Yo Language Server (LSP)",
-    (_yargs) => {
-      _yargs.option("stdio", {
-        describe: "Use stdio transport (default)",
-        type: "boolean",
-        default: true,
-      });
-    },
-    async () => {
-      // The LSP server is a separate entry point; for the CLI command,
-      // we dynamically import and run it.
-      await import("./lsp/server");
-    }
-  )
-  .demandCommand(
-    1,
-    "You need to specify a command (e.g., 'compile', 'build', 'init')"
-  )
-  .strict()
-  .help()
-  .version("version", "Show version number", `yo ${packageJson.version}`).argv;
+    )
+    .command(
+      "lsp",
+      "Start the Yo Language Server (LSP)",
+      (_yargs) => {
+        _yargs.option("stdio", {
+          describe: "Use stdio transport (default)",
+          type: "boolean",
+          default: true,
+        });
+      },
+      async () => {
+        // The LSP server is a separate entry point; for the CLI command,
+        // we dynamically import and run it.
+        await import("./lsp/server");
+      }
+    )
+    .command(
+      "version [action] [value]",
+      "Manage Yo versions",
+      (_yargs) => {
+        _yargs
+          .positional("action", {
+            describe: "Action to perform: pin, install, list, clean",
+            type: "string",
+          })
+          .positional("value", {
+            describe: "Version number (for pin, install, clean)",
+            type: "string",
+          })
+          .option("remote", {
+            describe: "Show available versions from npm (for list action)",
+            type: "boolean",
+            default: false,
+          });
+      },
+      async (argv) => {
+        const action = argv.action as string | undefined;
+        const value = argv.value as string | undefined;
+        const versionCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+
+        if (!action) {
+          // `yo version` — show current version and .yo-version info
+          const currentVersion = getCurrentYoVersion();
+          console.log(`Yo ${currentVersion}`);
+
+          const pinnedVersion = readYoVersion(versionCwd);
+          if (pinnedVersion) {
+            const match = pinnedVersion === currentVersion;
+            console.log(
+              `.yo-version: ${pinnedVersion}${match ? " (matches current)" : ` (current: ${currentVersion})`}`
+            );
+          } else {
+            console.log("No .yo-version file found in project.");
+          }
+          return;
+        }
+
+        switch (action) {
+          case "pin": {
+            const versionToPin = value ?? getCurrentYoVersion();
+            // Validate if a specific version was given
+            if (value) {
+              const remoteVersions = await fetchRemoteVersions();
+              if (!remoteVersions.includes(versionToPin)) {
+                console.error(
+                  `Error: Yo version ${versionToPin} is not available.\n` +
+                    `Available versions: ${remoteVersions.slice(-10).join(", ")}${remoteVersions.length > 10 ? " ..." : ""}\n`
+                );
+                process.exit(1);
+              }
+            }
+            fs.writeFileSync(
+              path.join(versionCwd, ".yo-version"),
+              versionToPin + "\n"
+            );
+            console.log(`Pinned Yo version to ${versionToPin} in .yo-version`);
+            break;
+          }
+          case "install": {
+            if (!value) {
+              console.error(
+                "Error: Specify a version to install.\nUsage: yo version install <version>"
+              );
+              process.exit(1);
+            }
+            if (isVersionCached(value)) {
+              console.log(`Yo v${value} is already cached.`);
+            } else {
+              await ensureCachedVersion(value);
+            }
+            break;
+          }
+          case "list": {
+            if (argv.remote) {
+              const remoteVersions = await fetchRemoteVersions();
+              console.log("Available versions on npm:");
+              for (const v of remoteVersions) {
+                const current = v === getCurrentYoVersion() ? " (current)" : "";
+                const cached = isVersionCached(v) ? " (cached)" : "";
+                console.log(`  ${v}${current}${cached}`);
+              }
+            } else {
+              const cached = listCachedVersions();
+              if (cached.length === 0) {
+                console.log(
+                  "No cached versions. Use `yo version install <version>` to cache a version."
+                );
+              } else {
+                console.log("Cached versions:");
+                for (const v of cached) {
+                  const current =
+                    v === getCurrentYoVersion() ? " (current)" : "";
+                  console.log(`  ${v}${current}`);
+                }
+              }
+            }
+            break;
+          }
+          case "clean": {
+            if (value) {
+              if (!isVersionCached(value)) {
+                console.log(`Yo v${value} is not cached.`);
+              } else {
+                cleanVersionCache(value);
+                console.log(`Removed cached Yo v${value}.`);
+              }
+            } else {
+              const cached = listCachedVersions();
+              if (cached.length === 0) {
+                console.log("No cached versions to remove.");
+              } else {
+                cleanVersionCache();
+                console.log(`Removed ${cached.length} cached version(s).`);
+              }
+            }
+            break;
+          }
+          default:
+            console.error(
+              `Unknown action: ${action}\nAvailable actions: pin, install, list, clean`
+            );
+            process.exit(1);
+        }
+      }
+    )
+    .demandCommand(
+      1,
+      "You need to specify a command (e.g., 'compile', 'build', 'init')"
+    )
+    .strict()
+    .help()
+    .version(false)
+    .option("version", {
+      describe: "Show version number",
+      type: "boolean",
+      global: false,
+    })
+    .middleware((argv) => {
+      if (argv.version === true && !argv._?.length) {
+        console.log(`yo ${packageJson.version}`);
+        process.exit(0);
+      }
+    }, true).argv;
+} // end runCli

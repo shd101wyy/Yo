@@ -17,6 +17,9 @@ import { snapshotAllImplTraitFields } from "../evaluator/values/impl";
 import { resolveDependencyPath } from "../fetch";
 import { ModuleManager } from "../module-manager";
 import type { TraitField, TraitType } from "../types/definitions";
+import { readYoVersion, getCurrentYoVersion } from "../version";
+import { isVersionCached } from "../version-cache";
+import { getVersionCacheDir } from "../cache";
 import { uriToModulePath } from "./utils";
 
 /**
@@ -211,10 +214,25 @@ export class LspDocumentManager {
   }
 
   /**
-   * Walk up from a file path to find a `std/` directory.
+   * Walk up from a file path to find the correct `std/` directory.
+   * If a `.yo-version` file pins a different version, use the cached version's std.
    */
   private findStdPath(fsPath: string): string | null {
-    let currentPath = path.dirname(fsPath);
+    const dirPath = path.dirname(fsPath);
+
+    // Check .yo-version for pinned version
+    const pinnedVersion = readYoVersion(dirPath);
+    if (pinnedVersion && pinnedVersion !== getCurrentYoVersion()) {
+      if (isVersionCached(pinnedVersion)) {
+        const cachedStd = path.join(getVersionCacheDir(pinnedVersion), "std");
+        if (existsSync(cachedStd)) {
+          return cachedStd;
+        }
+      }
+    }
+
+    // Walk up to find std/ directory
+    let currentPath = dirPath;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const candidate = path.join(currentPath, "std");
