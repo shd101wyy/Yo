@@ -817,4 +817,163 @@ export main;
       expect(def!.range.start.line).toBe(declLine);
     });
   });
+
+  describe("struct field go-to-definition", () => {
+    const source = `
+Point :: struct(
+  /// X coordinate
+  x : i32,
+  /// Y coordinate
+  y : i32
+);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.x;
+  return i32(0);
+});
+export main;
+`;
+
+    it("should navigate to struct field definition from property access", () => {
+      const { uri, docManager } = loadSource(source);
+      const ln = lineOf(source, "p.x;");
+      // cursor on 'x' after the dot
+      const line = source.split("\n")[ln]!;
+      const col = line.indexOf(".x") + 1; // on 'x'
+      const def = handleDefinition(uri, ln, col, docManager);
+      expect(def).not.toBeNull();
+      // Should point to the struct field definition
+      const fieldLine = lineOf(source, "x : i32");
+      expect(def!.range.start.line).toBe(fieldLine);
+    });
+  });
+
+  describe("method go-to-definition", () => {
+    const source = `
+Point :: struct(x : i32, y : i32);
+impl(Point,
+  /// Create an origin point
+  origin : (fn() -> Self)(Self(i32(0), i32(0)))
+);
+main :: (fn() -> i32)({
+  p := Point.origin();
+  return i32(0);
+});
+export main;
+`;
+
+    it("should navigate to impl method definition from call", () => {
+      const { uri, docManager } = loadSource(source);
+      const ln = lineOf(source, "Point.origin()");
+      const line = source.split("\n")[ln]!;
+      const col = line.indexOf("origin"); // on 'origin'
+      const def = handleDefinition(uri, ln, col, docManager);
+      expect(def).not.toBeNull();
+      // Should point to the impl method definition
+      const methodLine = lineOf(source, "origin : (fn() -> Self)");
+      expect(def!.range.start.line).toBe(methodLine);
+    });
+  });
+});
+
+// ─── Additional Completion Tests ──────────────────────────────────────────
+
+describe("LSP Completion - Union types", () => {
+  it("should suggest union fields after dot", () => {
+    const source = `
+FloatOrInt :: union(f : f32, i : i32);
+main :: (fn() -> i32)({
+  (v : FloatOrInt) = FloatOrInt(f32(1.0));
+  v.f;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "v.f");
+    const labels = getCompletionLabels(source, ln, 4);
+    expect(labels).toContain("f");
+    expect(labels).toContain("i");
+  });
+});
+
+describe("LSP Completion - Newtype", () => {
+  it("should suggest newtype field after dot", () => {
+    const source = `
+MyInt :: newtype(value : i32);
+main :: (fn() -> i32)({
+  (mi : MyInt) = MyInt(i32(42));
+  mi.value;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "mi.value");
+    const labels = getCompletionLabels(source, ln, 5);
+    expect(labels).toContain("value");
+  });
+});
+
+describe("LSP Hover - property access", () => {
+  it("should show type info for struct field in property access", () => {
+    const source = `
+Point :: struct(
+  /// X coordinate
+  x : i32,
+  /// Y coordinate
+  y : i32
+);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.x;
+  return i32(0);
+});
+export main;
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, "p.x;");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf(".x") + 1; // on 'x'
+    const hover = handleHover(uri, ln, col, docManager);
+    expect(hover).not.toBeNull();
+    // Should contain type info (i32) and doc comment
+    const contents = hover!.contents;
+    const hoverText =
+      typeof contents === "string"
+        ? contents
+        : "value" in contents
+          ? contents.value
+          : "";
+    expect(hoverText).toContain("i32");
+  });
+
+  it("should show doc comment for struct field in property access", () => {
+    const source = `
+Point :: struct(
+  /// X coordinate
+  x : i32,
+  /// Y coordinate
+  y : i32
+);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.y;
+  return i32(0);
+});
+export main;
+`;
+    const { uri, docManager } = loadSource(source);
+    const ln = lineOf(source, "p.y;");
+    const line = source.split("\n")[ln]!;
+    const col = line.indexOf(".y") + 1; // on 'y'
+    const hover = handleHover(uri, ln, col, docManager);
+    expect(hover).not.toBeNull();
+    const contents = hover!.contents;
+    const hoverText =
+      typeof contents === "string"
+        ? contents
+        : "value" in contents
+          ? contents.value
+          : "";
+    expect(hoverText).toContain("Y coordinate");
+  });
 });

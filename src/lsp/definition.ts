@@ -6,9 +6,24 @@ import {
   type FnCallExpr,
   exprIsAtom,
   exprIsFunctionCall,
+  exprIsFunctionCallOf,
 } from "../expr";
 import { TokenType, type Token } from "../token";
-import { isModuleValue, type ModuleValue } from "../value";
+import type { StructType } from "../types/definitions";
+import {
+  isModuleType,
+  isPtrType,
+  isStructType,
+  isTypeHierarchyType,
+  isUnionType,
+} from "../types/guards";
+import {
+  isModuleValue,
+  isTypeValue,
+  isTraitValue,
+  isFunctionValue,
+  type ModuleValue,
+} from "../value";
 import type { LspDocumentManager } from "./document-manager";
 import {
   findTokenAtPosition,
@@ -64,6 +79,19 @@ export function handleDefinition(
   }
 
   const tokenText = tokenAtPosition.value;
+
+  // Try field definition first — if the token is the field name in a property
+  // access (e.g., `x` in `p.x` or `origin` in `Point.origin()`), resolve via
+  // the receiver type's fields/traits/impls. This takes priority over variable
+  // lookup because the env may contain a variable with the same name that
+  // points to a less precise location (e.g., the struct definition).
+  const fieldDefLocation = findFieldDefinitionLocation(
+    exprs,
+    foundExpr,
+    tokenAtPosition
+  );
+  if (fieldDefLocation) return fieldDefLocation;
+
   const foundDefinition = findVariableDefinition(env, tokenText);
 
   if (!foundDefinition) {
@@ -206,4 +234,286 @@ function findVariableDefinition(
   } catch {
     return null;
   }
+}
+
+/**
+ * Find the definition of a field or method accessed via `.` (property access).
+ * Walks the AST to find a parent `.` call where the target expression is the
+ * field name (second arg), resolves the receiver type, then locates the field
+ * definition token in the struct/union/enum/trait/impl definition.
+ */
+function findFieldDefinitionLocation(
+  exprs: Expr[],
+  targetExpr: Expr,
+  targetToken: Token
+): Location | null {
+  const fieldName = targetToken.value;
+
+  // Find the parent "." call
+  const dotCall = findParentDotCallForExpr(exprs, targetExpr);
+  if (!dotCall) return null;
+
+  const receiver = dotCall.args[0];
+  if (!receiver) return null;
+
+  let receiverType = receiver.$?.type;
+  if (!receiverType) return null;
+
+  // Unwrap TypeValue for type-level access (e.g., `Point.origin`)
+  if (
+    isTypeHierarchyType(receiverType) &&
+    receiver.$?.value &&
+    isTypeValue(receiver.$.value)
+  ) {
+    receiverType = receiver.$.value.value;
+  }
+
+  // Auto-dereference pointers
+  while (isPtrType(receiverType)) {
+    receiverType = receiverType.childType;
+  }
+
+  // Check struct/union fields for definition token
+  if (isStructType(receiverType) || isUnionType(receiverType)) {
+    const structType = receiverType as StructType;
+    for (const field of structType.fields) {
+      if (field.label === fieldName && field.exprs?.expr?.token) {
+        const token = field.exprs.expr.token;
+        return {
+          uri: modulePathToUri(token.modulePath),
+          range: {
+            start: {
+              line: token.position.row,
+              character: token.position.column,
+            },
+            end: {
+              line: token.position.row,
+              character: token.position.column + token.value.length,
+            },
+          },
+        };
+      }
+    }
+  }
+
+  // Check trait fields (methods from impl blocks)
+  if (receiverType.trait) {
+    for (const tf of receiverType.trait.fields) {
+      if (tf.label === fieldName) {
+        // First check if the trait field's expr token directly names the field
+        // (this works for direct trait definitions like `trait(method : fn(...))`)
+        if (tf.exprs?.expr?.token && tf.exprs.expr.token.value === fieldName) {
+          const token = tf.exprs.expr.token;
+          return {
+            uri: modulePathToUri(token.modulePath),
+            range: {
+              start: {
+                line: token.position.row,
+                character: token.position.column,
+              },
+              end: {
+                line: token.position.row,
+                character: token.position.column + token.value.length,
+              },
+            },
+          };
+        }
+
+        // For impl-injected fields, the expr token points to the `impl` call
+        // instead of the field name. Search the AST for impl() calls that
+        // contain a labeled arg `fieldName : ...` and return that label token.
+        const implLabelToken = findImplFieldLabelToken(
+          exprs,
+          fieldName,
+          receiverType.typeName
+        );
+        if (implLabelToken) {
+          return {
+            uri: modulePathToUri(implLabelToken.modulePath),
+            range: {
+              start: {
+                line: implLabelToken.position.row,
+                character: implLabelToken.position.column,
+              },
+              end: {
+                line: implLabelToken.position.row,
+                character:
+                  implLabelToken.position.column + implLabelToken.value.length,
+              },
+            },
+          };
+        }
+      }
+
+      // Check named trait impl entries (stored with label="" and TraitValue)
+      if (
+        tf.label === "" &&
+        tf.assignedValue &&
+        isTraitValue(tf.assignedValue)
+      ) {
+        const traitVal = tf.assignedValue;
+        const traitType = traitVal.type;
+        for (let i = 0; i < traitType.fields.length; i++) {
+          const sf = traitType.fields[i]!;
+          if (sf.label === fieldName) {
+            // Try to get definition from the trait field's expression token
+            if (sf.exprs?.expr?.token) {
+              const token = sf.exprs.expr.token;
+              return {
+                uri: modulePathToUri(token.modulePath),
+                range: {
+                  start: {
+                    line: token.position.row,
+                    character: token.position.column,
+                  },
+                  end: {
+                    line: token.position.row,
+                    character: token.position.column + token.value.length,
+                  },
+                },
+              };
+            }
+            // Fallback: try the function value's definition token
+            const value = traitVal.fields[i];
+            if (isFunctionValue(value) && value.body?.token) {
+              const token = value.body.token;
+              return {
+                uri: modulePathToUri(token.modulePath),
+                range: {
+                  start: {
+                    line: token.position.row,
+                    character: token.position.column,
+                  },
+                  end: {
+                    line: token.position.row,
+                    character: token.position.column + token.value.length,
+                  },
+                },
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Check module fields
+  if (isModuleType(receiverType)) {
+    for (const field of receiverType.fields) {
+      if (field.label === fieldName && field.exprs?.expr?.token) {
+        const token = field.exprs.expr.token;
+        return {
+          uri: modulePathToUri(token.modulePath),
+          range: {
+            start: {
+              line: token.position.row,
+              character: token.position.column,
+            },
+            end: {
+              line: token.position.row,
+              character: token.position.column + token.value.length,
+            },
+          },
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Walk the AST to find a "." function call where the target expression
+ * is the second argument (the field name).
+ */
+function findParentDotCallForExpr(
+  exprs: Expr[],
+  targetExpr: Expr
+): FnCallExpr | null {
+  let result: FnCallExpr | null = null;
+
+  const search = (expr: Expr) => {
+    if (result) return;
+    if (!exprIsFunctionCall(expr)) return;
+    const fnExpr = expr as FnCallExpr;
+
+    if (
+      exprIsFunctionCallOf(fnExpr, ".") &&
+      fnExpr.args.length === 2 &&
+      fnExpr.args[1] === targetExpr
+    ) {
+      result = fnExpr;
+      return;
+    }
+
+    search(fnExpr.func);
+    for (const arg of fnExpr.args) {
+      search(arg);
+    }
+  };
+
+  for (const topExpr of exprs) {
+    search(topExpr);
+  }
+  return result;
+}
+
+/**
+ * Search the AST for impl() calls to find the label token for a named field.
+ * impl(Type, fieldName : value) → the `fieldName` atom token.
+ * The label is the first arg of a `:` call inside the impl's arg list.
+ */
+function findImplFieldLabelToken(
+  exprs: Expr[],
+  fieldName: string,
+  typeName: string | undefined
+): Token | null {
+  let result: Token | null = null;
+
+  const search = (expr: Expr) => {
+    if (result) return;
+    if (!exprIsFunctionCall(expr)) return;
+    const fnExpr = expr as FnCallExpr;
+
+    if (exprIsFunctionCallOf(fnExpr, "impl") && fnExpr.args.length >= 2) {
+      // Verify the first arg is the target type
+      const typeArg = fnExpr.args[0];
+      if (
+        typeArg &&
+        exprIsAtom(typeArg) &&
+        typeName &&
+        typeArg.token.value === typeName
+      ) {
+        // Search remaining args for `fieldName : ...` (parsed as `:` call)
+        for (let i = 1; i < fnExpr.args.length; i++) {
+          const arg = fnExpr.args[i]!;
+          if (
+            exprIsFunctionCall(arg) &&
+            exprIsFunctionCallOf(arg as FnCallExpr, ":")
+          ) {
+            const labelCall = arg as FnCallExpr;
+            if (
+              labelCall.args.length >= 1 &&
+              exprIsAtom(labelCall.args[0]!) &&
+              labelCall.args[0]!.token.value === fieldName
+            ) {
+              result = labelCall.args[0]!.token;
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // Recurse into sub-expressions
+    search(fnExpr.func);
+    for (const arg of fnExpr.args) {
+      search(arg);
+    }
+  };
+
+  for (const topExpr of exprs) {
+    search(topExpr);
+  }
+  return result;
 }

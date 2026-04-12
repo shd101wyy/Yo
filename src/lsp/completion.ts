@@ -21,6 +21,7 @@ import { TokenType, type Token } from "../token";
 import type { FunctionType, Type } from "../types/definitions";
 import {
   isArrayType,
+  isBoxedType,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -487,10 +488,15 @@ function handleDotCompletion(
 
     const originalReceiverType = variableType;
 
-    // Auto-dereference pointer types for field access
+    // Auto-dereference pointer and Box(T) types for field access
     let fieldAccessType = variableType;
-    while (isPtrType(fieldAccessType)) {
-      fieldAccessType = fieldAccessType.childType;
+    while (isPtrType(fieldAccessType) || isBoxedType(fieldAccessType)) {
+      if (isPtrType(fieldAccessType)) {
+        fieldAccessType = fieldAccessType.childType;
+      } else if (isBoxedType(fieldAccessType)) {
+        // Box(T) has a single field "*" of type T
+        fieldAccessType = fieldAccessType.fields[0]!.type;
+      }
     }
 
     // Collect methods/fields
@@ -624,10 +630,14 @@ function handleTextBasedDotCompletion(
 
     if (!resolvedType) return items;
 
-    // Auto-dereference pointer types
+    // Auto-dereference pointer and Box(T) types
     let fieldAccessType = resolvedType;
-    while (isPtrType(fieldAccessType)) {
-      fieldAccessType = fieldAccessType.childType;
+    while (isPtrType(fieldAccessType) || isBoxedType(fieldAccessType)) {
+      if (isPtrType(fieldAccessType)) {
+        fieldAccessType = fieldAccessType.childType;
+      } else if (isBoxedType(fieldAccessType)) {
+        fieldAccessType = fieldAccessType.fields[0]!.type;
+      }
     }
 
     // Collect members
