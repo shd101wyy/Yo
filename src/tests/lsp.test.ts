@@ -400,8 +400,7 @@ export main;
         () => {}
       );
 
-      // Now hover on "Point" in the broken buffer
-      // The current module has errors but the last good module should be used
+      // Hover on "Point" in the broken buffer — should still work via fallback
       const ln = 1; // "Point :: struct(...)" is line 1 (0-indexed, line 0 is blank)
       const hover = handleHover(modulePath, ln, 0, docManager);
       expect(hover).not.toBeNull();
@@ -412,6 +411,52 @@ export main;
             ? hover!.contents.value
             : "";
       expect(content).toContain("Point");
+    });
+
+    it("should show hover for known identifiers in dirty buffer", () => {
+      const stdPath = path.resolve(__dirname, "../../std");
+      const docManager = new LspDocumentManager(stdPath);
+      activeDocManagers.push(docManager);
+
+      const modulePath = `file://${path.resolve(__dirname, "hover_option.yo")}`;
+      const goodSource = `
+main :: (fn() -> i32)({
+  return i32(0);
+});
+export main;
+`;
+      // Load the good version first
+      docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+      // Simulate user typing "Option" without semicolon (breaks evaluation)
+      const brokenSource = `
+main :: (fn() -> i32)({
+  Option
+  return i32(0);
+});
+export main;
+`;
+      const fakeDocument = {
+        uri: modulePath,
+        getText: () => brokenSource,
+      };
+      docManager.analyzeDocument(
+        fakeDocument as import("vscode-languageserver-textdocument").TextDocument,
+        () => {}
+      );
+
+      // Hover over "Option" — should find it via env lookup in fallback module
+      const optionLn = lineOf(brokenSource, "Option");
+      const hover = handleHover(modulePath, optionLn, 2, docManager);
+      expect(hover).not.toBeNull();
+      const content =
+        typeof hover!.contents === "string"
+          ? hover!.contents
+          : "value" in hover!.contents
+            ? hover!.contents.value
+            : "";
+      // Option is a known type constructor from prelude
+      expect(content).toContain("Option");
     });
   });
 });

@@ -34,38 +34,63 @@ export function handleHover(
   character: number,
   docManager: LspDocumentManager
 ): Hover | null {
-  let module = docManager.getModule(uri);
-  // Fall back to last good module when current module has errors
-  // (e.g., user is typing and buffer has incomplete expressions)
-  if (!module || module.moduleError) {
-    const fallback = docManager.getLastGoodModule(uri);
-    if (fallback) {
-      module = fallback;
-    } else if (!module) {
-      return null;
-    }
-  }
+  const currentModule = docManager.getModule(uri);
+  const fallbackModule = docManager.getLastGoodModule(uri);
 
-  const exprs = module.evaluator.getProgram();
-  const tokens = module.evaluator.getTokens();
+  // Use current module if available, otherwise fall back to last good module
+  const primaryModule = currentModule ?? fallbackModule;
+  if (!primaryModule) return null;
+
+  // Always use the current module's tokens for position lookup when available,
+  // since they match the actual buffer content the user sees.
+  const tokensModule = currentModule ?? fallbackModule;
+  if (!tokensModule) return null;
+  const tokens = tokensModule.evaluator.getTokens();
 
   const tokenAtPosition = findTokenAtPosition(tokens, line, character);
-
   if (!tokenAtPosition) {
     return null;
   }
 
-  // Find an expression with matching token
-  let foundExpr = findBestExpressionMatch(exprs, tokenAtPosition, line);
+  // Try to find expression match in the current module first, then fallback
+  const modulesToSearch = [currentModule, fallbackModule].filter(
+    (m): m is NonNullable<typeof m> => m != null
+  );
 
-  // If no exact expression match, try to find variable in scope using fallback
-  if (!foundExpr && tokenAtPosition.type === TokenType.Identifier) {
-    foundExpr = findVariableByFallback(exprs, tokenAtPosition);
+  let foundExpr: Expr | null = null;
+  for (const mod of modulesToSearch) {
+    const modExprs = mod.evaluator.getProgram();
+    foundExpr = findBestExpressionMatch(modExprs, tokenAtPosition, line);
+    if (foundExpr && exprIsAtom(foundExpr)) break;
+
+    // Try variable fallback in this module's AST
+    if (tokenAtPosition.type === TokenType.Identifier) {
+      foundExpr = findVariableByFallback(modExprs, tokenAtPosition);
+      if (foundExpr && exprIsAtom(foundExpr)) break;
+    }
+    foundExpr = null;
+  }
+
+  // If still not found via expression search, try environment lookup from
+  // the fallback module as a last resort for known identifiers like `Option`
+  if (
+    !foundExpr &&
+    tokenAtPosition.type === TokenType.Identifier &&
+    fallbackModule
+  ) {
+    const fallbackExprs = fallbackModule.evaluator.getProgram();
+    foundExpr = findVariableByNameInAnyEnv(
+      fallbackExprs,
+      tokenAtPosition.value
+    );
   }
 
   if (!foundExpr || !exprIsAtom(foundExpr)) {
     return null;
   }
+
+  // Get the best available AST for field/doc-comment lookups
+  const exprs = primaryModule.evaluator.getProgram();
 
   const expr: AtomExpr = foundExpr;
   let tokenText = exprToString(expr);
@@ -232,6 +257,68 @@ function findVariableByFallback(
         pathCollection: [],
       },
     } as AtomExpr;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up a variable by name in any available environment from the AST.
+ * Used when the current (errored) module's tokens show a known identifier
+ * but the expression wasn't fully evaluated. Searches the deepest env
+ * available in the fallback module.
+ */
+function findVariableByNameInAnyEnv(
+  exprs: Expr[],
+  name: string
+): AtomExpr | null {
+  let bestEnv: Environment | null = null;
+  let bestDepth = -1;
+
+  const findDeepestEnv = (expr: Expr) => {
+    if (exprIsAtom(expr)) {
+      if (expr.$?.env && expr.$.env.frames.length > bestDepth) {
+        bestEnv = expr.$.env;
+        bestDepth = expr.$.env.frames.length;
+      }
+    } else if (exprIsFunctionCall(expr)) {
+      const funcCallExpr = expr as FnCallExpr;
+      findDeepestEnv(funcCallExpr.func);
+      for (const arg of funcCallExpr.args) {
+        findDeepestEnv(arg);
+      }
+    }
+  };
+
+  for (const expr of exprs) {
+    findDeepestEnv(expr);
+  }
+
+  if (!bestEnv) return null;
+
+  try {
+    const variables = getVariablesFromEnv(bestEnv, name);
+    if (!variables || variables.length === 0) return null;
+
+    const selectedVariable = variables[variables.length - 1];
+    if (!selectedVariable?.type) return null;
+
+    return {
+      tag: ExprTag.Atom,
+      token: {
+        value: name,
+        type: TokenType.Identifier,
+        position: { row: 0, column: 0 },
+        modulePath: "",
+      },
+      $: {
+        type: selectedVariable.type,
+        value: selectedVariable.value?.[0],
+        env: bestEnv,
+        pathCollection: [],
+        docComment: selectedVariable.docComment,
+      },
+    } as unknown as AtomExpr;
   } catch {
     return null;
   }

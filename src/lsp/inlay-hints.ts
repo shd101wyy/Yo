@@ -18,6 +18,10 @@ import { uriToModulePath } from "./utils";
 /**
  * Handle textDocument/inlayHint requests.
  * Shows inferred types for `:=` declarations and function parameters.
+ *
+ * NOTE: Currently disabled in server.ts — the inlay hints (e.g., `p1: Point`)
+ * were confusing in Yo's syntax. This file is kept for potential future use
+ * with different hint styles.
  */
 export function handleInlayHint(
   uri: string,
