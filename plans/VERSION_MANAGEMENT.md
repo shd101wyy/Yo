@@ -143,10 +143,9 @@ yo version clean              # Remove all cached versions
 
 ### Integration with `yo init`
 
-When `yo init` scaffolds a new project, it also creates a `.yo-version` file
-containing the current Yo version. This pins the project from day one.
-
-The `.gitignore` template does NOT ignore `.yo-version` — it should be committed.
+`yo init` does not auto-create `.yo-version`. Users opt in via `yo version pin`
+after project creation. The `.gitignore` template does NOT ignore `.yo-version` —
+it should be committed when present.
 
 ## Implementation Plan
 

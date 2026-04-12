@@ -56,14 +56,17 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `src/fetch.ts`                       | Git dependency fetching, lock file pruning                            |
 | `src/fetch-command.ts`               | `yo fetch` CLI command                                                |
 | `src/lock-file.ts`                   | `yo.lock` parse/write                                                 |
-| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`)                         |
+| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers |
 | `src/init.ts`                        | `yo init` — project scaffolding                                       |
+| `src/version.ts`                     | `.yo-version` discovery, parsing, validation                          |
+| `src/version-cache.ts`               | Version download from npm, cache management, runtime detection        |
 | `src/doc-command.ts`                 | `yo doc` CLI — documentation generation                               |
 | `src/doc/`                           | Doc pipeline: extractor, builder, model, renderers                    |
 | `src/pkg-config.ts`                  | pkg-config integration for system libraries                           |
 | `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                 |
 | `plans/BUILD_SYSTEM.md`              | Build system design document                                          |
 | `plans/DEPENDENCY_MANAGEMENT.md`     | Dependency management design                                          |
+| `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                        |
 | `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)    |
 | `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                             |
 
@@ -144,6 +147,15 @@ Always save verbose output to a file to avoid terminal truncation:
 ./yo-cli install ./path     # Install local path dependency
 ./yo-cli cache path         # Print global cache directory
 ./yo-cli cache clean        # Remove all cached dependencies
+
+# Version management
+./yo-cli version            # Show current + pinned version
+./yo-cli version pin        # Pin project to current Yo version
+./yo-cli version pin 0.1.12 # Pin to specific version
+./yo-cli version install 0.1.13  # Pre-download a version
+./yo-cli version list       # List cached versions
+./yo-cli version list --remote   # List all available npm versions
+./yo-cli version clean      # Remove all cached versions
 ```
 
 ---

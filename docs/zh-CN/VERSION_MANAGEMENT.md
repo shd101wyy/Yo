@@ -127,18 +127,12 @@ yo version clean           # 删除所有缓存版本
 
 ## `yo init` 集成
 
-使用 `yo init` 创建新项目时，会自动生成固定到当前 Yo 版本的 `.yo-version` 文件：
+使用 `yo init` 创建的新项目默认**不**包含 `.yo-version` 文件。初始化后如需固定版本：
 
 ```bash
-$ yo init my-project
-Created:
-  my-project/
-  my-project/build.yo
-  my-project/.gitignore
-  my-project/.yo-version    ← 自动创建
-  my-project/README.md
-  my-project/src/
-  my-project/src/main.yo
+yo init my-project
+cd my-project
+yo version pin
 ```
 
 ## LSP 集成

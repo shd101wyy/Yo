@@ -127,18 +127,12 @@ yo version clean           # remove ALL cached versions
 
 ## `yo init` Integration
 
-When you create a new project with `yo init`, a `.yo-version` file is automatically generated pinned to the current Yo version:
+New projects created with `yo init` do **not** include a `.yo-version` file by default. To pin a version after initialization:
 
 ```bash
-$ yo init my-project
-Created:
-  my-project/
-  my-project/build.yo
-  my-project/.gitignore
-  my-project/.yo-version    ← automatically created
-  my-project/README.md
-  my-project/src/
-  my-project/src/main.yo
+yo init my-project
+cd my-project
+yo version pin
 ```
 
 ## LSP Integration

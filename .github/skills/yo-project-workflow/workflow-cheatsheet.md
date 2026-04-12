@@ -7,6 +7,9 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Goal                      | Command                                                   |
 | ------------------------- | --------------------------------------------------------- |
 | Scaffold a project        | `yo init my-project`                                      |
+| Pin Yo version            | `yo version pin`                                          |
+| Pin specific version      | `yo version pin 0.1.12`                                   |
+| Show current/pinned ver   | `yo version`                                              |
 | Build default step        | `yo build`                                                |
 | Build and run             | `yo build run`                                            |
 | Run project test step     | `yo build test`                                           |
@@ -209,6 +212,24 @@ add :: (fn(a: i32, b: i32) -> i32)((a + b));
 ````
 
 Use `///` for item documentation and `//!` at the top of a file for module-level docs.
+
+## Version management
+
+```bash
+yo version                      # Show current version and pinned version
+yo version pin                  # Pin project to current Yo version
+yo version pin 0.1.12           # Pin to specific version
+yo version install 0.1.13       # Pre-download a version
+yo version list                 # List locally cached versions
+yo version list --remote        # List all available versions on npm
+yo version clean                # Remove all cached versions
+yo version clean 0.1.12         # Remove specific cached version
+```
+
+- `.yo-version` file pins a project to a specific Yo version (similar to `.nvmrc`)
+- When `.yo-version` exists with a different version, `yo` auto-dispatches to the cached version
+- The LSP also reads `.yo-version` to resolve the correct `std/` library for go-to-definition
+- Commit `.yo-version` to version control for reproducible builds across the team
 
 ## Dependency management
 
