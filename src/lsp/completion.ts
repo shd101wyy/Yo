@@ -144,6 +144,15 @@ export function handleCompletion(
   // even when the module has errors by using the last good module
   if (module.moduleError) {
     const prefix = extractPrefix(lineText, character);
+    // Try the current errored module first — it may have partial env info
+    const currentItems = handleIdentifierCompletion(
+      module,
+      line,
+      character,
+      prefix
+    );
+    if (currentItems.length > 0) return currentItems;
+    // Fall back to last good module
     const lastGood = docManager.getLastGoodModule(uri);
     if (lastGood) {
       const items = handleIdentifierCompletion(
@@ -180,6 +189,7 @@ function getKeywordCompletions(prefix: string): CompletionItem[] {
   const items: CompletionItem[] = [];
   const lowerPrefix = prefix.toLowerCase();
   for (const keyword of getBasicKeywords()) {
+    if (keyword.startsWith("___") || keyword.startsWith("__yo_")) continue;
     if (keyword.toLowerCase().includes(lowerPrefix)) {
       items.push({
         label: keyword,
@@ -288,8 +298,25 @@ function handleIdentifierCompletion(
     const program = module.evaluator.getProgram();
     const candidateVariables = new Map<string, AtomExpr[]>();
 
+    // Track the deepest env at or before the cursor for env-based completion
+    let deepestEnvNearCursor: Environment | null = null;
+    let deepestEnvDepth = -1;
+
     const extractVariables = (expr: Expr) => {
       if (exprIsAtom(expr)) {
+        // Track deepest env at or before cursor position
+        if (expr.$?.env && expr.$.env.frames.length > deepestEnvDepth) {
+          const tokenLine = expr.token.position.row;
+          const tokenColumn = expr.token.position.column;
+          const isAtOrBeforeCursor =
+            tokenLine < line ||
+            (tokenLine === line && tokenColumn <= character);
+          if (isAtOrBeforeCursor) {
+            deepestEnvNearCursor = expr.$.env;
+            deepestEnvDepth = expr.$.env.frames.length;
+          }
+        }
+
         if (expr.token.type === TokenType.Identifier) {
           const tokenLine = expr.token.position.row;
           const tokenColumn = expr.token.position.column;
@@ -318,7 +345,21 @@ function handleIdentifierCompletion(
       extractVariables(expr);
     }
 
+    // Add variables from environment that aren't already in AST candidates.
+    // This brings in prelude types (Option, Result, String, etc.) and imports
+    // that may not have been used yet in the source code.
+    if (deepestEnvNearCursor) {
+      addEnvVariablesToCandidates(
+        deepestEnvNearCursor,
+        lowerPrefix,
+        candidateVariables
+      );
+    }
+
     for (const [varName, candidates] of candidateVariables) {
+      // Skip internal compiler-generated names
+      if (varName.startsWith("___") || varName.startsWith("__yo_")) continue;
+
       // Select best candidate: prefer with eval info, closest to cursor
       candidates.sort((a, b) => {
         const aBeforeCursor = a.token.position.row < line;
@@ -392,6 +433,52 @@ function handleIdentifierCompletion(
   }
 
   return items;
+}
+
+/**
+ * Add variables from the environment to the candidate map.
+ * This supplements AST-based scanning by including variables that are
+ * available in scope but not yet referenced in the source (e.g., prelude
+ * types like Option, Result, String, imports, etc.).
+ */
+function addEnvVariablesToCandidates(
+  env: Environment,
+  lowerPrefix: string,
+  candidateVariables: Map<string, AtomExpr[]>
+): void {
+  const seenNames = new Set(candidateVariables.keys());
+
+  for (const frame of env.frames) {
+    for (const variable of frame.variables) {
+      const name = variable.name;
+      // Skip already-found variables, internal names, and temp variables
+      if (seenNames.has(name)) continue;
+      if (name.startsWith("___") || name.startsWith("__yo_")) continue;
+      if (name.startsWith("_") && name.length > 1 && name[1] !== "_") continue;
+
+      if (!name.toLowerCase().includes(lowerPrefix)) continue;
+
+      seenNames.add(name);
+
+      // Create a synthetic AtomExpr-like entry so it integrates with
+      // the existing candidate ranking and display logic.
+      const syntheticExpr = {
+        token: {
+          type: TokenType.Identifier,
+          value: name,
+          position: { row: 0, column: 0, character: 0 },
+        },
+        $: {
+          type: variable.type,
+          value: variable.value?.[0],
+          env,
+          docComment: variable.docComment,
+        },
+      } as AtomExpr;
+
+      candidateVariables.set(name, [syntheticExpr]);
+    }
+  }
 }
 
 /**

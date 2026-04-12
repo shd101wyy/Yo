@@ -1152,3 +1152,117 @@ export main;
     expect(hoverText).toContain("get");
   });
 });
+
+// ─── Environment-based identifier completion ──────────────────────────────
+
+describe("LSP Completion - Environment-based identifiers", () => {
+  it("should suggest Option when typing Optio", () => {
+    const source = `
+main :: (fn() -> i32)({
+  Optio
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "Optio");
+    const lineText = source.split("\n")[ln] ?? "";
+    const col = lineText.indexOf("Optio") + 5;
+    const labels = getCompletionLabels(source, ln, col);
+    expect(labels).toContain("Option");
+  });
+
+  it("should suggest Result when typing Res", () => {
+    const source = `
+main :: (fn() -> i32)({
+  Res
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "  Res");
+    const lineText = source.split("\n")[ln] ?? "";
+    const col = lineText.indexOf("Res") + 3;
+    const labels = getCompletionLabels(source, ln, col);
+    expect(labels).toContain("Result");
+  });
+
+  it("should suggest imported types when typing prefix", () => {
+    const source = `
+open import "std/string";
+main :: (fn() -> i32)({
+  Stri
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "Stri");
+    const lineText = source.split("\n")[ln] ?? "";
+    const col = lineText.indexOf("Stri") + 4;
+    const labels = getCompletionLabels(source, ln, col);
+    expect(labels).toContain("String");
+  });
+
+  it("should not include __yo_ internal names", () => {
+    const source = `
+main :: (fn() -> i32)({
+  Optio
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "Optio");
+    const lineText = source.split("\n")[ln] ?? "";
+    const col = lineText.indexOf("Optio") + 5;
+    const labels = getCompletionLabels(source, ln, col);
+    const internalNames = labels.filter(
+      (l) => l.startsWith("__yo_") || l.startsWith("___")
+    );
+    expect(internalNames.length).toBe(0);
+  });
+});
+
+// ─── Generic type dot-completion ──────────────────────────────────────────
+
+describe("LSP Completion - Generic type methods", () => {
+  it("should suggest Option methods after dot", () => {
+    const source = `
+main :: (fn() -> i32)({
+  (o : Option(i32)) = .Some(i32(42));
+  o.is_some;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "o.is_some");
+    const labels = getCompletionLabels(source, ln, 4);
+    expect(labels).toContain("unwrap");
+    expect(labels).toContain("is_some");
+    expect(labels).toContain("is_none");
+    expect(labels).toContain("map");
+    expect(labels).toContain("and_then");
+    expect(labels).toContain("unwrap_or");
+    // Enum variants should also be present
+    expect(labels).toContain("Some");
+    expect(labels).toContain("None");
+  });
+
+  it("should suggest Result methods after dot", () => {
+    const source = `
+main :: (fn() -> i32)({
+  (r : Result(i32, bool)) = .Ok(i32(42));
+  r.is_ok;
+  return i32(0);
+});
+export main;
+`;
+    const ln = lineOf(source, "r.is_ok");
+    const labels = getCompletionLabels(source, ln, 4);
+    expect(labels).toContain("is_ok");
+    expect(labels).toContain("is_err");
+    expect(labels).toContain("map");
+    expect(labels).toContain("map_err");
+    expect(labels).toContain("and_then");
+    expect(labels).toContain("ok");
+    expect(labels).toContain("err");
+  });
+});
