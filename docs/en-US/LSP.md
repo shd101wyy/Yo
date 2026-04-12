@@ -33,12 +33,13 @@ Hover over any identifier to see its type, value (if compile-time known), and do
 Type a `.` after an expression to see available members:
 
 - **Struct fields**: All fields with types and doc comments
-- **Enum variants**: Variant names with field types (e.g., `Some(T)`, `None`)
+- **Enum variants**: Variant names with field types (e.g., `Some(T)`, `None`), auto-inserted as snippets with parameter placeholders
 - **Module members**: Exported functions and types with doc comments
-- **Impl methods**: Methods from `impl` blocks (direct and generic)
+- **Impl methods**: Methods from `impl` blocks with parameter snippet placeholders (e.g., `add(${1:other})`)
 - **Array/Slice**: `.len` property
 - **Type-level**: `Point.` shows static methods and constructors
 - **Pointer auto-deref**: `ptr.field` automatically dereferences
+- **Nested structs**: `outer.inner.` shows fields of the inner struct
 
 #### Enum variant dot-prefix (`.Variant`)
 
@@ -160,16 +161,19 @@ bun test src/tests/lsp.test.ts --timeout 60000
 The test suite covers:
 
 - Struct field completion
-- Enum variant completion (value and type level)
+- Enum variant completion (value and type level, with snippet insertions)
 - Module member completion (with doc comments)
 - Array `.len` completion
-- Impl method completion
+- Impl method completion (with parameter snippet placeholders)
 - Type-level completion (static methods)
 - Self-completion inside methods
 - Prelude type completion (e.g., `Option` methods)
+- Result type completion (methods and enum variants)
+- Nested struct field completion
 - Dirty buffer dot-completion (type constructors, simple variables)
 - Keyword completion
 - Variable, type, and function hover
 - Impl field label hover
 - Hover fallback on dirty buffers
 - Go-to-definition for variables and import paths
+- Import path completion (std library and subdirectories)
