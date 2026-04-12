@@ -225,6 +225,40 @@ export main;
       expect(labels).toContain("x");
       expect(labels).toContain("y");
     });
+
+    it("should provide method snippets with parameter placeholders", () => {
+      const methodSource = `
+Point :: struct(x : i32, y : i32);
+
+impl(Point,
+  get_x : (fn(self : Self) -> i32)(self.x),
+  add : (fn(self : Self, other : Point) -> Point)(
+    Point((self.x + other.x), (self.y + other.y))
+  )
+);
+
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.METHOD
+  return i32(0);
+});
+export main;
+`;
+      const ln = lineOf(methodSource, "p.METHOD");
+      const items = getCompletionItems(methodSource, ln, 4);
+      // get_x has only self param → snippet should be get_x()
+      const getXItem = items.find((i) => i.label === "get_x");
+      expect(getXItem).toBeDefined();
+      expect(getXItem!.insertText).toBe("get_x()");
+      expect(getXItem!.insertTextFormat).toBe(2); // Snippet
+
+      // add has self + other params → snippet should be add(${1:other})
+      const addItem = items.find((i) => i.label === "add");
+      expect(addItem).toBeDefined();
+      expect(addItem!.insertText).toContain("add(");
+      expect(addItem!.insertText).toContain("other");
+      expect(addItem!.insertTextFormat).toBe(2); // Snippet
+    });
   });
 
   // ─── Type-level completion ─────────────────────────────────────────────

@@ -18,7 +18,7 @@ import {
   exprIsFunctionCall,
 } from "../expr";
 import { TokenType, type Token } from "../token";
-import type { Type } from "../types/definitions";
+import type { FunctionType, Type } from "../types/definitions";
 import {
   isArrayType,
   isEnumType,
@@ -1108,6 +1108,38 @@ function extractTypeFromExpr(
 }
 
 /**
+ * Generate a method snippet with parameter placeholders.
+ * Skips the `self` parameter (first param if label is "self").
+ * Returns { insertText, insertTextFormat } or undefined for non-function types.
+ */
+function generateMethodSnippet(
+  name: string,
+  type: Type
+):
+  | { insertText: string; insertTextFormat: typeof InsertTextFormat.Snippet }
+  | undefined {
+  if (!isFunctionType(type)) return undefined;
+  const funcType = type as FunctionType;
+  // Filter out self parameter and implicit parameters
+  const callParams = funcType.parameters.filter(
+    (p) => p.label !== "self" && !p.isImplicit
+  );
+  if (callParams.length === 0) {
+    return {
+      insertText: `${name}()`,
+      insertTextFormat: InsertTextFormat.Snippet,
+    };
+  }
+  const snippetParams = callParams
+    .map((p, i) => `\${${i + 1}:${p.label || typeToString(p.type)}}`)
+    .join(", ");
+  return {
+    insertText: `${name}(${snippetParams})`,
+    insertTextFormat: InsertTextFormat.Snippet,
+  };
+}
+
+/**
  * Add all methods available on a type, from three sources:
  * 1. Direct trait fields (from anonymous impl blocks — flattened onto receiverType.trait)
  * 2. Named trait impl entries (stored with label="" and TraitValue assignedValue)
@@ -1119,6 +1151,8 @@ function addAllMethods(
     detail: string;
     documentation: string;
     kind: CompletionItemKind;
+    insertText?: string;
+    insertTextFormat?: typeof InsertTextFormat.Snippet;
   }[],
   env: Environment,
   fieldAccessType: Type,
@@ -1129,12 +1163,14 @@ function addAllMethods(
   function addMethod(name: string, type: Type, docComment?: string): void {
     if (seenNames.has(name)) return;
     seenNames.add(name);
+    const snippet = generateMethodSnippet(name, type);
     try {
       members.push({
         name,
         detail: typeToString(type),
         documentation: docComment || `Method ${name}`,
         kind: CompletionItemKind.Method,
+        ...snippet,
       });
     } catch {
       members.push({
@@ -1142,6 +1178,7 @@ function addAllMethods(
         detail: "",
         documentation: docComment || `Method ${name}`,
         kind: CompletionItemKind.Method,
+        ...snippet,
       });
     }
   }
@@ -1203,6 +1240,8 @@ function addDirectTraitMethods(
     detail: string;
     documentation: string;
     kind: CompletionItemKind;
+    insertText?: string;
+    insertTextFormat?: typeof InsertTextFormat.Snippet;
   }[],
   fieldAccessType: Type
 ): void {
@@ -1213,12 +1252,14 @@ function addDirectTraitMethods(
     if (f.label && isFunctionType(f.type) && !seenNames.has(f.label)) {
       seenNames.add(f.label);
       const doc = f.docComment || `Method ${f.label}`;
+      const snippet = generateMethodSnippet(f.label, f.type);
       try {
         members.push({
           name: f.label,
           detail: typeToString(f.type),
           documentation: doc,
           kind: CompletionItemKind.Method,
+          ...snippet,
         });
       } catch {
         members.push({
@@ -1226,6 +1267,7 @@ function addDirectTraitMethods(
           detail: "",
           documentation: doc,
           kind: CompletionItemKind.Method,
+          ...snippet,
         });
       }
     }
