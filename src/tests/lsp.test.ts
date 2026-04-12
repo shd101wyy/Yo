@@ -418,6 +418,58 @@ export main;
     });
   });
 
+  // ─── Nested struct field completion ──────────────────────────────────
+
+  describe("nested struct field completion", () => {
+    const source = `
+Inner :: struct(value : i32);
+Outer :: struct(inner : Inner, name : i32);
+main :: (fn() -> i32)({
+  (o : Outer) = Outer(Inner(i32(42)), i32(1));
+  o.inner;
+  return i32(0);
+});
+export main;
+`;
+
+    it("should suggest fields for nested struct access", () => {
+      const ln = lineOf(source, "o.inner");
+      const labels = getCompletionLabels(source, ln, 4);
+      expect(labels).toContain("inner");
+      expect(labels).toContain("name");
+    });
+  });
+
+  // ─── Result type completion ─────────────────────────────────────────
+
+  describe("Result type completion", () => {
+    const source = `
+main :: (fn() -> i32)({
+  (r : Result(i32, i32)) = .Ok(i32(42));
+  r.unwrap;
+  return i32(0);
+});
+export main;
+`;
+
+    it("should suggest Result methods after dot", () => {
+      const ln = lineOf(source, "r.unwrap");
+      const labels = getCompletionLabels(source, ln, 4);
+      expect(labels).toContain("unwrap");
+    });
+
+    it("should suggest Result enum variants with snippets", () => {
+      const items = getCompletionItems(source, lineOf(source, "r.unwrap"), 4);
+      const okItem = items.find((i) => i.label === "Ok");
+      const errItem = items.find((i) => i.label === "Err");
+      expect(okItem).toBeDefined();
+      expect(errItem).toBeDefined();
+      // Ok and Err should have snippets since they have fields
+      expect(okItem!.insertTextFormat).toBe(2); // InsertTextFormat.Snippet
+      expect(errItem!.insertTextFormat).toBe(2);
+    });
+  });
+
   // ─── Keyword completion ────────────────────────────────────────────────
 
   describe("keyword completion", () => {
