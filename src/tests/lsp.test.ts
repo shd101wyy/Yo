@@ -231,6 +231,121 @@ export main;
     });
   });
 
+  // ─── Dirty buffer dot-completion ──────────────────────────────────────
+
+  describe("dirty buffer dot-completion", () => {
+    it("should suggest methods for type constructor call on dirty buffer", () => {
+      const stdPath = path.resolve(__dirname, "../../std");
+      const docManager = new LspDocumentManager(stdPath);
+      activeDocManagers.push(docManager);
+
+      const modulePath = `file://${path.resolve(__dirname, "dirty_dot.yo")}`;
+      // Good source that evaluates successfully and uses Option
+      const goodSource = `
+main :: (fn() -> i32)({
+  (x : Option(i32)) = .Some(i32(42));
+  return i32(0);
+});
+export main;
+`;
+      docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+      // Simulate typing "Option(i32)." — causes eval error
+      const brokenSource = `
+main :: (fn() -> i32)({
+  (x : Option(i32)) = .Some(i32(42));
+  Option(i32).
+  return i32(0);
+});
+export main;
+`;
+      const fakeDocument = {
+        uri: modulePath,
+        getText: () => brokenSource,
+      };
+      docManager.analyzeDocument(
+        fakeDocument as import("vscode-languageserver-textdocument").TextDocument,
+        () => {}
+      );
+
+      const ln = lineOf(brokenSource, "Option(i32).");
+      const lineText = brokenSource.split("\n")[ln]!;
+      const character = lineText.indexOf(".") + 1; // right after the dot
+
+      const items = handleCompletion(
+        modulePath,
+        ln,
+        character,
+        lineText,
+        docManager
+      );
+      const labels = items.map((item) => item.label);
+      // Option(i32) is an enum type — should show Some and None variants
+      expect(labels.length).toBeGreaterThan(0);
+      // Should also have methods from impl blocks (unwrap, map, etc.)
+      expect(labels).toContain("unwrap");
+    });
+
+    it("should suggest methods for simple type name on dirty buffer", () => {
+      const stdPath = path.resolve(__dirname, "../../std");
+      const docManager = new LspDocumentManager(stdPath);
+      activeDocManagers.push(docManager);
+
+      const modulePath = `file://${path.resolve(__dirname, "dirty_dot2.yo")}`;
+      const goodSource = `
+Point :: struct(x : i32, y : i32);
+impl(Point,
+  sum : (fn(self : Self) -> i32)((self.x + self.y))
+);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  return i32(0);
+});
+export main;
+`;
+      docManager.getModuleManager().loadModule(modulePath, goodSource);
+
+      // Simulate typing "p." where p doesn't exist in scope (e.g., variable lookup)
+      // But Point as a type should still resolve
+      const brokenSource = `
+Point :: struct(x : i32, y : i32);
+impl(Point,
+  sum : (fn(self : Self) -> i32)((self.x + self.y))
+);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.
+  return i32(0);
+});
+export main;
+`;
+      const fakeDocument = {
+        uri: modulePath,
+        getText: () => brokenSource,
+      };
+      docManager.analyzeDocument(
+        fakeDocument as import("vscode-languageserver-textdocument").TextDocument,
+        () => {}
+      );
+
+      const ln = lineOf(brokenSource, "p.");
+      const lineText = brokenSource.split("\n")[ln]!;
+      const character = lineText.indexOf("p.") + 2; // right after the dot
+
+      const items = handleCompletion(
+        modulePath,
+        ln,
+        character,
+        lineText,
+        docManager
+      );
+      const labels = items.map((item) => item.label);
+      // p is a Point struct — should show struct fields
+      expect(labels).toContain("x");
+      expect(labels).toContain("y");
+    });
+  });
+
   // ─── Keyword completion ────────────────────────────────────────────────
 
   describe("keyword completion", () => {

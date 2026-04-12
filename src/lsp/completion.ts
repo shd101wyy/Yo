@@ -105,7 +105,21 @@ export function handleCompletion(
     // inner scope type info due to the incomplete `expr.` expression
     const lastGood = docManager.getLastGoodModule(uri);
     if (lastGood && lastGood !== module) {
-      return handleDotCompletion(lastGood, line, character, lineText);
+      const lastGoodItems = handleDotCompletion(
+        lastGood,
+        line,
+        character,
+        lineText
+      );
+      if (lastGoodItems.length > 0) return lastGoodItems;
+    }
+
+    // Last resort: text-based type resolution for expressions like `Option(i32).`
+    // Parse the text before the dot and try to resolve the type from available envs
+    if (textBeforeDot) {
+      const bestModule = lastGood ?? module;
+      const textItems = handleTextBasedDotCompletion(bestModule, textBeforeDot);
+      if (textItems.length > 0) return textItems;
     }
     return items;
   }
@@ -492,13 +506,253 @@ function handleDotCompletion(
 }
 
 /**
- * Handle enum variant dot-prefix completion (e.g., `.Some`, `.None`).
- * Triggered when the user types `.` in a context where an enum value is expected.
- * Infers the expected enum type by scanning the AST for:
- * - Typed declarations: `(x : EnumType) = .`
- * - Match expressions: `match(expr, .`
- * - Function arguments at the cursor position
+ * Text-based dot-completion fallback.
+ * Parses the text before the dot (e.g., "Option(i32)") and resolves the
+ * type by looking up the function/type name in available environments.
+ * Handles patterns like:
+ * - `TypeConstructor(args).` — looks up the constructor, applies it to get the result type
+ * - `identifier.` — simple variable lookup (already handled elsewhere, this is a last resort)
  */
+function handleTextBasedDotCompletion(
+  module: { evaluator: { getProgram(): Expr[]; getTokens(): Token[] } },
+  textBeforeDot: string
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+
+  try {
+    const program = module.evaluator.getProgram();
+
+    // Find the deepest env available in this module
+    let deepestEnv: Environment | null = null;
+    let deepestDepth = -1;
+
+    const findDeepEnv = (expr: Expr) => {
+      if (exprIsAtom(expr)) {
+        if (expr.$?.env && expr.$.env.frames.length > deepestDepth) {
+          deepestEnv = expr.$.env;
+          deepestDepth = expr.$.env.frames.length;
+        }
+      } else if (exprIsFunctionCall(expr)) {
+        const funcCallExpr = expr as FnCallExpr;
+        findDeepEnv(funcCallExpr.func);
+        for (const arg of funcCallExpr.args) {
+          findDeepEnv(arg);
+        }
+      }
+    };
+    for (const expr of program) {
+      findDeepEnv(expr);
+    }
+    if (!deepestEnv) return items;
+
+    // Parse the text to extract function name and check if it's a call
+    // The text might include assignment context like "x := Option(i32)"
+    // so we extract the last expression: match `Name(...)` or just `Name` at the end
+    const callMatch = textBeforeDot.match(
+      /([A-Z][a-zA-Z0-9_]*)\s*\(([^()]*(?:\([^()]*\))*[^()]*)\)\s*$/
+    );
+    const simpleMatch = textBeforeDot.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
+
+    const typeName = callMatch?.[1] ?? simpleMatch?.[1];
+    if (!typeName) return items;
+
+    const variables = getVariablesFromEnv(deepestEnv, typeName);
+    if (!variables || variables.length === 0) return items;
+
+    const variable = variables[variables.length - 1];
+    if (!variable) return items;
+
+    let resolvedType: Type | null = null;
+
+    if (callMatch) {
+      // For `Option(i32)`, search the AST for any expression where
+      // this constructor was previously called, and use that result type.
+      resolvedType = findTypeConstructorResult(program, typeName);
+    }
+
+    if (!resolvedType && variable.value?.[0]) {
+      if (isTypeValue(variable.value[0])) {
+        resolvedType = variable.value[0].value;
+      }
+    }
+
+    if (!resolvedType) {
+      resolvedType = unwrapTypeValueIfNeeded(
+        variable.type,
+        variable.value as [Value] | undefined
+      );
+    }
+
+    if (!resolvedType) return items;
+
+    // Auto-dereference pointer types
+    let fieldAccessType = resolvedType;
+    while (isPtrType(fieldAccessType)) {
+      fieldAccessType = fieldAccessType.childType;
+    }
+
+    // Collect members
+    const members: {
+      name: string;
+      detail: string;
+      documentation: string;
+      kind: CompletionItemKind;
+    }[] = [];
+
+    collectTypeMembers(members, fieldAccessType);
+    addAllMethods(members, deepestEnv, fieldAccessType, resolvedType);
+
+    // Convert to completion items
+    const seenNames = new Set<string>();
+    for (const member of members) {
+      if (seenNames.has(member.name)) continue;
+      if (member.name.startsWith("___") || member.name.startsWith("__yo_"))
+        continue;
+      seenNames.add(member.name);
+      items.push({
+        label: member.name,
+        kind: member.kind,
+        detail: member.detail,
+        documentation: member.documentation,
+        sortText: `0_${member.name}`,
+      });
+    }
+  } catch {
+    // Return empty on error
+  }
+
+  return items;
+}
+
+/**
+ * Find the result type of a type constructor call by searching the AST
+ * for any expression where the constructor was previously used.
+ */
+function findTypeConstructorResult(
+  program: Expr[],
+  constructorName: string
+): Type | null {
+  let resultType: Type | null = null;
+
+  const search = (expr: Expr) => {
+    if (resultType) return;
+    if (exprIsFunctionCall(expr)) {
+      const funcCallExpr = expr as FnCallExpr;
+      if (
+        exprIsAtom(funcCallExpr.func) &&
+        (funcCallExpr.func as AtomExpr).token.value === constructorName &&
+        funcCallExpr.$?.type
+      ) {
+        if (isTypeHierarchyType(funcCallExpr.$.type) && funcCallExpr.$.value) {
+          if (isTypeValue(funcCallExpr.$.value)) {
+            resultType = funcCallExpr.$.value.value;
+            return;
+          }
+        }
+        resultType = funcCallExpr.$.type;
+        return;
+      }
+      search(funcCallExpr.func);
+      for (const arg of funcCallExpr.args) {
+        search(arg);
+      }
+    }
+  };
+
+  for (const expr of program) {
+    search(expr);
+  }
+  return resultType;
+}
+
+/**
+ * Collect struct/enum/union/module/array/slice fields for a type.
+ * Extracted to avoid duplication between handleDotCompletion and text-based fallback.
+ */
+function collectTypeMembers(
+  members: {
+    name: string;
+    detail: string;
+    documentation: string;
+    kind: CompletionItemKind;
+  }[],
+  fieldAccessType: Type
+): void {
+  if (isArrayType(fieldAccessType)) {
+    members.push({
+      name: "len",
+      detail: "comptime(usize)",
+      documentation: "Get the compile-time known length of the array",
+      kind: CompletionItemKind.Property,
+    });
+  } else if (isSliceType(fieldAccessType)) {
+    members.push({
+      name: "len",
+      detail: "usize",
+      documentation: "Get the runtime length of the slice",
+      kind: CompletionItemKind.Property,
+    });
+  } else if (isStructType(fieldAccessType)) {
+    for (const element of fieldAccessType.fields) {
+      members.push({
+        name: element.label,
+        detail: typeToString(element.type),
+        documentation:
+          element.docComment ||
+          `Field: ${element.label} : ${typeToString(element.type)}`,
+        kind: CompletionItemKind.Field,
+      });
+    }
+  } else if (isEnumType(fieldAccessType)) {
+    for (const variant of fieldAccessType.variants) {
+      members.push({
+        name: variant.name,
+        detail: variant.fields
+          ? `(${variant.fields.map((e) => typeToString(e.type)).join(", ")})`
+          : "()",
+        documentation: `Variant: ${variant.name}`,
+        kind: CompletionItemKind.EnumMember,
+      });
+    }
+  } else if (isUnionType(fieldAccessType)) {
+    for (const element of fieldAccessType.fields) {
+      members.push({
+        name: element.label,
+        detail: typeToString(element.type),
+        documentation: `Field: ${element.label} : ${typeToString(element.type)}`,
+        kind: CompletionItemKind.Field,
+      });
+    }
+  } else if (isModuleType(fieldAccessType)) {
+    for (const field of fieldAccessType.fields) {
+      if (!field.label) continue;
+      if (field.label.startsWith("___") || field.label.startsWith("__yo_"))
+        continue;
+      const kind = isFunctionType(field.type)
+        ? CompletionItemKind.Function
+        : isModuleType(field.type)
+          ? CompletionItemKind.Module
+          : isTypeHierarchyType(field.type)
+            ? CompletionItemKind.Class
+            : CompletionItemKind.Field;
+      try {
+        members.push({
+          name: field.label,
+          detail: typeToString(field.type),
+          documentation: field.docComment || `${field.label}`,
+          kind,
+        });
+      } catch {
+        members.push({
+          name: field.label,
+          detail: "",
+          documentation: field.docComment || `${field.label}`,
+          kind,
+        });
+      }
+    }
+  }
+}
 function handleEnumVariantCompletion(
   module: { evaluator: { getProgram(): Expr[]; getTokens(): Token[] } },
   line: number,
@@ -760,6 +1014,7 @@ function extractTypeFromExpr(
     const variables = getVariablesFromEnv(bestEnv, tokenBeforeDot.value);
     if (!variables || variables.length === 0) return null;
 
+    // Prefer variables declared before the cursor line
     const localVariables = variables.filter((v) => {
       if (v.initializedAtToken) {
         const varRow = v.initializedAtToken.position.row;
@@ -773,6 +1028,12 @@ function extractTypeFromExpr(
       if (variable) {
         return unwrapTypeValueIfNeeded(variable.type, variable.value);
       }
+    }
+
+    // Fallback: use any variable with this name (includes prelude symbols)
+    const variable = variables[variables.length - 1];
+    if (variable) {
+      return unwrapTypeValueIfNeeded(variable.type, variable.value);
     }
   } catch {
     /* ignore */
