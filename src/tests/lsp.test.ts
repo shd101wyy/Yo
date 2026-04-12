@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import * as path from "node:path";
 import { handleCompletion } from "../lsp/completion";
+import { handleDefinition } from "../lsp/definition";
 import { handleHover } from "../lsp/hover";
 import { LspDocumentManager } from "../lsp/document-manager";
 
@@ -228,6 +229,55 @@ export main;
       const dotIdx = lineText.indexOf("Point.origin") + "Point.".length;
       const labels = getCompletionLabels(source, ln, dotIdx);
       expect(labels).toContain("origin");
+    });
+  });
+
+  // ─── Self completion inside methods ─────────────────────────────────────
+
+  describe("self completion inside methods", () => {
+    const source = `
+Point :: struct(x : i32, y : i32);
+
+impl(Point,
+  sum : (fn(self : Self) -> i32)({
+    return (self.x + self.y);
+  })
+);
+
+main :: (fn() -> unit)({
+  (p : Point) = Point(i32(1), i32(2));
+  p.sum();
+});
+export main;
+`;
+
+    it("should suggest struct fields after self.", () => {
+      const ln = lineOf(source, "self.x + self.y");
+      const lineText = source.split("\n")[ln] ?? "";
+      const dotIdx = lineText.indexOf("self.x") + "self.".length;
+      const labels = getCompletionLabels(source, ln, dotIdx);
+      expect(labels).toContain("x");
+      expect(labels).toContain("y");
+    });
+  });
+
+  // ─── Prelude type completion ──────────────────────────────────────────
+
+  describe("prelude type completion", () => {
+    const source = `
+main :: (fn() -> unit)({
+  (x : Option(i32)) = .Some(i32(42));
+  x.unwrap;
+});
+export main;
+`;
+
+    it("should suggest Option methods after dot", () => {
+      const ln = lineOf(source, "x.unwrap");
+      const lineText = source.split("\n")[ln] ?? "";
+      const dotIdx = lineText.indexOf("x.") + 2;
+      const labels = getCompletionLabels(source, ln, dotIdx);
+      expect(labels).toContain("unwrap");
     });
   });
 
@@ -572,6 +622,56 @@ export main;
             : "";
       // Option is a known type constructor from prelude
       expect(content).toContain("Option");
+    });
+  });
+});
+
+describe("LSP Definition", () => {
+  describe("import path go-to-definition", () => {
+    const source = `
+open import "std/string";
+main :: (fn() -> i32)({
+  return i32(0);
+});
+export main;
+`;
+
+    it("should navigate to imported module file", () => {
+      const { uri, docManager } = loadSource(source);
+      const ln = lineOf(source, '"std/string"');
+      // Position the cursor inside the string literal
+      const line = source.split("\n")[ln]!;
+      const col = line.indexOf('"std/string"') + 1;
+      const def = handleDefinition(uri, ln, col, docManager);
+      expect(def).not.toBeNull();
+      // Should point to a file path containing "string"
+      expect(def!.uri).toContain("string");
+      // Should be a .yo file
+      expect(def!.uri).toMatch(/\.yo$/);
+    });
+  });
+
+  describe("variable go-to-definition", () => {
+    const source = `
+Point :: struct(x : i32, y : i32);
+main :: (fn() -> i32)({
+  (p : Point) = Point(i32(1), i32(2));
+  p;
+  return i32(0);
+});
+export main;
+`;
+
+    it("should navigate to variable definition", () => {
+      const { uri, docManager } = loadSource(source);
+      const ln = lineOf(source, "  p;");
+      const def = handleDefinition(uri, ln, 2, docManager);
+      expect(def).not.toBeNull();
+      // Should point to the same file
+      expect(def!.uri).toBe(uri);
+      // Should point to the declaration line (where `p` is defined)
+      const declLine = lineOf(source, "(p : Point) = Point");
+      expect(def!.range.start.line).toBe(declLine);
     });
   });
 });

@@ -10,7 +10,8 @@ import { uriToModulePath } from "./utils";
  */
 export function getDiagnosticsForUri(
   uri: string,
-  docManager: LspDocumentManager
+  docManager: LspDocumentManager,
+  documentText?: string
 ): Diagnostic[] {
   const modulePath = uriToModulePath(uri);
   const module = docManager.getModuleManager().modules.get(modulePath);
@@ -24,13 +25,17 @@ export function getDiagnosticsForUri(
     return [];
   }
 
-  return errorToDiagnostics(moduleError);
+  return errorToDiagnostics(moduleError, documentText);
 }
 
 /**
  * Convert a Yo error into an array of LSP Diagnostic objects.
+ * If documentText is provided, YoLexerError positions are computed accurately.
  */
-export function errorToDiagnostics(error: Error): Diagnostic[] {
+export function errorToDiagnostics(
+  error: Error,
+  documentText?: string
+): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
 
   if (error instanceof YoError) {
@@ -47,18 +52,19 @@ export function errorToDiagnostics(error: Error): Diagnostic[] {
       });
     }
   } else if (error instanceof YoLexerError) {
-    // YoLexerError has characterIndex — we need the source text to compute line/col
-    // For now, place at start of file as we don't have the text here
-    const { message } = error;
-    diagnostics.push({
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 0, character: 1 },
-      },
-      message,
-      severity: DiagnosticSeverity.Error,
-      source: "yo",
-    });
+    if (documentText) {
+      diagnostics.push(lexerErrorToDiagnostic(error, documentText));
+    } else {
+      diagnostics.push({
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 1 },
+        },
+        message: error.message,
+        severity: DiagnosticSeverity.Error,
+        source: "yo",
+      });
+    }
   } else {
     diagnostics.push({
       range: {

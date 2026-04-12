@@ -45,7 +45,12 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
   // Wire up document lifecycle to diagnostics
   docManager.attachToDocuments(documents, (uri: string) => {
-    const diagnostics = getDiagnosticsForUri(uri, docManager);
+    const document = documents.get(uri);
+    const diagnostics = getDiagnosticsForUri(
+      uri,
+      docManager,
+      document?.getText()
+    );
     connection.sendDiagnostics({ uri, diagnostics });
   });
 
