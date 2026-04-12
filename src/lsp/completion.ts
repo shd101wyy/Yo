@@ -1,5 +1,9 @@
 import type { CompletionItem } from "vscode-languageserver";
-import { CompletionItemKind, MarkupKind } from "vscode-languageserver";
+import {
+  CompletionItemKind,
+  InsertTextFormat,
+  MarkupKind,
+} from "vscode-languageserver";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getVariablesFromEnv, type Environment } from "../env";
@@ -495,83 +499,11 @@ function handleDotCompletion(
       detail: string;
       documentation: string;
       kind: CompletionItemKind;
+      insertText?: string;
+      insertTextFormat?: typeof InsertTextFormat.Snippet;
     }[] = [];
 
-    if (isArrayType(fieldAccessType)) {
-      members.push({
-        name: "len",
-        detail: "comptime(usize)",
-        documentation: "Get the compile-time known length of the array",
-        kind: CompletionItemKind.Property,
-      });
-    } else if (isSliceType(fieldAccessType)) {
-      members.push({
-        name: "len",
-        detail: "usize",
-        documentation: "Get the runtime length of the slice",
-        kind: CompletionItemKind.Property,
-      });
-    } else if (isStructType(fieldAccessType)) {
-      for (const element of fieldAccessType.fields) {
-        const docComment = element.docComment;
-        members.push({
-          name: element.label,
-          detail: typeToString(element.type),
-          documentation:
-            docComment ||
-            `Field: ${element.label} : ${typeToString(element.type)}`,
-          kind: CompletionItemKind.Field,
-        });
-      }
-    } else if (isEnumType(fieldAccessType)) {
-      for (const variant of fieldAccessType.variants) {
-        members.push({
-          name: variant.name,
-          detail: variant.fields
-            ? `(${variant.fields.map((e) => typeToString(e.type)).join(", ")})`
-            : "()",
-          documentation: `Variant: ${variant.name}`,
-          kind: CompletionItemKind.EnumMember,
-        });
-      }
-    } else if (isUnionType(fieldAccessType)) {
-      for (const element of fieldAccessType.fields) {
-        members.push({
-          name: element.label,
-          detail: typeToString(element.type),
-          documentation: `Field: ${element.label} : ${typeToString(element.type)}`,
-          kind: CompletionItemKind.Field,
-        });
-      }
-    } else if (isModuleType(fieldAccessType)) {
-      for (const field of fieldAccessType.fields) {
-        if (!field.label) continue;
-        if (field.label.startsWith("___") || field.label.startsWith("__yo_"))
-          continue;
-        const kind = isFunctionType(field.type)
-          ? CompletionItemKind.Function
-          : isModuleType(field.type)
-            ? CompletionItemKind.Module
-            : isTypeHierarchyType(field.type)
-              ? CompletionItemKind.Class
-              : CompletionItemKind.Field;
-        try {
-          members.push({
-            name: field.label,
-            detail: typeToString(field.type),
-            documentation: field.docComment || `${field.label}`,
-            kind,
-          });
-        } catch {
-          members.push({
-            name: field.label,
-            detail: "",
-            documentation: field.docComment || `${field.label}`,
-            kind,
-          });
-        }
-      }
-    }
+    collectTypeMembers(members, fieldAccessType);
 
     // Collect methods from trait fields and generic impl registry
     if (targetExpr && exprIsAtom(targetExpr)) {
@@ -592,13 +524,18 @@ function handleDotCompletion(
       if (member.name.startsWith("___") || member.name.startsWith("__yo_"))
         continue;
       seenNames.add(member.name);
-      items.push({
+      const item: CompletionItem = {
         label: member.name,
         kind: member.kind,
         detail: member.detail,
         documentation: member.documentation,
         sortText: `0_${member.name}`,
-      });
+      };
+      if (member.insertText) {
+        item.insertText = member.insertText;
+        item.insertTextFormat = member.insertTextFormat;
+      }
+      items.push(item);
     }
   } catch (error) {
     // Return empty on error
@@ -699,6 +636,8 @@ function handleTextBasedDotCompletion(
       detail: string;
       documentation: string;
       kind: CompletionItemKind;
+      insertText?: string;
+      insertTextFormat?: typeof InsertTextFormat.Snippet;
     }[] = [];
 
     collectTypeMembers(members, fieldAccessType);
@@ -711,13 +650,18 @@ function handleTextBasedDotCompletion(
       if (member.name.startsWith("___") || member.name.startsWith("__yo_"))
         continue;
       seenNames.add(member.name);
-      items.push({
+      const item: CompletionItem = {
         label: member.name,
         kind: member.kind,
         detail: member.detail,
         documentation: member.documentation,
         sortText: `0_${member.name}`,
-      });
+      };
+      if (member.insertText) {
+        item.insertText = member.insertText;
+        item.insertTextFormat = member.insertTextFormat;
+      }
+      items.push(item);
     }
   } catch {
     // Return empty on error
@@ -777,6 +721,8 @@ function collectTypeMembers(
     detail: string;
     documentation: string;
     kind: CompletionItemKind;
+    insertText?: string;
+    insertTextFormat?: typeof InsertTextFormat.Snippet;
   }[],
   fieldAccessType: Type
 ): void {
@@ -807,14 +753,22 @@ function collectTypeMembers(
     }
   } else if (isEnumType(fieldAccessType)) {
     for (const variant of fieldAccessType.variants) {
-      members.push({
+      const member: (typeof members)[number] = {
         name: variant.name,
         detail: variant.fields
           ? `(${variant.fields.map((e) => typeToString(e.type)).join(", ")})`
           : "()",
         documentation: `Variant: ${variant.name}`,
         kind: CompletionItemKind.EnumMember,
-      });
+      };
+      if (variant.fields && variant.fields.length > 0) {
+        const snippetParams = variant.fields
+          .map((f, i) => `\${${i + 1}:${f.label || typeToString(f.type)}}`)
+          .join(", ");
+        member.insertText = `${variant.name}(${snippetParams})`;
+        member.insertTextFormat = InsertTextFormat.Snippet;
+      }
+      members.push(member);
     }
   } else if (isUnionType(fieldAccessType)) {
     for (const element of fieldAccessType.fields) {
@@ -874,15 +828,24 @@ function handleEnumVariantCompletion(
         const detail = variant.fields
           ? `(${variant.fields.map((f) => typeToString(f.type)).join(", ")})`
           : "";
-        items.push({
+        const item: CompletionItem = {
           label: `.${variant.name}`,
           kind: CompletionItemKind.EnumMember,
           detail,
           documentation: `Variant: ${variant.name}`,
           sortText: `0_${variant.name}`,
-          // Insert without the leading dot since user already typed `.`
-          insertText: variant.name,
-        });
+        };
+        // Use snippet for variants with fields, plain text for unit variants
+        if (variant.fields && variant.fields.length > 0) {
+          const snippetParams = variant.fields
+            .map((f, i) => `\${${i + 1}:${f.label || typeToString(f.type)}}`)
+            .join(", ");
+          item.insertText = `${variant.name}(${snippetParams})`;
+          item.insertTextFormat = InsertTextFormat.Snippet;
+        } else {
+          item.insertText = variant.name;
+        }
+        items.push(item);
       }
     }
   } catch {

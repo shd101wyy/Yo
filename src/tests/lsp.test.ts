@@ -122,6 +122,28 @@ export main;
       expect(labels).toContain("Green");
       expect(labels).toContain("Blue");
     });
+
+    it("should provide snippets for enum variants with fields", () => {
+      const enumSource = `
+main :: (fn() -> i32)({
+  (x : Option(i32)) = .Some(i32(42));
+  x.CURSOR
+  return i32(0);
+});
+export main;
+`;
+      const ln = lineOf(enumSource, "x.CURSOR");
+      const items = getCompletionItems(enumSource, ln, 4);
+      const someItem = items.find((i) => i.label === "Some");
+      expect(someItem).toBeDefined();
+      // Should have snippet with field placeholder
+      expect(someItem!.insertText).toContain("Some(");
+      expect(someItem!.insertTextFormat).toBe(2); // InsertTextFormat.Snippet = 2
+      // None should NOT have a snippet
+      const noneItem = items.find((i) => i.label === "None");
+      expect(noneItem).toBeDefined();
+      expect(noneItem!.insertTextFormat).toBeUndefined();
+    });
   });
 
   // ─── Module member completion ──────────────────────────────────────────
