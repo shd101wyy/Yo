@@ -505,15 +505,6 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   evaluateArcValueCall
-         */
-        kind: "arc-value";
-        result: FnCallExpr;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
          *   tryToCallWithIndexTrait
          *
          * Dispatches value(arg) via the Index trait.

@@ -4222,7 +4222,6 @@ TypeInfo :: enum(
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
   Iso(child : Type),
-  Arc(child : Type),
   Dyn(
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo)
@@ -5483,12 +5482,28 @@ impl(forall(T : Type), Iso(T),
 export (^);
 
 /// === Arc ===
-arc :: (fn(forall(T : Type), own(value) : T) -> Arc(T))
-  Arc(T)(value)
+/// Arc — an atomically reference-counted, thread-safe container for a single value.
+///
+/// Use `arc(value)` to allocate. Access the inner value with `a.*`.
+///
+/// # Example
+/// ```rust
+/// a := arc(i32(42));
+/// assert((a.* == i32(42)), "inner value is 42");
+/// ```
+Arc :: (fn(comptime(V) : Type) -> comptime(Type))
+  atomic object(
+    (*) : V
+  )
 ;
+/// Allocate a value inside an Arc, returning an `Arc(V)`.
+arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
+  Arc(V)(value)
+;
+
 impl(forall(T : Type), Arc(T), Send());
 
-export arc;
+export Arc, arc;
 
 /// === MaybeUninit ===
 extern "Yo",

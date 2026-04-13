@@ -994,35 +994,6 @@ export interface IsoType extends Type {
   env: Environment;
 }
 
-/**
- * ArcType represents an atomically reference counted shared ownership wrapper.
- * Used for safe sharing of data across threads.
- *
- * Properties:
- * - Uses atomic reference counting (thread-safe)
- * - Can be freely copied and shared across threads
- * - Access inner value via (*) dereference (borrowed)
- * - Implements Send unconditionally
- */
-export interface ArcType extends Type {
-  tag: TypeTag.Arc;
-  /**
-   * The inner type that is arc-wrapped.
-   */
-  childType: Type;
-
-  /**
-   * The trait of the Arc type, which contains
-   * the ARC methods (___dup, ___drop) using atomic operations.
-   */
-  trait: TraitType;
-
-  /**
-   * The env when the Arc type is created.
-   */
-  env: Environment;
-}
-
 /*
  *   eg:
  *   use_id :: (fn(value: Dyn(GiveInt)) -> unit) {

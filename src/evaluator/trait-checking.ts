@@ -79,7 +79,6 @@ function typeImplementsComptimeBuiltin(
 
     // Runtime-only types - always return false
     case TypeTag.Iso:
-    case TypeTag.Arc:
     case TypeTag.Dyn:
     case TypeTag.Void:
     case TypeTag.Union:
@@ -150,7 +149,6 @@ function typeImplementsRuntimeBuiltin(
 
     // Runtime-only types
     case TypeTag.Iso:
-    case TypeTag.Arc:
     case TypeTag.Dyn:
     case TypeTag.Void:
     case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)

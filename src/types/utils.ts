@@ -12,7 +12,6 @@ import { stringIsOperator, type Token } from "../token";
 import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import type {
-  ArcType,
   ArrayType,
   ComptimeListType,
   DynType,
@@ -182,9 +181,6 @@ export function typeContainsRcType(
     case TypeTag.Iso:
       // Iso itself is GC type (atomic RC), check inner type
       return typeContainsRcType((type as IsoType).childType, checkedTypes);
-    case TypeTag.Arc:
-      // Arc itself is GC type (atomic RC), check inner type
-      return typeContainsRcType((type as ArcType).childType, checkedTypes);
     case TypeTag.Module:
       return false; // Modules do not own references
     case TypeTag.Function: {
@@ -1066,11 +1062,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Iso: {
       const isoType = type as IsoType;
       return `Iso(${typeToString(isoType.childType, visited)})`;
-    }
-
-    case TypeTag.Arc: {
-      const arcType = type as ArcType;
-      return `Arc(${typeToString(arcType.childType, visited)})`;
     }
 
     case TypeTag.Expr: {

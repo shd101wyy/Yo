@@ -9,7 +9,6 @@ import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { createTypeHierarchy } from "../../types/creators";
 import type {
-  ArcType,
   DynType,
   EnumType,
   IsoType,
@@ -148,7 +147,7 @@ function typeDerivesRuntime(
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType | SomeType | IsoType | ArcType,
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -195,7 +194,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType: StructType | EnumType | DynType | SomeType | IsoType | ArcType;
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -260,7 +259,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType | SomeType | IsoType | ArcType;
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -1109,88 +1108,6 @@ export function addRcFunctionsToIsoType({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
     SelfType: isoType,
-    env,
-    context,
-  });
-
-  return env;
-}
-
-// ============================================================================
-// Arc type RC functions (atomic, shared ownership)
-// ============================================================================
-
-/**
- * Generate ___dispose function code for an ArcType
- * Called when the Arc's ref count hits 0.
- * Drops the inner value unconditionally (no extracted flag like Iso).
- */
-function generateDisposeFunctionCodeForArcType(_arcType: ArcType): string {
-  return `((fn(${YoSelf} : Self) -> unit) { // ___dispose for Arc
-  ${BuiltinFunctions.__yo_arc_dispose[0]!}(${YoSelf});
-  return ();
-})`;
-}
-
-/**
- * Generate ___drop function code for an ArcType
- * Uses atomic operations for thread-safe reference counting
- */
-function generateDropFunctionCodeForArcType(_arcType: ArcType): string {
-  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for Arc
-  ${BuiltinFunctions.__yo_decr_rc_atomic[0]!}(${YoSelf});
-  return ();
-})`;
-}
-
-/**
- * Generate ___dup function code for an ArcType
- * Uses atomic operations for thread-safe reference counting
- */
-function generateDupFunctionCodeForArcType(_arcType: ArcType): string {
-  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for Arc
-  ${BuiltinFunctions.__yo_incr_rc_atomic[0]!}(${YoSelf});
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
-})`;
-}
-
-/**
- * Add Rc functions (___drop, ___dup, ___dispose) to an ArcType's trait.
- * These functions use atomic operations for thread-safe reference counting.
- */
-export function addRcFunctionsToArcType({
-  arcType,
-  env,
-  context,
-}: {
-  arcType: ArcType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  const disposeFunctionCode = generateDisposeFunctionCodeForArcType(arcType);
-  const dropFunctionCode = generateDropFunctionCodeForArcType(arcType);
-  const dupFunctionCode = generateDupFunctionCodeForArcType(arcType);
-
-  env = addFunctionCodeToSelfTypeModule({
-    label: BuiltinFunctions.___dispose[0]!,
-    functionCode: disposeFunctionCode,
-    SelfType: arcType,
-    env,
-    context,
-  });
-
-  env = addFunctionCodeToSelfTypeModule({
-    label: BuiltinFunctions.___drop[0]!,
-    functionCode: dropFunctionCode,
-    SelfType: arcType,
-    env,
-    context,
-  });
-
-  env = addFunctionCodeToSelfTypeModule({
-    label: BuiltinFunctions.___dup[0]!,
-    functionCode: dupFunctionCode,
-    SelfType: arcType,
     env,
     context,
   });

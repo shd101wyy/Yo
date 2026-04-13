@@ -14,7 +14,6 @@ import type {
 } from "./definitions";
 import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
-  isArcType,
   isArrayType,
   isCCompatibleType,
   isCharType,
@@ -642,17 +641,6 @@ export function areTypesCompatible(
   // Iso
   if (isIsoType(expected.type) && isIsoType(given.type)) {
     // Iso types must have compatible inner types
-    return areTypesCompatible(
-      { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env },
-      requireExactMatch,
-      visitedPairs
-    );
-  }
-
-  // Arc
-  if (isArcType(expected.type) && isArcType(given.type)) {
-    // Arc types must have compatible inner types
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },

@@ -17,7 +17,6 @@ import {
 import type { FunctionValue, FuncValueId } from "../../function-value";
 import type { TargetInfo } from "../../target";
 import type {
-  ArcType,
   ArrayType,
   DynType,
   EnumType,
@@ -94,21 +93,6 @@ export interface CodeGenContext {
       structGenerated?: boolean;
       createGenerated?: boolean;
       extractGenerated?: boolean;
-      disposeGenerated?: boolean;
-    }
-  >;
-
-  /**
-   * Arc struct types that need to be generated
-   * Maps Arc type C name to info about the child type
-   */
-  arcTypes?: Map<
-    string,
-    {
-      childTypeCName: string;
-      arcType: ArcType;
-      structGenerated?: boolean;
-      createGenerated?: boolean;
       disposeGenerated?: boolean;
     }
   >;
@@ -818,25 +802,6 @@ export function getTypeString(
 
       // Iso types are reference-counted pointers
       return isoTypeName;
-    }
-
-    // Arc type (atomic reference-counted shared value)
-    case TypeTag.Arc: {
-      const arcType = type as ArcType;
-      const childType = arcType.childType;
-      const childTypeCName = getTypeString(childType, context);
-
-      const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
-      const arcTypeName = `Arc_${sanitizeForCIdentifier(cleanChildTypeName)}`;
-
-      if (!context.arcTypes) {
-        context.arcTypes = new Map();
-      }
-      if (!context.arcTypes.has(arcTypeName)) {
-        context.arcTypes.set(arcTypeName, { childTypeCName, arcType });
-      }
-
-      return arcTypeName;
     }
   }
 

@@ -27,7 +27,6 @@ import type {
   SliceType,
   PtrType,
   IsoType,
-  ArcType,
   DynType,
   SomeType as SomeTypeT,
   TupleType,
@@ -643,8 +642,6 @@ function typeTagToVariantName(tag: string): string {
       return "Ptr";
     case TypeTag.Iso:
       return "Iso";
-    case TypeTag.Arc:
-      return "Arc";
     case TypeTag.Dyn:
       return "Dyn";
     case TypeTag.Expr:
@@ -781,15 +778,6 @@ export function evaluateYoTypeGetInfo({
       const childTmp = bindTempType(evalEnv, isoType.childType, context);
       evalEnv = childTmp.env;
       code = `TypeInfo.Iso(${childTmp.name})`;
-      break;
-    }
-
-    // === Arc(child) ===
-    case TypeTag.Arc: {
-      const arcType = type as ArcType;
-      const childTmp = bindTempType(evalEnv, arcType.childType, context);
-      evalEnv = childTmp.env;
-      code = `TypeInfo.Arc(${childTmp.name})`;
       break;
     }
 

@@ -705,7 +705,6 @@ export const BuiltinKeywords = {
 
   Ptr: ["*"],
   Iso: ["Iso"],
-  Arc: ["Arc"],
 
   Tuple: ["Tuple"],
   Array: ["Array"],
@@ -1226,7 +1225,6 @@ export const BuiltinFunctions = {
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRcValue to be true. This is useful for implementing ___dup function.
   __yo_iso_extract: ["__yo_iso_extract"], // extract inner value from Iso(T), returns Option(T)
   __yo_iso_dispose: ["__yo_iso_dispose"], // dispose inner value of Iso if not extracted
-  __yo_arc_dispose: ["__yo_arc_dispose"], // dispose inner value of Arc when refcount hits 0
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection

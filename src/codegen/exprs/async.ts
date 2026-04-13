@@ -25,7 +25,6 @@ import type {
   Type,
 } from "../../types/definitions";
 import {
-  isArcType,
   isAtomicObjectType,
   isDynType,
   isIsoType,
@@ -866,11 +865,7 @@ function generateAsyncBlockStateDisposeFunction(
         localDropLines.push(
           `    if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
         );
-      } else if (
-        isIsoType(v.type) ||
-        isArcType(v.type) ||
-        isAtomicObjectType(v.type)
-      ) {
+      } else if (isIsoType(v.type) || isAtomicObjectType(v.type)) {
         // Atomic RC pointer — needs NULL guard
         localDropLines.push(
           `    if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`

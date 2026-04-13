@@ -14,7 +14,6 @@ import type { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
 import { isTypeValue, type Value, valueToString } from "../value";
 import type {
-  ArcType,
   ArrayType,
   ComptimeListType,
   DynType,
@@ -904,28 +903,6 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
   return isoType;
 }
 
-const arcCache: Map<Type, ArcType> = new Map();
-export function createArcType(childType: Type, env: Environment): ArcType {
-  // Check cache
-  if (arcCache.has(childType)) {
-    return arcCache.get(childType)!;
-  }
-
-  const trait = createTraitType(env);
-  const arcType: ArcType = {
-    id: `arc_${childType.id}`,
-    tag: TypeTag.Arc,
-    childType,
-    trait,
-    env,
-  };
-  trait.receiverType = arcType;
-
-  arcCache.set(childType, arcType);
-
-  return arcType;
-}
-
 // NOTE: We shouldn't cache the SomeType creation because they can differ by ID and name
 export function createSomeType(
   type: TypeHierarchyType,
@@ -1323,5 +1300,4 @@ export function clearAllCachedTypes(): void {
   // CRITICAL: Clear these caches to prevent memory leaks
   ptrCache.clear();
   isoCache.clear();
-  arcCache.clear();
 }
