@@ -11,7 +11,7 @@ import Parser from "../parser";
 import { TokenType, type Token } from "../token";
 import { isModuleType } from "../types/guards";
 import type { ModuleValue } from "../value";
-import { extractDocComments } from "../doc/extractor";
+import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
 // Import extracted evaluator functions
 import { YoError, YoLexerError } from "../error";
@@ -182,8 +182,14 @@ export default class Evaluator {
     const docExtractionResult = extractDocComments(this.tokens);
     const docCommentLookup = new Map<string, string>();
     for (const assoc of docExtractionResult.declarations) {
-      if (assoc.declarationName) {
-        docCommentLookup.set(assoc.declarationName, assoc.comment.content);
+      if (assoc.declarationPosition) {
+        docCommentLookup.set(
+          getDocCommentLookupKey({
+            position: assoc.declarationPosition,
+            modulePath: assoc.comment.modulePath,
+          }),
+          assoc.comment.content
+        );
       }
     }
 

@@ -1,4 +1,5 @@
 import type { Environment } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -420,6 +421,9 @@ To avoid circular dependency issues, please explicitly provide the value for thi
       },
       defaultValue,
       assignedValue,
+      docComment: labelExpr
+        ? context.docCommentLookup?.get(getDocCommentLookupKey(labelExpr.token))
+        : undefined,
     },
     env,
   };

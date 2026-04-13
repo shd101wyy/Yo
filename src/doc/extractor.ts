@@ -47,6 +47,13 @@ export interface InlineDocResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+export function getDocCommentLookupKey(target: {
+  position: Token["position"];
+  modulePath: string;
+}): string {
+  return `${target.modulePath}:${target.position.row}:${target.position.column}`;
+}
+
 function isDocCommentToken(token: Token): boolean {
   return (
     token.type === TokenType.DocLineComment ||

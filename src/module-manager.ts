@@ -12,6 +12,7 @@ import Evaluator, {
   clearImplsFromModule,
 } from "./evaluator/index";
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
+import { clearAllCachedTypes } from "./types/creators";
 import type { Expr } from "./expr";
 import type { ModuleValue } from "./value";
 
@@ -73,6 +74,15 @@ export class ModuleManager {
     this.allowPartialModule = options?.allowPartialModule ?? false;
     this.stdPath = options?.stdPath ?? findStdDirectory(__dirname);
     this.codeGenratorC = new CodeGeneratorC();
+
+    // Clear global evaluator state from any previous ModuleManager instances.
+    // The impl registries, prelude env cache, module counters, and cached builtin
+    // types are module-level globals that persist across instances and cause
+    // "duplicate method" errors if not reset.
+    clearAllGlobalImplState();
+    clearEnvContainingPrelude();
+    clearAllModuleCounters();
+    clearAllCachedTypes();
 
     // This line of code is to prevent circular dependency issues
     setEvaluateExpressionFn(_evaluateExpression);
@@ -242,6 +252,7 @@ export class ModuleManager {
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllModuleCounters();
+    clearAllCachedTypes();
   }
 
   public loadModule(

@@ -20,18 +20,19 @@ import * as fs from "fs";
 import * as path from "path";
 import { createRenderer } from "markdown_yo";
 import type { MarkdownRenderer } from "markdown_yo";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 const ROOT = path.resolve(import.meta.dir, "..");
 const GITHUB_REPO = "https://github.com/shd101wyy/Yo";
 
 // Detect the latest release tag for stable links.
 // Falls back to "main" if no tags exist or git fails.
-function getLatestTag(): string {
+export function getLatestTag(rootDir: string = ROOT): string {
   try {
-    const result = execSync("git describe --tags --abbrev=0 2>/dev/null", {
-      cwd: ROOT,
+    const result = execFileSync("git", ["describe", "--tags", "--abbrev=0"], {
+      cwd: rootDir,
       encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
       timeout: 5000,
     }).trim();
     return result || "main";
@@ -42,6 +43,16 @@ function getLatestTag(): string {
 
 const GITHUB_REF = getLatestTag();
 const GITHUB_BLOB = `${GITHUB_REPO}/blob/${GITHUB_REF}`;
+
+export function getStdDocCommand(rootDir: string = ROOT): {
+  command: string;
+  args: string[];
+} {
+  return {
+    command: "node",
+    args: [path.join(rootDir, "out", "cjs", "yo-cli.cjs"), "doc", "std/"],
+  };
+}
 
 // ── Parse args ───────────────────────────────────────────────────────
 
@@ -399,7 +410,7 @@ function injectHomeLinks(stdDir: string): void {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   console.log("Building documentation site...");
   console.log(`  Output: ${outputDir}`);
 
@@ -449,12 +460,16 @@ async function main(): Promise<void> {
   const stdOutputDir = path.join(outputDir, "std");
 
   try {
-    const yoCli = path.join(ROOT, "yo-cli");
-    execSync(`${yoCli} doc std/ --output "${stdOutputDir}"`, {
-      cwd: ROOT,
-      stdio: ["pipe", "pipe", "inherit"],
-      timeout: 120_000,
-    });
+    const stdDocCommand = getStdDocCommand();
+    execFileSync(
+      stdDocCommand.command,
+      [...stdDocCommand.args, "--output", stdOutputDir],
+      {
+        cwd: ROOT,
+        stdio: ["ignore", "inherit", "inherit"],
+        timeout: 600_000,
+      }
+    );
     console.log("  ✓ Standard library docs generated");
   } catch (err) {
     console.error(
@@ -492,7 +507,9 @@ function getTotalSize(dir: string): number {
   return Math.round(total / 1024);
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+}

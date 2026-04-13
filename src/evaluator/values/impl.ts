@@ -6,6 +6,7 @@ import {
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -514,6 +515,10 @@ function evaluateImplFieldList({
       });
       env = nextEnv;
 
+      const fieldDocComment = context.docCommentLookup?.get(
+        getDocCommentLookupKey(labelExpr.token)
+      );
+
       // Add to anonymous trait fields
       traitType.fields.push({
         label,
@@ -521,6 +526,7 @@ function evaluateImplFieldList({
         assignedValue: fieldValue,
         defaultValue: undefined,
         exprs: { expr },
+        docComment: fieldDocComment,
       });
       traitElementValues.push(fieldValue);
       hasAnonymousFields = true;
@@ -533,6 +539,7 @@ function evaluateImplFieldList({
           assignedValue: fieldValue,
           defaultValue: undefined,
           exprs: { expr },
+          docComment: fieldDocComment,
         });
       }
 
@@ -1288,6 +1295,54 @@ export function findMethodsFromGenericImpls({
 }
 
 /**
+ * Enumerate all method names available on a concrete type through generic impls.
+ * Used by the LSP for dot-completion — collects method names without performing
+ * full specialization (which is expensive and may fail on incomplete code).
+ */
+export function enumerateMethodNamesFromGenericImpls({
+  concreteType,
+  env,
+}: {
+  concreteType: Type;
+  env: Environment;
+}): { name: string; type: FunctionType }[] {
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
+  const results: { name: string; type: FunctionType }[] = [];
+  const seenNames = new Set<string>();
+
+  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      let match: GenericImplMatchResult;
+      try {
+        match = tryMatchGenericImpl({ concreteType, impl, env });
+      } catch {
+        continue;
+      }
+      if (!match.matched) continue;
+
+      for (const field of impl.traitType.fields) {
+        if (
+          field.label &&
+          isFunctionType(field.type) &&
+          !seenNames.has(field.label)
+        ) {
+          seenNames.add(field.label);
+          results.push({ name: field.label, type: field.type });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Find an associated type from generic impls for a concrete type.
  * This handles cases like `Self.Item` where `Self` is a type with a generic impl
  * of `Iterator(T)` — the `Item` associated type needs to be resolved through
@@ -2017,6 +2072,23 @@ export function clearImplsFromModule(modulePath: string): void {
 }
 
 /**
+ * Snapshot all trait field arrays across ALL modules in the implRegistry.
+ * Used by LSP before deleteModule (which invalidates multiple modules)
+ * to preserve trait fields for lastGoodModule cache.
+ */
+export function snapshotAllImplTraitFields(): Map<TraitType, TraitField[]> {
+  const snapshots = new Map<TraitType, TraitField[]>();
+  for (const typesWithImpls of implRegistry.values()) {
+    for (const traitType of typesWithImpls) {
+      if (!snapshots.has(traitType)) {
+        snapshots.set(traitType, [...traitType.fields]);
+      }
+    }
+  }
+  return snapshots;
+}
+
+/**
  * Register that a type has an impl field from the specified trait.
  */
 function registerImpl(modulePath: string, traitType: TraitType): void {
@@ -2106,6 +2178,7 @@ function attachTraitToReceiverType(
         type: field.type,
         assignedValue: value,
         sourceModulePath,
+        docComment: field.docComment,
         exprs: {
           expr,
         },

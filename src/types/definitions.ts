@@ -364,6 +364,9 @@ export interface TypeField {
   // These fields are zero-initialized at io.async time and populated at
   // io.spawn/io.await time with the concrete handler from using(...).
   isEffectParam?: boolean;
+
+  // Doc comment extracted from `///` comments preceding this field definition.
+  docComment?: string;
 }
 
 export interface TupleType extends Type {
@@ -505,6 +508,9 @@ export interface ModuleField {
   assignedValue?: Value;
 
   exprs: FieldExprs;
+
+  // Doc comment extracted from `///` comments preceding this field definition.
+  docComment?: string;
 }
 
 /**

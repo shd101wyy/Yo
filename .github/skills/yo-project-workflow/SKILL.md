@@ -1,6 +1,6 @@
 ---
 name: yo-project-workflow
-description: Build, test, scaffold, and manage Yo projects. Use this when working with yo init, build.yo, yo build, yo compile, yo test, yo install, yo fetch, or cross-platform Yo project setup.
+description: Build, test, scaffold, and manage Yo projects. Use this when working with yo init, build.yo, yo build, yo compile, yo test, yo install, yo fetch, yo version, or cross-platform Yo project setup.
 argument-hint: "[project task or command]"
 ---
 
@@ -18,6 +18,7 @@ Use this skill when you need to:
 - understand or edit `build.yo`
 - choose between `yo build`, `yo compile`, and `yo test`
 - manage dependencies with `yo install` or `yo fetch`
+- pin or manage Yo versions with `yo version`
 - generate API documentation with `yo doc` or `build.doc()`
 - reason about targets, compilers, or cross-platform setup
 
@@ -26,7 +27,8 @@ Use this skill when you need to:
 1. If the repository has `build.yo`, prefer `yo build` and named steps for whole-project work.
 2. For single-file experiments or reproductions, use `yo compile`.
 3. For tests, use `yo test [path]` and narrow to a file or pattern before broad runs.
-4. Consult the [workflow cheatsheet](./workflow-cheatsheet.md) for command shapes, project layout, and a minimal `build.yo`.
+4. To pin the project to a specific Yo version, use `yo version pin`.
+5. Consult the [workflow cheatsheet](./workflow-cheatsheet.md) for command shapes, project layout, and a minimal `build.yo`.
 
 ## High-signal rules
 
@@ -35,6 +37,7 @@ Use this skill when you need to:
 - `yo build run` and `yo build test` are the standard project entry points.
 - `yo test ./tests/some.test.yo --parallel 1` is the focused single-file test pattern.
 - Use `yo install` and `yo fetch` for git or path dependencies.
+- Use `yo version pin` to create a `.yo-version` file for reproducible builds.
 - Prefer symbolic build APIs and target constants in `build.yo` instead of ad-hoc shell logic.
 
 ## Resource

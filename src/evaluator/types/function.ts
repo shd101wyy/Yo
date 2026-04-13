@@ -7,6 +7,7 @@ import {
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
+import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -678,6 +679,9 @@ use_id :: (fn(forall(T : Type),
         isOwningTheRcValue: isOwningTheRcValue,
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
         isReassignable: false, // Mark as not reassigable
+        docComment: lhsExpr
+          ? context.docCommentLookup?.get(getDocCommentLookupKey(lhsExpr.token))
+          : undefined,
       },
       allowVariableShadowing,
     });
@@ -2215,6 +2219,9 @@ export function evaluateFunctionParameters({
             isOwningTheRcValue: createdVariadicParameter.isOwningTheRcValue,
             isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
+            docComment: context.docCommentLookup?.get(
+              getDocCommentLookupKey(labelExpr.token)
+            ),
           },
         });
         env = nextEnv;

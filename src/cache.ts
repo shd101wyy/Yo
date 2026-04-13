@@ -10,6 +10,7 @@
  * Cache structure:
  *   <cache_root>/
  *     deps/           — fetched dependency source trees (<name>-<commit12>/)
+ *     versions/       — versioned Yo installations (<version>/)
  */
 
 import * as fs from "fs";
@@ -57,4 +58,18 @@ export function ensureGlobalDepsCacheDir(): string {
   const dir = getGlobalDepsCacheDir();
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Get the global versioned Yo installations cache directory.
+ */
+export function getGlobalVersionsCacheDir(): string {
+  return path.join(getGlobalCacheDir(), "versions");
+}
+
+/**
+ * Get the cache directory for a specific Yo version.
+ */
+export function getVersionCacheDir(version: string): string {
+  return path.join(getGlobalVersionsCacheDir(), version);
 }

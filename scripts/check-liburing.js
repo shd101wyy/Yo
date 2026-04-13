@@ -9,9 +9,9 @@ const fs = require("fs");
 function checkLiburing() {
   const platform = os.platform();
 
-  // Only check on Linux
+  // Only check on Linux. Other platforms don't use io_uring, so keep postinstall
+  // quiet instead of printing a Linux-specific note.
   if (platform !== "linux") {
-    console.log("ℹ️  Async I/O with io_uring is only supported on Linux.");
     return;
   }
 

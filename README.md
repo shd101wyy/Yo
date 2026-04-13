@@ -318,10 +318,49 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 ## Editor Support
 
-- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.
+- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) with built-in **Language Server Protocol (LSP)** support, providing:
+
+  - **Hover information** — types, values, and doc comments for any identifier
+  - **Auto-completion** — struct fields, enum variants, module members, impl methods, keywords
+  - **Go to definition** — jump to any symbol's definition
+  - **Find references** — locate all usages of a symbol
+  - **Rename symbol** — rename across all references
+  - **Document symbols** — outline view of top-level declarations
+  - **Signature help** — parameter hints while typing function calls
+  - **Diagnostics** — real-time error reporting
+  - **Code folding** — collapse function bodies, structs, impl blocks
+
+  The LSP server can also be used with other editors via stdio JSON-RPC:
+
+  ```bash
+  node out/cjs/yo-lsp.cjs --stdio
+  ```
+
+  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for full documentation.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
+
+## Version Management
+
+Yo supports per-project version pinning via a `.yo-version` file (similar to `.nvmrc` or `.python-version`):
+
+```bash
+# Pin your project to a specific Yo version
+yo version pin 0.1.12
+
+# Show current and pinned version
+yo version
+
+# Install, list, and clean cached versions
+yo version install 0.1.13
+yo version list
+yo version clean
+```
+
+When a `.yo-version` file exists, the `yo` CLI automatically dispatches to the pinned version — downloading and caching it on first use. The LSP server also reads `.yo-version` to resolve the correct standard library for go-to-definition and completions.
+
+See [docs/en-US/VERSION_MANAGEMENT.md](./docs/en-US/VERSION_MANAGEMENT.md) for full documentation.
 
 ## AI Agent Skills
 

@@ -1,3 +1,4 @@
+/// This is a Point struct
 Point :: struct(
   /// This is the x coordinate of the point.
   (x : i32) ?= 0,
@@ -6,13 +7,32 @@ Point :: struct(
   (y : i32) ?= 1
 );
 
+impl(Point,
+  /// Add 2 points together.
+  add : (fn(
+    /// self point
+    self : Self, 
+
+    /// other point
+    other : Self
+  ) -> Point)(
+    Self(self.x + other.x, self.y + other.y)
+  )
+);
+
 main :: (fn() -> unit) {
+  /// p1 is a Point struct with default values.
   p1 := Point();
   assert(p1.x == 0);
   assert(p1.y == 1);
 
+  /// p2 is also a Point struct with default values, but using a different syntax.
   (p2 : Point) = {};
   assert(p2.x == 0);
   assert(p2.y == 1);
+
+  p2.add(p1);
+
+  ()
 };
 export main;
