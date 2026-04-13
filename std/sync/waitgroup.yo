@@ -23,7 +23,8 @@
 { Cond } :: import "./cond";
 
 /// Synchronization primitive that blocks until a counter reaches zero.
-WaitGroup :: object(
+/// Uses atomic reference counting for safe cross-thread sharing.
+WaitGroup :: atomic object(
   _count : i32,
   _mutex : Mutex,
   _cv    : Cond
