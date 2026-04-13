@@ -2409,6 +2409,37 @@ Please use explicit using() to disambiguate.`,
     }
   }
 
+  // When we're in a recursive call during specialization and we have the
+  // specializing function context, create a forward-reference FunctionValue
+  // with the correct specialized funcId and return type. This ensures codegen
+  // uses the specialized function name and concrete return type instead of
+  // the generic original.
+  if (
+    isRecursiveCallDuringSpecialization &&
+    !specializedFunctionValue &&
+    context.currentlySpecializingFunction &&
+    functionValue &&
+    isFunctionValue(functionValue)
+  ) {
+    const specInfo = context.currentlySpecializingFunction;
+    // Create a forward-reference function value pointing to the specialized version
+    specializedFunctionValue = {
+      ...functionValue,
+      funcId: specInfo.specializedFuncId,
+      specializedType: {
+        ...functionType,
+        return: {
+          ...functionType.return,
+          type: specInfo.specializedReturnType,
+        },
+      },
+    };
+    // Update returnType to the concrete specialized return type
+    if (isSomeType(returnType)) {
+      returnType = specInfo.specializedReturnType;
+    }
+  }
+
   // Direct ctl function call: the ctl function is called without an intermediate
   // function with `using(ctl)`. The function body was deferred because of forall
   // parameters. We need to evaluate it with concrete types so codegen can inline it.
@@ -2478,6 +2509,93 @@ Please use explicit using() to disambiguate.`,
     runtimeArgExprsInOrder,
     deferredDropExpressions,
   };
+}
+
+/**
+ * Convert a value to a string suitable for specialization signature.
+ * Includes type IDs for nominal type uniqueness.
+ */
+function valueToSignatureString(value: Value): string {
+  if (isTypeValue(value)) {
+    const type = value.value;
+    if (type.id) {
+      return `${valueToString(value)}_id${type.id}`;
+    }
+  }
+  if (isFunctionValue(value)) {
+    return `fn_${value.funcId}`;
+  }
+  return valueToString(value);
+}
+
+/**
+ * Compute the compile-time signature string for a function specialization.
+ * This deterministically produces the same string for the same set of
+ * compile-time args, forall args, implicit args, and runtime param types.
+ */
+function computeCompileTimeSignature({
+  functionType,
+  argValues,
+  calleeEnv,
+  runtimeParameters,
+}: {
+  functionType: FunctionType;
+  argValues: ArgValues;
+  calleeEnv: Environment;
+  runtimeParameters: FunctionParameter[];
+}): string {
+  const parts: string[] = [];
+
+  // Include forall type arguments
+  functionType.forallParameters.forEach((param, index) => {
+    if (index < argValues.forallArgs.length) {
+      const arg = argValues.forallArgs[index]!;
+      parts.push(sanitizeForCIdentifier(valueToSignatureString(arg.value)));
+    } else {
+      const label = param.label;
+      const variables = getVariablesFromEnv(calleeEnv, label);
+      if (variables.length > 0 && variables[variables.length - 1]?.value?.[0]) {
+        parts.push(
+          sanitizeForCIdentifier(
+            valueToSignatureString(variables[variables.length - 1]!.value![0])
+          )
+        );
+      } else {
+        parts.push("unknown");
+      }
+    }
+  });
+
+  // Include compile-time regular parameters
+  functionType.parameters.forEach((param, index) => {
+    if (param.isCompileTimeOnly && index < argValues.args.length) {
+      const arg = argValues.args[index];
+      if (arg) {
+        parts.push(sanitizeForCIdentifier(valueToSignatureString(arg.value!)));
+      } else {
+        parts.push("unknown");
+      }
+    }
+  });
+
+  // Include implicit parameter values
+  if (argValues.implicitArgs) {
+    argValues.implicitArgs.forEach((arg) => {
+      parts.push(sanitizeForCIdentifier(valueToSignatureString(arg.value)));
+    });
+  }
+
+  // Include runtime parameter types if they have unique type IDs
+  runtimeParameters.forEach((param, index) => {
+    const paramType = param.type;
+    if (paramType.id || typeContainsSomeType(paramType)) {
+      parts.push(
+        `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`
+      );
+    }
+  });
+
+  return parts.join("_");
 }
 
 /**
@@ -2699,6 +2817,28 @@ function createSpecializedFunctionInline({
           moduleTypeContainsCtlField(arg.value.type as ModuleType, arg.value))
     ) ?? false;
 
+  // Compute the specialization signature BEFORE body evaluation so that
+  // recursive calls within the body can look up the specialized funcId.
+  const earlyCompileTimeSignature = computeCompileTimeSignature({
+    functionType,
+    argValues,
+    calleeEnv,
+    runtimeParameters,
+  });
+  const earlySpecializedFuncId = `${originalFunction.funcId}_${earlyCompileTimeSignature}`;
+
+  // Store specialization info in context for recursive call detection.
+  // When the body contains a recursive call to this same function with the same
+  // compile-time args, tryToCallFunctionWithArguments can create a forward-reference
+  // FunctionValue with the correct specializedFuncId and specializedReturnType.
+  const previousSpecializingFunction = context.currentlySpecializingFunction;
+  context.currentlySpecializingFunction = {
+    originalFuncId: originalFunction.funcId,
+    specializedFuncId: earlySpecializedFuncId,
+    specializedReturnType,
+    originalFunction,
+  };
+
   const specializedBody = evaluateBeginExpression({
     expr: clonedBody,
     env: specializedEnv,
@@ -2731,6 +2871,9 @@ function createSpecializedFunctionInline({
     variablesToAdd: [],
     isEvaluatingFunctionBodyBeginBlock: true,
   });
+  // Restore previous specializing function context
+  context.currentlySpecializingFunction = previousSpecializingFunction;
+
   if (!specializedBody.$) {
     throw formatErrorMessage({
       token: originalFunction.body.token,
@@ -3277,89 +3420,8 @@ function createSpecializedFunctionInline({
     specializedBody.$.effectAnalysis = mergedAnalysis;
   }
 
-  // Create signature for the specialized function
-  const compileTimeSignatureParts: string[] = [];
-
-  // Include forall type arguments
-  // Helper function to convert a value to a string for signature, including type IDs
-  const valueToSignatureString = (value: Value): string => {
-    if (isTypeValue(value)) {
-      const type = value.value;
-      // Always include the type ID to ensure uniqueness across different nominal types.
-      // Different types with the same display name (e.g., two different
-      // Counter :: object(count: i32) from different scopes in batch compilation)
-      // must produce different specialization signatures.
-      if (type.id) {
-        return `${valueToString(value)}_id${type.id}`;
-      }
-    }
-    if (isFunctionValue(value)) {
-      // Include funcId for function values to distinguish different anonymous functions
-      // (e.g., different ctl effect handlers passed as implicit arguments)
-      return `fn_${value.funcId}`;
-    }
-    return valueToString(value);
-  };
-
-  // In theory all the forallArgs should be compile-time arguments
-  functionType.forallParameters.forEach((param, index) => {
-    if (index < argValues.forallArgs.length) {
-      const arg = argValues.forallArgs[index]!;
-      compileTimeSignatureParts.push(
-        sanitizeForCIdentifier(valueToSignatureString(arg.value))
-      );
-    } else {
-      const label = param.label;
-      // Check if it's in the calleeEnv
-      // Its value might be available after synthesizing types
-      const variables = getVariablesFromEnv(calleeEnv, label);
-      if (variables.length > 0 && variables[variables.length - 1]?.value?.[0]) {
-        compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(
-            valueToSignatureString(variables[variables.length - 1]!.value![0])
-          )
-        );
-      } else {
-        compileTimeSignatureParts.push("unknown");
-      }
-    }
-  });
-
-  // Include compile-time regular parameters
-  functionType.parameters.forEach((param, index) => {
-    if (param.isCompileTimeOnly && index < argValues.args.length) {
-      const arg = argValues.args[index];
-      if (arg) {
-        compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(valueToSignatureString(arg.value!))
-        );
-      } else {
-        compileTimeSignatureParts.push("unknown");
-      }
-    }
-  });
-
-  // Include implicit parameter values in the compile-time signature
-  if (argValues.implicitArgs) {
-    argValues.implicitArgs.forEach((arg) => {
-      compileTimeSignatureParts.push(
-        sanitizeForCIdentifier(valueToSignatureString(arg.value))
-      );
-    });
-  }
-
-  // Include runtime parameter types if they have unique type IDs
-  // This ensures different concrete types get different specializations
-  runtimeParameters.forEach((param, index) => {
-    const paramType = param.type;
-    if (paramType.id || typeContainsSomeType(paramType)) {
-      compileTimeSignatureParts.push(
-        `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`
-      );
-    }
-  });
-
-  const compileTimeSignature = compileTimeSignatureParts.join("_");
+  // Use the signature computed before body evaluation — inputs are identical
+  const compileTimeSignature = earlyCompileTimeSignature;
 
   // Resolve implicit parameters by substituting SomeType forall params
   // with their concrete types from forall args. This preserves effect

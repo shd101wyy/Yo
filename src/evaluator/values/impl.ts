@@ -40,6 +40,7 @@ import {
   isFunctionType,
   isSliceType,
   isSomeType,
+  isStructType,
   isTraitType,
   isType0,
 } from "../../types/guards";
@@ -1725,10 +1726,57 @@ function tryMatchGenericImpl({
 
   // Try to unify the concrete type with the receiver type pattern
   try {
-    const { expectedEnv } = synthesizeTypes(
+    let { expectedEnv } = synthesizeTypes(
       { type: impl.receiverTypePattern, env: unifyEnv },
       { type: concreteType, env }
     );
+
+    // When structural field unification can't bind all forall type parameters
+    // (e.g., when a struct erases type params to *(void) to break circular deps),
+    // fall back to extracting bindings from the concrete type's captured env.
+    // The concrete type's env was captured at construction time and contains
+    // the actual type parameter values (e.g., K=i32, V=i32).
+    if (isStructType(concreteType)) {
+      for (const param of impl.forallParameters) {
+        if (param.kind !== "type") continue;
+        const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
+          expectedEnv,
+          param.someType
+        );
+        // Still unresolved (SomeType → itself)?  Try the concrete type's env.
+        // Use name-based lookup since the forall param's SomeType was defined at
+        // a different frame level than the concrete type's env bindings.
+        if (isSomeType(boundType)) {
+          const resolved = getValueOfSomeTypeFromEnvForGenericImpl(
+            concreteType.env,
+            param.someType
+          );
+          if (!isSomeType(resolved)) {
+            // Update the forall param's value in-place in expectedEnv.
+            // We can't use addVariableToEnv because the param already exists
+            // in the forall frame. Instead, find and update its value directly.
+            for (let fi = expectedEnv.frames.length - 1; fi >= 0; fi--) {
+              const frame = expectedEnv.frames[fi]!;
+              const varIdx = frame.variables.findIndex(
+                (v) => v.name === param.name
+              );
+              if (varIdx >= 0) {
+                // Clone frames immutably
+                const newFrames = expectedEnv.frames.slice();
+                const newVars = frame.variables.slice();
+                newVars[varIdx] = {
+                  ...newVars[varIdx]!,
+                  value: [createTypeValue(resolved)],
+                };
+                newFrames[fi] = { ...frame, variables: newVars };
+                expectedEnv = { ...expectedEnv, frames: newFrames };
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
 
     // Check if all where constraints are satisfied
     for (const {

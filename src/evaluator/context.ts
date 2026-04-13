@@ -261,6 +261,18 @@ export interface EvaluatorContext {
   isEvaluatingGenericImplSpecialization?: boolean;
 
   /**
+   * When inside createSpecializedFunctionInline body evaluation, this stores
+   * the specialized funcId and return type so that recursive calls can create
+   * a forward-reference to the specialized function being built.
+   */
+  currentlySpecializingFunction?: {
+    originalFuncId: string;
+    specializedFuncId: string;
+    specializedReturnType: Type;
+    originalFunction: FunctionValue;
+  };
+
+  /**
    * Lookup map from declaration token location to doc comment content.
    * Built by extractDocComments() before evaluation starts.
    * Used by initialization-assignment to set Variable.docComment.

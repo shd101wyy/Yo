@@ -1,0 +1,171 @@
+//! Persistent immutable hash set using a Hash Array Mapped Trie (HAMT).
+//!
+//! `Set(T)` is a thin wrapper around `Map(T, bool)`, backed by `atomic object`
+//! nodes for thread-safe structural sharing. All mutations return new sets,
+//! leaving the original unchanged.
+//!
+//! Elements must implement `Eq`, `Hash`, and `Send`.
+//!
+//! # Examples
+//!
+//! ```rust
+//! { Set } :: import "std/imm/set";
+//!
+//! s := Set(i32).new();
+//! s = s.insert(i32(1));
+//! s = s.insert(i32(2));
+//! assert(s.contains(i32(1)), "set contains 1");
+//! assert((s.len() == usize(2)), "two elements");
+//! ```
+
+{ Map } :: import "./map.yo";
+{ List } :: import "./list.yo";
+
+/// Persistent immutable hash set backed by a HAMT.
+///
+/// Wraps `Map(T, bool)` internally. The bool values are always `true`.
+Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send))) -> comptime(Type))(
+  struct(_inner : Map(T, bool))
+);
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
+  /// Create an empty set.
+  new : (fn() -> Self)(
+    Self(_inner: Map(T, bool).new())
+  ),
+
+  /// Number of elements.
+  len : (fn(self: Self) -> usize)(self._inner.len()),
+
+  /// Check if the set is empty.
+  is_empty : (fn(self: Self) -> bool)(self._inner.is_empty()),
+
+  /// Check if the set contains `elem`.
+  contains : (fn(self: Self, elem: T) -> bool)(
+    self._inner.contains_key(elem)
+  ),
+
+  /// Return a new set with `elem` added.
+  insert : (fn(self: Self, elem: T) -> Self)(
+    Self(_inner: self._inner.insert(elem, true))
+  ),
+
+  /// Return a new set with `elem` removed.
+  remove : (fn(self: Self, elem: T) -> Self)(
+    Self(_inner: self._inner.remove(elem))
+  ),
+
+  /// Return the union of two sets (`self ∪ other`).
+  union : (fn(self: Self, other: Self) -> Self)(
+    Self(_inner: self._inner.merge(other._inner))
+  ),
+
+  /// Return the intersection of two sets (`self ∩ other`).
+  intersection : (fn(self: Self, other: Self) -> Self)({
+    elems := self.to_list();
+    (result : Self) = Self.new();
+    (cur : List(T)) = elems;
+    (done : bool) = false;
+    while runtime(!(done)), {
+      match(cur.head(),
+        .Some(elem) => {
+          if(other.contains(elem), {
+            result = result.insert(elem);
+          });
+          cur = cur.tail();
+        },
+        .None => {
+          done = true;
+        }
+      );
+    };
+    result
+  }),
+
+  /// Return the difference (`self \ other`).
+  difference : (fn(self: Self, other: Self) -> Self)({
+    elems := self.to_list();
+    (result : Self) = Self.new();
+    (cur : List(T)) = elems;
+    (done : bool) = false;
+    while runtime(!(done)), {
+      match(cur.head(),
+        .Some(elem) => {
+          if(!(other.contains(elem)), {
+            result = result.insert(elem);
+          });
+          cur = cur.tail();
+        },
+        .None => {
+          done = true;
+        }
+      );
+    };
+    result
+  }),
+
+  /// Check if `self` is a subset of `other`.
+  is_subset : (fn(self: Self, other: Self) -> bool)({
+    if((self.len() > other.len()), {
+      return false;
+    });
+    elems := self.to_list();
+    (cur : List(T)) = elems;
+    (result : bool) = true;
+    while runtime((result && !(cur.is_empty()))), {
+      match(cur.head(),
+        .Some(elem) => {
+          if(!(other.contains(elem)), {
+            result = false;
+          });
+          cur = cur.tail();
+        },
+        .None => ()
+      );
+    };
+    result
+  }),
+
+  /// Check if two sets are disjoint.
+  is_disjoint : (fn(self: Self, other: Self) -> bool)({
+    (smaller : Self) = cond(
+      (self.len() <= other.len()) => self,
+      true => other
+    );
+    (larger : Self) = cond(
+      (self.len() <= other.len()) => other,
+      true => self
+    );
+    elems := smaller.to_list();
+    (cur : List(T)) = elems;
+    (result : bool) = true;
+    while runtime((result && !(cur.is_empty()))), {
+      match(cur.head(),
+        .Some(elem) => {
+          if(larger.contains(elem), {
+            result = false;
+          });
+          cur = cur.tail();
+        },
+        .None => ()
+      );
+    };
+    result
+  }),
+
+  /// Collect all elements into a List.
+  to_list : (fn(self: Self) -> List(T))(
+    self._inner.keys()
+  )
+);
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T), Eq(Set(T))(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    if((lhs.len() != rhs.len()), {
+      return false;
+    });
+    lhs.is_subset(rhs)
+  })
+));
+
+export Set;
