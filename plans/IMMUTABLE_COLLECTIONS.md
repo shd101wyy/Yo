@@ -781,10 +781,13 @@ The builder uses a mutable internal representation during construction, then "fr
 
 - Migrated `Mutex`, `Cond`, `Once`, `RwLock`, `WaitGroup` from `object(...)` to `atomic object(...)`
 - They now natively implement `Send` without needing `Arc` wrapper
-- `Channel` left as `object(...)` because it contains `Deque(T)` which is a regular `object` type
-  - `Channel` is still thread-safe (all access is protected by mutex), but it cannot auto-derive `Send`
-  - Future work: replace internal `Deque` with raw array buffer to enable `atomic object` migration
-- All existing `tests/sync/` tests pass: once (11), waitgroup (14), rwlock (15), channel (23)
+- Added `impl(Send)` for `__YO_THREAD_SYNC_TYPE` and `__YO_COND_TYPE` extern types
+  so Mutex/Cond auto-derive Send as atomic objects
+- **Channel** migrated to `atomic object` with inline ring buffer (replaced `Deque(T)`)
+  - Added `where(T <: Send)` constraint on type constructor
+  - Custom `Dispose` to drop remaining elements and free buffer
+  - Tests updated: removed `arc()` wrapping and `.(*)` dereferences
+- All `tests/sync/` tests pass: channel (24), once (11), waitgroup (14), rwlock (15)
 
 ---
 
@@ -793,6 +796,6 @@ The builder uses a mutable internal representation during construction, then "fr
 1. **Module path**: `std/imm` — short and ergonomic for imports.
 2. **Type names**: Bare names (`List`, `Vec`, `Map`, `String`, `Set`, `SortedMap`, `SortedSet`) — no `Imm` prefix. Users disambiguate via explicit imports.
 3. **`imm.String` vs `std/string.String`**: They are separate types. `imm.String` is for thread-safe sharing; `std/string.String` remains the mutable single-threaded string. No deprecation or replacement planned.
-4. **`std/sync` migration**: Done for Mutex, Cond, Once, RwLock, WaitGroup. Channel deferred (needs internal refactor).
+4. **`std/sync` migration**: Complete. All sync primitives (Mutex, Cond, Once, RwLock, WaitGroup, Channel) use `atomic object` and auto-derive `Send`.
 5. **Builder API location**: Builders live in the same file as each collection (not separate files).
 6. **`SortedSet(T)`**: Included — wrapper around `SortedMap(T, bool)`, added to Phase 5.
