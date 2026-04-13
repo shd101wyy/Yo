@@ -372,7 +372,13 @@ export function generateReturn(
       }
     }
 
-    const returnType = getTypeString(expr.$.type!, context);
+    let returnType: string;
+    try {
+      returnType = getTypeString(expr.$.type!, context);
+    } catch (e) {
+      const funcName = context.currentFunctionName ?? "unknown";
+      throw new Error(`In function ${funcName}: ${(e as Error).message}`);
+    }
 
     // The evaluator provides a temp variable name for return expressions so we can
     // compute the value before running deferred drops.

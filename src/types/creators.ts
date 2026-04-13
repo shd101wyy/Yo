@@ -733,7 +733,8 @@ export function createTupleType(fields: TypeField[]): TupleType {
 export function createStructType(
   env: Environment,
   isReferenceSemantics: boolean = false,
-  isNewtype: boolean = false
+  isNewtype: boolean = false,
+  isAtomicRc: boolean = false
 ): StructType {
   const trait = createTraitType(env);
 
@@ -741,6 +742,7 @@ export function createStructType(
     id: `struct_${randomId(env.modulePath)}`,
     tag: TypeTag.Struct,
     isReferenceSemantics,
+    isAtomicRc: isAtomicRc || undefined,
     isNewtype,
     fields: [],
     trait,

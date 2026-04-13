@@ -15,15 +15,18 @@ import {
   addRcFunctionSignaturesToStructType,
   autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
+import { beginSendDerivation, endSendDerivation } from "../trait-checking";
 
 export function evaluateStructType({
   expr,
   env,
   context,
+  isAtomicRc = false,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isAtomicRc?: boolean;
 }): FnCallExpr {
   const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
@@ -42,13 +45,27 @@ export function evaluateStructType({
 
   // Create structType with empty fields
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType(env, isReferenceSemantics, isNewtype);
+  const structType = createStructType(
+    env,
+    isReferenceSemantics,
+    isNewtype,
+    isAtomicRc
+  );
   addRcFunctionSignaturesToStructType({ structType, env, context });
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
     structType.definedInModulePath = context.currentModulePath;
     structType.trait.definedInModulePath = context.currentModulePath;
+  }
+
+  // For atomic objects, register Send derivation in-progress BEFORE evaluating fields.
+  // Self-referential types like `atomic object(_next: Option(Self))` trigger
+  // Option enum creation during field evaluation, which checks Send for this type.
+  // Without this, the cycle causes Send derivation to fail.
+  const needsSendCycleBreak = isAtomicRc;
+  if (needsSendCycleBreak) {
+    beginSendDerivation(structType.id);
   }
 
   // Evaluate the fields
@@ -97,6 +114,11 @@ export function evaluateStructType({
     context,
     errorToken: expr.token,
   });
+
+  // Clear the Send cycle break AFTER auto-derive is complete
+  if (needsSendCycleBreak) {
+    endSendDerivation(structType.id);
+  }
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);

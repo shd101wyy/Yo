@@ -1218,11 +1218,12 @@ export function generateStructDeclaration(
 
   if (structType.isReferenceSemantics) {
     // For object, generate a struct with the common reference header
+    const atomicTag = structType.isAtomicRc ? " atomic" : "";
     emitter.emitDeclarationLine(
-      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (${atomicTag ? "atomic " : ""}reference counted)`
     );
     emitter.emitDeclarationLine(
-      `  __yo_ref_header_t header; // Reference count header`
+      `  __yo_ref_header_t header; // ${atomicTag ? "Atomic r" : "R"}eference count header`
     );
 
     for (const field of structType.fields) {

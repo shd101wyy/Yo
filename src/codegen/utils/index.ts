@@ -517,7 +517,7 @@ export function getTypeString(
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
-          `No C type name found for ${kind} ${typeToString(type)}`
+          `No C type name found for ${kind} ${typeToString(type)} (id=${type.id})`
         );
       }
 

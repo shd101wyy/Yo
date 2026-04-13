@@ -1515,7 +1515,13 @@ Got:   ${typeToString(typeValue.type)}`,
       areTypesCompatible(
         { type: context.expectedType.type, env: context.expectedType.env },
         { type: returnType, env: calleeEnv }
-      )
+      ) &&
+      // Don't replace a concrete return type with a SomeType-containing expected type.
+      // The expectedType may contain unresolved SomeTypes (e.g., List(SomeType U) from
+      // a forall method's original function type), while the actual return type is already
+      // fully resolved (e.g., List(i32)). Using the SomeType-containing type would cause
+      // codegen to encounter types with no C representation.
+      !typeContainsSomeType(context.expectedType.type)
     ) {
       returnType = context.expectedType.type;
     } else {
@@ -2498,7 +2504,11 @@ function createSpecializedFunctionInline({
       (_callProfilerState.specializeNames.get(funcName) ?? 0) + 1
     );
   }
-  const functionType = originalFunction.type;
+  // Use the specializedType if available (e.g., from generic impl specialization
+  // where Self and type params are already resolved to concrete types like List(i32)).
+  // Fall back to originalFunction.type for non-specialized functions.
+  const functionType =
+    originalFunction.specializedType ?? originalFunction.type;
 
   // Extract compile-time argument values for caching
   const compileTimeArgValues: Value[] = [];
@@ -2700,7 +2710,13 @@ function createSpecializedFunctionInline({
       },
       isEvaluatingFunctionBodyOrAsyncBlock: {
         kind: "function-body",
-        type: functionType,
+        // Use a function type with the specialized return type so that return
+        // expressions inside the body get the concrete type (e.g., List(i32))
+        // instead of the original SomeType-containing type (e.g., List(U)).
+        type: {
+          ...functionType,
+          return: { ...functionType.return, type: specializedReturnType },
+        },
         value: originalFunction,
         evaluationEnv: specializedEnv,
       },

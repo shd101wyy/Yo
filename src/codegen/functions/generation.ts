@@ -1892,6 +1892,11 @@ function generateRefStructTraversalFunctions(
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
+      // Atomic objects don't participate in cycle GC — no traversal needed
+      if (type.isAtomicRc) {
+        continue;
+      }
+
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
         typeContainsSomeType(field.type)
@@ -2016,11 +2021,11 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
-      // Initialize non-atomic RC fields
+      // Initialize RC header
       emitter.emitLine(
         `  obj->header.ref_count = 1;  // Start with one reference`
       );
-      if (context.needsCycleGC) {
+      if (context.needsCycleGC && !type.isAtomicRc) {
         emitter.emitLine(`  obj->header.gc_flags = 0;`);
         emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
         emitter.emitLine(`  obj->header.gc_next = NULL;`);
@@ -2074,7 +2079,8 @@ export function generateRefStructConstructorFunctions(
       }
 
       // Set traversal function pointer for GC (only when cycle detection is needed)
-      if (context.needsCycleGC) {
+      // Atomic objects never participate in cycle GC
+      if (context.needsCycleGC && !type.isAtomicRc) {
         const traversalFunctionName = `__yo_traverse_${cName}`;
         emitter.emitLine(
           `  obj->header.traverse_fn = ${traversalFunctionName};`
@@ -2088,8 +2094,10 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
+      // Atomic objects never participate in cycle GC
       if (
         context.needsCycleGC &&
+        !type.isAtomicRc &&
         canTypeFormRcCycle(type, new Set(), type.env)
       ) {
         emitter.emitLine(`  __yo_gc_register(obj);`);

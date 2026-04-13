@@ -987,11 +987,20 @@ export function findMethodsFromGenericImpls({
           // with undefined value - no specialized function body is created.
           // The proper specialization will happen later when called with concrete values.
           const hasUnknownTypes = typeContainsUnknownValue(concreteType);
+
+          // When any forall type parameter is bound to a SomeType (e.g., T→U
+          // inside a forall(U) method), we can't fully specialize the body.
+          // The type-only specialization path handles this correctly.
+          const hasUnresolvedTypeParams = [...match.substitutions].some(
+            ([key, type]) => key !== "Self" && isSomeType(type)
+          );
+
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
             (match.valueSubstitutions.size > 0 ||
               match.substitutions.size > 0) &&
-            !hasUnknownTypes;
+            !hasUnknownTypes &&
+            !hasUnresolvedTypeParams;
 
           if (shouldCreateSpecializedValue) {
             // Use the environment where the impl was originally defined
@@ -1143,12 +1152,10 @@ export function findMethodsFromGenericImpls({
               value: specializedFunctionValue,
             });
             methodIsInherent.push(isInherentImpl);
-          } else if (hasUnknownTypes) {
-            // We have unknown types (like unknown array length), so we can't fully specialize
-            // the function body. However, we should still re-evaluate the function TYPE
-            // to properly substitute known type parameters (like T = i32).
-            // Without this, the parameter type would remain as the unspecialized SomeType "T"
-            // instead of being resolved to the concrete element type.
+          } else if (hasUnknownTypes || hasUnresolvedTypeParams) {
+            // We have unknown types (like unknown array length), or unresolved type
+            // parameters (like T→U inside a forall(U) method). We can't fully
+            // specialize the function body.
 
             // Use the environment where the impl was originally defined
             const baseEnv = impl.definitionEnv;
@@ -1192,7 +1199,8 @@ export function findMethodsFromGenericImpls({
               specializedEnv = nextEnv;
             }
 
-            // Re-evaluate the function type to get specialized parameter/return types
+            // Re-evaluate the function TYPE to properly substitute known type
+            // parameters (like T = i32) while keeping the body unevaluated.
             const specializedType = reEvaluateFunctionType({
               functionType: method.type,
               specializedEnv,
@@ -1824,7 +1832,14 @@ function tryMatchGenericImpl({
           expectedEnv,
           param.someType
         );
-        if (boundType && !isSomeType(boundType)) {
+        // Include the substitution if the type was resolved to a concrete type,
+        // OR if it was unified to a DIFFERENT SomeType (e.g., T unified to U
+        // from an outer forall scope). Only skip when T is still its own
+        // original unresolved SomeType (meaning nothing was unified).
+        if (
+          boundType &&
+          (!isSomeType(boundType) || boundType !== param.someType)
+        ) {
           substitutions.set(param.name, boundType);
         }
       } else {

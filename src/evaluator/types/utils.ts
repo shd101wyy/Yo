@@ -1268,8 +1268,8 @@ export function autoDeriveSendForStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  if (structType.isReferenceSemantics) {
-    return env; // No auto-derive Send for object types
+  if (structType.isReferenceSemantics && !structType.isAtomicRc) {
+    return env; // No auto-derive Send for non-atomic object types
   }
 
   // Check if all fields implement Send

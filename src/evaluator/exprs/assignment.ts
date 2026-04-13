@@ -515,12 +515,14 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
     } else {
-      // Disallow reassignment of SomeType (Impl(...)) variables.
-      // In Rust, once a variable's concrete type is determined through `impl Trait`,
-      // it cannot be reassigned to a different value (even of the same trait).
-      // This is because Impl(...) uses static dispatch and the concrete type is fixed.
-      // If you need to reassign closures with different capture types, use Dyn(...) instead.
-      if (isSomeType(variableType)) {
+      // Disallow reassignment of Impl(...) SomeType variables.
+      // Impl(...) uses static dispatch and the concrete type is fixed at first assignment.
+      // However, forall type parameters (SomeType without resolvedConcreteType) ARE
+      // reassignable — they represent abstract generic types, not Impl dispatch targets.
+      if (
+        isSomeType(variableType) &&
+        variableType.resolvedConcreteType !== undefined
+      ) {
         throw formatErrorMessages([
           {
             token: lhs.token,

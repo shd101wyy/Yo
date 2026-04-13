@@ -365,6 +365,34 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
       // dyn
       return evaluateDynValue({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.atomic)) {
+      // atomic object(...) — atomic reference counted object
+      if (expr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `"atomic" expects exactly one argument: atomic object(...)`,
+        });
+      }
+      const innerExpr = expr.args[0]!;
+      if (
+        !exprIsFunctionCall(innerExpr) ||
+        !exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
+      ) {
+        throw formatErrorMessage({
+          token: innerExpr.token,
+          errorMessage: `"atomic" modifier is only valid before "object(...)". Got:\n${exprToString(innerExpr)}`,
+        });
+      }
+      const result = evaluateObjectType({
+        expr: innerExpr,
+        env,
+        context: { ...context },
+        isAtomicRc: true,
+      });
+      // Propagate the evaluated result back to the atomic expr
+      expr.$ = result.$;
+      expr.func.$ = result.$;
+      return expr;
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
       // struct
       return evaluateStructType({

@@ -172,6 +172,16 @@ export function isObjectType(
   );
 }
 
+export function isAtomicObjectType(
+  type?: Type
+): type is StructType & { isReferenceSemantics: true; isAtomicRc: true } {
+  return (
+    type?.tag === TypeTag.Struct &&
+    (type as StructType).isReferenceSemantics &&
+    (type as StructType).isAtomicRc === true
+  );
+}
+
 export function isNewtypeType(
   type?: Type
 ): type is StructType & { isNewtype: true } {

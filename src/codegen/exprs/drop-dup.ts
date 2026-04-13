@@ -3,6 +3,7 @@ import type { Type } from "../../types/definitions";
 import {
   isArcType,
   isArrayType,
+  isAtomicObjectType,
   isDynType,
   isEnumType,
   isIsoType,
@@ -86,6 +87,9 @@ export function generateDropCodeForValue(
   // Handle other types
   if (isDynType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}).data)`;
+  }
+  if (isAtomicObjectType(concreteType)) {
+    return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
   }
   if (isObjectType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}))`;
@@ -172,6 +176,10 @@ export function generateDupCodeForValue(
   if (isDynType(concreteType)) {
     const dynCName = getTypeString(concreteType, context);
     return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
+  }
+  if (isAtomicObjectType(concreteType)) {
+    const objCName = getTypeString(concreteType, context);
+    return `((${objCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
   }
   if (isObjectType(concreteType)) {
     const objCName = getTypeString(concreteType, context);

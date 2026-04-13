@@ -13,15 +13,18 @@ import { evaluateStructType } from "./struct";
  * Evaluate object types:
  *
  * - object(...) - Reference semantics struct (equivalent to object)
+ * - atomic object(...) - Atomic reference counted object (thread-safe, no cycle GC)
  */
 export function evaluateObjectType({
   expr,
   env,
   context,
+  isAtomicRc = false,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isAtomicRc?: boolean;
 }): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
     throw formatErrorMessage({
@@ -36,6 +39,6 @@ export function evaluateObjectType({
     expr,
     env,
     context,
-    // isReferenceSemantics is automatically set to true for 'object' in evaluateStructType
+    isAtomicRc,
   });
 }

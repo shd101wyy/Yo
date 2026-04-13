@@ -169,6 +169,7 @@ typedef enum {
       if (
         isStructType(type) &&
         type.isReferenceSemantics &&
+        !type.isAtomicRc &&
         !type.fields.some((field) => typeContainsSomeType(field.type))
       ) {
         if (canTypeFormRcCycle(type, new Set(), type.env)) {

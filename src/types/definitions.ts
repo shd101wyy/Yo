@@ -456,6 +456,15 @@ export interface StructType extends Type {
   isReferenceSemantics: boolean;
 
   /**
+   * Whether this object uses atomic reference counting.
+   * true for "atomic object(...)", false otherwise.
+   * Atomic objects use thread-safe atomic RC operations and do NOT
+   * participate in cycle collection. They auto-derive Send when
+   * all fields implement Send.
+   */
+  isAtomicRc?: boolean;
+
+  /**
    * Whether this struct is a newtype.
    * A newtype is a struct with a single element.
    * eg:
