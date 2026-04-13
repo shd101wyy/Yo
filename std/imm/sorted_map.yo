@@ -19,6 +19,7 @@
 //! ```
 
 { List } :: import "./list.yo";
+{ Pair } :: import "./map.yo";
 
 /// Color of a red-black tree node.
 Color :: enum(Red, Black);
@@ -553,13 +554,28 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
   /// Return list of values in key order.
   values : (fn(self: Self) -> List(V))(
     _collect_values(K, V, self._root, List(V).new())
-  )
+  ),
+
+  /// Create a sorted map from a slice of key-value pairs.
+  from_entries : (fn(pairs: Slice(Pair(K, V))) -> Self)({
+    (result : Self) = Self.new();
+    i := usize(0);
+    plen := pairs.len();
+    while (i < plen), (i = (i + usize(1))), {
+      p := (pairs.ptr() &+ i).*;
+      result = result.insert(p.key, p.value);
+    };
+    result
+  })
 );
 
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)), SortedMap(K, V), Eq(SortedMap(K, V))(
   (==) : (fn(lhs: Self, rhs: Self) -> bool)({
     if((lhs._len != rhs._len), {
       return false;
+    });
+    if(((lhs._len == usize(0)) && (rhs._len == usize(0))), {
+      return true;
     });
     lhs_keys := lhs.keys();
     lhs_vals := lhs.values();

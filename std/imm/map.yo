@@ -878,6 +878,18 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send), Map
       .None => ()
     );
     result
+  }),
+
+  /// Create a map from a slice of key-value pairs.
+  from_entries : (fn(pairs: Slice(Pair(K, V))) -> Self)({
+    (result : Self) = Self.new();
+    i := usize(0);
+    plen := pairs.len();
+    while (i < plen), (i = (i + usize(1))), {
+      p := (pairs.ptr() &+ i).*;
+      result = result.insert(p.key, p.value);
+    };
+    result
   })
 );
 
@@ -885,6 +897,9 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: (Send, Eq(
   (==) : (fn(lhs: Self, rhs: Self) -> bool)({
     if((lhs._len != rhs._len), {
       return false;
+    });
+    if(((lhs._len == usize(0)) && (rhs._len == usize(0))), {
+      return true;
     });
     match(lhs._root,
       .Some(root) => _all_entries_match(K, V, root, rhs),

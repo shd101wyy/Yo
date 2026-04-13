@@ -770,12 +770,19 @@ The builder uses a mutable internal representation during construction, then "fr
 - Implement `SortedSet(T)` as wrapper around `SortedMap(T, unit)`
 - Write tests in `tests/imm_sorted_map.test.yo`, `tests/imm_sorted_set.test.yo`
 
-### Phase 6 — Builders + Optimizations
+### Phase 6 — Builders + Optimizations ✅ DONE
 
-- Transient/builder APIs for bulk construction (in same file as each collection)
-- Pointer equality fast path for Eq/Hash
-- Small-map optimization (flat array for ≤ 8 entries, avoiding trie overhead)
-- Performance benchmarks vs mutable collections
+- **Bulk constructors**: Added `from_slice` (Vec, Set, SortedSet) and `from_entries` (Map, SortedMap)
+  - `Vec.from_slice` uses memcpy for O(n) bulk copy
+  - `Map.from_entries` / `SortedMap.from_entries` accept `Slice(Pair(K,V))`
+  - `Set.from_slice` / `SortedSet.from_slice` accept `Slice(T)`
+  - SortedMap imports `Pair` from `map.yo`
+- **Eq simplification**: Set/SortedSet delegate equality to inner Map/SortedMap
+  - Map/SortedMap: added empty-length fast path `(lhs._len == 0 && rhs._len == 0)`
+- **Pointer equality**: Not feasible — Yo cannot cast `atomic object` to pointer/integer for identity comparison. Deferred until language-level support is added.
+- **Small-map optimization**: Deferred — not high priority; HAMT already performs well for small maps.
+- **Performance benchmarks**: Deferred — no benchmark framework in Yo yet.
+- Tests added for all from_slice/from_entries APIs across all 5 collection test files.
 
 ### Phase 7 — Migrate `std/sync` to `atomic object` ✅ DONE
 

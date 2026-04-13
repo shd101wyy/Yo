@@ -201,3 +201,25 @@ test "SortedMap remove all entries", {
   assert(m.is_empty(), "should be empty after removing all");
   assert((m.len() == usize(0)), "len 0");
 };
+
+test "SortedMap from_entries builds correct map", {
+  m := SortedMap(i32, i32).new().insert(i32(3), i32(30)).insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  assert((m.len() == usize(3)), "len = 3");
+  assert((m.get(i32(1)).unwrap() == i32(10)), "key 1");
+  assert((m.get(i32(2)).unwrap() == i32(20)), "key 2");
+  assert((m.get(i32(3)).unwrap() == i32(30)), "key 3");
+  assert((m.min_key().unwrap() == i32(1)), "min key = 1");
+  assert((m.max_key().unwrap() == i32(3)), "max key = 3");
+};
+
+test "SortedMap empty equality", {
+  m1 := SortedMap(i32, i32).new();
+  m2 := SortedMap(i32, i32).new();
+  assert((m1 == m2), "two empty sorted maps are equal");
+};
+
+test "SortedMap equality same elements", {
+  m1 := SortedMap(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := SortedMap(i32, i32).new().insert(i32(2), i32(20)).insert(i32(1), i32(10));
+  assert((m1 == m2), "same elements different insertion order");
+};

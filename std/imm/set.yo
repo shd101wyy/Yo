@@ -156,16 +156,24 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
   /// Collect all elements into a List.
   to_list : (fn(self: Self) -> List(T))(
     self._inner.keys()
-  )
+  ),
+
+  /// Create a set from a slice of elements.
+  from_slice : (fn(s: Slice(T)) -> Self)({
+    (result : Self) = Self.new();
+    i := usize(0);
+    slen := s.len();
+    while (i < slen), (i = (i + usize(1))), {
+      result = result.insert((s.ptr() &+ i).*);
+    };
+    result
+  })
 );
 
 impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T), Eq(Set(T))(
-  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
-    if((lhs.len() != rhs.len()), {
-      return false;
-    });
-    lhs.is_subset(rhs)
-  })
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)(
+    (lhs._inner == rhs._inner)
+  )
 ));
 
 export Set;

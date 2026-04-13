@@ -304,6 +304,20 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
       (new_ptr &+ i).* = f((self._ptr &+ i).*, other.get(i).unwrap());
     };
     Vec(V)(_ptr: new_ptr, _len: min_len, _cap: min_len)
+  }),
+
+  /// Create a vector from a slice, copying all elements.
+  from_slice : (fn(s: Slice(T)) -> Self)({
+    slen := s.len();
+    cap := cond(
+      (slen > usize(0)) => slen,
+      true => usize(4)
+    );
+    new_ptr := Self._raw_alloc(cap);
+    if((slen > usize(0)), {
+      memcpy(*(void)(new_ptr), *(void)(s.ptr()), (sizeof(T) * slen));
+    });
+    Self(_ptr: new_ptr, _len: slen, _cap: cap)
   })
 );
 

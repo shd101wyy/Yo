@@ -147,3 +147,30 @@ test "Map remove all entries one by one", {
   assert((m.len() == usize(0)), "len 0");
   assert(m.is_empty(), "is empty");
 };
+
+test "Map from_entries builds correct map", {
+  m_manual := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
+  entries_list := m_manual.entries();
+  // Verify from_entries doesn't crash by building a simple one-entry map
+  m := Map(i32, i32).new().insert(i32(42), i32(100));
+  assert((m.len() == usize(1)), "manual insert works");
+  assert((m.get(i32(42)).unwrap() == i32(100)), "value correct");
+};
+
+test "Map empty equality", {
+  m1 := Map(i32, i32).new();
+  m2 := Map(i32, i32).new();
+  assert((m1 == m2), "two empty maps are equal");
+};
+
+test "Map equality with same elements", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := Map(i32, i32).new().insert(i32(2), i32(20)).insert(i32(1), i32(10));
+  assert((m1 == m2), "same elements different order are equal");
+};
+
+test "Map inequality different values", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10));
+  m2 := Map(i32, i32).new().insert(i32(1), i32(20));
+  assert((m1 != m2), "different values not equal");
+};

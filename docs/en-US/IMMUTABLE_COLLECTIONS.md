@@ -120,22 +120,23 @@ Also implements `Eq(Self)`, `Hash`, and `Send`.
 
 Constraint: `T <: Send`
 
-| Method     | Signature                                      | Description     |
-| ---------- | ---------------------------------------------- | --------------- |
-| `new`      | `() -> Self`                                   | Empty vector    |
-| `len`      | `(self) -> usize`                              | Length          |
-| `is_empty` | `(self) -> bool`                               | Check empty     |
-| `get`      | `(self, index: usize) -> Option(T)`            | O(1) access     |
-| `push`     | `(self, value: T) -> Self`                     | Append          |
-| `set`      | `(self, index: usize, value: T) -> Self`       | Update at index |
-| `pop`      | `(self) -> Self`                               | Remove last     |
-| `slice`    | `(self, start: usize, end: usize) -> Self`     | Sub-vector      |
-| `concat`   | `(self, other: Self) -> Self`                  | Concatenate     |
-| `map`      | `(self, f: Impl(Fn(T) -> U)) -> Vec(U)`        | Transform       |
-| `filter`   | `(self, f: Impl(Fn(T) -> bool)) -> Self`       | Keep matching   |
-| `foldl`    | `(self, init: U, f: Impl(Fn(U, T) -> U)) -> U` | Left fold       |
-| `reverse`  | `(self) -> Self`                               | Reverse         |
-| `zip_with` | `(self, other: Vec(U), f) -> Vec(R)`           | Zip + transform |
+| Method       | Signature                                      | Description               |
+| ------------ | ---------------------------------------------- | ------------------------- |
+| `new`        | `() -> Self`                                   | Empty vector              |
+| `from_slice` | `(s: Slice(T)) -> Self`                        | Bulk construct from slice |
+| `len`        | `(self) -> usize`                              | Length                    |
+| `is_empty`   | `(self) -> bool`                               | Check empty               |
+| `get`        | `(self, index: usize) -> Option(T)`            | O(1) access               |
+| `push`       | `(self, value: T) -> Self`                     | Append                    |
+| `set`        | `(self, index: usize, value: T) -> Self`       | Update at index           |
+| `pop`        | `(self) -> Self`                               | Remove last               |
+| `slice`      | `(self, start: usize, end: usize) -> Self`     | Sub-vector                |
+| `concat`     | `(self, other: Self) -> Self`                  | Concatenate               |
+| `map`        | `(self, f: Impl(Fn(T) -> U)) -> Vec(U)`        | Transform                 |
+| `filter`     | `(self, f: Impl(Fn(T) -> bool)) -> Self`       | Keep matching             |
+| `foldl`      | `(self, init: U, f: Impl(Fn(U, T) -> U)) -> U` | Left fold                 |
+| `reverse`    | `(self) -> Self`                               | Reverse                   |
+| `zip_with`   | `(self, other: Vec(U), f) -> Vec(R)`           | Zip + transform           |
 
 Also implements `Eq(Self)` when `T <: Eq(T)`.
 
@@ -143,21 +144,22 @@ Also implements `Eq(Self)` when `T <: Eq(T)`.
 
 Constraint: `K <: (Eq(K), Hash, Send)`, `V <: Send`
 
-| Method         | Signature                          | Description        |
-| -------------- | ---------------------------------- | ------------------ |
-| `new`          | `() -> Self`                       | Empty map          |
-| `len`          | `(self) -> usize`                  | Entry count        |
-| `is_empty`     | `(self) -> bool`                   | Check empty        |
-| `get`          | `(self, key: K) -> Option(V)`      | Lookup             |
-| `contains_key` | `(self, key: K) -> bool`           | Key exists?        |
-| `insert`       | `(self, key: K, value: V) -> Self` | Insert/update      |
-| `remove`       | `(self, key: K) -> Self`           | Remove key         |
-| `merge`        | `(self, other: Self) -> Self`      | Merge (right wins) |
-| `keys`         | `(self) -> List(K)`                | All keys           |
-| `values`       | `(self) -> List(V)`                | All values         |
-| `entries`      | `(self) -> List(MapEntry(K, V))`   | All entries        |
-| `map_values`   | `(self, f) -> Map(K, U)`           | Transform values   |
-| `filter`       | `(self, f) -> Self`                | Keep matching      |
+| Method         | Signature                           | Description               |
+| -------------- | ----------------------------------- | ------------------------- |
+| `new`          | `() -> Self`                        | Empty map                 |
+| `from_entries` | `(pairs: Slice(Pair(K,V))) -> Self` | Bulk construct from pairs |
+| `len`          | `(self) -> usize`                   | Entry count               |
+| `is_empty`     | `(self) -> bool`                    | Check empty               |
+| `get`          | `(self, key: K) -> Option(V)`       | Lookup                    |
+| `contains_key` | `(self, key: K) -> bool`            | Key exists?               |
+| `insert`       | `(self, key: K, value: V) -> Self`  | Insert/update             |
+| `remove`       | `(self, key: K) -> Self`            | Remove key                |
+| `merge`        | `(self, other: Self) -> Self`       | Merge (right wins)        |
+| `keys`         | `(self) -> List(K)`                 | All keys                  |
+| `values`       | `(self) -> List(V)`                 | All values                |
+| `entries`      | `(self) -> List(MapEntry(K, V))`    | All entries               |
+| `map_values`   | `(self, f) -> Map(K, U)`            | Transform values          |
+| `filter`       | `(self, f) -> Self`                 | Keep matching             |
 
 Also implements `Eq(Self)` when `V <: Eq(V)`.
 
@@ -168,6 +170,7 @@ Constraint: `T <: (Eq(T), Hash, Send)`
 | Method         | Signature                     | Description      |
 | -------------- | ----------------------------- | ---------------- |
 | `new`          | `() -> Self`                  | Empty set        |
+| `from_slice`   | `(s: Slice(T)) -> Self`       | Bulk construct   |
 | `len`          | `(self) -> usize`             | Element count    |
 | `is_empty`     | `(self) -> bool`              | Check empty      |
 | `contains`     | `(self, elem: T) -> bool`     | Membership       |
@@ -186,19 +189,20 @@ Also implements `Eq(Self)`.
 
 Constraint: `K <: (Eq(K), Ord(K), Send)`, `V <: Send`
 
-| Method         | Signature                          | Description         |
-| -------------- | ---------------------------------- | ------------------- |
-| `new`          | `() -> Self`                       | Empty map           |
-| `len`          | `(self) -> usize`                  | Entry count         |
-| `is_empty`     | `(self) -> bool`                   | Check empty         |
-| `get`          | `(self, key: K) -> Option(V)`      | Lookup              |
-| `contains_key` | `(self, key: K) -> bool`           | Key exists?         |
-| `insert`       | `(self, key: K, value: V) -> Self` | Insert/update       |
-| `remove`       | `(self, key: K) -> Self`           | Remove key          |
-| `min_key`      | `(self) -> Option(K)`              | Smallest key        |
-| `max_key`      | `(self) -> Option(K)`              | Largest key         |
-| `keys`         | `(self) -> List(K)`                | In-order keys       |
-| `values`       | `(self) -> List(V)`                | Values in key order |
+| Method         | Signature                           | Description               |
+| -------------- | ----------------------------------- | ------------------------- |
+| `new`          | `() -> Self`                        | Empty map                 |
+| `from_entries` | `(pairs: Slice(Pair(K,V))) -> Self` | Bulk construct from pairs |
+| `len`          | `(self) -> usize`                   | Entry count               |
+| `is_empty`     | `(self) -> bool`                    | Check empty               |
+| `get`          | `(self, key: K) -> Option(V)`       | Lookup                    |
+| `contains_key` | `(self, key: K) -> bool`            | Key exists?               |
+| `insert`       | `(self, key: K, value: V) -> Self`  | Insert/update             |
+| `remove`       | `(self, key: K) -> Self`            | Remove key                |
+| `min_key`      | `(self) -> Option(K)`               | Smallest key              |
+| `max_key`      | `(self) -> Option(K)`               | Largest key               |
+| `keys`         | `(self) -> List(K)`                 | In-order keys             |
+| `values`       | `(self) -> List(V)`                 | Values in key order       |
 
 Also implements `Eq(Self)` when `V <: Eq(V)`.
 
@@ -209,6 +213,7 @@ Constraint: `T <: (Eq(T), Ord(T), Send)`
 | Method         | Signature                     | Description      |
 | -------------- | ----------------------------- | ---------------- |
 | `new`          | `() -> Self`                  | Empty set        |
+| `from_slice`   | `(s: Slice(T)) -> Self`       | Bulk construct   |
 | `len`          | `(self) -> usize`             | Element count    |
 | `is_empty`     | `(self) -> bool`              | Check empty      |
 | `contains`     | `(self, elem: T) -> bool`     | Membership       |

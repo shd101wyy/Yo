@@ -118,22 +118,23 @@ SafeNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 约束：`T <: Send`
 
-| 方法       | 签名                                           | 说明           |
-| ---------- | ---------------------------------------------- | -------------- |
-| `new`      | `() -> Self`                                   | 空向量         |
-| `len`      | `(self) -> usize`                              | 长度           |
-| `is_empty` | `(self) -> bool`                               | 是否为空       |
-| `get`      | `(self, index: usize) -> Option(T)`            | O(1) 访问      |
-| `push`     | `(self, value: T) -> Self`                     | 追加           |
-| `set`      | `(self, index: usize, value: T) -> Self`       | 更新索引处的值 |
-| `pop`      | `(self) -> Self`                               | 移除最后一个   |
-| `slice`    | `(self, start: usize, end: usize) -> Self`     | 子向量         |
-| `concat`   | `(self, other: Self) -> Self`                  | 连接           |
-| `map`      | `(self, f: Impl(Fn(T) -> U)) -> Vec(U)`        | 变换           |
-| `filter`   | `(self, f: Impl(Fn(T) -> bool)) -> Self`       | 保留匹配项     |
-| `foldl`    | `(self, init: U, f: Impl(Fn(U, T) -> U)) -> U` | 左折叠         |
-| `reverse`  | `(self) -> Self`                               | 反转           |
-| `zip_with` | `(self, other: Vec(U), f) -> Vec(R)`           | 配对变换       |
+| 方法         | 签名                                           | 说明           |
+| ------------ | ---------------------------------------------- | -------------- |
+| `new`        | `() -> Self`                                   | 空向量         |
+| `from_slice` | `(s: Slice(T)) -> Self`                        | 从切片批量构造 |
+| `len`        | `(self) -> usize`                              | 长度           |
+| `is_empty`   | `(self) -> bool`                               | 是否为空       |
+| `get`        | `(self, index: usize) -> Option(T)`            | O(1) 访问      |
+| `push`       | `(self, value: T) -> Self`                     | 追加           |
+| `set`        | `(self, index: usize, value: T) -> Self`       | 更新索引处的值 |
+| `pop`        | `(self) -> Self`                               | 移除最后一个   |
+| `slice`      | `(self, start: usize, end: usize) -> Self`     | 子向量         |
+| `concat`     | `(self, other: Self) -> Self`                  | 连接           |
+| `map`        | `(self, f: Impl(Fn(T) -> U)) -> Vec(U)`        | 变换           |
+| `filter`     | `(self, f: Impl(Fn(T) -> bool)) -> Self`       | 保留匹配项     |
+| `foldl`      | `(self, init: U, f: Impl(Fn(U, T) -> U)) -> U` | 左折叠         |
+| `reverse`    | `(self) -> Self`                               | 反转           |
+| `zip_with`   | `(self, other: Vec(U), f) -> Vec(R)`           | 配对变换       |
 
 当 `T <: Eq(T)` 时还实现 `Eq(Self)`。
 
@@ -141,21 +142,22 @@ SafeNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 约束：`K <: (Eq(K), Hash, Send)`，`V <: Send`
 
-| 方法           | 签名                               | 说明           |
-| -------------- | ---------------------------------- | -------------- |
-| `new`          | `() -> Self`                       | 空映射         |
-| `len`          | `(self) -> usize`                  | 条目数         |
-| `is_empty`     | `(self) -> bool`                   | 是否为空       |
-| `get`          | `(self, key: K) -> Option(V)`      | 查找           |
-| `contains_key` | `(self, key: K) -> bool`           | 键是否存在     |
-| `insert`       | `(self, key: K, value: V) -> Self` | 插入/更新      |
-| `remove`       | `(self, key: K) -> Self`           | 移除键         |
-| `merge`        | `(self, other: Self) -> Self`      | 合并（右覆盖） |
-| `keys`         | `(self) -> List(K)`                | 所有键         |
-| `values`       | `(self) -> List(V)`                | 所有值         |
-| `entries`      | `(self) -> List(MapEntry(K, V))`   | 所有条目       |
-| `map_values`   | `(self, f) -> Map(K, U)`           | 变换值         |
-| `filter`       | `(self, f) -> Self`                | 保留匹配项     |
+| 方法           | 签名                                | 说明             |
+| -------------- | ----------------------------------- | ---------------- |
+| `new`          | `() -> Self`                        | 空映射           |
+| `from_entries` | `(pairs: Slice(Pair(K,V))) -> Self` | 从键值对批量构造 |
+| `len`          | `(self) -> usize`                   | 条目数           |
+| `is_empty`     | `(self) -> bool`                    | 是否为空         |
+| `get`          | `(self, key: K) -> Option(V)`       | 查找             |
+| `contains_key` | `(self, key: K) -> bool`            | 键是否存在       |
+| `insert`       | `(self, key: K, value: V) -> Self`  | 插入/更新        |
+| `remove`       | `(self, key: K) -> Self`            | 移除键           |
+| `merge`        | `(self, other: Self) -> Self`       | 合并（右覆盖）   |
+| `keys`         | `(self) -> List(K)`                 | 所有键           |
+| `values`       | `(self) -> List(V)`                 | 所有值           |
+| `entries`      | `(self) -> List(MapEntry(K, V))`    | 所有条目         |
+| `map_values`   | `(self, f) -> Map(K, U)`            | 变换值           |
+| `filter`       | `(self, f) -> Self`                 | 保留匹配项       |
 
 当 `V <: Eq(V)` 时还实现 `Eq(Self)`。
 
@@ -163,20 +165,21 @@ SafeNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 约束：`T <: (Eq(T), Hash, Send)`
 
-| 方法           | 签名                          | 说明       |
-| -------------- | ----------------------------- | ---------- |
-| `new`          | `() -> Self`                  | 空集合     |
-| `len`          | `(self) -> usize`             | 元素数     |
-| `is_empty`     | `(self) -> bool`              | 是否为空   |
-| `contains`     | `(self, elem: T) -> bool`     | 成员检查   |
-| `insert`       | `(self, elem: T) -> Self`     | 添加元素   |
-| `remove`       | `(self, elem: T) -> Self`     | 移除元素   |
-| `union`        | `(self, other: Self) -> Self` | 集合并集   |
-| `intersection` | `(self, other: Self) -> Self` | 集合交集   |
-| `difference`   | `(self, other: Self) -> Self` | 集合差集   |
-| `is_subset`    | `(self, other: Self) -> bool` | 子集检查   |
-| `is_disjoint`  | `(self, other: Self) -> bool` | 不相交检查 |
-| `to_list`      | `(self) -> List(T)`           | 收集为列表 |
+| 方法           | 签名                          | 说明           |
+| -------------- | ----------------------------- | -------------- |
+| `new`          | `() -> Self`                  | 空集合         |
+| `from_slice`   | `(s: Slice(T)) -> Self`       | 从切片批量构造 |
+| `len`          | `(self) -> usize`             | 元素数         |
+| `is_empty`     | `(self) -> bool`              | 是否为空       |
+| `contains`     | `(self, elem: T) -> bool`     | 成员检查       |
+| `insert`       | `(self, elem: T) -> Self`     | 添加元素       |
+| `remove`       | `(self, elem: T) -> Self`     | 移除元素       |
+| `union`        | `(self, other: Self) -> Self` | 集合并集       |
+| `intersection` | `(self, other: Self) -> Self` | 集合交集       |
+| `difference`   | `(self, other: Self) -> Self` | 集合差集       |
+| `is_subset`    | `(self, other: Self) -> bool` | 子集检查       |
+| `is_disjoint`  | `(self, other: Self) -> bool` | 不相交检查     |
+| `to_list`      | `(self) -> List(T)`           | 收集为列表     |
 
 还实现了 `Eq(Self)`。
 
@@ -184,19 +187,20 @@ SafeNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 约束：`K <: (Eq(K), Ord(K), Send)`，`V <: Send`
 
-| 方法           | 签名                               | 说明       |
-| -------------- | ---------------------------------- | ---------- |
-| `new`          | `() -> Self`                       | 空映射     |
-| `len`          | `(self) -> usize`                  | 条目数     |
-| `is_empty`     | `(self) -> bool`                   | 是否为空   |
-| `get`          | `(self, key: K) -> Option(V)`      | 查找       |
-| `contains_key` | `(self, key: K) -> bool`           | 键是否存在 |
-| `insert`       | `(self, key: K, value: V) -> Self` | 插入/更新  |
-| `remove`       | `(self, key: K) -> Self`           | 移除键     |
-| `min_key`      | `(self) -> Option(K)`              | 最小键     |
-| `max_key`      | `(self) -> Option(K)`              | 最大键     |
-| `keys`         | `(self) -> List(K)`                | 有序键列表 |
-| `values`       | `(self) -> List(V)`                | 键序值列表 |
+| 方法           | 签名                                | 说明             |
+| -------------- | ----------------------------------- | ---------------- |
+| `new`          | `() -> Self`                        | 空映射           |
+| `from_entries` | `(pairs: Slice(Pair(K,V))) -> Self` | 从键值对批量构造 |
+| `len`          | `(self) -> usize`                   | 条目数           |
+| `is_empty`     | `(self) -> bool`                    | 是否为空         |
+| `get`          | `(self, key: K) -> Option(V)`       | 查找             |
+| `contains_key` | `(self, key: K) -> bool`            | 键是否存在       |
+| `insert`       | `(self, key: K, value: V) -> Self`  | 插入/更新        |
+| `remove`       | `(self, key: K) -> Self`            | 移除键           |
+| `min_key`      | `(self) -> Option(K)`               | 最小键           |
+| `max_key`      | `(self) -> Option(K)`               | 最大键           |
+| `keys`         | `(self) -> List(K)`                 | 有序键列表       |
+| `values`       | `(self) -> List(V)`                 | 键序值列表       |
 
 当 `V <: Eq(V)` 时还实现 `Eq(Self)`。
 
@@ -204,22 +208,23 @@ SafeNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 约束：`T <: (Eq(T), Ord(T), Send)`
 
-| 方法           | 签名                          | 说明       |
-| -------------- | ----------------------------- | ---------- |
-| `new`          | `() -> Self`                  | 空集合     |
-| `len`          | `(self) -> usize`             | 元素数     |
-| `is_empty`     | `(self) -> bool`              | 是否为空   |
-| `contains`     | `(self, elem: T) -> bool`     | 成员检查   |
-| `insert`       | `(self, elem: T) -> Self`     | 添加元素   |
-| `remove`       | `(self, elem: T) -> Self`     | 移除元素   |
-| `min`          | `(self) -> Option(T)`         | 最小元素   |
-| `max`          | `(self) -> Option(T)`         | 最大元素   |
-| `to_list`      | `(self) -> List(T)`           | 有序列表   |
-| `union`        | `(self, other: Self) -> Self` | 集合并集   |
-| `intersection` | `(self, other: Self) -> Self` | 集合交集   |
-| `difference`   | `(self, other: Self) -> Self` | 集合差集   |
-| `is_subset`    | `(self, other: Self) -> bool` | 子集检查   |
-| `is_disjoint`  | `(self, other: Self) -> bool` | 不相交检查 |
+| 方法           | 签名                          | 说明           |
+| -------------- | ----------------------------- | -------------- |
+| `new`          | `() -> Self`                  | 空集合         |
+| `from_slice`   | `(s: Slice(T)) -> Self`       | 从切片批量构造 |
+| `len`          | `(self) -> usize`             | 元素数         |
+| `is_empty`     | `(self) -> bool`              | 是否为空       |
+| `contains`     | `(self, elem: T) -> bool`     | 成员检查       |
+| `insert`       | `(self, elem: T) -> Self`     | 添加元素       |
+| `remove`       | `(self, elem: T) -> Self`     | 移除元素       |
+| `min`          | `(self) -> Option(T)`         | 最小元素       |
+| `max`          | `(self) -> Option(T)`         | 最大元素       |
+| `to_list`      | `(self) -> List(T)`           | 有序列表       |
+| `union`        | `(self, other: Self) -> Self` | 集合并集       |
+| `intersection` | `(self, other: Self) -> Self` | 集合交集       |
+| `difference`   | `(self, other: Self) -> Self` | 集合差集       |
+| `is_subset`    | `(self, other: Self) -> bool` | 子集检查       |
+| `is_disjoint`  | `(self, other: Self) -> bool` | 不相交检查     |
 
 还实现了 `Eq(Self)`。
 

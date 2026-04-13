@@ -239,3 +239,35 @@ test "Vec structural sharing", {
   assert((v2.get(usize(2)).unwrap() == i32(3)), "v2 last = 3");
   assert((v3.get(usize(2)).unwrap() == i32(4)), "v3 last = 4");
 };
+
+test "Vec from_slice single element", {
+  arr := [i32; 1](i32(42));
+  v := Vec(i32).from_slice(arr(usize(0)..usize(1)));
+  assert((v.len() == usize(1)), "len = 1");
+  assert((v.get(usize(0)).unwrap() == i32(42)), "elem 0");
+};
+
+test "Vec from_slice with elements", {
+  arr := [i32; 5](i32(10), i32(20), i32(30), i32(40), i32(50));
+  v := Vec(i32).from_slice(arr(usize(0)..usize(5)));
+  assert((v.len() == usize(5)), "len = 5");
+  assert((v.get(usize(0)).unwrap() == i32(10)), "elem 0");
+  assert((v.get(usize(2)).unwrap() == i32(30)), "elem 2");
+  assert((v.get(usize(4)).unwrap() == i32(50)), "elem 4");
+};
+
+test "Vec from_slice then push", {
+  arr := [i32; 3](i32(1), i32(2), i32(3));
+  v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
+  v2 := v1.push(i32(4));
+  assert((v1.len() == usize(3)), "original unchanged");
+  assert((v2.len() == usize(4)), "new has 4");
+  assert((v2.get(usize(3)).unwrap() == i32(4)), "appended elem");
+};
+
+test "Vec from_slice equality", {
+  arr := [i32; 3](i32(1), i32(2), i32(3));
+  v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
+  v2 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
+  assert((v1 == v2), "from_slice equals manual push");
+};
