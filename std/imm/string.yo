@@ -1,0 +1,607 @@
+//! Immutable, thread-safe UTF-8 string type.
+//!
+//! Uses atomic reference counting for safe sharing across threads.
+//! All "modification" operations return a new string; the original is unchanged.
+
+{ GlobalAllocator } :: import "../allocator.yo";
+{ malloc, free } :: GlobalAllocator;
+{ memcpy, memcmp } :: import "../libc/string.yo";
+{ rune } :: import "../string/rune.yo";
+std_string :: import "../string";
+{ ToString } :: import "../fmt/to_string.yo";
+imm_list :: import "./list.yo";
+
+_min :: (fn(a: usize, b: usize) -> usize)(
+  cond((a < b) => a, true => b)
+);
+
+_alloc_bytes :: (fn(n: usize) -> *(u8))({
+  match(malloc(n),
+    .Some(p) => *(u8)(p),
+    .None => panic("imm.String: allocation failed")
+  )
+});
+
+/// Immutable, thread-safe UTF-8 string.
+///
+/// Uses atomic RC — cheap to clone, safe to share across threads.
+/// No mutable operations. All "modification" methods return a new String.
+///
+/// Empty strings are zero-allocation (null pointer, zero length).
+String :: atomic object(
+  _ptr : ?*(u8),
+  _len : usize,
+  _capacity : usize
+);
+
+impl(String, Dispose(
+  dispose : (fn(self: Self) -> unit)({
+    match(self._ptr,
+      .Some(p) => free(.Some(*(void)(p))),
+      .None => ()
+    );
+  })
+));
+
+impl(String,
+  /// Create a new empty string (zero allocation).
+  new : (fn() -> Self)(
+    Self(_ptr: .None, _len: usize(0), _capacity: usize(0))
+  ),
+
+  /// Create a string from a `str` slice (copies the bytes).
+  from : (fn(s: str) -> Self)({
+    slen := s.len();
+    if((slen == usize(0)), {
+      return Self(_ptr: .None, _len: usize(0), _capacity: usize(0));
+    });
+    ptr := _alloc_bytes(slen);
+    memcpy(*(void)(ptr), *(void)(s.ptr()), slen);
+    return Self(_ptr: .Some(ptr), _len: slen, _capacity: slen);
+  }),
+
+  /// Create a string from a standard (mutable) String by copying its bytes.
+  from_string : (fn(s: std_string.String) -> Self)({
+    slen := s.bytes_len();
+    if((slen == usize(0)), {
+      return Self(_ptr: .None, _len: usize(0), _capacity: usize(0));
+    });
+    ptr := _alloc_bytes(slen);
+    (as_str : str) = s.as_str();
+    memcpy(*(void)(ptr), *(void)(as_str.ptr()), slen);
+    return Self(_ptr: .Some(ptr), _len: slen, _capacity: slen);
+  }),
+
+  /// Byte length of the string.
+  bytes_len : (fn(self: Self) -> usize)(
+    self._len
+  ),
+
+  /// Number of Unicode characters (runes) in the string.
+  len : (fn(self: Self) -> usize)({
+    if((self._len == usize(0)), {
+      return usize(0);
+    });
+    count := usize(0);
+    i := usize(0);
+    match(self._ptr,
+      .None => (),
+      .Some(p) => {
+        while (i < self._len), (i = (i + usize(1))), {
+          (b : u8) = (p &+ i).*;
+          if(((b & u8(0xC0)) != u8(0x80)), {
+            count = (count + usize(1));
+          });
+        };
+      }
+    );
+    count
+  }),
+
+  /// Check if the string is empty.
+  is_empty : (fn(self: Self) -> bool)(
+    (self._len == usize(0))
+  ),
+
+  /// Get a `str` view of the string's bytes (zero-copy borrow).
+  as_str : (fn(self: Self) -> str)(
+    match(self._ptr,
+      .Some(p) => str.from_raw_parts(p, self._len),
+      .None => str.from_raw_parts(*(u8)(""), usize(0))
+    )
+  ),
+
+  /// Get the byte at a given index, or `.None` if out of bounds.
+  byte_at : (fn(self: Self, index: usize) -> Option(u8))(
+    cond(
+      (index >= self._len) => .None,
+      true => match(self._ptr,
+        .Some(p) => .Some((p &+ index).*),
+        .None => .None
+      )
+    )
+  ),
+
+  /// Concatenate two strings, returning a new string.
+  concat : (fn(self: Self, other: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return other;
+    });
+    if((other._len == usize(0)), {
+      return self;
+    });
+    new_len := (self._len + other._len);
+    ptr := _alloc_bytes(new_len);
+    match(self._ptr,
+      .Some(sp) => { memcpy(*(void)(ptr), *(void)(sp), self._len); },
+      .None => ()
+    );
+    match(other._ptr,
+      .Some(op) => { memcpy(*(void)((ptr &+ self._len)), *(void)(op), other._len); },
+      .None => ()
+    );
+    return Self(_ptr: .Some(ptr), _len: new_len, _capacity: new_len);
+  }),
+
+  /// Extract a byte-range substring [start, end). Returns a new string.
+  /// If indices are out of bounds, clamps to valid range.
+  slice : (fn(self: Self, start: usize, end: usize) -> Self)({
+    (clamped_start : usize) = _min(start, self._len);
+    (clamped_end : usize) = _min(end, self._len);
+    if((clamped_start >= clamped_end), {
+      return Self.new();
+    });
+    new_len := (clamped_end - clamped_start);
+    ptr := _alloc_bytes(new_len);
+    match(self._ptr,
+      .Some(sp) => { memcpy(*(void)(ptr), *(void)((sp &+ clamped_start)), new_len); },
+      .None => ()
+    );
+    return Self(_ptr: .Some(ptr), _len: new_len, _capacity: new_len);
+  }),
+
+  /// Check if the string starts with a given prefix.
+  starts_with : (fn(self: Self, prefix: Self) -> bool)({
+    if((prefix._len > self._len), {
+      return false;
+    });
+    if((prefix._len == usize(0)), {
+      return true;
+    });
+    match(self._ptr,
+      .Some(sp) => match(prefix._ptr,
+        .Some(pp) => (memcmp(*(void)(sp), *(void)(pp), prefix._len) == int(0)),
+        .None => true
+      ),
+      .None => (prefix._len == usize(0))
+    )
+  }),
+
+  /// Check if the string ends with a given suffix.
+  ends_with : (fn(self: Self, suffix: Self) -> bool)({
+    if((suffix._len > self._len), {
+      return false;
+    });
+    if((suffix._len == usize(0)), {
+      return true;
+    });
+    offset := (self._len - suffix._len);
+    match(self._ptr,
+      .Some(sp) => match(suffix._ptr,
+        .Some(xp) => (memcmp(*(void)((sp &+ offset)), *(void)(xp), suffix._len) == int(0)),
+        .None => true
+      ),
+      .None => (suffix._len == usize(0))
+    )
+  }),
+
+  /// Find the first occurrence of `needle` starting at `from_index`.
+  /// Returns byte index or `.None`.
+  index_of : (fn(self: Self, needle: Self, from_index: usize) -> Option(usize))({
+    if((needle._len == usize(0)), {
+      return .Some(from_index);
+    });
+    if(((from_index + needle._len) > self._len), {
+      return .None;
+    });
+    match(self._ptr,
+      .None => { return .None; },
+      .Some(sp) => match(needle._ptr,
+        .None => { return .Some(from_index); },
+        .Some(np) => {
+          i := from_index;
+          limit := ((self._len - needle._len) + usize(1));
+          while (i < limit), (i = (i + usize(1))), {
+            if((memcmp(*(void)((sp &+ i)), *(void)(np), needle._len) == int(0)), {
+              return .Some(i);
+            });
+          };
+          return .None;
+        }
+      )
+    )
+  }),
+
+  /// Check if the string contains a given substring.
+  contains : (fn(self: Self, needle: Self) -> bool)(
+    self.index_of(needle, usize(0)).is_some()
+  ),
+
+  /// Split the string by a separator, returning an immutable List of Strings.
+  split : (fn(self: Self, sep: Self) -> imm_list.List(String))({
+    result := imm_list.List(String).new();
+    if((sep._len == usize(0)), {
+      return result.prepend(self);
+    });
+    pos := usize(0);
+    segments := imm_list.List(String).new();
+    while runtime(true), {
+      match(self.index_of(sep, pos),
+        .Some(idx) => {
+          segments = segments.prepend(self.slice(pos, idx));
+          pos = (idx + sep._len);
+        },
+        .None => {
+          segments = segments.prepend(self.slice(pos, self._len));
+          return segments.reverse();
+        }
+      );
+    };
+    segments.reverse()
+  }),
+
+  /// Check if a byte is ASCII whitespace.
+  _is_whitespace : (fn(b: u8) -> bool)(
+    ((((b == u8(0x20)) || (b == u8(0x09))) || (b == u8(0x0A))) || ((b == u8(0x0D)) || (b == u8(0x0C))))
+  ),
+
+  /// Trim leading and trailing ASCII whitespace.
+  trim : (fn(self: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return self;
+    });
+    match(self._ptr,
+      .None => { return self; },
+      .Some(p) => {
+        start := usize(0);
+        while ((start < self._len) && (Self._is_whitespace((p &+ start).*))),
+              (start = (start + usize(1))),
+              ();
+        end := self._len;
+        while ((end > start) && (Self._is_whitespace((p &+ (end - usize(1))).*))),
+              (end = (end - usize(1))),
+              ();
+        if(((start == usize(0)) && (end == self._len)), {
+          return self;
+        });
+        return self.slice(start, end);
+      }
+    )
+  }),
+
+  /// Trim leading ASCII whitespace.
+  trim_start : (fn(self: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return self;
+    });
+    match(self._ptr,
+      .None => { return self; },
+      .Some(p) => {
+        start := usize(0);
+        while ((start < self._len) && (Self._is_whitespace((p &+ start).*))),
+              (start = (start + usize(1))),
+              ();
+        if((start == usize(0)), {
+          return self;
+        });
+        return self.slice(start, self._len);
+      }
+    )
+  }),
+
+  /// Trim trailing ASCII whitespace.
+  trim_end : (fn(self: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return self;
+    });
+    match(self._ptr,
+      .None => { return self; },
+      .Some(p) => {
+        end := self._len;
+        while ((end > usize(0)) && (Self._is_whitespace((p &+ (end - usize(1))).*))),
+              (end = (end - usize(1))),
+              ();
+        if((end == self._len), {
+          return self;
+        });
+        return self.slice(usize(0), end);
+      }
+    )
+  }),
+
+  /// Convert all ASCII uppercase letters to lowercase.
+  to_lowercase : (fn(self: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return self;
+    });
+    match(self._ptr,
+      .None => { return self; },
+      .Some(sp) => {
+        ptr := _alloc_bytes(self._len);
+        memcpy(*(void)(ptr), *(void)(sp), self._len);
+        i := usize(0);
+        while (i < self._len), (i = (i + usize(1))), {
+          (b : u8) = (ptr &+ i).*;
+          if(((b >= u8(0x41)) && (b <= u8(0x5A))), {
+            (ptr &+ i).* = (b + u8(32));
+          });
+        };
+        return Self(_ptr: .Some(ptr), _len: self._len, _capacity: self._len);
+      }
+    )
+  }),
+
+  /// Convert all ASCII lowercase letters to uppercase.
+  to_uppercase : (fn(self: Self) -> Self)({
+    if((self._len == usize(0)), {
+      return self;
+    });
+    match(self._ptr,
+      .None => { return self; },
+      .Some(sp) => {
+        ptr := _alloc_bytes(self._len);
+        memcpy(*(void)(ptr), *(void)(sp), self._len);
+        i := usize(0);
+        while (i < self._len), (i = (i + usize(1))), {
+          (b : u8) = (ptr &+ i).*;
+          if(((b >= u8(0x61)) && (b <= u8(0x7A))), {
+            (ptr &+ i).* = (b - u8(32));
+          });
+        };
+        return Self(_ptr: .Some(ptr), _len: self._len, _capacity: self._len);
+      }
+    )
+  }),
+
+  /// Replace the first occurrence of `search` with `replacement`.
+  replace : (fn(self: Self, search: Self, replacement: Self) -> Self)({
+    match(self.index_of(search, usize(0)),
+      .None => { return self; },
+      .Some(idx) => {
+        before := self.slice(usize(0), idx);
+        after := self.slice((idx + search._len), self._len);
+        tmp := before.concat(replacement);
+        return tmp.concat(after);
+      }
+    )
+  }),
+
+  /// Replace all occurrences of `search` with `replacement`.
+  replace_all : (fn(self: Self, search: Self, replacement: Self) -> Self)({
+    if((search._len == usize(0)), {
+      return self;
+    });
+    result := Self.new();
+    pos := usize(0);
+    done := false;
+    while (!(done)), {
+      match(self.index_of(search, pos),
+        .Some(idx) => {
+          segment := self.slice(pos, idx);
+          result = result.concat(segment);
+          result = result.concat(replacement);
+          pos = (idx + search._len);
+        },
+        .None => {
+          result = result.concat(self.slice(pos, self._len));
+          done = true;
+        }
+      );
+    };
+    result
+  }),
+
+  /// Repeat the string `n` times.
+  repeat : (fn(self: Self, n: usize) -> Self)({
+    if(((n == usize(0)) || (self._len == usize(0))), {
+      return Self.new();
+    });
+    if((n == usize(1)), {
+      return self;
+    });
+    new_len := (self._len * n);
+    ptr := _alloc_bytes(new_len);
+    match(self._ptr,
+      .Some(sp) => {
+        i := usize(0);
+        while (i < n), (i = (i + usize(1))), {
+          memcpy(*(void)((ptr &+ (i * self._len))), *(void)(sp), self._len);
+        };
+      },
+      .None => ()
+    );
+    return Self(_ptr: .Some(ptr), _len: new_len, _capacity: new_len);
+  }),
+
+  /// Decode a single UTF-8 rune starting at byte index.
+  _decode_rune_at : (fn(self: Self, byte_index: usize) -> Option(rune))({
+    if((byte_index >= self._len), {
+      return .None;
+    });
+    match(self._ptr,
+      .None => { return .None; },
+      .Some(p) => {
+        (b0 : u8) = (p &+ byte_index).*;
+        if(((b0 & u8(0x80)) == u8(0)), {
+          return .Some(rune(char: u32(b0)));
+        });
+        if(((b0 & u8(0xE0)) == u8(0xC0)), {
+          if(((byte_index + usize(1)) >= self._len), {
+            return .None;
+          });
+          (b1 : u8) = (p &+ (byte_index + usize(1))).*;
+          (code : u32) = (((u32(b0) & u32(0x1F)) << u32(6)) | (u32(b1) & u32(0x3F)));
+          return .Some(rune(char: code));
+        });
+        if(((b0 & u8(0xF0)) == u8(0xE0)), {
+          if(((byte_index + usize(2)) >= self._len), {
+            return .None;
+          });
+          (b1 : u8) = (p &+ (byte_index + usize(1))).*;
+          (b2 : u8) = (p &+ (byte_index + usize(2))).*;
+          (code : u32) = ((((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6))) | (u32(b2) & u32(0x3F)));
+          return .Some(rune(char: code));
+        });
+        if(((b0 & u8(0xF8)) == u8(0xF0)), {
+          if(((byte_index + usize(3)) >= self._len), {
+            return .None;
+          });
+          (b1 : u8) = (p &+ (byte_index + usize(1))).*;
+          (b2 : u8) = (p &+ (byte_index + usize(2))).*;
+          (b3 : u8) = (p &+ (byte_index + usize(3))).*;
+          (code : u32) = (((((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12))) | ((u32(b2) & u32(0x3F)) << u32(6))) | (u32(b3) & u32(0x3F)));
+          return .Some(rune(char: code));
+        });
+        return .None;
+      }
+    )
+  }),
+
+  /// Get the Unicode character (rune) at a given character index.
+  at : (fn(self: Self, index: usize) -> Option(rune))({
+    if((self._len == usize(0)), {
+      return .None;
+    });
+    match(self._ptr,
+      .None => { return .None; },
+      .Some(p) => {
+        char_count := usize(0);
+        byte_index := usize(0);
+        while (byte_index < self._len), (), {
+          if((char_count == index), {
+            return self._decode_rune_at(byte_index);
+          });
+          (b : u8) = (p &+ byte_index).*;
+          cond(
+            ((b & u8(0x80)) == u8(0)) => {
+              byte_index = (byte_index + usize(1));
+            },
+            ((b & u8(0xE0)) == u8(0xC0)) => {
+              byte_index = (byte_index + usize(2));
+            },
+            ((b & u8(0xF0)) == u8(0xE0)) => {
+              byte_index = (byte_index + usize(3));
+            },
+            true => {
+              byte_index = (byte_index + usize(4));
+            }
+          );
+          char_count = (char_count + usize(1));
+        };
+        return .None;
+      }
+    )
+  })
+);
+
+/// Equality by byte content.
+impl(String, Eq(String)(
+  (==) : (fn(self: Self, other: Self) -> bool)({
+    if((self._len != other._len), {
+      return false;
+    });
+    if((self._len == usize(0)), {
+      return true;
+    });
+    match(self._ptr,
+      .Some(sp) => match(other._ptr,
+        .Some(op) => (memcmp(*(void)(sp), *(void)(op), self._len) == int(0)),
+        .None => false
+      ),
+      .None => match(other._ptr,
+        .Some(_) => false,
+        .None => true
+      )
+    )
+  }),
+  (!=) : (fn(self: Self, other: Self) -> bool)({
+    return !(Self.(==)(self, other));
+  })
+));
+
+// TODO: Eq(str) impl — "Variable str not found" inside impl blocks for atomic object types.
+// Provide eq_str method instead.
+impl(String,
+  /// Compare with a `str` for equality.
+  eq_str : (fn(self: Self, other: str) -> bool)({
+    other_len := other.len();
+    if((self._len != other_len), {
+      return false;
+    });
+    if((self._len == usize(0)), {
+      return true;
+    });
+    match(self._ptr,
+      .Some(sp) => (memcmp(*(void)(sp), *(void)(other.ptr()), self._len) == int(0)),
+      .None => (other_len == usize(0))
+    )
+  })
+);
+
+/// Lexicographic ordering.
+impl(String, Ord(String)(
+  (<) : (fn(self: Self, other: Self) -> bool)({
+    min_len := _min(self._len, other._len);
+    if((min_len > usize(0)), {
+      match(self._ptr,
+        .Some(sp) => match(other._ptr,
+          .Some(op) => {
+            (cmp_result : int) = memcmp(*(void)(sp), *(void)(op), min_len);
+            if((cmp_result != int(0)), {
+              return (cmp_result < int(0));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    (self._len < other._len)
+  }),
+  (<=) : (fn(self: Self, other: Self) -> bool)({
+    return !(other < self);
+  }),
+  (>) : (fn(self: Self, other: Self) -> bool)(
+    (other < self)
+  ),
+  (>=) : (fn(self: Self, other: Self) -> bool)({
+    return !(self < other);
+  })
+));
+
+/// FNV-1a hash over the string's bytes.
+impl(String, Hash(
+  (hash) : (fn(self: *(Self)) -> u64)({
+    h := u64(14695981039346656037);
+    match(self.*._ptr,
+      .None => (),
+      .Some(p) => {
+        i := usize(0);
+        while (i < self.*._len), (i = (i + usize(1))), {
+          h = (h ^ u64((p &+ i).*));
+          h = (h * u64(1099511628211));
+        };
+      }
+    );
+    h
+  })
+));
+
+/// ToString returns a std.String for compatibility with println/print.
+impl(String, ToString(
+  to_string : (fn(self: *(Self)) -> std_string.String)(
+    std_string.String.from(self.*.as_str())
+  )
+));
+
+export String;
