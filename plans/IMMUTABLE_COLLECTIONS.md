@@ -789,6 +789,15 @@ The builder uses a mutable internal representation during construction, then "fr
   - Tests updated: removed `arc()` wrapping and `.(*)` dereferences
 - All `tests/sync/` tests pass: channel (24), once (11), waitgroup (14), rwlock (15)
 
+### Phase 8 — Remove Builtin Arc ✅ DONE
+
+- Removed ~800 lines of builtin `Arc` support from the compiler (type system, evaluator, codegen)
+- Redefined `Arc` in `std/prelude.yo` as `atomic object((*) : V)` — same pattern as `Box`
+- `arc(value)` helper function and `impl(forall(T : Type), Arc(T), Send())` in prelude
+- `a.(*)` dereference syntax works unchanged (field named `*`, same as Box)
+- All 14 Arc tests pass with zero test changes
+- All sync/imm tests pass (no regressions)
+
 ---
 
 ## Resolved Decisions
@@ -799,3 +808,4 @@ The builder uses a mutable internal representation during construction, then "fr
 4. **`std/sync` migration**: Complete. All sync primitives (Mutex, Cond, Once, RwLock, WaitGroup, Channel) use `atomic object` and auto-derive `Send`.
 5. **Builder API location**: Builders live in the same file as each collection (not separate files).
 6. **`SortedSet(T)`**: Included — wrapper around `SortedMap(T, bool)`, added to Phase 5.
+7. **`Arc` as library type**: Builtin `Arc` removed from compiler. Now defined in prelude as `atomic object((*) : V)`, sharing identical C-level atomics. Simplifies the compiler and proves `atomic object` is sufficient.
