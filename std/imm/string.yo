@@ -123,14 +123,47 @@ impl(String,
   ),
 
   /// Concatenate two strings, returning a new string.
-  concat : (fn(self: Self, other: Self) -> Self)({
+  /// Uses COW: if this string has a unique reference and enough capacity,
+  /// appends in-place.
+  concat : (fn(own(self): Self, other: Self) -> Self)({
     if((self._len == usize(0)), {
+      unsafe.drop(self);
       return other;
     });
     if((other._len == usize(0)), {
       return self;
     });
     new_len := (self._len + other._len);
+    if((rc(self) == usize(1)), {
+      if((new_len <= self._capacity), {
+        match(other._ptr,
+          .Some(op) => match(self._ptr,
+            .Some(sp) => { memcpy(*(void)((sp &+ self._len)), *(void)(op), other._len); },
+            .None => ()
+          ),
+          .None => ()
+        );
+        self._len = new_len;
+        return self;
+      });
+      new_cap := cond(
+        (new_len > (self._capacity * usize(2))) => new_len,
+        true => (self._capacity * usize(2))
+      );
+      ptr := _alloc_bytes(new_cap);
+      match(self._ptr,
+        .Some(sp) => { memcpy(*(void)(ptr), *(void)(sp), self._len); free(.Some(*(void)(sp))); },
+        .None => ()
+      );
+      match(other._ptr,
+        .Some(op) => { memcpy(*(void)((ptr &+ self._len)), *(void)(op), other._len); },
+        .None => ()
+      );
+      self._ptr = .Some(ptr);
+      self._len = new_len;
+      self._capacity = new_cap;
+      return self;
+    });
     ptr := _alloc_bytes(new_len);
     match(self._ptr,
       .Some(sp) => { memcpy(*(void)(ptr), *(void)(sp), self._len); },
@@ -140,6 +173,7 @@ impl(String,
       .Some(op) => { memcpy(*(void)((ptr &+ self._len)), *(void)(op), other._len); },
       .None => ()
     );
+    unsafe.drop(self);
     return Self(_ptr: .Some(ptr), _len: new_len, _capacity: new_len);
   }),
 
@@ -320,13 +354,24 @@ impl(String,
   }),
 
   /// Convert all ASCII uppercase letters to lowercase.
-  to_lowercase : (fn(self: Self) -> Self)({
+  /// Uses COW: if this string has a unique reference, modifies bytes in-place.
+  to_lowercase : (fn(own(self): Self) -> Self)({
     if((self._len == usize(0)), {
       return self;
     });
     match(self._ptr,
       .None => { return self; },
       .Some(sp) => {
+        if((rc(self) == usize(1)), {
+          i := usize(0);
+          while (i < self._len), (i = (i + usize(1))), {
+            (b : u8) = (sp &+ i).*;
+            if(((b >= u8(0x41)) && (b <= u8(0x5A))), {
+              (sp &+ i).* = (b + u8(32));
+            });
+          };
+          return self;
+        });
         ptr := _alloc_bytes(self._len);
         memcpy(*(void)(ptr), *(void)(sp), self._len);
         i := usize(0);
@@ -336,19 +381,32 @@ impl(String,
             (ptr &+ i).* = (b + u8(32));
           });
         };
-        return Self(_ptr: .Some(ptr), _len: self._len, _capacity: self._len);
+        saved_len := self._len;
+        unsafe.drop(self);
+        return Self(_ptr: .Some(ptr), _len: saved_len, _capacity: saved_len);
       }
     )
   }),
 
   /// Convert all ASCII lowercase letters to uppercase.
-  to_uppercase : (fn(self: Self) -> Self)({
+  /// Uses COW: if this string has a unique reference, modifies bytes in-place.
+  to_uppercase : (fn(own(self): Self) -> Self)({
     if((self._len == usize(0)), {
       return self;
     });
     match(self._ptr,
       .None => { return self; },
       .Some(sp) => {
+        if((rc(self) == usize(1)), {
+          i := usize(0);
+          while (i < self._len), (i = (i + usize(1))), {
+            (b : u8) = (sp &+ i).*;
+            if(((b >= u8(0x61)) && (b <= u8(0x7A))), {
+              (sp &+ i).* = (b - u8(32));
+            });
+          };
+          return self;
+        });
         ptr := _alloc_bytes(self._len);
         memcpy(*(void)(ptr), *(void)(sp), self._len);
         i := usize(0);
@@ -358,7 +416,9 @@ impl(String,
             (ptr &+ i).* = (b - u8(32));
           });
         };
-        return Self(_ptr: .Some(ptr), _len: self._len, _capacity: self._len);
+        saved_len := self._len;
+        unsafe.drop(self);
+        return Self(_ptr: .Some(ptr), _len: saved_len, _capacity: saved_len);
       }
     )
   }),

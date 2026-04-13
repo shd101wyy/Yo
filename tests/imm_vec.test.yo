@@ -19,7 +19,8 @@ test "Vec with_capacity", {
 
 test "Vec with_capacity zero then push", {
   v1 := Vec(i32).with_capacity(usize(0));
-  v2 := v1.push(i32(7));
+  v1_copy := v1;
+  v2 := v1_copy.push(i32(7));
   assert(v1.is_empty(), "original stays empty");
   assert((v2.len() == usize(1)), "push grows zero-cap vec");
   assert((v2.get(usize(0)).unwrap() == i32(7)), "pushed value preserved");
@@ -40,7 +41,8 @@ test "Vec push multiple elements", {
 
 test "Vec push preserves original", {
   v1 := Vec(i32).new().push(i32(10));
-  v2 := v1.push(i32(20));
+  v1_copy := v1;
+  v2 := v1_copy.push(i32(20));
   assert((v1.len() == usize(1)), "original unchanged");
   assert((v2.len() == usize(2)), "new has both");
   assert((v1.get(usize(0)).unwrap() == i32(10)), "original value intact");
@@ -56,7 +58,8 @@ test "Vec get element", {
 
 test "Vec set element", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
-  v2 := v.set(usize(1), i32(99));
+  v_copy := v;
+  v2 := v_copy.set(usize(1), i32(99));
   assert((v.get(usize(1)).unwrap() == i32(2)), "original unchanged");
   assert((v2.get(usize(1)).unwrap() == i32(99)), "new has updated value");
   assert((v2.get(usize(0)).unwrap() == i32(1)), "other elements preserved");
@@ -119,15 +122,18 @@ test "Vec concat", {
 test "Vec concat empty", {
   v1 := Vec(i32).new().push(i32(1));
   v2 := Vec(i32).new();
-  assert((v1.concat(v2).len() == usize(1)), "concat with empty right");
-  assert((v2.concat(v1).len() == usize(1)), "concat with empty left");
+  v1_copy := v1;
+  v2_copy := v2;
+  assert((v1_copy.concat(v2).len() == usize(1)), "concat with empty right");
+  assert((v2_copy.concat(v1).len() == usize(1)), "concat with empty left");
 };
 
 test "Vec concat two empties then push", {
   v1 := Vec(i32).new();
   v2 := Vec(i32).new();
   combined := v1.concat(v2);
-  pushed := combined.push(i32(9));
+  combined_copy := combined;
+  pushed := combined_copy.push(i32(9));
   assert(combined.is_empty(), "concat of empties stays empty");
   assert((pushed.len() == usize(1)), "push grows empty concat result");
   assert((pushed.get(usize(0)).unwrap() == i32(9)), "pushed value preserved");
@@ -252,8 +258,10 @@ test "Vec push many elements (capacity growth)", {
 
 test "Vec structural sharing", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2));
-  v2 := v1.push(i32(3));
-  v3 := v1.push(i32(4));
+  v1a := v1;
+  v1b := v1;
+  v2 := v1a.push(i32(3));
+  v3 := v1b.push(i32(4));
   assert((v1.len() == usize(2)), "v1 unchanged");
   assert((v2.len() == usize(3)), "v2 has 3");
   assert((v3.len() == usize(3)), "v3 has 3");
@@ -280,7 +288,8 @@ test "Vec from_slice with elements", {
 test "Vec from_slice then push", {
   arr := [i32; 3](i32(1), i32(2), i32(3));
   v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
-  v2 := v1.push(i32(4));
+  v1_copy := v1;
+  v2 := v1_copy.push(i32(4));
   assert((v1.len() == usize(3)), "original unchanged");
   assert((v2.len() == usize(4)), "new has 4");
   assert((v2.get(usize(3)).unwrap() == i32(4)), "appended elem");
@@ -297,10 +306,14 @@ test "Vec supports RC-backed Send elements", {
   v1 := Vec(VecRcEntry).new()
     .push(VecRcEntry(text: String.from("a")))
     .push(VecRcEntry(text: String.from("b")));
-  v2 := v1.push(VecRcEntry(text: String.from("c")));
-  v3 := v2.set(usize(0), VecRcEntry(text: String.from("z")));
-  popped := v3.pop();
-  v4 := v1.concat(Vec(VecRcEntry).new().push(VecRcEntry(text: String.from("d"))));
+  v1a := v1;
+  v2 := v1a.push(VecRcEntry(text: String.from("c")));
+  v2a := v2;
+  v3 := v2a.set(usize(0), VecRcEntry(text: String.from("z")));
+  v3a := v3;
+  popped := v3a.pop();
+  v1b := v1;
+  v4 := v1b.concat(Vec(VecRcEntry).new().push(VecRcEntry(text: String.from("d"))));
   v5 := v4.slice(usize(1), usize(3));
 
   assert(v1.get(usize(0)).unwrap().text.eq_str("a"), "v1 keeps first value");
@@ -310,4 +323,65 @@ test "Vec supports RC-backed Send elements", {
   assert((popped.vec.len() == usize(2)), "pop shrinks vector");
   assert(v5.get(usize(0)).unwrap().text.eq_str("b"), "slice keeps middle value");
   assert(v5.get(usize(1)).unwrap().text.eq_str("d"), "concat adds tail value");
+};
+
+// COW (copy-on-write) specific tests
+test "Vec COW push unique path", {
+  // When rc==1 (no sharing), push should mutate in place
+  v := Vec(i32).new();
+  v = v.push(i32(1));
+  v = v.push(i32(2));
+  v = v.push(i32(3));
+  assert((v.len() == usize(3)), "unique push works");
+  assert((v.get(usize(0)).unwrap() == i32(1)), "elem 0");
+  assert((v.get(usize(2)).unwrap() == i32(3)), "elem 2");
+};
+
+test "Vec COW push shared path preserves original", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
+  v_copy := v;
+  v2 := v_copy.push(i32(4));
+  assert((v.len() == usize(3)), "original preserved when shared");
+  assert((v2.len() == usize(4)), "new has 4 elements");
+  assert((v2.get(usize(3)).unwrap() == i32(4)), "appended value correct");
+};
+
+test "Vec COW set unique path", {
+  v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
+  v = v.set(usize(1), i32(99));
+  assert((v.get(usize(1)).unwrap() == i32(99)), "in-place set works");
+  assert((v.get(usize(0)).unwrap() == i32(10)), "other elements intact");
+};
+
+test "Vec COW pop unique path", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
+  result := v.pop();
+  assert((result.value.unwrap() == i32(3)), "popped value");
+  assert((result.vec.len() == usize(2)), "len after pop");
+};
+
+test "Vec COW reverse unique path", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
+  v = v.reverse();
+  assert((v.get(usize(0)).unwrap() == i32(3)), "reversed 0");
+  assert((v.get(usize(1)).unwrap() == i32(2)), "reversed 1");
+  assert((v.get(usize(2)).unwrap() == i32(1)), "reversed 2");
+};
+
+test "Vec COW concat unique path", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2));
+  other := Vec(i32).new().push(i32(3)).push(i32(4));
+  v = v.concat(other);
+  assert((v.len() == usize(4)), "concat length");
+  assert((v.get(usize(2)).unwrap() == i32(3)), "concat elem 2");
+  assert((v.get(usize(3)).unwrap() == i32(4)), "concat elem 3");
+};
+
+test "Vec COW dedup unique path", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(1)).push(i32(3));
+  v = v.dedup();
+  assert((v.len() == usize(3)), "dedup length");
+  assert((v.get(usize(0)).unwrap() == i32(1)), "dedup 0");
+  assert((v.get(usize(1)).unwrap() == i32(2)), "dedup 1");
+  assert((v.get(usize(2)).unwrap() == i32(3)), "dedup 2");
 };

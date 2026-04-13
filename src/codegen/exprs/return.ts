@@ -138,7 +138,8 @@ export function generatePendingDeferredDrops(
   expr: Expr,
   isCompletion: boolean = false,
   skipAlreadyDroppedCheck: boolean = false,
-  skipEnvCheck: boolean = false
+  skipEnvCheck: boolean = false,
+  additionalSkipVarNames?: Set<string>
 ): void {
   if (context.pendingDeferredDrops && context.pendingDeferredDrops.length > 0) {
     // Filter drops to only include variables that exist in the return expression's environment.
@@ -171,13 +172,20 @@ export function generatePendingDeferredDrops(
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
             if (alreadyDroppedVars.has(varName)) return false;
+            if (additionalSkipVarNames?.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
-            return variables.length > 0;
+            if (variables.length === 0) return false;
+            // Skip drops for variables that have been consumed (moved/dropped)
+            // in the current path — the value is no longer owned by this variable.
+            const latestVar = variables[variables.length - 1]!;
+            if (latestVar.consumedAtToken) return false;
+            return true;
           })
         : context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
             if (alreadyDroppedVars.has(varName)) return false;
+            if (additionalSkipVarNames?.has(varName)) return false;
             if (consumedArgCNames && consumedArgCNames.size > 0) {
               const cName = getDeferredDropTargetCName(dropExpr);
               if (cName && consumedArgCNames.has(cName)) return false;
@@ -437,7 +445,34 @@ export function generateReturn(
     }
 
     // Normal (non-state-machine) return
-    generatePendingDeferredDrops(indent, functionContext, expr);
+    // When returning a directly consumed own parameter (ownership transfer),
+    // skip the pending drop for that variable — we're returning it, not discarding it.
+    // Detect by: variable has isOwningTheRcValue AND no dup was generated (direct transfer).
+    let returnedOwnVarNames: Set<string> | undefined;
+    if (
+      arg &&
+      exprIsAtom(arg) &&
+      arg.$?.env &&
+      !(
+        arg.$?.deferredDupExpressions && arg.$.deferredDupExpressions.length > 0
+      )
+    ) {
+      const returnedVarName = arg.token.value;
+      const returnedVars = getVariablesFromEnv(arg.$.env, returnedVarName);
+      const returnedVar = returnedVars[returnedVars.length - 1];
+      if (returnedVar?.isOwningTheRcValue) {
+        returnedOwnVarNames = new Set([returnedVarName]);
+      }
+    }
+    generatePendingDeferredDrops(
+      indent,
+      functionContext,
+      expr,
+      false,
+      false,
+      false,
+      returnedOwnVarNames
+    );
 
     if (isUnitType(expr.$.type)) {
       return `return`;

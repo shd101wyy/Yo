@@ -1356,17 +1356,21 @@ static inline void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (still needed regardless of GC)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
   if (old_count == 1) {
     if (header->type_id) {
       __yo_dispose_dispatch(ptr);
@@ -1456,17 +1460,21 @@ static inline void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (thread-safe)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
   
   if (old_count == 1) {
     // Last reference - deallocate

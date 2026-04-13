@@ -38,17 +38,20 @@ test "imm.String byte_at", {
 test "imm.String concat", {
   a := String.from("hello");
   b := String.from(" world");
+  // own(self) transfers ownership of first arg
   c := a.concat(b);
   assert((c == String.from("hello world")), "concat should join strings");
-  assert((a == String.from("hello")), "original should be unchanged");
-  assert((b == String.from(" world")), "other should be unchanged");
 };
 
 test "imm.String concat with empty", {
   s := String.from("test");
   empty := String.new();
-  assert((s.concat(empty) == s), "concat with empty should return self");
-  assert((empty.concat(s) == s), "empty concat should return other");
+  r1 := s.concat(empty);
+  assert((r1 == String.from("test")), "concat with empty should preserve");
+  s2 := String.from("test");
+  empty2 := String.new();
+  r2 := empty2.concat(s2);
+  assert((r2 == String.from("test")), "empty concat should return other");
 };
 
 test "imm.String slice", {
@@ -106,9 +109,10 @@ test "imm.String trim", {
 };
 
 test "imm.String to_uppercase and to_lowercase", {
-  s := String.from("Hello World");
-  assert((s.to_uppercase() == String.from("HELLO WORLD")), "uppercase");
-  assert((s.to_lowercase() == String.from("hello world")), "lowercase");
+  s1 := String.from("Hello World");
+  assert((s1.to_uppercase() == String.from("HELLO WORLD")), "uppercase");
+  s2 := String.from("Hello World");
+  assert((s2.to_lowercase() == String.from("hello world")), "lowercase");
 };
 
 test "imm.String replace", {
@@ -180,4 +184,40 @@ test "imm.String hash consistency", {
   c := String.from("other");
   // Hash collision is theoretically possible but extremely unlikely for these inputs
   assert((a.hash() != c.hash()), "different strings should likely have different hashes");
+};
+
+test "imm.String COW concat unique", {
+  // When rc==1, concat should reuse buffer in-place
+  s := String.from("hello");
+  s = s.concat(String.from(" world"));
+  assert((s == String.from("hello world")), "COW concat unique");
+};
+
+test "imm.String COW concat shared", {
+  // When shared, concat must allocate a new buffer
+  a := String.from("hello");
+  b := a;
+  c := a.concat(String.from(" world"));
+  assert((c == String.from("hello world")), "COW concat shared result");
+  assert((b == String.from("hello")), "shared copy unchanged");
+};
+
+test "imm.String COW to_lowercase unique", {
+  s := String.from("HELLO");
+  s = s.to_lowercase();
+  assert((s == String.from("hello")), "COW lowercase unique");
+};
+
+test "imm.String COW to_uppercase unique", {
+  s := String.from("hello");
+  s = s.to_uppercase();
+  assert((s == String.from("HELLO")), "COW uppercase unique");
+};
+
+test "imm.String COW concat chain", {
+  s := String.from("a");
+  s = s.concat(String.from("b"));
+  s = s.concat(String.from("c"));
+  s = s.concat(String.from("d"));
+  assert((s == String.from("abcd")), "chained COW concat");
 };

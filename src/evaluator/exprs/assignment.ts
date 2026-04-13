@@ -252,6 +252,19 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     env = rhs.$.env;
 
+    // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).
+    // This happens in patterns like `v = v.push(x)` where push takes own(self).
+    // If consumed, we must NOT create a temp variable to save the old value,
+    // because the old value's ownership was transferred to the callee.
+    const lhsConsumedByRhs = (() => {
+      const updatedVars = getVariablesFromEnv(env, variableName);
+      if (updatedVars.length > 0) {
+        const latestVar = updatedVars[updatedVars.length - 1]!;
+        return latestVar.consumedAtToken !== undefined;
+      }
+      return false;
+    })();
+
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
 
@@ -620,6 +633,16 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     };
 
     if (!isMutatingDefinedVariable) {
+      expr.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+        pathCollection: [],
+        isCompileTimeOnlyAssignment: variable.isCompileTimeOnly,
+      };
+    } else if (lhsConsumedByRhs) {
+      // The old value was consumed by the RHS (e.g., passed to own parameter).
+      // Don't create a temp variable — the callee owns the old value.
       expr.$ = {
         env,
         value: VUnit,

@@ -1374,13 +1374,26 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
   // When returning a variable from the current frame, mark it as consumed (ownership transfer)
   // When returning from an outer frame, call dup (borrowing)
+  // Special case: own parameters (isOwningTheRcValue) in the parameter frame also transfer
+  // ownership directly when returned from ANY nested begin block within the function body.
+  // We identify own params by matching against the enclosing function's parameter list,
+  // which works regardless of frame level differences caused by specialization.
   let directlyConsumedReturnVar: Variable | undefined = undefined;
+  const funcCtx = context.isEvaluatingFunctionBodyOrAsyncBlock;
+  const isOwnParamReturn =
+    returnVariable?.isOwningTheRcValue &&
+    !returnVariable.consumedAtToken &&
+    funcCtx?.kind === "function-body" &&
+    funcCtx.type.parameters.some(
+      (p) => p.label === returnVariable!.name && p.isOwningTheRcValue
+    );
   if (
     returnVariable?.isOwningTheRcValue &&
-    returnVariable.frameLevel === env.frames.length - 1 &&
+    (returnVariable.frameLevel === env.frames.length - 1 || isOwnParamReturn) &&
     !returnVariable.consumedAtToken
   ) {
-    // Variable from current frame - transfer ownership by marking as consumed
+    // Variable from current frame (or own parameter from parameter frame) -
+    // transfer ownership by marking as consumed
     // Only track for escape drops if the type actually contains RC types and
     // is not an unresolved SomeType (matching getVariablesNeedingDrop filters).
     if (
@@ -1486,6 +1499,31 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     // Optimize: For each variable needing drop, check if there's a matching dup call
     const dupCallsToRemove = new Set<FnCallExpr>(); // Track which dup calls to remove
 
+    // Count consumed derived variables per base variable.
+    // When a variable like v2 (derived from v via isOwningTheSameRcValueAs) is consumed
+    // (e.g., by an `own` parameter), the dup that created v2's reference was transferred
+    // to the callee. That dup cannot be paired with v's scope-end drop.
+    const consumedDerivedCountByBase = new Map<string, number>();
+    const topFrame = env.frames[env.frames.length - 1];
+    if (topFrame) {
+      for (const variable of topFrame.variables) {
+        if (
+          variable.consumedAtToken &&
+          variable.isOwningTheSameRcValueAs &&
+          typeContainsRcType(variable.type)
+        ) {
+          let base = variable as Variable;
+          while (base.isOwningTheSameRcValueAs) {
+            base = base.isOwningTheSameRcValueAs;
+          }
+          consumedDerivedCountByBase.set(
+            base.id,
+            (consumedDerivedCountByBase.get(base.id) ?? 0) + 1
+          );
+        }
+      }
+    }
+
     for (const variable of variablesNeedingDrop) {
       // Follow the entire isOwningTheSameRcValueAs chain to get the root base variable
       let baseVariable = variable;
@@ -1567,12 +1605,33 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           }
         }
 
-        // We can optimize: cancel ONE dup with ONE drop.
-        // The optimization cancels dup+drop pairs where the dup creates a reference
-        // that is immediately consumed by returning the value (ownership transfer).
-        // We only remove ONE runtime dup to cancel with the ONE drop at end of scope.
-        // Note: Early return dups are always removed (they pair with their own drops).
-        if (runtimeDupCount <= 1) {
+        // Subtract consumed derived variable count from runtimeDupCount.
+        // When a derived variable (e.g., v2 from `v2 := v`) is consumed by an `own`
+        // parameter or closure capture, the dup that created v2's reference was
+        // transferred to the callee. It cannot be paired with the base variable's
+        // scope-end drop — they represent different reference lifecycles.
+        const consumedDups = consumedDerivedCountByBase.get(baseId) ?? 0;
+
+        // Check if the base variable itself is consumed (e.g., by own parameter).
+        // When `b := a` creates a derived copy and `a` is later consumed by
+        // own(concat), the dup for b is essential — without it, `a` has rc=1
+        // and the COW path would mutate in-place, corrupting `b`'s view.
+        let baseConsumed = false;
+        if (baseVariable !== variable && topFrame) {
+          for (const v of topFrame.variables) {
+            if (v.id === baseId && v.consumedAtToken) {
+              baseConsumed = true;
+              break;
+            }
+          }
+        }
+
+        if (consumedDups > 0 || baseConsumed) {
+          // Don't optimize when there are consumed derived variables,
+          // or when the base variable itself is consumed.
+          // The dups for derived copies are needed to maintain correct RC.
+          variablesActuallyNeedingDrop.push(variable);
+        } else if (runtimeDupCount <= 1) {
           // Zero or one runtime dup that pairs with end-of-scope drop - can optimize
           // Zero means only early return dups exist (all independent)
           // One means one dup pairs with one drop
@@ -1673,6 +1732,55 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // ___drop not resolvable for this type — skip
     }
     // Don't use the env from consumed drops — keep the original where it's consumed.
+  }
+
+  // For returns from nested blocks inside function bodies, also drop alive
+  // own parameters from the parameter frame. When an own parameter is used as
+  // a struct field in a return expression (e.g., `return PopResult(vec: self, ...)`),
+  // the struct constructor dups the parameter. The dup needs a matching drop.
+  // This doesn't apply to the function body begin block (handled by the
+  // parameters frame check above) or to direct own parameter returns (already
+  // consumed by directlyConsumedReturnVar).
+  if (
+    returnExpr &&
+    !isEvaluatingFunctionBodyBeginBlock &&
+    funcCtx?.kind === "function-body"
+  ) {
+    const ownParamsToDrop: Variable[] = [];
+    for (const param of funcCtx.type.parameters) {
+      if (param.isOwningTheRcValue && param.label) {
+        const vars = getVariablesFromEnv(env, param.label);
+        const v = vars[vars.length - 1];
+        if (
+          v &&
+          !v.consumedAtToken &&
+          v.isOwningTheRcValue &&
+          typeContainsRcType(v.type)
+        ) {
+          ownParamsToDrop.push(v);
+        }
+      }
+    }
+    if (ownParamsToDrop.length > 0) {
+      try {
+        const ownParamDropResult = generateDeferredDropExpressions({
+          variablesToDrop: ownParamsToDrop,
+          env,
+          context: {
+            ...context,
+            expectedType: undefined,
+          },
+        });
+        const newDrops = ownParamDropResult.deferredDropExpressions;
+        if (newDrops && newDrops.length > 0) {
+          deferredDropExpressions = deferredDropExpressions
+            ? [...deferredDropExpressions, ...newDrops]
+            : newDrops;
+        }
+      } catch {
+        // ___drop not resolvable — skip
+      }
+    }
   }
 
   // Attach deferredDropExpressions to returnExpr if exists

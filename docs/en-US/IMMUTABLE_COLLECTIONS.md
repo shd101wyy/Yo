@@ -80,6 +80,63 @@ those pages for method-by-method reference.
 4. **API docs are generated, not hand-maintained**: this document stays focused on
    concepts, tradeoffs, and module selection instead of duplicating signatures.
 
+## Copy-on-write (COW) optimization
+
+`Vec(T)` and `imm.String` use **copy-on-write** semantics via `own(self)`
+parameters on mutation methods (`push`, `set`, `pop`, `concat`, `reverse`,
+`dedup`, `to_lowercase`, `to_uppercase`).
+
+### How it works
+
+Mutation methods take ownership of `self` instead of borrowing:
+
+```rust
+push : (fn(own(self): Self, val: T) -> Self)
+```
+
+Inside the method, `rc(self) == usize(1)` is checked:
+
+- **Unique (rc = 1)**: the buffer is mutated in-place and the same object is
+  returned. No allocation, no copy — O(1).
+- **Shared (rc > 1)**: a new buffer is allocated, data is copied, and a new
+  object is returned. The original is unchanged — O(n).
+
+### Usage pattern
+
+```rust
+{ Vec } :: import "std/imm/vec";
+
+// Normal usage — each push is O(1) because v is unique:
+v := Vec(i32).new();
+v = v.push(i32(1));    // rc=1, mutate in place
+v = v.push(i32(2));    // rc=1, mutate in place
+
+// Preserving old version — push copies because v is shared:
+old := v;              // dup, rc=2
+v = v.push(i32(3));    // rc=2, copy path taken
+// old still has [1, 2], v has [1, 2, 3]
+```
+
+### Thread safety
+
+The `rc == 1` check uses `atomic_load_explicit(memory_order_acquire)` for
+`atomic object` types. If the load returns 1, no other thread holds a reference,
+so in-place mutation is safe (no TOCTOU race).
+
+### Which collections support COW
+
+| Collection   | COW support | Notes                                    |
+| ------------ | ----------- | ---------------------------------------- |
+| `Vec(T)`     | ✓           | `push`, `set`, `pop`, `concat`, etc.     |
+| `imm.String` | ✓           | `concat`, `to_lowercase`, `to_uppercase` |
+| `Map(K, V)`  | —           | Structural sharing via HAMT              |
+| `SortedMap`  | —           | Structural sharing via LLRB tree         |
+| `List(T)`    | —           | `prepend` is already O(1)                |
+
+Map and SortedMap already use structural sharing (only O(log n) nodes copied per
+mutation), so COW would provide diminishing returns. List's primary operation
+(`prepend`) is inherently O(1).
+
 ## Related docs
 
 - `plans/IMMUTABLE_COLLECTIONS.md` — implementation plan and design history

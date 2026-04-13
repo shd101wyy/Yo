@@ -73,6 +73,60 @@ yo doc ./std/imm
 3. **`Set(T)` / `SortedSet(T)` 内部用 `bool` 表示值**：`unit` 在 C 中没有表示形式，因此集合包装器使用 `Map(T, bool)` / `SortedMap(T, bool)`。
 4. **API 文档由生成工具负责**：本文档聚焦在概念、取舍与模块选择上，而不是手动维护签名表。
 
+## 写时复制（COW）优化
+
+`Vec(T)` 和 `imm.String` 通过 `own(self)` 参数在变更方法上实现了**写时复制**
+语义（`push`、`set`、`pop`、`concat`、`reverse`、`dedup`、`to_lowercase`、
+`to_uppercase`）。
+
+### 工作原理
+
+变更方法获取 `self` 的所有权而非借用：
+
+```rust
+push : (fn(own(self): Self, val: T) -> Self)
+```
+
+方法内部检查 `rc(self) == usize(1)`：
+
+- **唯一（rc = 1）**：直接原地修改缓冲区并返回同一对象。无分配、无复制——O(1)。
+- **共享（rc > 1）**：分配新缓冲区、复制数据并返回新对象。原对象不变——O(n)。
+
+### 使用方式
+
+```rust
+{ Vec } :: import "std/imm/vec";
+
+// 正常用法——每次 push 都是 O(1)，因为 v 是唯一的：
+v := Vec(i32).new();
+v = v.push(i32(1));    // rc=1，原地修改
+v = v.push(i32(2));    // rc=1，原地修改
+
+// 保留旧版本——因为 v 被共享，push 会复制：
+old := v;              // dup，rc=2
+v = v.push(i32(3));    // rc=2，走复制路径
+// old 仍然是 [1, 2]，v 是 [1, 2, 3]
+```
+
+### 线程安全
+
+对于 `atomic object` 类型，`rc == 1` 检查使用
+`atomic_load_explicit(memory_order_acquire)`。如果加载结果为 1，则没有其他线程
+持有引用，原地修改是安全的（不存在 TOCTOU 竞态）。
+
+### 各集合的 COW 支持情况
+
+| 集合         | COW 支持 | 说明                                     |
+| ------------ | -------- | ---------------------------------------- |
+| `Vec(T)`     | ✓        | `push`、`set`、`pop`、`concat` 等        |
+| `imm.String` | ✓        | `concat`、`to_lowercase`、`to_uppercase` |
+| `Map(K, V)`  | —        | 通过 HAMT 实现结构共享                   |
+| `SortedMap`  | —        | 通过左倾红黑树实现结构共享               |
+| `List(T)`    | —        | `prepend` 本身已经是 O(1)                |
+
+Map 和 SortedMap 已经使用结构共享（每次变更只复制 O(log n) 个节点），因此 COW
+带来的收益有限。List 的主要操作（`prepend`）天然就是 O(1)。
+
 ## 相关文档
 
 - `plans/IMMUTABLE_COLLECTIONS.md` —— 实现计划与设计历史

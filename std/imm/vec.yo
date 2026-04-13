@@ -99,18 +99,41 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
 
   /// Return a new vector with the element at `idx` replaced by `val`.
   /// Panics if `idx >= len`.
-  set : (fn(self: Self, idx: usize, val: T) -> Self)({
+  set : (fn(own(self): Self, idx: usize, val: T) -> Self)({
     assert((idx < self._len), "imm.Vec.set: index out of bounds");
+    if((rc(self) == usize(1)), {
+      unsafe.drop((self._ptr &+ idx).*);
+      consume((self._ptr &+ idx).* = val);
+      return self;
+    });
     new_ptr := Self._raw_alloc(self._len);
     if((self._len > usize(0)), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
-    (new_ptr &+ idx).* = val;
-    Self(_ptr: new_ptr, _len: self._len, _cap: self._len)
+    unsafe.drop((new_ptr &+ idx).*);
+    consume((new_ptr &+ idx).* = val);
+    result := Self(_ptr: new_ptr, _len: self._len, _cap: self._len);
+    unsafe.drop(self);
+    result
   }),
 
   /// Return a new vector with `val` appended.
-  push : (fn(self: Self, val: T) -> Self)({
+  push : (fn(own(self): Self, val: T) -> Self)({
+    if((rc(self) == usize(1)), {
+      if((self._len >= self._cap), {
+        new_cap := (self._cap * usize(2));
+        new_ptr := Self._raw_alloc(new_cap);
+        if((self._len > usize(0)), {
+          Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
+        });
+        free(.Some(*(void)(self._ptr)));
+        self._ptr = new_ptr;
+        self._cap = new_cap;
+      });
+      consume((self._ptr &+ self._len).* = val);
+      self._len = (self._len + usize(1));
+      return self;
+    });
     new_cap := cond(
       (self._len < self._cap) => self._cap,
       (self._cap == usize(0)) => usize(4),
@@ -121,7 +144,9 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
     consume((new_ptr &+ self._len).* = val);
-    Self(_ptr: new_ptr, _len: (self._len + usize(1)), _cap: new_cap)
+    result := Self(_ptr: new_ptr, _len: (self._len + usize(1)), _cap: new_cap);
+    unsafe.drop(self);
+    result
   }),
 
   /// Return the first element, or `.None` if empty.
@@ -141,17 +166,22 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
   }),
 
   /// Return a new vector without the last element, and the removed element.
-  pop : (fn(self: Self) -> PopResult(T))({
+  pop : (fn(own(self): Self) -> PopResult(T))({
     if(self.is_empty(), {
       return PopResult(T)(vec: self, value: .None);
     });
     val := (self._ptr &+ (self._len - usize(1))).*;
     new_len := (self._len - usize(1));
+    if((rc(self) == usize(1)), {
+      self._len = new_len;
+      return PopResult(T)(vec: self, value: .Some(val));
+    });
     new_ptr := Self._raw_alloc(self._cap);
     if((new_len > usize(0)), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), new_len);
     });
     new_vec := Self(_ptr: new_ptr, _len: new_len, _cap: self._cap);
+    unsafe.drop(self);
     PopResult(T)(vec: new_vec, value: .Some(val))
   }),
 
@@ -175,8 +205,33 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
   }),
 
   /// Return a new vector that is the concatenation of self and other.
-  concat : (fn(self: Self, other: Self) -> Self)({
+  concat : (fn(own(self): Self, other: Self) -> Self)({
     total := (self._len + other._len);
+    if((rc(self) == usize(1)), {
+      if((total <= self._cap), {
+        if((other._len > usize(0)), {
+          Self._copy_elems(self._ptr, other._ptr, self._len, usize(0), other._len);
+        });
+        self._len = total;
+        return self;
+      });
+      new_cap := cond(
+        (total > (self._cap * usize(2))) => total,
+        true => (self._cap * usize(2))
+      );
+      new_ptr := Self._raw_alloc(new_cap);
+      if((self._len > usize(0)), {
+        Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
+      });
+      if((other._len > usize(0)), {
+        Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
+      });
+      free(.Some(*(void)(self._ptr)));
+      self._ptr = new_ptr;
+      self._len = total;
+      self._cap = new_cap;
+      return self;
+    });
     new_ptr := Self._raw_alloc(total);
     if((self._len > usize(0)), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
@@ -184,12 +239,24 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     if((other._len > usize(0)), {
       Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
     });
-    Self(_ptr: new_ptr, _len: total, _cap: total)
+    result := Self(_ptr: new_ptr, _len: total, _cap: total);
+    unsafe.drop(self);
+    result
   }),
 
   /// Return a new vector with elements reversed.
-  reverse : (fn(self: Self) -> Self)({
+  reverse : (fn(own(self): Self) -> Self)({
     if((self._len <= usize(1)), {
+      return self;
+    });
+    if((rc(self) == usize(1)), {
+      left := usize(0);
+      right := (self._len - usize(1));
+      while (left < right), { left = (left + usize(1)); right = (right - usize(1)); }, {
+        tmp := (self._ptr &+ left).*;
+        consume((self._ptr &+ left).* = (self._ptr &+ right).*);
+        consume((self._ptr &+ right).* = tmp);
+      };
       return self;
     });
     new_ptr := Self._raw_alloc(self._len);
@@ -197,7 +264,9 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     while (i < self._len), (i = (i + usize(1))), {
       (new_ptr &+ i).* = (self._ptr &+ ((self._len - usize(1)) - i)).*;
     };
-    Self(_ptr: new_ptr, _len: self._len, _cap: self._len)
+    result := Self(_ptr: new_ptr, _len: self._len, _cap: self._len);
+    unsafe.drop(self);
+    result
   }),
 
   /// Apply a function to each element, producing a new vector.
@@ -290,7 +359,32 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
   ),
 
   /// Return a new vector with duplicate elements removed (preserves first occurrence).
-  dedup : (fn(self: Self, where(T <: Eq(T))) -> Self)({
+  dedup : (fn(own(self): Self, where(T <: Eq(T))) -> Self)({
+    if((self._len <= usize(1)), {
+      return self;
+    });
+    if((rc(self) == usize(1)), {
+      count := usize(1);
+      i := usize(1);
+      while (i < self._len), (i = (i + usize(1))), {
+        elem := (self._ptr &+ i).*;
+        (found : bool) = false;
+        j := usize(0);
+        while ((j < count) && !(found)), (j = (j + usize(1))), {
+          if(((self._ptr &+ j).* == elem), {
+            found = true;
+          });
+        };
+        if(!(found), {
+          if((count != i), {
+            consume((self._ptr &+ count).* = elem);
+          });
+          count = (count + usize(1));
+        });
+      };
+      self._len = count;
+      return self;
+    });
     new_ptr := Self._raw_alloc(self._len);
     count := usize(0);
     i := usize(0);
@@ -308,7 +402,9 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
         count = (count + usize(1));
       });
     };
-    Self(_ptr: new_ptr, _len: count, _cap: self._len)
+    result := Self(_ptr: new_ptr, _len: count, _cap: self._len);
+    unsafe.drop(self);
+    result
   }),
 
   /// Zip two vectors together using a combining function.
