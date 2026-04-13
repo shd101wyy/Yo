@@ -1,0 +1,328 @@
+//! Persistent immutable vector with efficient indexed access and append.
+//!
+//! `Vec(T)` is an immutable vector backed by `atomic object` for thread-safe
+//! structural sharing. All mutations return new vectors, leaving the original
+//! unchanged.
+//!
+//! All elements must implement `Send` to guarantee thread safety.
+//!
+//! # Examples
+//!
+//! ```rust
+//! { Vec } :: import "std/imm/vec";
+//!
+//! v := Vec(i32).new();
+//! v = v.push(i32(1)).push(i32(2)).push(i32(3));
+//! assert((v.get(usize(0)).unwrap() == i32(1)), "first element");
+//! assert((v.len() == usize(3)), "length is 3");
+//! ```
+
+{ GlobalAllocator } :: import "../allocator.yo";
+{ malloc, free } :: GlobalAllocator;
+{ memcpy } :: import "../libc/string.yo";
+
+/// Persistent immutable vector.
+///
+/// Backed by a shared flat array with copy-on-write semantics.
+/// All mutations create a new vector, sharing the backing buffer via
+/// atomic reference counting when possible.
+Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic object(
+    _ptr : *(T),
+    _len : usize,
+    _cap : usize
+  )
+);
+
+impl(forall(T : Type), where(T <: Send), Vec(T), Dispose(
+  dispose : (fn(self: Self) -> unit)({
+    free(.Some(*(void)(self._ptr)));
+  })
+));
+
+/// Result of a pop operation.
+PopResult :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(vec: Vec(T), value: Option(T))
+);
+
+impl(forall(T : Type), where(T <: Send), Vec(T),
+  /// Allocate raw buffer without creating an intermediate atomic object.
+  _raw_alloc : (fn(cap: usize) -> *(T))({
+    sz := (sizeof(T) * cap);
+    match(malloc(sz),
+      .Some(p) => *(T)(p),
+      .None => panic("imm.Vec: allocation failed")
+    )
+  }),
+
+  /// Create a new empty vector.
+  new : (fn() -> Self)(
+    Self(_ptr: Self._raw_alloc(usize(4)), _len: usize(0), _cap: usize(4))
+  ),
+
+  /// Create a new empty vector with the given initial capacity.
+  with_capacity : (fn(cap: usize) -> Self)(
+    Self(_ptr: Self._raw_alloc(cap), _len: usize(0), _cap: cap)
+  ),
+
+  /// Number of elements in the vector.
+  len : (fn(self: Self) -> usize)(self._len),
+
+  /// Check if the vector is empty.
+  is_empty : (fn(self: Self) -> bool)(self._len == usize(0)),
+
+  /// Get the element at `idx`, or `.None` if out of bounds.
+  get : (fn(self: Self, idx: usize) -> Option(T))({
+    if((idx >= self._len), {
+      return .None;
+    });
+    .Some((self._ptr &+ idx).*)
+  }),
+
+  /// Return a new vector with the element at `idx` replaced by `val`.
+  /// Panics if `idx >= len`.
+  set : (fn(self: Self, idx: usize, val: T) -> Self)({
+    assert((idx < self._len), "imm.Vec.set: index out of bounds");
+    new_ptr := Self._raw_alloc(self._len);
+    if((self._len > usize(0)), {
+      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+    });
+    (new_ptr &+ idx).* = val;
+    Self(_ptr: new_ptr, _len: self._len, _cap: self._len)
+  }),
+
+  /// Return a new vector with `val` appended.
+  push : (fn(self: Self, val: T) -> Self)({
+    new_cap := cond(
+      (self._len < self._cap) => self._cap,
+      true => (self._cap * usize(2))
+    );
+    new_ptr := Self._raw_alloc(new_cap);
+    if((self._len > usize(0)), {
+      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+    });
+    (new_ptr &+ self._len).* = val;
+    Self(_ptr: new_ptr, _len: (self._len + usize(1)), _cap: new_cap)
+  }),
+
+  /// Return the first element, or `.None` if empty.
+  first : (fn(self: Self) -> Option(T))({
+    if(self.is_empty(), {
+      return .None;
+    });
+    .Some(self._ptr.*)
+  }),
+
+  /// Return the last element, or `.None` if empty.
+  last : (fn(self: Self) -> Option(T))({
+    if(self.is_empty(), {
+      return .None;
+    });
+    .Some((self._ptr &+ (self._len - usize(1))).*)
+  }),
+
+  /// Return a new vector without the last element, and the removed element.
+  pop : (fn(self: Self) -> PopResult(T))({
+    if(self.is_empty(), {
+      return PopResult(T)(vec: self, value: .None);
+    });
+    val := (self._ptr &+ (self._len - usize(1))).*;
+    new_len := (self._len - usize(1));
+    new_ptr := Self._raw_alloc(self._cap);
+    if((new_len > usize(0)), {
+      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * new_len));
+    });
+    new_vec := Self(_ptr: new_ptr, _len: new_len, _cap: self._cap);
+    PopResult(T)(vec: new_vec, value: .Some(val))
+  }),
+
+  /// Return a new vector containing only elements in range [start, end).
+  slice : (fn(self: Self, start: usize, end: usize) -> Self)({
+    (actual_start : usize) = cond(
+      (start > self._len) => self._len,
+      true => start
+    );
+    (actual_end : usize) = cond(
+      (end > self._len) => self._len,
+      true => end
+    );
+    if((actual_start >= actual_end), {
+      return Self.new();
+    });
+    new_len := (actual_end - actual_start);
+    new_ptr := Self._raw_alloc(new_len);
+    memcpy(*(void)(new_ptr), *(void)((self._ptr &+ actual_start)), (sizeof(T) * new_len));
+    Self(_ptr: new_ptr, _len: new_len, _cap: new_len)
+  }),
+
+  /// Return a new vector that is the concatenation of self and other.
+  concat : (fn(self: Self, other: Self) -> Self)({
+    total := (self._len + other._len);
+    new_ptr := Self._raw_alloc(total);
+    if((self._len > usize(0)), {
+      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+    });
+    if((other._len > usize(0)), {
+      memcpy(*(void)((new_ptr &+ self._len)), *(void)(other._ptr), (sizeof(T) * other._len));
+    });
+    Self(_ptr: new_ptr, _len: total, _cap: total)
+  }),
+
+  /// Return a new vector with elements reversed.
+  reverse : (fn(self: Self) -> Self)({
+    if((self._len <= usize(1)), {
+      return self;
+    });
+    new_ptr := Self._raw_alloc(self._len);
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      (new_ptr &+ i).* = (self._ptr &+ ((self._len - usize(1)) - i)).*;
+    };
+    Self(_ptr: new_ptr, _len: self._len, _cap: self._len)
+  }),
+
+  /// Apply a function to each element, producing a new vector.
+  map : (fn(forall(U : Type), self: Self, f: Impl(Fn(a: T) -> U), where(U <: Send)) -> Vec(U))({
+    new_ptr := Vec(U)._raw_alloc(self._len);
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      (new_ptr &+ i).* = f((self._ptr &+ i).*);
+    };
+    Vec(U)(_ptr: new_ptr, _len: self._len, _cap: self._len)
+  }),
+
+  /// Filter elements by a predicate, returning a new vector.
+  filter : (fn(self: Self, f: Impl(Fn(a: T) -> bool)) -> Self)({
+    new_ptr := Self._raw_alloc(self._len);
+    count := usize(0);
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      elem := (self._ptr &+ i).*;
+      if(f(elem), {
+        (new_ptr &+ count).* = elem;
+        count = (count + usize(1));
+      });
+    };
+    Self(_ptr: new_ptr, _len: count, _cap: self._len)
+  }),
+
+  /// Left fold over elements.
+  fold : (fn(forall(U : Type), self: Self, init: U, f: Impl(Fn(acc: U, elem: T) -> U)) -> U)({
+    (acc : U) = init;
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      acc = f(acc, (self._ptr &+ i).*);
+    };
+    acc
+  }),
+
+  /// Check if any element satisfies the predicate.
+  any : (fn(self: Self, f: Impl(Fn(a: T) -> bool)) -> bool)({
+    i := usize(0);
+    (found : bool) = false;
+    while ((i < self._len) && !(found)), (i = (i + usize(1))), {
+      if(f((self._ptr &+ i).*), {
+        found = true;
+      });
+    };
+    found
+  }),
+
+  /// Check if all elements satisfy the predicate.
+  all : (fn(self: Self, f: Impl(Fn(a: T) -> bool)) -> bool)({
+    i := usize(0);
+    (ok : bool) = true;
+    while ((i < self._len) && ok), (i = (i + usize(1))), {
+      if(!(f((self._ptr &+ i).*)), {
+        ok = false;
+      });
+    };
+    ok
+  }),
+
+  /// Find the first element satisfying the predicate.
+  find : (fn(self: Self, f: Impl(Fn(a: T) -> bool)) -> Option(T))({
+    i := usize(0);
+    (result : Option(T)) = .None;
+    while ((i < self._len) && result.is_none()), (i = (i + usize(1))), {
+      elem := (self._ptr &+ i).*;
+      if(f(elem), {
+        result = .Some(elem);
+      });
+    };
+    result
+  }),
+
+  /// Return the index of the first element equal to `val`, or `.None`.
+  index_of : (fn(self: Self, val: T, where(T <: Eq(T))) -> Option(usize))({
+    i := usize(0);
+    (result : Option(usize)) = .None;
+    while ((i < self._len) && result.is_none()), (i = (i + usize(1))), {
+      if(((self._ptr &+ i).* == val), {
+        result = .Some(i);
+      });
+    };
+    result
+  }),
+
+  /// Check if the vector contains `val`.
+  contains : (fn(self: Self, val: T, where(T <: Eq(T))) -> bool)(
+    self.index_of(val).is_some()
+  ),
+
+  /// Return a new vector with duplicate elements removed (preserves first occurrence).
+  dedup : (fn(self: Self, where(T <: Eq(T))) -> Self)({
+    new_ptr := Self._raw_alloc(self._len);
+    count := usize(0);
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      elem := (self._ptr &+ i).*;
+      (found : bool) = false;
+      j := usize(0);
+      while ((j < count) && !(found)), (j = (j + usize(1))), {
+        if(((new_ptr &+ j).* == elem), {
+          found = true;
+        });
+      };
+      if(!(found), {
+        (new_ptr &+ count).* = elem;
+        count = (count + usize(1));
+      });
+    };
+    Self(_ptr: new_ptr, _len: count, _cap: self._len)
+  }),
+
+  /// Zip two vectors together using a combining function.
+  zip_with : (fn(forall(U : Type, V : Type), self: Self, other: Vec(U), f: Impl(Fn(a: T, b: U) -> V), where(U <: Send, V <: Send)) -> Vec(V))({
+    min_len := cond(
+      (self._len < other._len) => self._len,
+      true => other._len
+    );
+    new_ptr := Vec(V)._raw_alloc(min_len);
+    i := usize(0);
+    while (i < min_len), (i = (i + usize(1))), {
+      (new_ptr &+ i).* = f((self._ptr &+ i).*, other.get(i).unwrap());
+    };
+    Vec(V)(_ptr: new_ptr, _len: min_len, _cap: min_len)
+  })
+);
+
+/// Eq trait for Vec(T) — element-wise equality.
+impl(forall(T : Type), where(T <: (Send, Eq(T))), Vec(T), Eq(Vec(T))(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    if((lhs._len != rhs._len), {
+      return false;
+    });
+    i := usize(0);
+    (equal : bool) = true;
+    while ((i < lhs._len) && equal), (i = (i + usize(1))), {
+      if(((lhs._ptr &+ i).* != (rhs._ptr &+ i).*), {
+        equal = false;
+      });
+    };
+    equal
+  })
+));
+
+export Vec, PopResult;
+
