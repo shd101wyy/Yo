@@ -19,7 +19,6 @@
 
 { GlobalAllocator } :: import "../allocator.yo";
 { malloc, free } :: GlobalAllocator;
-{ memcpy } :: import "../libc/string.yo";
 
 /// Persistent immutable vector.
 ///
@@ -36,6 +35,10 @@ Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 
 impl(forall(T : Type), where(T <: Send), Vec(T), Dispose(
   dispose : (fn(self: Self) -> unit)({
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      unsafe.drop((self._ptr &+ i).*);
+    };
     free(.Some(*(void)(self._ptr)));
   })
 ));
@@ -57,6 +60,17 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
       .Some(p) => *(T)(p),
       .None => panic("imm.Vec: allocation failed")
     )
+  }),
+
+  /// Copy elements element-by-element so RC-backed values duplicate correctly.
+  _copy_elems : (fn(
+    dst: *(T), src: *(T),
+    dst_offset: usize, src_offset: usize, count: usize
+  ) -> unit)({
+    i := usize(0);
+    while (i < count), (i = (i + usize(1))), {
+      consume((dst &+ (dst_offset + i)).* = (src &+ (src_offset + i)).*);
+    };
   }),
 
   /// Create a new empty vector.
@@ -89,7 +103,7 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     assert((idx < self._len), "imm.Vec.set: index out of bounds");
     new_ptr := Self._raw_alloc(self._len);
     if((self._len > usize(0)), {
-      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+      Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
     (new_ptr &+ idx).* = val;
     Self(_ptr: new_ptr, _len: self._len, _cap: self._len)
@@ -104,9 +118,9 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     );
     new_ptr := Self._raw_alloc(new_cap);
     if((self._len > usize(0)), {
-      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+      Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
-    (new_ptr &+ self._len).* = val;
+    consume((new_ptr &+ self._len).* = val);
     Self(_ptr: new_ptr, _len: (self._len + usize(1)), _cap: new_cap)
   }),
 
@@ -135,7 +149,7 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     new_len := (self._len - usize(1));
     new_ptr := Self._raw_alloc(self._cap);
     if((new_len > usize(0)), {
-      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * new_len));
+      Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), new_len);
     });
     new_vec := Self(_ptr: new_ptr, _len: new_len, _cap: self._cap);
     PopResult(T)(vec: new_vec, value: .Some(val))
@@ -156,7 +170,7 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     });
     new_len := (actual_end - actual_start);
     new_ptr := Self._raw_alloc(new_len);
-    memcpy(*(void)(new_ptr), *(void)((self._ptr &+ actual_start)), (sizeof(T) * new_len));
+    Self._copy_elems(new_ptr, self._ptr, usize(0), actual_start, new_len);
     Self(_ptr: new_ptr, _len: new_len, _cap: new_len)
   }),
 
@@ -165,10 +179,10 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     total := (self._len + other._len);
     new_ptr := Self._raw_alloc(total);
     if((self._len > usize(0)), {
-      memcpy(*(void)(new_ptr), *(void)(self._ptr), (sizeof(T) * self._len));
+      Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
     if((other._len > usize(0)), {
-      memcpy(*(void)((new_ptr &+ self._len)), *(void)(other._ptr), (sizeof(T) * other._len));
+      Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
     });
     Self(_ptr: new_ptr, _len: total, _cap: total)
   }),
@@ -320,7 +334,7 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
     );
     new_ptr := Self._raw_alloc(cap);
     if((slen > usize(0)), {
-      memcpy(*(void)(new_ptr), *(void)(s.ptr()), (sizeof(T) * slen));
+      Self._copy_elems(new_ptr, s.ptr(), usize(0), usize(0), slen);
     });
     Self(_ptr: new_ptr, _len: slen, _cap: cap)
   })

@@ -3,17 +3,18 @@
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
 在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
 `atomic object(...)`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
+`Arc(T)` 本身要求 `T <: Send`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。
 
 ## 当前定义
 
 ```rust
-Arc :: (fn(comptime(V) : Type) -> comptime(Type))
+Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
   atomic object(
     (*) : V
   )
 ;
 
-arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
+arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
   Arc(V)(value)
 ;
 ```
@@ -23,9 +24,13 @@ arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
 - 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
 - 当你要定义**自己的共享类型**时，使用 `atomic object(...)`。
 - 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
+- `Arc(T)` 只接受实现了 `Send` 的子类型；普通 `object(...)` 并不满足这个条件。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
 原语和 `std/imm` 集合本身就基于 `atomic object(...)` 实现，可以直接跨线程共享。
+
+如果你需要共享可变状态，应该先把这份状态定义成 `atomic object(...)`，
+然后直接共享它；只有在你确实需要“包裹一个单独值”时，再使用 `Arc(...)`。
 
 ## 基本用法
 

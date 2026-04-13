@@ -2549,7 +2549,8 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic object(...)` wrapper. Use `Arc(T)` when you want to share a single value.
+`atomic object(...)` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+thread-shareable values. Use `Arc(T)` when you want to share a single value.
 Use `atomic object(...)` when defining your own shared types.
 
 ```rust

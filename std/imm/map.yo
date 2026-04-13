@@ -61,13 +61,17 @@ MapCollision :: (fn(
   atomic object(
     hash : u64,
     _pairs_ptr : *(Pair(K, V)),
-    _pairs_len : u8
+    _pairs_len : usize
   )
 );
 
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send),
   MapCollision(K, V), Dispose(
   dispose : (fn(self: Self) -> unit)({
+    i := usize(0);
+    while (i < self._pairs_len), (i = (i + usize(1))), {
+      unsafe.drop((self._pairs_ptr &+ i).*);
+    };
     free(.Some(*(void)(self._pairs_ptr)));
   })
 ));
@@ -168,7 +172,7 @@ _copy_children :: (fn(
   while (i < count), (i = (i + u8(1))), {
     src_ptr := *(MapNode(K, V))((src &+ (node_sz * usize((src_offset + i)))));
     dst_ptr := *(MapNode(K, V))((dst &+ (node_sz * usize((dst_offset + i)))));
-    dst_ptr.* = src_ptr.*;
+    consume(dst_ptr.* = src_ptr.*);
   };
 });
 
@@ -179,7 +183,9 @@ _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch: MapBra
   if((usize(idx) > usize(0)), {
     _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), idx);
   });
-  _branch_set_child(K, V, new_ptr, idx, child);
+  child_offset := (sizeof(MapNode(K, V)) * usize(idx));
+  child_target := *(MapNode(K, V))((new_ptr &+ child_offset));
+  consume(child_target.* = child);
   remaining := (branch._children_len - idx);
   if((usize(remaining) > usize(0)), {
     _copy_children(K, V, new_ptr, branch._children_ptr, (idx + u8(1)), idx, remaining);
@@ -212,18 +218,18 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch: Map
 
 // -- MapCollision helpers --
 
-_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count: u8, where(K <: (Eq(K), Hash, Send), V <: Send)) -> *(Pair(K, V)))({
-  sz := (sizeof(Pair(K, V)) * usize(count));
+_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count: usize, where(K <: (Eq(K), Hash, Send), V <: Send)) -> *(Pair(K, V)))({
+  sz := (sizeof(Pair(K, V)) * count);
   match(malloc(sz),
     .Some(p) => *(Pair(K, V))(p),
     .None => panic("imm.Map: collision allocation failed")
   )
 });
 
-_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(u8))({
-  i := u8(0);
-  while (i < coll._pairs_len), (i = (i + u8(1))), {
-    if(((coll._pairs_ptr &+ usize(i)).*.key == k), {
+_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(usize))({
+  i := usize(0);
+  while (i < coll._pairs_len), (i = (i + usize(1))), {
+    if(((coll._pairs_ptr &+ i).*.key == k), {
       return .Some(i);
     });
   };
@@ -234,12 +240,12 @@ _coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision
 _copy_pairs :: (fn(
   comptime(K) : Type, comptime(V) : Type,
   dst: *(Pair(K, V)), src: *(Pair(K, V)),
-  dst_offset: u8, src_offset: u8, count: u8,
+  dst_offset: usize, src_offset: usize, count: usize,
   where(K <: (Eq(K), Hash, Send), V <: Send)
 ) -> unit)({
-  i := u8(0);
-  while (i < count), (i = (i + u8(1))), {
-    (dst &+ usize((dst_offset + i))).* = (src &+ usize((src_offset + i))).*;
+  i := usize(0);
+  while (i < count), (i = (i + usize(1))), {
+    consume((dst &+ (dst_offset + i)).* = (src &+ (src_offset + i)).*);
   };
 });
 
@@ -247,15 +253,15 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollisio
   match(_coll_find_key(K, V, coll, k),
     .Some(idx) => {
       new_ptr := _alloc_pairs(K, V, coll._pairs_len);
-      _copy_pairs(K, V, new_ptr, coll._pairs_ptr, u8(0), u8(0), coll._pairs_len);
-      (new_ptr &+ usize(idx)).* = Pair(K, V)(key: k, value: v);
+      _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
+      (new_ptr &+ idx).* = Pair(K, V)(key: k, value: v);
       return MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: coll._pairs_len);
     },
     .None => {
-      new_len := (coll._pairs_len + u8(1));
+      new_len := (coll._pairs_len + usize(1));
       new_ptr := _alloc_pairs(K, V, new_len);
-      _copy_pairs(K, V, new_ptr, coll._pairs_ptr, u8(0), u8(0), coll._pairs_len);
-      (new_ptr &+ usize(coll._pairs_len)).* = Pair(K, V)(key: k, value: v);
+      _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
+      consume((new_ptr &+ coll._pairs_len).* = Pair(K, V)(key: k, value: v));
       return MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len);
     }
   )
@@ -264,17 +270,17 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollisio
 _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(MapCollision(K, V)))({
   match(_coll_find_key(K, V, coll, k),
     .Some(idx) => {
-      if((coll._pairs_len <= u8(2)), {
+      if((coll._pairs_len <= usize(2)), {
         return .None;
       });
-      new_len := (coll._pairs_len - u8(1));
+      new_len := (coll._pairs_len - usize(1));
       new_ptr := _alloc_pairs(K, V, new_len);
       if((usize(idx) > usize(0)), {
-        _copy_pairs(K, V, new_ptr, coll._pairs_ptr, u8(0), u8(0), idx);
+        _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), idx);
       });
-      remaining := (coll._pairs_len - (idx + u8(1)));
+      remaining := (coll._pairs_len - (idx + usize(1)));
       if((usize(remaining) > usize(0)), {
-        _copy_pairs(K, V, new_ptr, coll._pairs_ptr, idx, (idx + u8(1)), remaining);
+        _copy_pairs(K, V, new_ptr, coll._pairs_ptr, idx, (idx + usize(1)), remaining);
       });
       return .Some(MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len));
     },
@@ -307,7 +313,7 @@ _make_branch :: (fn(
   if((frag1 == frag2), {
     child := _make_branch(K, V, (shift + BITS), node1, hash1, node2, hash2);
     ptr := _alloc_map_children(K, V, u8(1));
-    (*(MapNode(K, V))(ptr)).* = child;
+    consume((*(MapNode(K, V))(ptr)).* = child);
     return .Branch(MapBranch(K, V)(
       bitmap: _bit_for(frag1),
       _children_ptr: ptr,
@@ -320,11 +326,11 @@ _make_branch :: (fn(
   ptr := _alloc_map_children(K, V, u8(2));
   children := *(MapNode(K, V))(ptr);
   if((frag1 < frag2), {
-    children.* = node1;
-    (children &+ usize(1)).* = node2;
+    consume(children.* = node1);
+    consume((children &+ usize(1)).* = node2);
   }, {
-    children.* = node2;
-    (children &+ usize(1)).* = node1;
+    consume(children.* = node2);
+    consume((children &+ usize(1)).* = node1);
   });
   .Branch(MapBranch(K, V)(
     bitmap: bitmap,
@@ -356,11 +362,11 @@ _node_insert :: (fn(
             added: false
           );
         });
-        pairs_ptr := _alloc_pairs(K, V, u8(2));
-        pairs_ptr.* = Pair(K, V)(key: leaf.key, value: leaf.value);
-        (pairs_ptr &+ usize(1)).* = Pair(K, V)(key: k, value: v);
+        pairs_ptr := _alloc_pairs(K, V, usize(2));
+        consume(pairs_ptr.* = Pair(K, V)(key: leaf.key, value: leaf.value));
+        consume((pairs_ptr &+ usize(1)).* = Pair(K, V)(key: k, value: v));
         return InsertResult(K, V)(
-          node: .Collision(MapCollision(K, V)(hash: hash, _pairs_ptr: pairs_ptr, _pairs_len: u8(2))),
+          node: .Collision(MapCollision(K, V)(hash: hash, _pairs_ptr: pairs_ptr, _pairs_len: usize(2))),
           added: true
         );
       });
@@ -433,9 +439,9 @@ _node_get :: (fn(
       if((coll.hash != hash), {
         return .None;
       });
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        pair := (coll._pairs_ptr &+ usize(i)).*;
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        pair := (coll._pairs_ptr &+ i).*;
         if((pair.key == k), {
           return .Some(pair.value);
         });
@@ -521,10 +527,10 @@ _node_remove :: (fn(
         },
         .None => {
           remaining_idx := cond(
-            ((coll._pairs_ptr).*.key == k) => u8(1),
-            true => u8(0)
+            ((coll._pairs_ptr).*.key == k) => usize(1),
+            true => usize(0)
           );
-          remaining_pair := (coll._pairs_ptr &+ usize(remaining_idx)).*;
+          remaining_pair := (coll._pairs_ptr &+ remaining_idx).*;
           return RemoveResult(K, V)(
             node: .Some(.Leaf(MapLeaf(K, V)(hash: coll.hash, key: remaining_pair.key, value: remaining_pair.value))),
             removed: true
@@ -560,9 +566,9 @@ _merge_from_node :: (fn(
     },
     .Collision(coll) => {
       (result : Map(K, V)) = acc;
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        pair := (coll._pairs_ptr &+ usize(i)).*;
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        pair := (coll._pairs_ptr &+ i).*;
         result = result.insert(pair.key, pair.value);
       };
       result
@@ -589,9 +595,9 @@ _collect_keys :: (fn(
     },
     .Collision(coll) => {
       (result : List(K)) = acc;
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        result = result.prepend((coll._pairs_ptr &+ usize(i)).*.key);
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        result = result.prepend((coll._pairs_ptr &+ i).*.key);
       };
       result
     }
@@ -617,9 +623,9 @@ _collect_values :: (fn(
     },
     .Collision(coll) => {
       (result : List(V)) = acc;
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        result = result.prepend((coll._pairs_ptr &+ usize(i)).*.value);
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        result = result.prepend((coll._pairs_ptr &+ i).*.value);
       };
       result
     }
@@ -645,9 +651,9 @@ _collect_entries :: (fn(
     },
     .Collision(coll) => {
       (result : List(Pair(K, V))) = acc;
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        result = result.prepend((coll._pairs_ptr &+ usize(i)).*);
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        result = result.prepend((coll._pairs_ptr &+ i).*);
       };
       result
     }
@@ -669,7 +675,7 @@ _map_values_node :: (fn(
       new_children := *(MapNode(K, U))(new_ptr);
       i := u8(0);
       while (i < branch._children_len), (i = (i + u8(1))), {
-        (new_children &+ usize(i)).* = _map_values_node(K, V, U, _branch_child_at(K, V, branch, i), f);
+        consume((new_children &+ usize(i)).* = _map_values_node(K, V, U, _branch_child_at(K, V, branch, i), f));
       };
       .Branch(MapBranch(K, U)(
         bitmap: branch.bitmap,
@@ -679,10 +685,10 @@ _map_values_node :: (fn(
     },
     .Collision(coll) => {
       new_ptr := _alloc_pairs(K, U, coll._pairs_len);
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        old_pair := (coll._pairs_ptr &+ usize(i)).*;
-        (new_ptr &+ usize(i)).* = Pair(K, U)(key: old_pair.key, value: f(old_pair.value));
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        old_pair := (coll._pairs_ptr &+ i).*;
+        consume((new_ptr &+ i).* = Pair(K, U)(key: old_pair.key, value: f(old_pair.value)));
       };
       .Collision(MapCollision(K, U)(
         hash: coll.hash,
@@ -716,9 +722,9 @@ _filter_from_node :: (fn(
     },
     .Collision(coll) => {
       (result : Map(K, V)) = acc;
-      i := u8(0);
-      while (i < coll._pairs_len), (i = (i + u8(1))), {
-        pair := (coll._pairs_ptr &+ usize(i)).*;
+      i := usize(0);
+      while (i < coll._pairs_len), (i = (i + usize(1))), {
+        pair := (coll._pairs_ptr &+ i).*;
         if(f(pair.key, pair.value), {
           result = result.insert(pair.key, pair.value);
         });
@@ -751,10 +757,10 @@ _all_entries_match :: (fn(
       ok
     },
     .Collision(coll) => {
-      i := u8(0);
+      i := usize(0);
       (ok : bool) = true;
-      while ((i < coll._pairs_len) && ok), (i = (i + u8(1))), {
-        pair := (coll._pairs_ptr &+ usize(i)).*;
+      while ((i < coll._pairs_len) && ok), (i = (i + usize(1))), {
+        pair := (coll._pairs_ptr &+ i).*;
         match(target.get(pair.key),
           .Some(tv) => {
             if((tv != pair.value), {

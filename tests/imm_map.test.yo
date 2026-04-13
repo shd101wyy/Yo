@@ -1,5 +1,14 @@
 { Map, Pair } :: import "std/imm/map";
 { List } :: import "std/imm/list";
+{ String } :: import "std/imm/string";
+
+CollisionKey :: struct(id : i32);
+derive(CollisionKey, Eq(CollisionKey));
+impl(CollisionKey, Hash(
+  (hash) : (fn(self : *(Self)) -> u64)(
+    u64(1)
+  )
+));
 
 test "Map new is empty", {
   m := Map(i32, i32).new();
@@ -173,4 +182,34 @@ test "Map inequality different values", {
   m1 := Map(i32, i32).new().insert(i32(1), i32(10));
   m2 := Map(i32, i32).new().insert(i32(1), i32(20));
   assert((m1 != m2), "different values not equal");
+};
+
+test "Map collision nodes support RC-backed values", {
+  m := Map(CollisionKey, String).new();
+  m = m.insert(CollisionKey(id: i32(1)), String.from("a"));
+  m = m.insert(CollisionKey(id: i32(2)), String.from("b"));
+  m = m.insert(CollisionKey(id: i32(3)), String.from("c"));
+  assert((m.len() == usize(3)), "three colliding entries");
+  assert((m.get(CollisionKey(id: i32(2))).unwrap() == String.from("b")), "lookup colliding string");
+
+  m2 := m.insert(CollisionKey(id: i32(2)), String.from("bb"));
+  m3 := m2.remove(CollisionKey(id: i32(1)));
+  assert((m3.len() == usize(2)), "overwrite and remove preserve length");
+  assert((m3.get(CollisionKey(id: i32(2))).unwrap() == String.from("bb")), "updated colliding value");
+  assert(m3.get(CollisionKey(id: i32(1))).is_none(), "removed colliding key absent");
+};
+
+test "Map collision nodes handle more than 255 entries", {
+  (m : Map(CollisionKey, i32)) = Map(CollisionKey, i32).new();
+  i := i32(0);
+  while (i < i32(260)), (i = (i + i32(1))), {
+    m = m.insert(CollisionKey(id: i), i);
+  };
+
+  assert((m.len() == usize(260)), "all colliding entries counted");
+
+  i = i32(0);
+  while (i < i32(260)), (i = (i + i32(1))), {
+    assert((m.get(CollisionKey(id: i)).unwrap() == i), "colliding entry remains accessible");
+  };
 };

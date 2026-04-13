@@ -17,15 +17,15 @@ test "Test Arc with direct constructor", {
   assert(a.(*) == 99);
 };
 
-test "Test Arc with object type", {
-  Counter :: object(count : i32);
+test "Test Arc with struct type", {
+  Counter :: struct(count : i32);
 
   c := arc(Counter(i32(10)));
   assert(c.(*).count == 10);
 };
 
-test "Test Arc copy of object type", {
-  Counter :: object(count : i32);
+test "Test Arc copy of struct type", {
+  Counter :: struct(count : i32);
 
   c := arc(Counter(i32(20)));
   d := c;
@@ -34,7 +34,7 @@ test "Test Arc copy of object type", {
 };
 
 test "Test Arc with method delegation through deref", {
-  Counter :: object(count : i32);
+  Counter :: struct(count : i32);
   impl(Counter,
     get_count : ((fn(self : Self) -> i32) self.count)
   );
@@ -44,7 +44,7 @@ test "Test Arc with method delegation through deref", {
 };
 
 test "Test Arc passed to function", {
-  Counter :: object(count : i32);
+  Counter :: struct(count : i32);
 
   read_arc :: (fn(a : Arc(Counter)) -> i32)
     a.(*).count
@@ -55,6 +55,13 @@ test "Test Arc passed to function", {
   assert(result == 50);
   // c is still valid after passing to function (Arc copies on pass)
   assert(c.(*).count == 50);
+};
+
+test "Test Arc rejects non-Send object type", {
+  Counter :: object(count : i32);
+
+  comptime_expect_error(Arc(Counter));
+  comptime_expect_error(arc(Counter(i32(1))));
 };
 
 test "Test Arc multiple copies", {
@@ -106,8 +113,8 @@ test "Test Arc shared across thread", {
   assert(shared.(*) == 42);
 };
 
-test "Test Arc of object shared across thread", {
-  Counter :: object(count : i32);
+test "Test Arc of struct shared across thread", {
+  Counter :: struct(count : i32);
 
   shared := arc(Counter(i32(99)));
   t := Thread.spawn(() => {

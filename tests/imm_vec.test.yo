@@ -1,6 +1,9 @@
 // Tests for std/imm/vec — Persistent immutable vector
 
 { Vec, PopResult } :: import "../std/imm/vec";
+{ String } :: import "../std/imm/string";
+
+VecRcEntry :: struct(text : String);
 
 test "Vec new creates empty vector", {
   v := Vec(i32).new();
@@ -288,4 +291,23 @@ test "Vec from_slice equality", {
   v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
   v2 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   assert((v1 == v2), "from_slice equals manual push");
+};
+
+test "Vec supports RC-backed Send elements", {
+  v1 := Vec(VecRcEntry).new()
+    .push(VecRcEntry(text: String.from("a")))
+    .push(VecRcEntry(text: String.from("b")));
+  v2 := v1.push(VecRcEntry(text: String.from("c")));
+  v3 := v2.set(usize(0), VecRcEntry(text: String.from("z")));
+  popped := v3.pop();
+  v4 := v1.concat(Vec(VecRcEntry).new().push(VecRcEntry(text: String.from("d"))));
+  v5 := v4.slice(usize(1), usize(3));
+
+  assert(v1.get(usize(0)).unwrap().text.eq_str("a"), "v1 keeps first value");
+  assert(v2.get(usize(2)).unwrap().text.eq_str("c"), "push appends rc value");
+  assert(v3.get(usize(0)).unwrap().text.eq_str("z"), "set replaces rc value");
+  assert(popped.value.unwrap().text.eq_str("c"), "pop returns rc value");
+  assert((popped.vec.len() == usize(2)), "pop shrinks vector");
+  assert(v5.get(usize(0)).unwrap().text.eq_str("b"), "slice keeps middle value");
+  assert(v5.get(usize(1)).unwrap().text.eq_str("d"), "concat adds tail value");
 };

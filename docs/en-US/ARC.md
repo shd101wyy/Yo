@@ -3,18 +3,20 @@
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
 in `std/prelude.yo` as a thin `atomic object(...)` wrapper, so `Arc` and
-`arc(...)` are available everywhere through the prelude.
+`arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
+`T <: Send`, which keeps `Arc` from laundering non-thread-safe values into a
+thread-shareable wrapper.
 
 ## Current definition
 
 ```rust
-Arc :: (fn(comptime(V) : Type) -> comptime(Type))
+Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
   atomic object(
     (*) : V
   )
 ;
 
-arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
+arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
   Arc(V)(value)
 ;
 ```
@@ -24,10 +26,15 @@ arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
 - Use `Arc(T)` when you want to share **one existing value** across threads or closures.
 - Use `atomic object(...)` when you are defining your **own shared type**.
 - Use `Iso(T)` when ownership should be **transferred**, not shared.
+- `Arc(T)` only accepts `Send` child types. A regular `object(...)` value is not enough.
 
 Many standard-library types no longer need an extra `Arc(...)` wrapper. For
 example, `std/sync` primitives and `std/imm` collections are already implemented
 with `atomic object(...)` and are directly shareable.
+
+If you need shared mutable state, define that state as an `atomic object(...)`
+first, then share it directly or place it inside `Arc(...)` if you specifically
+need a single wrapped value.
 
 ## Basic usage
 

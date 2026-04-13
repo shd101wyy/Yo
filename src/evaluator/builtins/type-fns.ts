@@ -810,6 +810,8 @@ export function evaluateYoTypeGetInfo({
       let kindStr: string;
       if (structType.isNewtype) {
         kindStr = "StructKind.NewType";
+      } else if (structType.isAtomicRc) {
+        kindStr = "StructKind.AtomicObject";
       } else if (structType.isReferenceSemantics) {
         kindStr = "StructKind.Object";
       } else {
