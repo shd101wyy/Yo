@@ -48,7 +48,11 @@ PopResult :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 impl(forall(T : Type), where(T <: Send), Vec(T),
   /// Allocate raw buffer without creating an intermediate atomic object.
   _raw_alloc : (fn(cap: usize) -> *(T))({
-    sz := (sizeof(T) * cap);
+    alloc_cap := cond(
+      (cap > usize(0)) => cap,
+      true => usize(1)
+    );
+    sz := (sizeof(T) * alloc_cap);
     match(malloc(sz),
       .Some(p) => *(T)(p),
       .None => panic("imm.Vec: allocation failed")
@@ -95,6 +99,7 @@ impl(forall(T : Type), where(T <: Send), Vec(T),
   push : (fn(self: Self, val: T) -> Self)({
     new_cap := cond(
       (self._len < self._cap) => self._cap,
+      (self._cap == usize(0)) => usize(4),
       true => (self._cap * usize(2))
     );
     new_ptr := Self._raw_alloc(new_cap);
@@ -339,4 +344,3 @@ impl(forall(T : Type), where(T <: (Send, Eq(T))), Vec(T), Eq(Vec(T))(
 ));
 
 export Vec, PopResult;
-

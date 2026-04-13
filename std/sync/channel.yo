@@ -45,6 +45,7 @@ impl(forall(T : Type), Channel(T), where(T <: Send),
   /// Create a bounded channel with the given capacity.
   /// Capacity must be > 0.
   new : (fn(capacity: usize) -> Self)({
+    assert((capacity > usize(0)), "Channel.new: capacity must be > 0");
     (ptr : *(T)) = *(T)(malloc((capacity * sizeof(T))).unwrap());
     return Self(
       _data: ptr,

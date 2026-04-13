@@ -2547,7 +2547,10 @@ export main;
 
 ## Arc 类型
 
-`Arc(T)` 提供**共享所有权**并使用原子引用计数。与强制唯一所有权的 `Iso(T)` 不同，多个 `Arc(T)` 值可以引用同一数据。Arc 是 `Send` 安全的，使其成为跨线程共享数据的主要机制。
+`Arc(T)` 提供**共享所有权**并使用原子引用计数。它不再是编译器内置类型，
+而是在 `std/prelude.yo` 中被定义为一个薄包装的 `atomic object(...)`。
+当你想共享单个值时使用 `Arc(T)`；当你想定义自己的共享类型时使用
+`atomic object(...)`。
 
 ```rust
 // 使用 arc() 辅助函数创建
@@ -2561,12 +2564,12 @@ copy := shared;             // 引用计数：1 → 2
 
 // 跨线程共享
 { Thread } :: import "std/thread";
-ch := arc(Channel(i32).new(usize(10)));
+shared := arc(i32(42));
 t := Thread.spawn(() => {
-  ch.(*).send(i32(42));
+  assert((shared.(*) == i32(42)), "thread sees shared value");
 });
-result := ch.(*).recv().unwrap();
 t.join();
+assert((shared.(*) == i32(42)), "main still sees shared value");
 ```
 
 完整详情请参阅 [ARC.md](./ARC.md)。

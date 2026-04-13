@@ -1,85 +1,97 @@
-# Arc(T) — 原子引用计数共享所有权
+# Arc(T) — 基于原子引用计数的共享所有权
 
-Arc(T) 是一个编译器内置类型，用于实现基于**原子引用计数**的**共享所有权**。与 `Iso(T)`（独占所有权）不同，多个 `Arc(T)` 值可以指向同一份数据。Arc 是 **Send 安全**的，支持跨线程数据共享。
+`Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
+在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
+`atomic object(...)`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
 
-## 使用方法
+## 当前定义
+
+```rust
+Arc :: (fn(comptime(V) : Type) -> comptime(Type))
+  atomic object(
+    (*) : V
+  )
+;
+
+arc :: (fn(forall(V : Type), own(value) : V) -> Arc(V))
+  Arc(V)(value)
+;
+```
+
+## 什么时候使用 `Arc`
+
+- 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
+- 当你要定义**自己的共享类型**时，使用 `atomic object(...)`。
+- 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
+
+许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
+原语和 `std/imm` 集合本身就基于 `atomic object(...)` 实现，可以直接跨线程共享。
+
+## 基本用法
 
 ### 创建 Arc
 
 ```rust
-// 使用 arc() 辅助函数
-a := arc(i32(42));
-
-// 直接使用类型构造器
-a := Arc(i32)(i32(42));
+value := arc(i32(42));
+same := Arc(i32)(i32(42));
 ```
 
 ### 解引用
 
-通过 `.*` 访问内部值，返回一个**借用**引用：
+通过 `.(*)` 访问内部值，它返回借用访问：
+
+```rust
+value := arc(i32(42));
+copied := value.(*);
+assert((copied == i32(42)), "inner value is 42");
+```
+
+### 复制
+
+复制 `Arc` 会递增引用计数，并继续共享同一份底层值：
 
 ```rust
 a := arc(i32(42));
-val := a.*;       // val : i32 = 42
-```
+b := a;
+c := b;
 
-对于 object 类型，方法调用通过 `.*` 进行委托：
-
-```rust
-Counter :: object(count : i32);
-impl(Counter,
-  get_count : ((fn(self : Self) -> i32) self.count)
-);
-
-c := arc(Counter(i32(10)));
-c.*.get_count()    // 返回 10
-```
-
-### 共享（复制语义）
-
-将一个 Arc 赋值给另一个变量会使引用计数递增：
-
-```rust
-a := arc(i32(42));
-b := a;              // 引用计数: 1 → 2
-c := b;              // 引用计数: 2 → 3
-// 三者共享同一份底层数据
-assert(a.* == b.*);
+assert((a.(*) == b.(*)), "same shared value");
+assert((b.(*) == c.(*)), "same shared value");
 ```
 
 ### 跨线程共享
 
-Arc 实现了 `Send`，因此可以在线程/工作线程闭包中被捕获：
-
 ```rust
 { Thread } :: import "std/thread";
-{ Channel } :: import "std/sync/channel";
 
-// 跨线程共享 channel
-ch := arc(Channel(i32).new(usize(10)));
+shared := arc(i32(42));
 
-producer := Thread.spawn(() => {
-  ch.*.send(i32(42));
+t := Thread.spawn(() => {
+  assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 
-val := ch.*.recv().unwrap();
-producer.join();
+t.join();
+assert((shared.(*) == i32(42)), "main still sees shared value");
 ```
 
-## 与 Iso(T) 的对比
+## `Arc`、`atomic object` 与 `Iso` 的区别
 
-| 特性     | `Arc(T)`               | `Iso(T)`               |
-| -------- | ---------------------- | ---------------------- |
-| 所有权   | 共享（多个引用）       | 独占（单一所有者）     |
-| 引用计数 | 原子（`_Atomic`）      | 原子（`_Atomic`）      |
-| 复制行为 | 递增引用计数           | 提取（移动）值         |
-| 可变性   | 通过 `.*` 只读（借用） | 通过 `.(^)` 完全所有权 |
-| Send     | 是（始终）             | 是（始终）             |
-| 使用场景 | 跨线程共享读取         | 跨线程所有权转移       |
+| 需求                            | 推荐工具             |
+| ------------------------------- | -------------------- |
+| 共享一个现有值                  | `Arc(T)`             |
+| 定义可复用的共享引用计数类型    | `atomic object(...)` |
+| 在线程/作用域之间转移唯一所有权 | `Iso(T)`             |
 
-## 实现细节
+## 语义
 
-- **C 表示**：`struct { __yo_ref_header_t header; T value; }` — 分配在堆上的指针类型。
-- **引用计数操作**：使用 `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`（原子递增/递减）。
-- **释放**：当引用计数降为 0 时，先调用内部值的 `___drop`（如果有的话），然后释放 Arc 的内存分配。
-- **闭包捕获**：在闭包中捕获时，Arc 指针会被**复制**（引用计数递增）。闭包和外部作用域各自持有独立的引用。
+- **原子引用计数**：`Arc` 使用原子递增/递减操作。
+- **共享所有权**：复制 `Arc` 不会复制底层分配，只会共享它。
+- **借用解引用**：`.(*)` 提供对内部值的借用访问。
+- **销毁行为**：最后一个引用被释放时，会先 drop 内部值，再释放分配。
+- **闭包捕获**：闭包捕获 `Arc` 时会复制这份共享引用。
+
+## 相关文档
+
+- `docs/zh-CN/PARALLELISM.md` —— 线程与 Worker 模型
+- `docs/zh-CN/ISOLATED.md` —— `Iso(T)` 的唯一所有权
+- `docs/zh-CN/IMMUTABLE_COLLECTIONS.md` —— 基于 `atomic object(...)` 的持久化集合

@@ -166,17 +166,17 @@ Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程�
 ```rust
 { Channel } :: import "std/sync/channel";
 
-// 创建一个有界 Channel（容量为 10），用 Arc 包装以实现跨线程共享
-ch := arc(Channel(i32).new(usize(10)));
+// 创建一个有界 Channel（容量为 10）
+ch := Channel(i32).new(usize(10));
 
 // 生产者线程
 Thread.spawn(() => {
-  ch.(*).send(i32(42));
+  ch.send(i32(42));
 });
 
 // 消费者线程
 Thread.spawn(() => {
-  val := ch.(*).recv();
+  val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
     true => ()
@@ -184,7 +184,8 @@ Thread.spawn(() => {
 });
 ```
 
-`Channel` 是线程局部的 `object`，因此必须用 `arc()`（`Arc(T)` — 原子引用计数）包装才能跨线程共享。使用 `ch.(*)` 解引用 `Arc` 后再调用方法。
+`Channel` 现在是一个 `atomic object(...)`，因此可以直接跨线程共享，
+不再需要额外的 `arc()` 包装。
 
 Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
 
@@ -266,10 +267,10 @@ thread.join();
 // 线程池任务
 Worker.spawn(() => { /* 工作 */ });
 
-// 通信（使用 Arc 跨线程共享）
-ch := arc(Channel(i32).new(usize(10)));
-ch.(*).send(i32(42));
-val := ch.(*).recv();
+// 通信
+ch := Channel(i32).new(usize(10));
+ch.send(i32(42));
+val := ch.recv();
 ```
 
 ### 核心原则

@@ -14,6 +14,14 @@ test "Vec with_capacity", {
   assert((v.len() == usize(0)), "length should be 0");
 };
 
+test "Vec with_capacity zero then push", {
+  v1 := Vec(i32).with_capacity(usize(0));
+  v2 := v1.push(i32(7));
+  assert(v1.is_empty(), "original stays empty");
+  assert((v2.len() == usize(1)), "push grows zero-cap vec");
+  assert((v2.get(usize(0)).unwrap() == i32(7)), "pushed value preserved");
+};
+
 test "Vec push single element", {
   v := Vec(i32).new().push(i32(42));
   assert((v.len() == usize(1)), "length should be 1");
@@ -110,6 +118,16 @@ test "Vec concat empty", {
   v2 := Vec(i32).new();
   assert((v1.concat(v2).len() == usize(1)), "concat with empty right");
   assert((v2.concat(v1).len() == usize(1)), "concat with empty left");
+};
+
+test "Vec concat two empties then push", {
+  v1 := Vec(i32).new();
+  v2 := Vec(i32).new();
+  combined := v1.concat(v2);
+  pushed := combined.push(i32(9));
+  assert(combined.is_empty(), "concat of empties stays empty");
+  assert((pushed.len() == usize(1)), "push grows empty concat result");
+  assert((pushed.get(usize(0)).unwrap() == i32(9)), "pushed value preserved");
 };
 
 test "Vec reverse", {
