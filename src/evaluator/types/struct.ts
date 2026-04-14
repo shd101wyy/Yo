@@ -125,7 +125,11 @@ export function evaluateStructType({
     endSendDerivation(structType.id);
   }
 
-  // Enforce Send + Acyclic for atomic object types.
+  // Enforce Send for atomic object types.
+  // Acyclic is NOT enforced here — self-referential atomic objects are valid
+  // (e.g., tree nodes via Option(Self)). Acyclic auto-derivation correctly
+  // withholds Acyclic from self-referential types, and cross-type cycles
+  // (A→B→C→A) are impossible because Yo evaluates declarations top-down.
   // This check runs AFTER endSendDerivation so the cycle breaker doesn't
   // interfere with the typeImplementsSend check.
   if (isAtomicRc) {
