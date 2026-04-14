@@ -43,10 +43,9 @@ export function detectGitVersion(cwd?: string): string | undefined {
       return undefined;
     }
   }
-  // Try exact tag on HEAD first
+  // Show exact tag only if HEAD is exactly at that tag; otherwise show short commit hash
   return (
     git("describe", "--tags", "--exact-match", "HEAD") ??
-    git("describe", "--tags", "--abbrev=0") ??
     git("rev-parse", "--short", "HEAD")
   );
 }
