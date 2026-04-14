@@ -386,6 +386,46 @@ test "Worker pool creates independent List versions", {
   assert((sum == i32(600)), "sum of prepended heads is 600");
 };
 
+test "Queued worker task keeps captured ImmString alive after creator scope exits", {
+  if((arch == Arch.Wasm32), return ());
+
+  worker_count := Worker.get_num_threads();
+  ready := Channel(bool).new(worker_count);
+  release := Channel(bool).new(worker_count);
+  result := Channel(usize).new(usize(1));
+
+  i := usize(0);
+  while runtime((i < worker_count)), {
+    Worker.spawn(() => {
+      ready.send(true);
+      release.recv().unwrap();
+    });
+    i = (i + usize(1));
+  };
+
+  i = usize(0);
+  while runtime((i < worker_count)), {
+    ready.recv().unwrap();
+    i = (i + usize(1));
+  };
+
+  {
+    s := ImmString.from("hello");
+    Worker.spawn(() => {
+      result.send(s.len());
+    });
+  };
+
+  i = usize(0);
+  while runtime((i < worker_count)), {
+    release.send(true);
+    i = (i + usize(1));
+  };
+
+  len := result.recv().unwrap();
+  assert((len == usize(5)), "queued worker task must retain captured string");
+};
+
 // ============================================================================
 // own(self) consumption in thread closures
 // ============================================================================

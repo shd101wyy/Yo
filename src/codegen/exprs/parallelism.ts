@@ -18,14 +18,14 @@ import { typeContainsRcType } from "../../types/utils";
  * The wrapper handles proper RC cleanup for heap-copied capture structs:
  * 1. Calls the actual closure function (with NULL evidence args if needed)
  * 2. NULLs out captured fields that were consumed (own(self)) inside the closure
- * 3. Drops the capture struct (releases RC refs, skips NULLed fields)
+ * 3. Drops the capture struct (releases thread/worker-owned RC refs, skips NULLed fields)
  * 4. Frees the heap-allocated capture struct
  *
  * This prevents double-free when a closure consumes a captured variable via own(self):
- * - The main thread dup'd the heap copy, giving both main and thread independent RC refs
+ * - The heap copy is dup'd before spawn, giving both creator and thread independent RC refs
  * - The closure body consumes the field (decrements RC via own + drop)
  * - NULLing prevents the wrapper's drop from decrementing the same field again
- * - The main thread's deferred drop handles the main thread's RC ref
+ * - The creator's deferred drop handles the creator-owned RC ref
  */
 function generateSpawnWrapper(
   closureFunctionCName: string,
@@ -80,17 +80,11 @@ function generateSpawnWrapper(
   // Free heap memory
   body += `  __yo_free(closure);\n`;
 
-  // Get the dup function for the capture struct
-  const dupFn =
-    captureType && isStructType(captureType)
-      ? getDupFunctionForType(captureType, context)
-      : undefined;
-
   // Emit the wrapper function in the declaration section
   context.emitter.emitDeclarationLine(`
 // Spawn wrapper: handles RC cleanup for thread-spawned closures
 static void ${wrapperName}(void* closure) {
-${dupFn ? `  ${dupFn}(*(${captureStructCName}*)closure);\n` : ""}${body}}`);
+${body}}`);
 
   return wrapperName;
 }
@@ -177,6 +171,10 @@ export function generateThreadSpawnCall(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
+  const dupFn = getDupFunctionForType(concreteType, context);
+  if (dupFn) {
+    context.emitter.emitLine(`${indent}${dupFn}(*${heapDataVar});`);
+  }
 
   // Get the return type for __yo_thread_spawn which is __yo_thread_t
   const tempVar = expr.$?.variableName;
@@ -266,6 +264,10 @@ export function generateWorkerSpawnCall(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
+  const dupFn = getDupFunctionForType(concreteType, context);
+  if (dupFn) {
+    context.emitter.emitLine(`${indent}${dupFn}(*${heapDataVar});`);
+  }
 
   // __yo_worker_spawn returns void (unit), so just emit the call
   context.emitter.emitLine(
