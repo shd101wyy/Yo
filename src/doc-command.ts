@@ -191,12 +191,14 @@ function documentFile(
 
   if (moduleValue) {
     try {
+      const evaluator = moduleManager.modules.get(modulePath)?.evaluator;
       return buildDocModule({
         name: moduleName,
         path: moduleName,
         moduleValue,
         extraction,
         tokens,
+        env: evaluator?.getEnv(),
         includePrivate: false,
       });
     } catch (err) {

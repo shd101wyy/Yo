@@ -1370,6 +1370,123 @@ export function enumerateMethodNamesFromGenericImpls({
   return results;
 }
 
+export interface GenericImplDocEntry {
+  signature: string;
+  traitName?: string;
+  methodNames: string[];
+  methods: { name: string; type: FunctionType }[];
+}
+
+function formatGenericImplSignature(impl: GenericImpl): string {
+  const parts: string[] = [];
+
+  if (impl.forallParameters.length > 0) {
+    parts.push(
+      `forall(${impl.forallParameters
+        .map((param) =>
+          param.kind === "type"
+            ? `${param.name} : ${typeToString(param.someType.parentType)}`
+            : `${param.name} : ${typeToString(param.type)}`
+        )
+        .join(", ")})`
+    );
+  }
+
+  if (impl.whereConstraints.length > 0) {
+    parts.push(
+      `where(${impl.whereConstraints
+        .map(
+          ({ someType, traitType, traitExpr }) =>
+            `${someType.name} <: ${traitExpr ? exprToString(traitExpr) : typeToString(traitType)}`
+        )
+        .join(", ")})`
+    );
+  }
+
+  parts.push(typeToString(impl.receiverTypePattern));
+
+  if (impl.traitType.typeName) {
+    parts.push(typeToString(impl.traitType));
+  }
+
+  return `impl(${parts.join(", ")})`;
+}
+
+export function getGenericImplDocEntries({
+  concreteType,
+  env,
+  receiverTypeName,
+}: {
+  concreteType: Type;
+  env: Environment;
+  receiverTypeName?: string;
+}): GenericImplDocEntry[] {
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
+  const results: GenericImplDocEntry[] = [];
+  const seen = new Set<string>();
+  const concreteBaseTypeId = getReceiverBaseTypeId(concreteType);
+  const concreteTypeName =
+    "typeName" in concreteType ? concreteType.typeName : undefined;
+
+  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      let matched = false;
+      try {
+        matched = tryMatchGenericImpl({ concreteType, impl, env }).matched;
+      } catch {
+        matched = false;
+      }
+
+      if (
+        !matched &&
+        concreteBaseTypeId &&
+        getReceiverBaseTypeId(impl.receiverTypePattern) === concreteBaseTypeId
+      ) {
+        matched = true;
+      }
+
+      if (
+        !matched &&
+        (receiverTypeName ?? concreteTypeName) &&
+        "typeName" in impl.receiverTypePattern &&
+        impl.receiverTypePattern.typeName ===
+          (receiverTypeName ?? concreteTypeName)
+      ) {
+        matched = true;
+      }
+
+      if (!matched) continue;
+
+      const methods = impl.traitType.fields.flatMap((field) => {
+        if (!field.label || !isFunctionType(field.type)) {
+          return [];
+        }
+        return [{ name: field.label, type: field.type }];
+      });
+      const methodNames = methods.map((field) => field.name);
+      const signature = formatGenericImplSignature(impl);
+      const key = `${signature}\0${methodNames.join("\0")}`;
+
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({
+        signature,
+        traitName: impl.traitType.typeName,
+        methodNames,
+        methods,
+      });
+    }
+  }
+
+  return results;
+}
+
 /**
  * Find an associated type from generic impls for a concrete type.
  * This handles cases like `Self.Item` where `Self` is a type with a generic impl

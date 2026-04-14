@@ -545,6 +545,47 @@ pre code {
   font-size: inherit;
 }
 
+/* Impl blocks */
+.impl-block {
+  margin: 20px 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+}
+
+.impl-header {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-sidebar);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.impl-header::-webkit-details-marker { display: none; }
+
+.impl-header::before {
+  content: '▶';
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+details.impl-block[open] > .impl-header::before {
+  transform: rotate(90deg);
+}
+
+.impl-header code {
+  background: var(--bg-code);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
 .decl-signature code {
   background: none;
   border: none;
@@ -874,7 +915,7 @@ function generateHighlightJS(): string {
     el.innerHTML = highlight(el.textContent || '');
   });
 
-  document.querySelectorAll('.method-header code, .decl-signature').forEach(function(el) {
+  document.querySelectorAll('.method-header code, .decl-signature, .impl-header code').forEach(function(el) {
     el.innerHTML = highlight(el.textContent || '');
   });
 })();
@@ -1313,6 +1354,120 @@ function renderTraitImpls(
   return html;
 }
 
+function renderImplBlocks(
+  md: MarkdownRenderer,
+  impls: DocType["impls"],
+  allMethods: DocFunction[],
+  parentName: string,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
+  if ((!impls || impls.length === 0) && allMethods.length === 0) return "";
+
+  const methodsByName = new Map<string, DocFunction>();
+  for (const m of allMethods) {
+    methodsByName.set(m.name, m);
+  }
+
+  const claimedMethods = new Set<string>();
+  let html = "";
+
+  if (impls && impls.length > 0) {
+    for (const impl of impls) {
+      html += `\n<details class="impl-block" open>`;
+      html += `\n<summary class="impl-header"><code>${escapeHtml(impl.signature)}</code></summary>`;
+
+      // Render associated type bindings
+      if (impl.associatedTypes && impl.associatedTypes.length > 0) {
+        for (const at of impl.associatedTypes) {
+          const typeHtml = links
+            ? linkifyType(at.type, links, currentModFile)
+            : escapeHtml(at.type);
+          html += `\n<div class="method-item">
+<div class="method-header"><code>${escapeHtml(at.name)}</code> : <code>${typeHtml}</code></div>`;
+          if (at.doc) {
+            html += `\n<div class="method-body">${md.render(at.doc)}</div>`;
+          }
+          html += `\n</div>`;
+        }
+      }
+
+      const implMethods = impl.methodNames
+        .map((name) => methodsByName.get(name))
+        .filter((m): m is DocFunction => m !== undefined);
+
+      for (const name of impl.methodNames) {
+        claimedMethods.add(name);
+      }
+
+      if (implMethods.length > 0) {
+        html += renderMethodItems(
+          md,
+          implMethods,
+          parentName,
+          links,
+          currentModFile
+        );
+      }
+
+      // Show method names that don't have full DocFunction entries
+      const unresolvedNames = impl.methodNames.filter(
+        (name) => !methodsByName.has(name)
+      );
+      if (unresolvedNames.length > 0) {
+        html += `\n<div class="method-body"><p>Methods: ${unresolvedNames
+          .map((name) => `<code>${escapeHtml(name)}</code>`)
+          .join(", ")}</p></div>`;
+      }
+      html += `\n</details>`;
+    }
+  }
+
+  // Render unclaimed methods under a generic "Methods" heading
+  const unclaimed = allMethods.filter((m) => !claimedMethods.has(m.name));
+  if (unclaimed.length > 0) {
+    html += `\n<details class="impl-block" open>`;
+    html += `\n<summary class="impl-header">Methods</summary>`;
+    html += renderMethodItems(md, unclaimed, parentName, links, currentModFile);
+    html += `\n</details>`;
+  }
+
+  return html;
+}
+
+function renderMethodItems(
+  md: MarkdownRenderer,
+  methods: DocFunction[],
+  parentName: string,
+  links?: SymbolLinks,
+  currentModFile?: string
+): string {
+  let html = "";
+  for (const m of methods) {
+    html += `\n<div class="method-item" id="method-${escapeHtml(parentName)}-${escapeHtml(m.name)}">
+<div class="method-header"><code>${escapeHtml(m.name)}</code> : <code>${escapeHtml(m.signature)}</code></div>
+<div class="method-body">`;
+    html += renderDeprecatedBanner(md, m.deprecated);
+    html += renderDoc(md, m.doc);
+    if (m.parameters.length > 0) {
+      html += renderParamsTable(
+        md,
+        m.parameters,
+        "Parameters",
+        links,
+        currentModFile
+      );
+    }
+    const retHtml = links
+      ? linkifyType(m.returnType, links, currentModFile)
+      : escapeHtml(m.returnType);
+    html += `\n<p>Returns: <code>${retHtml}</code></p>`;
+    html += renderSections(md, m);
+    html += `\n</div></div>`;
+  }
+  return html;
+}
+
 // ── Function rendering ───────────────────────────────────────────────
 
 function renderFunction(
@@ -1396,7 +1551,14 @@ function renderType(
     html += renderVariantsTable(md, t.variants, links, currentModFile);
   }
   html += renderTraitImpls(t.traitImpls, links, currentModFile);
-  html += renderMethods(md, t.methods, t.name, links, currentModFile);
+  html += renderImplBlocks(
+    md,
+    t.impls,
+    t.methods,
+    t.name,
+    links,
+    currentModFile
+  );
   if (t.examples) {
     html += `\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${renderMarkdown(md, t.examples)}</div></div>`;
   }

@@ -5,6 +5,7 @@ import {
   createNewEnv,
   pushEnvFrame,
   setEnvContainingPrelude,
+  type Environment,
 } from "../env";
 import type { Expr } from "../expr";
 import Parser from "../parser";
@@ -64,6 +65,7 @@ export default class Evaluator {
   private tokens: Token[];
   private moduleValue: ModuleValue | undefined;
   private moduleError: Error | undefined;
+  private env: Environment | undefined;
   private allowPartialModule: boolean;
   private registerPartialModule: ((mv: ModuleValue) => void) | undefined;
 
@@ -213,6 +215,7 @@ export default class Evaluator {
       registerPartialModule: this.registerPartialModule,
     });
     env = nextEnv;
+    this.env = env;
     this.moduleValue = moduleValue;
     this.moduleError = partialModuleError;
   }
@@ -226,5 +229,12 @@ export default class Evaluator {
 
   public getModuleError(): Error | undefined {
     return this.parser.getParserError() ?? this.moduleError;
+  }
+
+  public getEnv(): Environment {
+    if (!this.env) {
+      throw new Error("Evaluator environment is not set");
+    }
+    return this.env;
   }
 }

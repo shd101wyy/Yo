@@ -332,6 +332,38 @@ describe("renderDocSite", () => {
     expect(html).toContain("trait-impl-badge");
   });
 
+  test("renders atomic object kind", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "AtomicTest",
+      modules: [
+        makeModule({
+          types: [
+            {
+              name: "Cond",
+              doc: "A condition variable.",
+              kind: "atomic object",
+              signature: "Cond :: atomic object(_raw : usize)",
+              fields: [{ name: "_raw", type: "usize" }],
+              methods: [],
+              traitImpls: [],
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("atomic object");
+    expect(html).toContain("Cond :: atomic object(_raw : usize)");
+  });
+
   test("renders enum with variants", async () => {
     cleanup();
     const model: DocModel = {
@@ -623,6 +655,49 @@ describe("renderDocSite", () => {
     );
 
     expect(html).toContain("prefers-color-scheme: dark");
+  });
+
+  test("renders impl blocks with forall and where clauses", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "ImplDocs",
+      modules: [
+        makeModule({
+          types: [
+            {
+              name: "List",
+              doc: "An immutable list.",
+              kind: "struct",
+              signature:
+                "List :: (fn(comptime(T) : Type) -> comptime(Type))(struct(len : usize))",
+              methods: [],
+              traitImpls: [],
+              impls: [
+                {
+                  signature:
+                    "impl(forall(T : Type), where(T <: Send), List(T))",
+                  methodNames: ["size", "is_empty"],
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "module", "test_module.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("impl-header");
+    expect(html).toContain("impl-block");
+    expect(html).toContain("forall(T : Type)");
+    expect(html).toContain("where(T &lt;: Send)");
+    expect(html).toContain("size");
+    expect(html).toContain("is_empty");
   });
 
   test("renders module card summary with inline code periods", async () => {
