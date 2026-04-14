@@ -17,7 +17,7 @@ Worker :: import "std/worker";
 { Set } :: import "std/imm/set";
 { SortedMap } :: import "std/imm/sorted_map";
 { SortedSet } :: import "std/imm/sorted_set";
-ImmString :: import "std/imm/string";
+{ String : ImmString } :: import "std/imm/string";
 
 // ============================================================================
 // Vec cross-thread sharing
@@ -268,7 +268,7 @@ test "SortedSet shared across threads", {
 test "ImmString shared across threads", {
   if((arch == Arch.Wasm32), return ());
 
-  s := ImmString.String.from("hello world");
+  s := ImmString.from("hello world");
   ch := Channel(usize).new(usize(4));
 
   t1 := Thread.spawn(() => {
@@ -472,11 +472,11 @@ test "Thread closure borrows only — no own(self) consumption", {
 test "Thread consumes ImmString via own(self) concat", {
   if((arch == Arch.Wasm32), return ());
 
-  s := ImmString.String.from("hello");
+  s := ImmString.from("hello");
   ch := Channel(usize).new(usize(4));
 
   t1 := Thread.spawn(() => {
-    s2 := s.concat(ImmString.String.from(" world"));
+    s2 := s.concat(ImmString.from(" world"));
     ch.send(s2.len());
   });
 
@@ -604,8 +604,8 @@ test "Multiple workers each consume different Vecs", {
 test "Mixed ImmString across threads", {
   if((arch == Arch.Wasm32), return ());
 
-  s1 := ImmString.String.from("hello");
-  s2 := ImmString.String.from("world");
+  s1 := ImmString.from("hello");
+  s2 := ImmString.from("world");
 
   ch := Channel(usize).new(usize(4));
 
