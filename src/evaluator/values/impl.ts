@@ -857,9 +857,11 @@ function checkOrphanRule({
 
   // Prelude is special - allow prelude to impl any module for any type
   // This is necessary for built-in impls
+  // Use both "/" and "\" separators for cross-platform compatibility (Windows paths use "\")
+  const normalizedModulePath = currentModulePath.replace(/\\/g, "/");
   if (
-    currentModulePath.includes("prelude.yo") ||
-    currentModulePath.includes("std/")
+    normalizedModulePath.includes("prelude.yo") ||
+    normalizedModulePath.includes("std/")
   ) {
     return;
   }

@@ -124,11 +124,17 @@ function findDisposeTraitValue(
  * Find the user's dispose method from the Dispose trait.
  * Returns the C function name if found, undefined otherwise.
  */
+interface DisposeMethodInfo {
+  cName: string;
+  /** The SelfType of the dispose function (may differ from caller's type for type-function instances) */
+  selfType: Type | undefined;
+}
+
 function findUserDisposeMethodForType(
   type: Type,
   env: Environment,
   context: CodeGenContext
-): string | undefined {
+): DisposeMethodInfo | undefined {
   const traitValue = findDisposeTraitValue(type, env);
   if (!traitValue) {
     return undefined;
@@ -149,7 +155,8 @@ function findUserDisposeMethodForType(
   // First try direct lookup by funcId
   const directLookup = context.functions[disposeValue.funcId]?.cName;
   if (directLookup) {
-    return directLookup;
+    const directType = disposeValue.specializedType ?? disposeValue.type;
+    return { cName: directLookup, selfType: directType.SelfType };
   }
 
   // For generic impls, the dispose function is generic and needs specialization.
@@ -169,7 +176,7 @@ function findUserDisposeMethodForType(
       funcType.SelfType &&
       areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
     ) {
-      return funcEntry.cName;
+      return { cName: funcEntry.cName, selfType: funcType.SelfType };
     }
   }
 
@@ -913,19 +920,37 @@ export function generateFunction(
   const isDisposeFunction =
     functionValue.funcName === BuiltinFunctions.___dispose[0];
   if (isDisposeFunction && functionType.SelfType) {
-    const userDisposeCName = findUserDisposeMethodForType(
+    const disposeInfo = findUserDisposeMethodForType(
       functionType.SelfType,
       functionValue.type.env,
       context
     );
-    if (userDisposeCName) {
+    if (disposeInfo) {
       // Get the parameter name for __yo_self
       const selfParamName =
         functionType.parameters[0]?.label === "__yo_self"
           ? "__yo_self"
           : (functionType.parameters[0]?.label ?? "__yo_self");
+
+      // When the dispose function was specialized for a different instance of the
+      // same type (e.g., different MapBranch(K,V) struct IDs from type function
+      // re-evaluation), we need a pointer cast to avoid incompatible-pointer-types
+      // errors (clang 16+ treats this as an error, not a warning).
+      let selfArgExpr = selfParamName;
+      if (disposeInfo.selfType && functionType.SelfType) {
+        const disposeSelfCName = context.types[disposeInfo.selfType.id]?.cName;
+        const currentSelfCName = context.types[functionType.SelfType.id]?.cName;
+        if (
+          disposeSelfCName &&
+          currentSelfCName &&
+          disposeSelfCName !== currentSelfCName
+        ) {
+          selfArgExpr = `(${disposeSelfCName}*)(void*)(${selfParamName})`;
+        }
+      }
+
       emitter.emitLine(
-        `  ${userDisposeCName}(${selfParamName}); // Call user's dispose method`
+        `  ${disposeInfo.cName}(${selfArgExpr}); // Call user's dispose method`
       );
     }
   }
