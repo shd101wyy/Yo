@@ -422,9 +422,12 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
     .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
+  const decrRcFn = structType.isAtomicRc
+    ? BuiltinFunctions.__yo_decr_rc_atomic[0]!
+    : BuiltinFunctions.__yo_decr_rc[0]!;
   const decrRcExpr = isRcType(structType)
     ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(${YoSelf});`
+  ${decrRcFn}(${YoSelf});`
     : "";
 
   let dropDestructuringsExpr = "";
@@ -463,9 +466,12 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
     .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
+  const incrRcFn = structType.isAtomicRc
+    ? BuiltinFunctions.__yo_incr_rc_atomic[0]!
+    : BuiltinFunctions.__yo_incr_rc[0]!;
   const incrRcExpr = isRcType(structType)
     ? `
-  ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});`
+  ${incrRcFn}(${YoSelf});`
     : "";
 
   let dupDestructuringsExpr = "";
