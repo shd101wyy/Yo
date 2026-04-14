@@ -51,7 +51,6 @@ TypeInfo :: enum(
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
   Iso(child : Type),
-  Arc(child : Type),
   Dyn(
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo)
@@ -87,7 +86,7 @@ TypeInfo :: enum(
 ### StructKind — Discriminant for struct flavors
 
 ```rust
-StructKind :: enum(Struct, Object, NewType);
+StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 ### TraitInfo — Lightweight trait reference

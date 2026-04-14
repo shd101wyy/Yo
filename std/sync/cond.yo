@@ -11,6 +11,9 @@ extern "Yo",
   __yo_cond_destroy : (fn(cv : *(__YO_COND_TYPE)) -> unit)
 ;
 
+impl(__YO_COND_TYPE, Send());
+impl(__YO_COND_TYPE, Acyclic());
+
 /// Low-level condition variable (manual lifetime via `destroy`).
 cond_t :: newtype(
   cv : __YO_COND_TYPE
@@ -38,7 +41,8 @@ impl(cond_t,
 );
 
 /// Reference-counted condition variable with automatic cleanup via `Dispose`.
-Cond :: object(
+/// Uses atomic reference counting for safe cross-thread sharing.
+Cond :: atomic object(
   cv : __YO_COND_TYPE
 );
 impl(Cond,

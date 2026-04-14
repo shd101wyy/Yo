@@ -166,17 +166,17 @@ Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer 
 ```rust
 { Channel } :: import "std/sync/channel";
 
-// Create a bounded channel (capacity 10), wrapped in Arc for cross-thread sharing
-ch := arc(Channel(i32).new(usize(10)));
+// Create a bounded channel (capacity 10)
+ch := Channel(i32).new(usize(10));
 
 // Producer thread
 Thread.spawn(() => {
-  ch.(*).send(i32(42));
+  ch.send(i32(42));
 });
 
 // Consumer thread
 Thread.spawn(() => {
-  val := ch.(*).recv();
+  val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
     true => ()
@@ -184,7 +184,8 @@ Thread.spawn(() => {
 });
 ```
 
-`Channel` is a thread-local `object`, so it must be wrapped in `arc()` (`Arc(T)` — atomic reference counting) to share across threads. Use `ch.(*)` to dereference the `Arc` before calling methods.
+`Channel` is implemented as an `atomic object(...)`, so it is directly shareable across
+threads. No extra `arc()` wrapper is needed.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
@@ -266,10 +267,10 @@ thread.join();
 // Thread pool task
 Worker.spawn(() => { /* work */ });
 
-// Communication (Arc for cross-thread sharing)
-ch := arc(Channel(i32).new(usize(10)));
-ch.(*).send(i32(42));
-val := ch.(*).recv();
+// Communication
+ch := Channel(i32).new(usize(10));
+ch.send(i32(42));
+val := ch.recv();
 ```
 
 ### Key Principles

@@ -13,7 +13,6 @@ import type {
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
-  isArcType,
   isArrayType,
   isComptimeListType,
   isEffectsRowType,
@@ -101,10 +100,6 @@ function occursCheck(
   }
 
   if (isIsoType(type)) {
-    return occursCheck(someTypeId, type.childType, visited);
-  }
-
-  if (isArcType(type)) {
     return occursCheck(someTypeId, type.childType, visited);
   }
 
@@ -789,22 +784,6 @@ export function synthesizeTypes(
     given.env = givenEnv;
   } else if (isIsoType(expected.type) && isIsoType(given.type)) {
     // Synthesize the child types of the Iso types
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      {
-        type: expected.type.childType,
-        env: expected.env,
-      },
-      {
-        type: given.type.childType,
-        env: given.env,
-      },
-      checkedTypePairs,
-      options
-    );
-    expected.env = expectedEnv;
-    given.env = givenEnv;
-  } else if (isArcType(expected.type) && isArcType(given.type)) {
-    // Synthesize the child types of the Arc types
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.childType,

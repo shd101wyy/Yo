@@ -14,7 +14,6 @@ import type { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
 import { isTypeValue, type Value, valueToString } from "../value";
 import type {
-  ArcType,
   ArrayType,
   ComptimeListType,
   DynType,
@@ -733,7 +732,8 @@ export function createTupleType(fields: TypeField[]): TupleType {
 export function createStructType(
   env: Environment,
   isReferenceSemantics: boolean = false,
-  isNewtype: boolean = false
+  isNewtype: boolean = false,
+  isAtomicRc: boolean = false
 ): StructType {
   const trait = createTraitType(env);
 
@@ -741,6 +741,7 @@ export function createStructType(
     id: `struct_${randomId(env.modulePath)}`,
     tag: TypeTag.Struct,
     isReferenceSemantics,
+    isAtomicRc: isAtomicRc || undefined,
     isNewtype,
     fields: [],
     trait,
@@ -900,28 +901,6 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
   isoCache.set(childType, isoType);
 
   return isoType;
-}
-
-const arcCache: Map<Type, ArcType> = new Map();
-export function createArcType(childType: Type, env: Environment): ArcType {
-  // Check cache
-  if (arcCache.has(childType)) {
-    return arcCache.get(childType)!;
-  }
-
-  const trait = createTraitType(env);
-  const arcType: ArcType = {
-    id: `arc_${childType.id}`,
-    tag: TypeTag.Arc,
-    childType,
-    trait,
-    env,
-  };
-  trait.receiverType = arcType;
-
-  arcCache.set(childType, arcType);
-
-  return arcType;
 }
 
 // NOTE: We shouldn't cache the SomeType creation because they can differ by ID and name
@@ -1321,5 +1300,4 @@ export function clearAllCachedTypes(): void {
   // CRITICAL: Clear these caches to prevent memory leaks
   ptrCache.clear();
   isoCache.clear();
-  arcCache.clear();
 }

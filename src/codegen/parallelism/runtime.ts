@@ -140,10 +140,7 @@ ${threadEntrySignature}
   // Cleanup thread-local GC
   __yo_gc_collect();
   
-  // Free the closure data (heap-allocated by codegen)
-  if (args->closure) {
-    __yo_free(args->closure);
-  }
+  // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
   
   // Free args
   __yo_free(args);
@@ -276,10 +273,7 @@ ${workerEntrySignature}
           : ""
       }
       
-      // Free task closure and task node
-      if (task->closure) {
-        __yo_free(task->closure);
-      }
+      // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
       __yo_free(task);
       
       // Run GC after task completion to clean up any cycles

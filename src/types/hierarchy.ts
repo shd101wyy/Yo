@@ -8,7 +8,6 @@ import type {
   TypeHierarchyType,
 } from "./definitions";
 import {
-  isArcType,
   isArrayType,
   isComptimeFloatType,
   isComptimeIntType,
@@ -186,10 +185,6 @@ export function typeOfType(
   } else if (isIsoType(type)) {
     // Isolated type hierarchy logic
     // Iso types use atomic RC, treated as level 0 types
-    return createType0(type);
-  } else if (isArcType(type)) {
-    // Arc type hierarchy logic
-    // Arc types use atomic RC, treated as level 0 types
     return createType0(type);
   } else if (isFutureTraitType(type)) {
     return createType0(type);

@@ -124,11 +124,17 @@ function findDisposeTraitValue(
  * Find the user's dispose method from the Dispose trait.
  * Returns the C function name if found, undefined otherwise.
  */
+interface DisposeMethodInfo {
+  cName: string;
+  /** The SelfType of the dispose function (may differ from caller's type for type-function instances) */
+  selfType: Type | undefined;
+}
+
 function findUserDisposeMethodForType(
   type: Type,
   env: Environment,
   context: CodeGenContext
-): string | undefined {
+): DisposeMethodInfo | undefined {
   const traitValue = findDisposeTraitValue(type, env);
   if (!traitValue) {
     return undefined;
@@ -149,7 +155,8 @@ function findUserDisposeMethodForType(
   // First try direct lookup by funcId
   const directLookup = context.functions[disposeValue.funcId]?.cName;
   if (directLookup) {
-    return directLookup;
+    const directType = disposeValue.specializedType ?? disposeValue.type;
+    return { cName: directLookup, selfType: directType.SelfType };
   }
 
   // For generic impls, the dispose function is generic and needs specialization.
@@ -169,7 +176,7 @@ function findUserDisposeMethodForType(
       funcType.SelfType &&
       areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
     ) {
-      return funcEntry.cName;
+      return { cName: funcEntry.cName, selfType: funcType.SelfType };
     }
   }
 
@@ -913,19 +920,37 @@ export function generateFunction(
   const isDisposeFunction =
     functionValue.funcName === BuiltinFunctions.___dispose[0];
   if (isDisposeFunction && functionType.SelfType) {
-    const userDisposeCName = findUserDisposeMethodForType(
+    const disposeInfo = findUserDisposeMethodForType(
       functionType.SelfType,
       functionValue.type.env,
       context
     );
-    if (userDisposeCName) {
+    if (disposeInfo) {
       // Get the parameter name for __yo_self
       const selfParamName =
         functionType.parameters[0]?.label === "__yo_self"
           ? "__yo_self"
           : (functionType.parameters[0]?.label ?? "__yo_self");
+
+      // When the dispose function was specialized for a different instance of the
+      // same type (e.g., different MapBranch(K,V) struct IDs from type function
+      // re-evaluation), we need a pointer cast to avoid incompatible-pointer-types
+      // errors (clang 16+ treats this as an error, not a warning).
+      let selfArgExpr = selfParamName;
+      if (disposeInfo.selfType && functionType.SelfType) {
+        const disposeSelfCName = context.types[disposeInfo.selfType.id]?.cName;
+        const currentSelfCName = context.types[functionType.SelfType.id]?.cName;
+        if (
+          disposeSelfCName &&
+          currentSelfCName &&
+          disposeSelfCName !== currentSelfCName
+        ) {
+          selfArgExpr = `(${disposeSelfCName}*)(void*)(${selfParamName})`;
+        }
+      }
+
       emitter.emitLine(
-        `  ${userDisposeCName}(${selfParamName}); // Call user's dispose method`
+        `  ${disposeInfo.cName}(${selfArgExpr}); // Call user's dispose method`
       );
     }
   }
@@ -1356,17 +1381,21 @@ static inline void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (still needed regardless of GC)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
   if (old_count == 1) {
     if (header->type_id) {
       __yo_dispose_dispatch(ptr);
@@ -1456,17 +1485,21 @@ static inline void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (thread-safe)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
   
   if (old_count == 1) {
     // Last reference - deallocate
@@ -1892,6 +1925,11 @@ function generateRefStructTraversalFunctions(
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
+      // Atomic objects don't participate in cycle GC — no traversal needed
+      if (type.isAtomicRc) {
+        continue;
+      }
+
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
         typeContainsSomeType(field.type)
@@ -2016,11 +2054,11 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
-      // Initialize non-atomic RC fields
+      // Initialize RC header
       emitter.emitLine(
         `  obj->header.ref_count = 1;  // Start with one reference`
       );
-      if (context.needsCycleGC) {
+      if (context.needsCycleGC && !type.isAtomicRc) {
         emitter.emitLine(`  obj->header.gc_flags = 0;`);
         emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
         emitter.emitLine(`  obj->header.gc_next = NULL;`);
@@ -2074,7 +2112,8 @@ export function generateRefStructConstructorFunctions(
       }
 
       // Set traversal function pointer for GC (only when cycle detection is needed)
-      if (context.needsCycleGC) {
+      // Atomic objects never participate in cycle GC
+      if (context.needsCycleGC && !type.isAtomicRc) {
         const traversalFunctionName = `__yo_traverse_${cName}`;
         emitter.emitLine(
           `  obj->header.traverse_fn = ${traversalFunctionName};`
@@ -2088,8 +2127,10 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
+      // Atomic objects never participate in cycle GC
       if (
         context.needsCycleGC &&
+        !type.isAtomicRc &&
         canTypeFormRcCycle(type, new Set(), type.env)
       ) {
         emitter.emitLine(`  __yo_gc_register(obj);`);

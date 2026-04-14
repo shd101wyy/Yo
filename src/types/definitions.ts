@@ -456,6 +456,15 @@ export interface StructType extends Type {
   isReferenceSemantics: boolean;
 
   /**
+   * Whether this object uses atomic reference counting.
+   * true for "atomic object(...)", false otherwise.
+   * Atomic objects use thread-safe atomic RC operations and do NOT
+   * participate in cycle collection. They auto-derive Send when
+   * all fields implement Send.
+   */
+  isAtomicRc?: boolean;
+
+  /**
    * Whether this struct is a newtype.
    * A newtype is a struct with a single element.
    * eg:
@@ -981,35 +990,6 @@ export interface IsoType extends Type {
 
   /**
    * The env when the Iso type is created.
-   */
-  env: Environment;
-}
-
-/**
- * ArcType represents an atomically reference counted shared ownership wrapper.
- * Used for safe sharing of data across threads.
- *
- * Properties:
- * - Uses atomic reference counting (thread-safe)
- * - Can be freely copied and shared across threads
- * - Access inner value via (*) dereference (borrowed)
- * - Implements Send unconditionally
- */
-export interface ArcType extends Type {
-  tag: TypeTag.Arc;
-  /**
-   * The inner type that is arc-wrapped.
-   */
-  childType: Type;
-
-  /**
-   * The trait of the Arc type, which contains
-   * the ARC methods (___dup, ___drop) using atomic operations.
-   */
-  trait: TraitType;
-
-  /**
-   * The env when the Arc type is created.
    */
   env: Environment;
 }

@@ -1,0 +1,232 @@
+open import "std/fmt";
+
+/// Basic atomic object with value fields
+AtomicPoint :: atomic object(x : i32, y : i32);
+
+test "Create atomic object", {
+  (p : AtomicPoint) = AtomicPoint(i32(10), i32(20));
+  assert((p.x == i32(10)), "x should be 10");
+  assert((p.y == i32(20)), "y should be 20");
+  println(`AtomicPoint: (${p.x}, ${p.y})`);
+};
+
+test "Atomic object implements Send", {
+  comptime_assert(Type.impls(AtomicPoint, Send), "AtomicPoint should implement Send");
+  println("AtomicPoint implements Send: OK");
+};
+
+/// Regular object should NOT implement Send
+RegularPoint :: object(x : i32, y : i32);
+
+test "Regular object does not implement Send", {
+  comptime_assert((Type.impls(RegularPoint, Send) == false), "RegularPoint should not implement Send");
+  println("RegularPoint does not implement Send: OK");
+};
+
+/// Atomic object with reference counting
+AtomicCounter :: atomic object(value : i32);
+
+test "Atomic object reference counting", {
+  (a : AtomicCounter) = AtomicCounter(i32(42));
+  (b : AtomicCounter) = a;
+  assert((a.value == i32(42)), "a.value should be 42");
+  assert((b.value == i32(42)), "b.value should be 42");
+  println("Atomic object RC: OK");
+};
+
+/// Atomic object as a generic type
+AtomicBox :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  atomic object(value : T)
+);
+
+test "Generic atomic object", {
+  (b : AtomicBox(i32)) = AtomicBox(i32)(i32(99));
+  assert((b.value == i32(99)), "value should be 99");
+  println(`AtomicBox: ${b.value}`);
+};
+
+/// Atomic object with Send constraint
+SendBox :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  atomic object(value : T)
+);
+
+test "Atomic object with Send constraint", {
+  (b : SendBox(i32)) = SendBox(i32)(i32(77));
+  assert((b.value == i32(77)), "value should be 77");
+  comptime_assert(Type.impls(SendBox(i32), Send), "SendBox(i32) should implement Send");
+  println(`SendBox: ${b.value}`);
+};
+
+/// Atomic object with Dispose trait
+AtomicResource :: atomic object(id : i32);
+
+impl(AtomicResource,
+  dispose : (fn(self : Self) -> unit)({
+    println(`Disposing AtomicResource(${self.id})`);
+  })
+);
+
+test "Atomic object with Dispose", {
+  {
+    (r : AtomicResource) = AtomicResource(i32(1));
+    println(`Created AtomicResource(${r.id})`);
+  };
+  println("After scope - dispose should have been called");
+};
+
+/// Test Send constraint validation at module level
+comptime_assert((Type.impls(RegularPoint, Send) == false), "RegularPoint must not impl Send for constraint test");
+
+test "Atomic object Send constraint rejects non-Send types", {
+  /// We verified above that RegularPoint does not implement Send,
+  /// so SendBox(RegularPoint) would fail at compile time.
+  /// Here we just verify the constraint works positively.
+  comptime_assert(Type.impls(SendBox(i32), Send), "SendBox(i32) should implement Send");
+  println("Send constraint validation: OK");
+};
+
+/// Test that atomic object with non-Send field is rejected at compile time
+test "Atomic object rejects non-Send fields", {
+  comptime_expect_error(atomic object(inner : RegularPoint));
+  println("Non-Send field rejection: OK");
+};
+
+/// Test that self-referential atomic object compiles but does not auto-derive Acyclic
+test "Self-referential atomic object does not auto-derive Acyclic", {
+  SelfRefNode :: atomic object(_value : i32, _next : Option(Self));
+  comptime_assert((Type.impls(SelfRefNode, Acyclic) == false), "self-referential atomic object should not derive Acyclic");
+  comptime_assert(Type.impls(SelfRefNode, Send), "self-referential atomic object should still derive Send");
+  println("Self-referential Acyclic check: OK");
+};
+
+/// Test that manual Acyclic impl works for self-referential types
+test "Manual Acyclic impl for self-referential type", {
+  ImmNode :: atomic object(_value : i32, _next : Option(Self));
+  impl(ImmNode, Acyclic());
+  comptime_assert(Type.impls(ImmNode, Acyclic), "manual Acyclic impl should work");
+  println("Manual Acyclic impl: OK");
+};
+
+/// Test that atomic objects implement Acyclic
+test "Atomic object implements Acyclic", {
+  comptime_assert(Type.impls(AtomicPoint, Acyclic), "AtomicPoint should implement Acyclic");
+  comptime_assert(Type.impls(AtomicCounter, Acyclic), "AtomicCounter should implement Acyclic");
+  comptime_assert(Type.impls(AtomicResource, Acyclic), "AtomicResource should implement Acyclic");
+  println("Atomic object Acyclic: OK");
+};
+
+/// Test that cycles through value-type struct intermediaries are detected
+test "Cycle through struct wrapper does not derive Acyclic", {
+  Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  CyclicNode :: atomic object(data: i32, child: Option(Wrap(Self)));
+
+  // Wrap(i32) has no cycle — should be Acyclic
+  comptime_assert(Type.impls(Wrap(i32), Acyclic), "Wrap(i32) should be Acyclic");
+
+  // CyclicNode -> Option(Wrap(CyclicNode)) -> Wrap(CyclicNode) -> struct(inner: CyclicNode) -> CyclicNode
+  comptime_assert((Type.impls(CyclicNode, Acyclic) == false), "cycle through struct wrapper should not derive Acyclic");
+  comptime_assert(Type.impls(CyclicNode, Send), "cycle through struct wrapper should still derive Send");
+  println("Cycle through struct wrapper Acyclic check: OK");
+};
+
+/// Test that cycles through multiple struct intermediaries are detected
+test "Cycle through chained struct wrappers does not derive Acyclic", {
+  WrapA :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  WrapB :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  DeepNode :: atomic object(data: i32, child: Option(WrapA(WrapB(Self))));
+
+  comptime_assert((Type.impls(DeepNode, Acyclic) == false), "deep cycle through struct wrappers should not derive Acyclic");
+  comptime_assert(Type.impls(DeepNode, Send), "deep cycle should still derive Send");
+  println("Cycle through chained struct wrappers: OK");
+};
+
+/// Test that newtype wrapper cycles are also detected
+test "Cycle through newtype wrapper does not derive Acyclic", {
+  Wrapper :: (fn(comptime(T) : Type) -> comptime(Type))(newtype(inner: T));
+  NewtypeNode :: atomic object(data: i32, child: Option(Wrapper(Self)));
+
+  comptime_assert((Type.impls(NewtypeNode, Acyclic) == false), "cycle through newtype should not derive Acyclic");
+  println("Cycle through newtype wrapper: OK");
+};
+
+/// Test that non-Send type is rejected by atomic object definition
+test "comptime_expect_error: atomic object with non-Send object field", {
+  NonSendObj :: object(x: i32);
+  comptime_expect_error({
+    Bad :: atomic object(inner: NonSendObj);
+  });
+  println("Reject non-Send object field: OK");
+};
+
+/// Test that Acyclic constraint rejects self-referential atomic object
+test "comptime_expect_error: Acyclic constraint rejects cyclic type", {
+  SelfRef :: atomic object(val: i32, next: Option(Self));
+  AcyclicBox :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(inner: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicBox(SelfRef);
+  });
+  println("Reject cyclic type with Acyclic constraint: OK");
+};
+
+/// Test that Acyclic constraint rejects cycle through struct wrapper
+test "comptime_expect_error: Acyclic constraint rejects struct-wrapped cycle", {
+  Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  CyclicNode :: atomic object(data: i32, child: Option(Wrap(Self)));
+  AcyclicContainer :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(value: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicContainer(CyclicNode);
+  });
+  println("Reject struct-wrapped cycle with Acyclic constraint: OK");
+};
+
+/// Test that Send constraint rejects regular object
+test "comptime_expect_error: Send constraint rejects regular object", {
+  NonSendObj :: object(x: i32);
+  SendContainer :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+    struct(value: T)
+  );
+  comptime_expect_error({
+    Bad :: SendContainer(NonSendObj);
+  });
+  println("Reject non-Send type with Send constraint: OK");
+};
+
+/// Test that combined Send + Acyclic constraint rejects non-Acyclic atomic object
+test "comptime_expect_error: Send+Acyclic rejects cyclic atomic object", {
+  CyclicAO :: atomic object(val: i32, next: Option(Self));
+  comptime_expect_error({
+    Bad :: AtomicBox(CyclicAO);
+  });
+  println("Reject cyclic atomic object with Send+Acyclic: OK");
+};
+
+/// Test that cycles through enum intermediaries are detected
+test "Cycle through enum wrapper does not derive Acyclic", {
+  MyEnum :: (fn(comptime(T) : Type) -> comptime(Type))(
+    enum(Present(val: T), Absent)
+  );
+  EnumNode :: atomic object(data: i32, child: MyEnum(Self));
+
+  comptime_assert((Type.impls(EnumNode, Acyclic) == false), "cycle through enum wrapper should not derive Acyclic");
+  comptime_assert(Type.impls(EnumNode, Send), "cycle through enum wrapper should still derive Send");
+  println("Cycle through enum wrapper Acyclic check: OK");
+};
+
+/// Test that Acyclic constraint rejects enum-wrapped cyclic type
+test "comptime_expect_error: Acyclic constraint rejects enum-wrapped cycle", {
+  MyEnum :: (fn(comptime(T) : Type) -> comptime(Type))(
+    enum(Present(val: T), Absent)
+  );
+  EnumNode :: atomic object(data: i32, child: MyEnum(Self));
+  AcyclicBox :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(inner: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicBox(EnumNode);
+  });
+  println("Reject enum-wrapped cycle with Acyclic constraint: OK");
+};

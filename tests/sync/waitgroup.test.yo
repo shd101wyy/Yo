@@ -98,29 +98,29 @@ test "WaitGroup count reflects current state", {
 };
 
 // ============================================================================
-// Thread integration (using Arc for cross-thread sharing)
+// Thread integration (atomic object — shared directly without Arc)
 // ============================================================================
 
 test "WaitGroup threads call done then main waits", {
   if((arch == Arch.Wasm32), return ());
-  wg := arc(WaitGroup.new());
-  wg.(*).add(i32(3));
+  wg := WaitGroup.new();
+  wg.add(i32(3));
 
   t1 := Thread.spawn(() => {
     sleep(usize(10));
-    wg.(*).done();
+    wg.done();
   });
   t2 := Thread.spawn(() => {
     sleep(usize(20));
-    wg.(*).done();
+    wg.done();
   });
   t3 := Thread.spawn(() => {
     sleep(usize(30));
-    wg.(*).done();
+    wg.done();
   });
 
-  wg.(*).wait();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after all threads done");
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after all threads done");
 
   t1.join();
   t2.join();
@@ -129,17 +129,17 @@ test "WaitGroup threads call done then main waits", {
 
 test "WaitGroup add before spawn done in thread", {
   if((arch == Arch.Wasm32), return ());
-  wg := arc(WaitGroup.new());
-  wg.(*).add(i32(5));
+  wg := WaitGroup.new();
+  wg.add(i32(5));
 
-  t1 := Thread.spawn(() => { wg.(*).done(); });
-  t2 := Thread.spawn(() => { wg.(*).done(); });
-  t3 := Thread.spawn(() => { wg.(*).done(); });
-  t4 := Thread.spawn(() => { wg.(*).done(); });
-  t5 := Thread.spawn(() => { wg.(*).done(); });
+  t1 := Thread.spawn(() => { wg.done(); });
+  t2 := Thread.spawn(() => { wg.done(); });
+  t3 := Thread.spawn(() => { wg.done(); });
+  t4 := Thread.spawn(() => { wg.done(); });
+  t5 := Thread.spawn(() => { wg.done(); });
 
-  wg.(*).wait();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after 5 threads done");
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after 5 threads done");
 
   t1.join();
   t2.join();
@@ -150,66 +150,66 @@ test "WaitGroup add before spawn done in thread", {
 
 test "WaitGroup reuse across thread groups", {
   if((arch == Arch.Wasm32), return ());
-  wg := arc(WaitGroup.new());
+  wg := WaitGroup.new();
 
   // First group
-  wg.(*).add(i32(2));
-  t1 := Thread.spawn(() => { wg.(*).done(); });
-  t2 := Thread.spawn(() => { wg.(*).done(); });
-  wg.(*).wait();
+  wg.add(i32(2));
+  t1 := Thread.spawn(() => { wg.done(); });
+  t2 := Thread.spawn(() => { wg.done(); });
+  wg.wait();
   t1.join();
   t2.join();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after first group");
+  assert((wg.count() == i32(0)), "count should be 0 after first group");
 
   // Second group
-  wg.(*).add(i32(3));
-  t3 := Thread.spawn(() => { wg.(*).done(); });
-  t4 := Thread.spawn(() => { wg.(*).done(); });
-  t5 := Thread.spawn(() => { wg.(*).done(); });
-  wg.(*).wait();
+  wg.add(i32(3));
+  t3 := Thread.spawn(() => { wg.done(); });
+  t4 := Thread.spawn(() => { wg.done(); });
+  t5 := Thread.spawn(() => { wg.done(); });
+  wg.wait();
   t3.join();
   t4.join();
   t5.join();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after second group");
+  assert((wg.count() == i32(0)), "count should be 0 after second group");
 };
 
 // ============================================================================
-// Worker integration (using Arc for cross-thread sharing)
+// Worker integration (atomic object — shared directly without Arc)
 // ============================================================================
 
 test "WaitGroup with Workers", {
   if((arch == Arch.Wasm32), return ());
-  wg := arc(WaitGroup.new());
+  wg := WaitGroup.new();
   Worker.set_num_threads(2);
 
-  wg.(*).add(i32(3));
-  Worker.spawn(() => { wg.(*).done(); });
-  Worker.spawn(() => { wg.(*).done(); });
-  Worker.spawn(() => { wg.(*).done(); });
+  wg.add(i32(3));
+  Worker.spawn(() => { wg.done(); });
+  Worker.spawn(() => { wg.done(); });
+  Worker.spawn(() => { wg.done(); });
 
-  wg.(*).wait();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after workers done");
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after workers done");
 };
 
 test "WaitGroup with Workers and sleep", {
   if((arch == Arch.Wasm32), return ());
-  wg := arc(WaitGroup.new());
+  wg := WaitGroup.new();
   Worker.set_num_threads(2);
 
-  wg.(*).add(i32(3));
+  wg.add(i32(3));
   Worker.spawn(() => {
     sleep(usize(10));
-    wg.(*).done();
+    wg.done();
   });
   Worker.spawn(() => {
     sleep(usize(20));
-    wg.(*).done();
+    wg.done();
   });
   Worker.spawn(() => {
     sleep(usize(30));
-    wg.(*).done();
+    wg.done();
   });
 
-  wg.(*).wait();
-  assert((wg.(*).count() == i32(0)), "count should be 0 after workers with sleep done");
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after workers with sleep done");
 };

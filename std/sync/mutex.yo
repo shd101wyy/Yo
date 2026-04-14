@@ -8,6 +8,9 @@ extern "Yo",
   __yo_mutex_destroy : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
 ;
 
+impl(__YO_THREAD_SYNC_TYPE, Send());
+impl(__YO_THREAD_SYNC_TYPE, Acyclic());
+
 /// Low-level mutex (manual lifetime via `destroy`).
 mutex_t :: newtype(
   mutex : __YO_THREAD_SYNC_TYPE
@@ -31,7 +34,8 @@ impl(mutex_t,
 );
 
 /// Reference-counted mutex with automatic cleanup via `Dispose`.
-Mutex :: object(
+/// Uses atomic reference counting for safe cross-thread sharing.
+Mutex :: atomic object(
   mutex : __YO_THREAD_SYNC_TYPE
 );
 impl(Mutex,

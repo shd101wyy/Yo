@@ -43,7 +43,6 @@ TypeInfo :: enum(
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
   Iso(child : Type),
-  Arc(child : Type),
   Dyn(required_traits : ComptimeList(TraitInfo), negative_traits : ComptimeList(TraitInfo)),
 
   // === 元类型 ===
@@ -192,11 +191,12 @@ VariantInfo :: struct(
 区分结构体类型：
 
 ```rust
-StructKind :: enum(Struct, Object, NewType);
+StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 - `Struct` — 普通值类型结构体
 - `Object` — 引用计数对象类型（`object(...)`）
+- `AtomicObject` — 原子引用计数对象类型（`atomic object(...)`）
 - `NewType` — 单字段包装类型（`newtype(...)`）
 
 ### FunctionInfo

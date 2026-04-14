@@ -1,0 +1,595 @@
+//! Persistent immutable sorted map using a left-leaning red-black tree.
+//!
+//! `SortedMap(K, V)` stores key-value pairs in sorted order by key.
+//! All mutations return new maps, leaving the original unchanged.
+//! Backed by `atomic object` nodes for thread-safe structural sharing.
+//!
+//! Keys must implement `Eq`, `Ord`, and `Send`. Values must implement `Send`.
+//!
+//! # Examples
+//!
+//! ```rust
+//! { SortedMap } :: import "std/imm/sorted_map";
+//!
+//! m := SortedMap(i32, i32).new();
+//! m = m.insert(i32(3), i32(30));
+//! m = m.insert(i32(1), i32(10));
+//! m = m.insert(i32(2), i32(20));
+//! // keys are always sorted: 1, 2, 3
+//! ```
+
+{ List } :: import "./list.yo";
+{ Pair } :: import "./map.yo";
+
+/// Color of a red-black tree node.
+Color :: enum(Red, Black);
+
+/// Internal LLRB tree node — an `atomic object` for thread-safe sharing.
+RBNode :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> comptime(Type))(
+  atomic object(
+    _key : K,
+    _value : V,
+    _color : Color,
+    _left : Option(Self),
+    _right : Option(Self)
+  )
+);
+
+// Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
+// This is safe because RBNode is immutable: all tree operations create new nodes
+// and never mutate existing ones, making it impossible to form cycles at runtime.
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
+
+/// Persistent immutable sorted map backed by a left-leaning red-black tree.
+SortedMap :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> comptime(Type))(
+  struct(
+    _root : Option(RBNode(K, V)),
+    _len : usize
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Helper standalone functions
+// ---------------------------------------------------------------------------
+
+_is_red :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> bool)(
+  match(node,
+    .Some(n) => match(n._color,
+      .Red => true,
+      .Black => false
+    ),
+    .None => false
+  )
+);
+
+_new_node :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  key: K,
+  value: V,
+  color: Color,
+  left: Option(RBNode(K, V)),
+  right: Option(RBNode(K, V)),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))(
+  RBNode(K, V)(
+    _key: key,
+    _value: value,
+    _color: color,
+    _left: left,
+    _right: right
+  )
+);
+
+/// Rotate left: h.right becomes the new root.
+_rotate_left :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  // x = h.right (must be Some)
+  (x : RBNode(K, V)) = match(h._right,
+    .Some(n) => n,
+    .None => h  // unreachable
+  );
+  new_h := _new_node(K, V, h._key, h._value, x._color, h._left, x._left);
+  _new_node(K, V, x._key, x._value, h._color, .Some(new_h), x._right)
+});
+
+/// Rotate right: h.left becomes the new root.
+_rotate_right :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  (x : RBNode(K, V)) = match(h._left,
+    .Some(n) => n,
+    .None => h  // unreachable
+  );
+  new_h := _new_node(K, V, h._key, h._value, x._color, x._right, h._right);
+  _new_node(K, V, x._key, x._value, h._color, x._left, .Some(new_h))
+});
+
+/// Flip colors of a node and its children.
+_flip_colors :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  new_color := match(h._color,
+    .Red => Color.Black,
+    .Black => Color.Red
+  );
+  (new_left : Option(RBNode(K, V))) = match(h._left,
+    .Some(l) => {
+      lc := match(l._color,
+        .Red => Color.Black,
+        .Black => Color.Red
+      );
+      (Option(RBNode(K, V)).Some(_new_node(K, V, l._key, l._value, lc, l._left, l._right)))
+    },
+    .None => (Option(RBNode(K, V)).None)
+  );
+  (new_right : Option(RBNode(K, V))) = match(h._right,
+    .Some(r) => {
+      rc := match(r._color,
+        .Red => Color.Black,
+        .Black => Color.Red
+      );
+      (Option(RBNode(K, V)).Some(_new_node(K, V, r._key, r._value, rc, r._left, r._right)))
+    },
+    .None => (Option(RBNode(K, V)).None)
+  );
+  _new_node(K, V, h._key, h._value, new_color, new_left, new_right)
+});
+
+/// Fix-up after insertion: enforce LLRB invariants.
+_fixup :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  (node : RBNode(K, V)) = h;
+  // Right-leaning red link → rotate left
+  if((_is_red(K, V, node._right) && !(_is_red(K, V, node._left))), {
+    node = _rotate_left(K, V, node);
+  });
+  // Two consecutive red left links → rotate right
+  left_red := _is_red(K, V, node._left);
+  left_left_red := match(node._left,
+    .Some(l) => _is_red(K, V, l._left),
+    .None => false
+  );
+  if((left_red && left_left_red), {
+    node = _rotate_right(K, V, node);
+  });
+  // Both children red → flip colors
+  if((_is_red(K, V, node._left) && _is_red(K, V, node._right)), {
+    node = _flip_colors(K, V, node);
+  });
+  node
+});
+
+/// Insert into subtree rooted at node. Returns new subtree root.
+_node_insert :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  key: K,
+  value: V,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))(
+  match(node,
+    .None => _new_node(K, V, key, value, .Red, .None, .None),
+    .Some(h) => {
+      (n : RBNode(K, V)) = cond(
+        (key < h._key) =>
+          _new_node(K, V, h._key, h._value, h._color,
+            .Some(_node_insert(K, V, h._left, key, value)), h._right),
+        (key == h._key) =>
+          _new_node(K, V, h._key, value, h._color, h._left, h._right),
+        true =>
+          _new_node(K, V, h._key, h._value, h._color,
+            h._left, .Some(_node_insert(K, V, h._right, key, value)))
+      );
+      _fixup(K, V, n)
+    }
+  )
+);
+
+/// Get value associated with key from subtree.
+_node_get :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  key: K,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> Option(V))(
+  match(node,
+    .None => .None,
+    .Some(h) => cond(
+      (key < h._key) => _node_get(K, V, h._left, key),
+      (key == h._key) => .Some(h._value),
+      true => _node_get(K, V, h._right, key)
+    )
+  )
+);
+
+/// Check if key exists in subtree.
+_node_contains :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  key: K,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> bool)(
+  match(node,
+    .None => false,
+    .Some(h) => cond(
+      (key < h._key) => _node_contains(K, V, h._left, key),
+      (key == h._key) => true,
+      true => _node_contains(K, V, h._right, key)
+    )
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Remove helpers for LLRB delete
+// ---------------------------------------------------------------------------
+
+/// Move red left: used during delete-min
+_move_red_left :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  (node : RBNode(K, V)) = _flip_colors(K, V, h);
+  right_left_red := match(node._right,
+    .Some(r) => _is_red(K, V, r._left),
+    .None => false
+  );
+  if(right_left_red, {
+    (new_right : Option(RBNode(K, V))) = match(node._right,
+      .Some(r) => Option(RBNode(K, V)).Some(_rotate_right(K, V, r)),
+      .None => (Option(RBNode(K, V)).None)
+    );
+    node = _new_node(K, V, node._key, node._value, node._color, node._left, new_right);
+    node = _rotate_left(K, V, node);
+    node = _flip_colors(K, V, node);
+  });
+  node
+});
+
+/// Move red right: used during delete
+_move_red_right :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))({
+  (node : RBNode(K, V)) = _flip_colors(K, V, h);
+  left_left_red := match(node._left,
+    .Some(l) => _is_red(K, V, l._left),
+    .None => false
+  );
+  if(left_left_red, {
+    node = _rotate_right(K, V, node);
+    node = _flip_colors(K, V, node);
+  });
+  node
+});
+
+/// Find the minimum node in a subtree.
+_node_min :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> RBNode(K, V))(
+  match(h._left,
+    .Some(l) => _node_min(K, V, l),
+    .None => h
+  )
+);
+
+/// Delete the minimum node from subtree.
+_delete_min :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> Option(RBNode(K, V)))(
+  match(h._left,
+    .None => .None,
+    .Some(l) => {
+      (node : RBNode(K, V)) = h;
+      if((!(_is_red(K, V, .Some(l))) && !(_is_red(K, V, l._left))), {
+        node = _move_red_left(K, V, node);
+      });
+      new_left := match(node._left,
+        .Some(nl) => _delete_min(K, V, nl),
+        .None => (Option(RBNode(K, V)).None)
+      );
+      .Some(_fixup(K, V,
+        _new_node(K, V, node._key, node._value, node._color, new_left, node._right)
+      ))
+    }
+  )
+);
+
+/// Remove key from subtree. Returns new subtree (or None if empty).
+_node_remove :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  h: RBNode(K, V),
+  key: K,
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> Option(RBNode(K, V)))({
+  (node : RBNode(K, V)) = h;
+
+  if((key < node._key), {
+    // Go left
+    has_left := match(node._left,
+      .Some(_) => true,
+      .None => false
+    );
+    if(has_left, {
+      left_red := _is_red(K, V, node._left);
+      left_left_red := match(node._left,
+        .Some(l) => _is_red(K, V, l._left),
+        .None => false
+      );
+      if((!(left_red) && !(left_left_red)), {
+        node = _move_red_left(K, V, node);
+      });
+      new_left := match(node._left,
+        .Some(nl) => _node_remove(K, V, nl, key),
+        .None => (Option(RBNode(K, V)).None)
+      );
+      node = _new_node(K, V, node._key, node._value, node._color, new_left, node._right);
+    });
+    .Some(_fixup(K, V, node))
+  }, {
+    // key >= node._key
+    if(_is_red(K, V, node._left), {
+      node = _rotate_right(K, V, node);
+    });
+
+    // If equal and no right child, delete this node
+    is_eq := (key == node._key);
+    has_right := match(node._right,
+      .Some(_) => true,
+      .None => false
+    );
+    if((is_eq && !(has_right)), {
+      return .None;
+    });
+
+    // Ensure right child is not a 2-node
+    if(has_right, {
+      right_red := _is_red(K, V, node._right);
+      right_left_red := match(node._right,
+        .Some(r) => _is_red(K, V, r._left),
+        .None => false
+      );
+      if((!(right_red) && !(right_left_red)), {
+        node = _move_red_right(K, V, node);
+      });
+    });
+
+    is_eq2 := (key == node._key);
+    if(is_eq2, {
+      // Replace with successor (min of right subtree)
+      succ := match(node._right,
+        .Some(r) => _node_min(K, V, r),
+        .None => node  // unreachable
+      );
+      new_right := match(node._right,
+        .Some(r) => _delete_min(K, V, r),
+        .None => (Option(RBNode(K, V)).None)
+      );
+      node = _new_node(K, V, succ._key, succ._value, node._color, node._left, new_right);
+    }, {
+      // Go right
+      new_right := match(node._right,
+        .Some(r) => _node_remove(K, V, r, key),
+        .None => (Option(RBNode(K, V)).None)
+      );
+      node = _new_node(K, V, node._key, node._value, node._color, node._left, new_right);
+    });
+
+    .Some(_fixup(K, V, node))
+  })
+});
+
+// ---------------------------------------------------------------------------
+// In-order traversal helpers
+// ---------------------------------------------------------------------------
+
+/// Collect keys in-order into a List.
+_collect_keys :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  acc: List(K),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> List(K))(
+  match(node,
+    .None => acc,
+    .Some(h) => {
+      right_acc := _collect_keys(K, V, h._right, acc);
+      with_key := right_acc.prepend(h._key);
+      _collect_keys(K, V, h._left, with_key)
+    }
+  )
+);
+
+/// Collect values in key-order into a List.
+_collect_values :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  node: Option(RBNode(K, V)),
+  acc: List(V),
+  where(K <: (Eq(K), Ord(K), Send), V <: Send)
+) -> List(V))(
+  match(node,
+    .None => acc,
+    .Some(h) => {
+      right_acc := _collect_values(K, V, h._right, acc);
+      with_val := right_acc.prepend(h._value);
+      _collect_values(K, V, h._left, with_val)
+    }
+  )
+);
+
+// ---------------------------------------------------------------------------
+// SortedMap impl
+// ---------------------------------------------------------------------------
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), SortedMap(K, V),
+  /// Create an empty sorted map.
+  new : (fn() -> Self)(
+    Self(_root: .None, _len: usize(0))
+  ),
+
+  /// Number of entries.
+  len : (fn(self: Self) -> usize)(self._len),
+
+  /// Check if the map is empty.
+  is_empty : (fn(self: Self) -> bool)((self._len == usize(0))),
+
+  /// Look up a value by key.
+  get : (fn(self: Self, key: K) -> Option(V))(
+    _node_get(K, V, self._root, key)
+  ),
+
+  /// Check if a key exists.
+  contains_key : (fn(self: Self, key: K) -> bool)(
+    _node_contains(K, V, self._root, key)
+  ),
+
+  /// Return a new map with the key-value pair inserted (or updated).
+  insert : (fn(self: Self, key: K, value: V) -> Self)({
+    existed := _node_contains(K, V, self._root, key);
+    new_root := _node_insert(K, V, self._root, key, value);
+    // Root is always black
+    black_root := _new_node(K, V, new_root._key, new_root._value, .Black, new_root._left, new_root._right);
+    new_len := cond(
+      existed => self._len,
+      true => (self._len + usize(1))
+    );
+    Self(_root: .Some(black_root), _len: new_len)
+  }),
+
+  /// Return a new map with the key removed.
+  remove : (fn(self: Self, key: K) -> Self)(
+    match(self._root,
+      .None => self,
+      .Some(root) => {
+        existed := _node_contains(K, V, .Some(root), key);
+        if(!(existed), {
+          return self;
+        });
+        result := _node_remove(K, V, root, key);
+        (new_root : Option(RBNode(K, V))) = match(result,
+          .Some(n) => Option(RBNode(K, V)).Some(_new_node(K, V, n._key, n._value, .Black, n._left, n._right)),
+          .None => (Option(RBNode(K, V)).None)
+        );
+        Self(_root: new_root, _len: (self._len - usize(1)))
+      }
+    )
+  ),
+
+  /// Get the minimum key in the map.
+  min_key : (fn(self: Self) -> Option(K))(
+    match(self._root,
+      .None => .None,
+      .Some(root) => {
+        m := _node_min(K, V, root);
+        .Some(m._key)
+      }
+    )
+  ),
+
+  /// Get the maximum key by going right.
+  max_key : (fn(self: Self) -> Option(K))(
+    match(self._root,
+      .None => .None,
+      .Some(root) => {
+        (cur : RBNode(K, V)) = root;
+        (done : bool) = false;
+        while runtime(!(done)), {
+          match(cur._right,
+            .Some(r) => {
+              cur = r;
+            },
+            .None => {
+              done = true;
+            }
+          );
+        };
+        .Some(cur._key)
+      }
+    )
+  ),
+
+  /// Return in-order list of keys.
+  keys : (fn(self: Self) -> List(K))(
+    _collect_keys(K, V, self._root, List(K).new())
+  ),
+
+  /// Return list of values in key order.
+  values : (fn(self: Self) -> List(V))(
+    _collect_values(K, V, self._root, List(V).new())
+  ),
+
+  /// Create a sorted map from a slice of key-value pairs.
+  from_entries : (fn(pairs: Slice(Pair(K, V))) -> Self)({
+    (result : Self) = Self.new();
+    i := usize(0);
+    plen := pairs.len();
+    while (i < plen), (i = (i + usize(1))), {
+      p := (pairs.ptr() &+ i).*;
+      result = result.insert(p.key, p.value);
+    };
+    result
+  })
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)), SortedMap(K, V), Eq(SortedMap(K, V))(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    if((lhs._len != rhs._len), {
+      return false;
+    });
+    if(((lhs._len == usize(0)) && (rhs._len == usize(0))), {
+      return true;
+    });
+    lhs_keys := lhs.keys();
+    lhs_vals := lhs.values();
+    rhs_keys := rhs.keys();
+    rhs_vals := rhs.values();
+    ((lhs_keys == rhs_keys) && (lhs_vals == rhs_vals))
+  })
+));
+
+export SortedMap;
+export RBNode;
+export Color;

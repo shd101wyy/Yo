@@ -21,7 +21,8 @@
 { Cond } :: import "./cond";
 
 /// Reader-writer lock built on `Mutex` and `Cond`.
-RwLock :: object(
+/// Uses atomic reference counting for safe cross-thread sharing.
+RwLock :: atomic object(
   _readers  : i32,
   _writer   : bool,
   _mutex    : Mutex,

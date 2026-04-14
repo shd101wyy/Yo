@@ -1,8 +1,8 @@
 import { BuiltinFunctions, type Expr, exprIsFunctionCall } from "../../expr";
 import type { Type } from "../../types/definitions";
 import {
-  isArcType,
   isArrayType,
+  isAtomicObjectType,
   isDynType,
   isEnumType,
   isIsoType,
@@ -87,13 +87,13 @@ export function generateDropCodeForValue(
   if (isDynType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}).data)`;
   }
+  if (isAtomicObjectType(concreteType)) {
+    return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
+  }
   if (isObjectType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}))`;
   }
   if (isIsoType(concreteType)) {
-    return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
-  }
-  if (isArcType(concreteType)) {
     return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
   }
   if (isStructType(concreteType) || isEnumType(concreteType)) {
@@ -173,6 +173,10 @@ export function generateDupCodeForValue(
     const dynCName = getTypeString(concreteType, context);
     return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
   }
+  if (isAtomicObjectType(concreteType)) {
+    const objCName = getTypeString(concreteType, context);
+    return `((${objCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
+  }
   if (isObjectType(concreteType)) {
     const objCName = getTypeString(concreteType, context);
     return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
@@ -180,10 +184,6 @@ export function generateDupCodeForValue(
   if (isIsoType(concreteType)) {
     const isoCName = getTypeString(concreteType, context);
     return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
-  }
-  if (isArcType(concreteType)) {
-    const arcCName = getTypeString(concreteType, context);
-    return `((${arcCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
   }
   if (isStructType(concreteType) || isEnumType(concreteType)) {
     const dupFnCName = getDupFunctionForType(concreteType, context);
@@ -210,8 +210,7 @@ export function getDropFunctionForType(
     isEnumType(type) ||
     isDynType(type) ||
     isSomeType(type) ||
-    isIsoType(type) ||
-    isArcType(type)
+    isIsoType(type)
   ) {
     const dropFunction = type.trait.fields.find(
       (field) => field.label === BuiltinFunctions.___drop[0]
@@ -245,8 +244,7 @@ export function getDupFunctionForType(
     isEnumType(type) ||
     isDynType(type) ||
     isSomeType(type) ||
-    isIsoType(type) ||
-    isArcType(type)
+    isIsoType(type)
   ) {
     const dupFunction = type.trait.fields.find(
       (field) => field.label === BuiltinFunctions.___dup[0]

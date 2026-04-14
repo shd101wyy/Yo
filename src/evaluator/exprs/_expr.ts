@@ -56,7 +56,6 @@ import { evaluateAddressCall } from "../builtins/ptr-fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
 import {
-  evaluateYoArcDispose,
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
   evaluateYoDropArrayElement,
@@ -97,7 +96,6 @@ import {
   evaluateYoVarIsOwningTheRcValue,
   evaluateYoVarPrintInfo,
 } from "../builtins/var-fns";
-import { evaluateArcTypeCall } from "../calls/arc";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateIsoTypeCall } from "../calls/iso";
 import { evaluateRawPointerCall } from "../calls/pointer";
@@ -365,6 +363,34 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
       // dyn
       return evaluateDynValue({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.atomic)) {
+      // atomic object(...) — atomic reference counted object
+      if (expr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `"atomic" expects exactly one argument: atomic object(...)`,
+        });
+      }
+      const innerExpr = expr.args[0]!;
+      if (
+        !exprIsFunctionCall(innerExpr) ||
+        !exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
+      ) {
+        throw formatErrorMessage({
+          token: innerExpr.token,
+          errorMessage: `"atomic" modifier is only valid before "object(...)". Got:\n${exprToString(innerExpr)}`,
+        });
+      }
+      const result = evaluateObjectType({
+        expr: innerExpr,
+        env,
+        context: { ...context },
+        isAtomicRc: true,
+      });
+      // Propagate the evaluated result back to the atomic expr
+      expr.$ = result.$;
+      expr.func.$ = result.$;
+      return expr;
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
       // struct
       return evaluateStructType({
@@ -472,13 +498,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Iso, 1)) {
       // Iso isolated type
       return evaluateIsoTypeCall({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Arc, 1)) {
-      // Arc atomically reference counted type
-      return evaluateArcTypeCall({
         expr,
         env,
         context: { ...context },
@@ -656,9 +675,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
       // __yo_iso_dispose (dispose inner value of Iso if not extracted)
       return evaluateYoIsoDispose({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_arc_dispose)) {
-      // __yo_arc_dispose (dispose inner value of Arc)
-      return evaluateYoArcDispose({ expr, env, context: { ...context } });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)
     ) {

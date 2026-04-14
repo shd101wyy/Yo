@@ -6,6 +6,8 @@
 
 **Work in Progress :) Not Ready!**
 
+https://shd101wyy.github.io/Yo
+
 A multi-paradigm, general-purpose, compiled programming language.
 Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
@@ -32,6 +34,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Contributing](#contributing)
   - [Setup](#setup)
 - [Editor Support](#editor-support)
+- [Version Management](#version-management)
 - [AI Agent Skills](#ai-agent-skills)
   - [Using in your own project](#using-in-your-own-project)
 - [Star History](#star-history)

@@ -184,4 +184,12 @@ export interface ClosureInfo {
    * at io.spawn/io.await time with concrete handler values.
    */
   effectParamNames?: string[];
+
+  /**
+   * Captured field names that are consumed inside the closure body
+   * (passed to an own(self) parameter). Used by thread/worker spawn
+   * codegen to NULL these fields in the heap-copied capture struct
+   * after the closure runs, preventing double-free.
+   */
+  consumedCaptures?: string[];
 }

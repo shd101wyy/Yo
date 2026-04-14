@@ -17,7 +17,6 @@ import {
 import type { FunctionValue, FuncValueId } from "../../function-value";
 import type { TargetInfo } from "../../target";
 import type {
-  ArcType,
   ArrayType,
   DynType,
   EnumType,
@@ -99,21 +98,6 @@ export interface CodeGenContext {
   >;
 
   /**
-   * Arc struct types that need to be generated
-   * Maps Arc type C name to info about the child type
-   */
-  arcTypes?: Map<
-    string,
-    {
-      childTypeCName: string;
-      arcType: ArcType;
-      structGenerated?: boolean;
-      createGenerated?: boolean;
-      disposeGenerated?: boolean;
-    }
-  >;
-
-  /**
    * Spawned function signatures that need task wrapper generation for cooperative multitasking
    * Maps signature string (based on parameter types + return type) to the signature info
    */
@@ -162,6 +146,9 @@ export interface CodeGenContext {
       callTypeId: TypeId;
       /** The Fn call type — used to determine evidence parameters for spawn wrappers */
       callType?: FunctionType;
+      /** Captured field names consumed by own() inside the closure body.
+       *  Used by spawn wrapper to NULL these fields before dropping the capture struct. */
+      consumedCaptures?: string[];
     }
   >;
 
@@ -517,7 +504,7 @@ export function getTypeString(
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
-          `No C type name found for ${kind} ${typeToString(type)}`
+          `No C type name found for ${kind} ${typeToString(type)} (id=${type.id})`
         );
       }
 
@@ -818,25 +805,6 @@ export function getTypeString(
 
       // Iso types are reference-counted pointers
       return isoTypeName;
-    }
-
-    // Arc type (atomic reference-counted shared value)
-    case TypeTag.Arc: {
-      const arcType = type as ArcType;
-      const childType = arcType.childType;
-      const childTypeCName = getTypeString(childType, context);
-
-      const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
-      const arcTypeName = `Arc_${sanitizeForCIdentifier(cleanChildTypeName)}`;
-
-      if (!context.arcTypes) {
-        context.arcTypes = new Map();
-      }
-      if (!context.arcTypes.has(arcTypeName)) {
-        context.arcTypes.set(arcTypeName, { childTypeCName, arcType });
-      }
-
-      return arcTypeName;
     }
   }
 

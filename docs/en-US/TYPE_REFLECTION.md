@@ -43,7 +43,6 @@ TypeInfo :: enum(
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
   Iso(child : Type),
-  Arc(child : Type),
   Dyn(required_traits : ComptimeList(TraitInfo), negative_traits : ComptimeList(TraitInfo)),
 
   // === Meta types ===
@@ -192,11 +191,12 @@ The `fields` list contains `TypeFieldInfo` entries for each variant field. Use `
 Discriminates struct flavors:
 
 ```rust
-StructKind :: enum(Struct, Object, NewType);
+StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 - `Struct` — regular value-type struct
 - `Object` — reference-counted object type (`object(...)`)
+- `AtomicObject` — atomic reference-counted object type (`atomic object(...)`)
 - `NewType` — single-field wrapper type (`newtype(...)`)
 
 ### FunctionInfo

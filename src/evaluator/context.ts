@@ -94,6 +94,14 @@ export interface EvaluatorContext {
   capturedVariables?: Map<string, CapturedVariableInfo>;
 
   /**
+   * Captured variables that are actually consumed via own(self) parameter passing
+   * inside the closure body. This is a subset of capturedVariables where usageType === "own".
+   * Used by thread/worker spawn codegen to NULL these fields in the heap-copied capture
+   * struct after the closure runs, preventing double-free.
+   */
+  ownConsumedCaptures?: Set<string>;
+
+  /**
    * Whether we are currently evaluating a while/for loop.
    * This record the env that is used for the while/for loop body.
    */
@@ -259,6 +267,18 @@ export interface EvaluatorContext {
    * which can be ambiguous when multiple impls of the same trait exist.
    */
   isEvaluatingGenericImplSpecialization?: boolean;
+
+  /**
+   * When inside createSpecializedFunctionInline body evaluation, this stores
+   * the specialized funcId and return type so that recursive calls can create
+   * a forward-reference to the specialized function being built.
+   */
+  currentlySpecializingFunction?: {
+    originalFuncId: string;
+    specializedFuncId: string;
+    specializedReturnType: Type;
+    originalFunction: FunctionValue;
+  };
 
   /**
    * Lookup map from declaration token location to doc comment content.
@@ -487,15 +507,6 @@ export interface FunctionToCall {
          *   evaluateIsoValueCall
          */
         kind: "iso-value";
-        result: FnCallExpr;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   evaluateArcValueCall
-         */
-        kind: "arc-value";
         result: FnCallExpr;
       }
     | {

@@ -40,6 +40,7 @@ import {
   isFunctionType,
   isSliceType,
   isSomeType,
+  isStructType,
   isTraitType,
   isType0,
 } from "../../types/guards";
@@ -856,9 +857,11 @@ function checkOrphanRule({
 
   // Prelude is special - allow prelude to impl any module for any type
   // This is necessary for built-in impls
+  // Use both "/" and "\" separators for cross-platform compatibility (Windows paths use "\")
+  const normalizedModulePath = currentModulePath.replace(/\\/g, "/");
   if (
-    currentModulePath.includes("prelude.yo") ||
-    currentModulePath.includes("std/")
+    normalizedModulePath.includes("prelude.yo") ||
+    normalizedModulePath.includes("std/")
   ) {
     return;
   }
@@ -940,7 +943,7 @@ export function findMethodsFromGenericImpls({
   // Check cache: if we've already resolved this concrete type + method name
   // with the same registry version, return the cached result
   if (!isSomeType(concreteType)) {
-    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cacheKey = concreteType.id + "\0" + methodName;
     const cached = genericImplMethodCache.get(cacheKey);
     if (cached && cached.version === genericImplRegistryVersion) {
       return cached.result;
@@ -987,11 +990,37 @@ export function findMethodsFromGenericImpls({
           // with undefined value - no specialized function body is created.
           // The proper specialization will happen later when called with concrete values.
           const hasUnknownTypes = typeContainsUnknownValue(concreteType);
+
+          // When any forall type parameter is bound to a SomeType (e.g., T→U
+          // inside a forall(U) method), we can't fully specialize the body.
+          // The type-only specialization path handles this correctly.
+          const hasUnresolvedTypeParams = [...match.substitutions].some(
+            ([key, type]) => key !== "Self" && isSomeType(type)
+          );
+
+          // When any forall type parameter is NOT in substitutions, the concrete
+          // type is the impl's own receiver pattern (template type, e.g.,
+          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
+          // We can't specialize the body because the forall params won't be in scope.
+          const hasMissingForallParams = impl.forallParameters.some(
+            (p) => p.kind === "type" && !match.substitutions.has(p.name)
+          );
+
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
             (match.valueSubstitutions.size > 0 ||
               match.substitutions.size > 0) &&
-            !hasUnknownTypes;
+            !hasUnknownTypes &&
+            !hasUnresolvedTypeParams &&
+            !hasMissingForallParams;
+
+          // When forall type parameters are missing from substitutions, the
+          // concrete type is the impl's own unspecialized template (e.g.,
+          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
+          // We cannot specialize or use this method — skip it entirely.
+          if (hasMissingForallParams) {
+            continue;
+          }
 
           if (shouldCreateSpecializedValue) {
             // Use the environment where the impl was originally defined
@@ -1143,12 +1172,10 @@ export function findMethodsFromGenericImpls({
               value: specializedFunctionValue,
             });
             methodIsInherent.push(isInherentImpl);
-          } else if (hasUnknownTypes) {
-            // We have unknown types (like unknown array length), so we can't fully specialize
-            // the function body. However, we should still re-evaluate the function TYPE
-            // to properly substitute known type parameters (like T = i32).
-            // Without this, the parameter type would remain as the unspecialized SomeType "T"
-            // instead of being resolved to the concrete element type.
+          } else if (hasUnknownTypes || hasUnresolvedTypeParams) {
+            // We have unknown types (like unknown array length), or unresolved type
+            // parameters (like T→U inside a forall(U) method). We can't fully
+            // specialize the function body.
 
             // Use the environment where the impl was originally defined
             const baseEnv = impl.definitionEnv;
@@ -1192,7 +1219,8 @@ export function findMethodsFromGenericImpls({
               specializedEnv = nextEnv;
             }
 
-            // Re-evaluate the function type to get specialized parameter/return types
+            // Re-evaluate the function TYPE to properly substitute known type
+            // parameters (like T = i32) while keeping the body unevaluated.
             const specializedType = reEvaluateFunctionType({
               functionType: method.type,
               specializedEnv,
@@ -1284,7 +1312,7 @@ export function findMethodsFromGenericImpls({
 
   // Store result in cache for non-SomeType concrete types
   if (!isSomeType(concreteType)) {
-    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cacheKey = concreteType.id + "\0" + methodName;
     genericImplMethodCache.set(cacheKey, {
       result: filteredMethods,
       version: genericImplRegistryVersion,
@@ -1717,10 +1745,57 @@ function tryMatchGenericImpl({
 
   // Try to unify the concrete type with the receiver type pattern
   try {
-    const { expectedEnv } = synthesizeTypes(
+    let { expectedEnv } = synthesizeTypes(
       { type: impl.receiverTypePattern, env: unifyEnv },
       { type: concreteType, env }
     );
+
+    // When structural field unification can't bind all forall type parameters
+    // (e.g., when a struct erases type params to *(void) to break circular deps),
+    // fall back to extracting bindings from the concrete type's captured env.
+    // The concrete type's env was captured at construction time and contains
+    // the actual type parameter values (e.g., K=i32, V=i32).
+    if (isStructType(concreteType)) {
+      for (const param of impl.forallParameters) {
+        if (param.kind !== "type") continue;
+        const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
+          expectedEnv,
+          param.someType
+        );
+        // Still unresolved (SomeType → itself)?  Try the concrete type's env.
+        // Use name-based lookup since the forall param's SomeType was defined at
+        // a different frame level than the concrete type's env bindings.
+        if (isSomeType(boundType)) {
+          const resolved = getValueOfSomeTypeFromEnvForGenericImpl(
+            concreteType.env,
+            param.someType
+          );
+          if (!isSomeType(resolved)) {
+            // Update the forall param's value in-place in expectedEnv.
+            // We can't use addVariableToEnv because the param already exists
+            // in the forall frame. Instead, find and update its value directly.
+            for (let fi = expectedEnv.frames.length - 1; fi >= 0; fi--) {
+              const frame = expectedEnv.frames[fi]!;
+              const varIdx = frame.variables.findIndex(
+                (v) => v.name === param.name
+              );
+              if (varIdx >= 0) {
+                // Clone frames immutably
+                const newFrames = expectedEnv.frames.slice();
+                const newVars = frame.variables.slice();
+                newVars[varIdx] = {
+                  ...newVars[varIdx]!,
+                  value: [createTypeValue(resolved)],
+                };
+                newFrames[fi] = { ...frame, variables: newVars };
+                expectedEnv = { ...expectedEnv, frames: newFrames };
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
 
     // Check if all where constraints are satisfied
     for (const {
@@ -1824,7 +1899,14 @@ function tryMatchGenericImpl({
           expectedEnv,
           param.someType
         );
-        if (boundType && !isSomeType(boundType)) {
+        // Include the substitution if the type was resolved to a concrete type,
+        // OR if it was unified to a DIFFERENT SomeType (e.g., T unified to U
+        // from an outer forall scope). Only skip when T is still its own
+        // original unresolved SomeType (meaning nothing was unified).
+        if (
+          boundType &&
+          (!isSomeType(boundType) || boundType !== param.someType)
+        ) {
           substitutions.set(param.name, boundType);
         }
       } else {

@@ -8,6 +8,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { createStructType } from "../../types/creators";
+import { typeToString } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -15,15 +16,22 @@ import {
   addRcFunctionSignaturesToStructType,
   autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
+import {
+  beginSendDerivation,
+  endSendDerivation,
+  typeImplementsSend,
+} from "../trait-checking";
 
 export function evaluateStructType({
   expr,
   env,
   context,
+  isAtomicRc = false,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isAtomicRc?: boolean;
 }): FnCallExpr {
   const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
@@ -42,13 +50,27 @@ export function evaluateStructType({
 
   // Create structType with empty fields
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType(env, isReferenceSemantics, isNewtype);
+  const structType = createStructType(
+    env,
+    isReferenceSemantics,
+    isNewtype,
+    isAtomicRc
+  );
   addRcFunctionSignaturesToStructType({ structType, env, context });
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
     structType.definedInModulePath = context.currentModulePath;
     structType.trait.definedInModulePath = context.currentModulePath;
+  }
+
+  // For atomic objects, register Send derivation in-progress BEFORE evaluating fields.
+  // Self-referential types like `atomic object(_next: Option(Self))` trigger
+  // Option enum creation during field evaluation, which checks Send for this type.
+  // Without this, the cycle causes Send derivation to fail.
+  const needsSendCycleBreak = isAtomicRc;
+  if (needsSendCycleBreak) {
+    beginSendDerivation(structType.id);
   }
 
   // Evaluate the fields
@@ -97,6 +119,34 @@ export function evaluateStructType({
     context,
     errorToken: expr.token,
   });
+
+  // Clear the Send cycle break AFTER auto-derive is complete
+  if (needsSendCycleBreak) {
+    endSendDerivation(structType.id);
+  }
+
+  // Enforce Send for atomic object types.
+  // Acyclic is NOT enforced here — self-referential atomic objects are valid
+  // (e.g., tree nodes via Option(Self)). Acyclic auto-derivation correctly
+  // withholds Acyclic from self-referential types, and cross-type cycles
+  // (A→B→C→A) are impossible because Yo evaluates declarations top-down.
+  // This check runs AFTER endSendDerivation so the cycle breaker doesn't
+  // interfere with the typeImplementsSend check.
+  if (isAtomicRc) {
+    if (!typeImplementsSend(structType, env)) {
+      const nonSendFields = structType.fields
+        .filter((field) => !typeImplementsSend(field.type, env))
+        .map((field) => `  - ${field.label}: ${typeToString(field.type)}`)
+        .join("\n");
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage:
+          `atomic object must implement Send (all fields must be Send), but ${typeToString(structType)} has non-Send fields:\n` +
+          nonSendFields +
+          `\nUse "object" instead if thread safety is not needed.`,
+      });
+    }
+  }
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);

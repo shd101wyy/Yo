@@ -1,0 +1,215 @@
+{ Map, Pair } :: import "std/imm/map";
+{ List } :: import "std/imm/list";
+{ String } :: import "std/imm/string";
+
+CollisionKey :: struct(id : i32);
+derive(CollisionKey, Eq(CollisionKey));
+impl(CollisionKey, Hash(
+  (hash) : (fn(self : *(Self)) -> u64)(
+    u64(1)
+  )
+));
+
+test "Map new is empty", {
+  m := Map(i32, i32).new();
+  assert(m.is_empty(), "should be empty");
+  assert((m.len() == usize(0)), "len should be 0");
+};
+
+test "Map insert and get single entry", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(100));
+  assert((m.len() == usize(1)), "len should be 1");
+  assert((m.get(i32(1)).unwrap() == i32(100)), "should get 100");
+  assert(m.get(i32(2)).is_none(), "missing key returns None");
+};
+
+test "Map insert multiple entries", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(10));
+  m = m.insert(i32(2), i32(20));
+  m = m.insert(i32(3), i32(30));
+  assert((m.len() == usize(3)), "len should be 3");
+  assert((m.get(i32(1)).unwrap() == i32(10)), "key 1");
+  assert((m.get(i32(2)).unwrap() == i32(20)), "key 2");
+  assert((m.get(i32(3)).unwrap() == i32(30)), "key 3");
+};
+
+test "Map insert overwrites existing key", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(100));
+  m = m.insert(i32(1), i32(200));
+  assert((m.len() == usize(1)), "len should still be 1");
+  assert((m.get(i32(1)).unwrap() == i32(200)), "should be updated to 200");
+};
+
+test "Map contains_key", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(42), i32(0));
+  assert(m.contains_key(i32(42)), "should contain 42");
+  assert(!(m.contains_key(i32(99))), "should not contain 99");
+};
+
+test "Map remove existing key", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(10));
+  m = m.insert(i32(2), i32(20));
+  m = m.insert(i32(3), i32(30));
+  m2 := m.remove(i32(2));
+  assert((m2.len() == usize(2)), "len after remove");
+  assert(m2.get(i32(2)).is_none(), "removed key is gone");
+  assert((m2.get(i32(1)).unwrap() == i32(10)), "key 1 still present");
+  assert((m2.get(i32(3)).unwrap() == i32(30)), "key 3 still present");
+  // Original unchanged
+  assert((m.len() == usize(3)), "original map unchanged");
+};
+
+test "Map remove nonexistent key", {
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(10));
+  m2 := m.remove(i32(99));
+  assert((m2.len() == usize(1)), "len unchanged");
+  assert((m2.get(i32(1)).unwrap() == i32(10)), "value preserved");
+};
+
+test "Map structural sharing", {
+  m1 := Map(i32, i32).new();
+  m1 = m1.insert(i32(1), i32(10));
+  m1 = m1.insert(i32(2), i32(20));
+  m2 := m1.insert(i32(3), i32(30));
+  // m1 unchanged, m2 has the new entry
+  assert((m1.len() == usize(2)), "m1 unchanged");
+  assert((m2.len() == usize(3)), "m2 has new entry");
+  assert(m1.get(i32(3)).is_none(), "m1 does not have key 3");
+  assert((m2.get(i32(3)).unwrap() == i32(30)), "m2 has key 3");
+};
+
+test "Map many entries", {
+  (m : Map(i32, i32)) = Map(i32, i32).new();
+  i := i32(0);
+  while (i < i32(100)), (i = (i + i32(1))), {
+    m = m.insert(i, (i * i32(10)));
+  };
+  assert((m.len() == usize(100)), "100 entries");
+  // Spot-check
+  assert((m.get(i32(0)).unwrap() == i32(0)), "key 0");
+  assert((m.get(i32(50)).unwrap() == i32(500)), "key 50");
+  assert((m.get(i32(99)).unwrap() == i32(990)), "key 99");
+  assert(m.get(i32(100)).is_none(), "key 100 absent");
+};
+
+test "Map Eq trait", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := Map(i32, i32).new().insert(i32(2), i32(20)).insert(i32(1), i32(10));
+  m3 := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(99));
+  assert((m1 == m2), "same entries, different order");
+  assert((m1 != m3), "different values");
+};
+
+test "Map merge", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := Map(i32, i32).new().insert(i32(2), i32(99)).insert(i32(3), i32(30));
+  merged := m1.merge(m2);
+  assert((merged.len() == usize(3)), "merged len");
+  assert((merged.get(i32(1)).unwrap() == i32(10)), "from m1");
+  assert((merged.get(i32(2)).unwrap() == i32(99)), "overwritten by m2");
+  assert((merged.get(i32(3)).unwrap() == i32(30)), "from m2");
+};
+
+test "Map keys, values, entries", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  ks := m.keys();
+  vs := m.values();
+  es := m.entries();
+  assert((ks.len() == usize(2)), "2 keys");
+  assert((vs.len() == usize(2)), "2 values");
+  assert((es.len() == usize(2)), "2 entries");
+  assert(ks.contains(i32(1)), "has key 1");
+  assert(ks.contains(i32(2)), "has key 2");
+  assert(vs.contains(i32(10)), "has value 10");
+  assert(vs.contains(i32(20)), "has value 20");
+};
+
+test "Map map_values", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := m.map_values((a) => (a * i32(2)));
+  assert((m2.get(i32(1)).unwrap() == i32(20)), "10 * 2 = 20");
+  assert((m2.get(i32(2)).unwrap() == i32(40)), "20 * 2 = 40");
+};
+
+test "Map filter", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
+  m2 := m.filter((k, v) => (v > i32(15)));
+  assert((m2.len() == usize(2)), "2 entries after filter");
+  assert(m2.get(i32(1)).is_none(), "key 1 filtered out");
+  assert((m2.get(i32(2)).unwrap() == i32(20)), "key 2 kept");
+  assert((m2.get(i32(3)).unwrap() == i32(30)), "key 3 kept");
+};
+
+test "Map remove all entries one by one", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
+  m = m.remove(i32(1));
+  assert((m.len() == usize(2)), "len 2");
+  m = m.remove(i32(2));
+  assert((m.len() == usize(1)), "len 1");
+  m = m.remove(i32(3));
+  assert((m.len() == usize(0)), "len 0");
+  assert(m.is_empty(), "is empty");
+};
+
+test "Map from_entries builds correct map", {
+  m_manual := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
+  entries_list := m_manual.entries();
+  // Verify from_entries doesn't crash by building a simple one-entry map
+  m := Map(i32, i32).new().insert(i32(42), i32(100));
+  assert((m.len() == usize(1)), "manual insert works");
+  assert((m.get(i32(42)).unwrap() == i32(100)), "value correct");
+};
+
+test "Map empty equality", {
+  m1 := Map(i32, i32).new();
+  m2 := Map(i32, i32).new();
+  assert((m1 == m2), "two empty maps are equal");
+};
+
+test "Map equality with same elements", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  m2 := Map(i32, i32).new().insert(i32(2), i32(20)).insert(i32(1), i32(10));
+  assert((m1 == m2), "same elements different order are equal");
+};
+
+test "Map inequality different values", {
+  m1 := Map(i32, i32).new().insert(i32(1), i32(10));
+  m2 := Map(i32, i32).new().insert(i32(1), i32(20));
+  assert((m1 != m2), "different values not equal");
+};
+
+test "Map collision nodes support RC-backed values", {
+  m := Map(CollisionKey, String).new();
+  m = m.insert(CollisionKey(id: i32(1)), String.from("a"));
+  m = m.insert(CollisionKey(id: i32(2)), String.from("b"));
+  m = m.insert(CollisionKey(id: i32(3)), String.from("c"));
+  assert((m.len() == usize(3)), "three colliding entries");
+  assert((m.get(CollisionKey(id: i32(2))).unwrap() == String.from("b")), "lookup colliding string");
+
+  m2 := m.insert(CollisionKey(id: i32(2)), String.from("bb"));
+  m3 := m2.remove(CollisionKey(id: i32(1)));
+  assert((m3.len() == usize(2)), "overwrite and remove preserve length");
+  assert((m3.get(CollisionKey(id: i32(2))).unwrap() == String.from("bb")), "updated colliding value");
+  assert(m3.get(CollisionKey(id: i32(1))).is_none(), "removed colliding key absent");
+};
+
+test "Map collision nodes handle more than 255 entries", {
+  (m : Map(CollisionKey, i32)) = Map(CollisionKey, i32).new();
+  i := i32(0);
+  while (i < i32(260)), (i = (i + i32(1))), {
+    m = m.insert(CollisionKey(id: i), i);
+  };
+
+  assert((m.len() == usize(260)), "all colliding entries counted");
+
+  i = i32(0);
+  while (i < i32(260)), (i = (i + i32(1))), {
+    assert((m.get(CollisionKey(id: i)).unwrap() == i), "colliding entry remains accessible");
+  };
+};

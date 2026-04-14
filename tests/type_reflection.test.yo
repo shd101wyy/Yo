@@ -209,6 +209,19 @@ test "TypeInfo compound: Pointer pointee", {
   comptime_assert(pointee_is_i32, "pointer pointee should be i32");
 };
 
+test "TypeInfo compound: Arc is AtomicObject struct", {
+  arc_info :: Type.get_info(Arc(i32));
+  is_atomic_kind :: match(arc_info,
+    .Struct(fields, kind) => (
+      match(kind, .AtomicObject => true, _ => false) &&
+      (fields.len() == usize(1)) &&
+      __yo_are_types_compatible(fields.get(usize(0)).field_type, i32)
+    ),
+    _ => false
+  );
+  comptime_assert(is_atomic_kind, "Arc should reflect as AtomicObject struct");
+};
+
 test "TypeInfo compound: Function info", {
   FnType :: (fn(x : i32, y : i32) -> bool);
   fn_info :: Type.get_info(FnType);
@@ -256,6 +269,14 @@ test "TypeInfo compound: Struct kind - Object", {
   comptime_assert(info.is_struct(), "object should be struct");
   is_object_kind :: match(info, .Struct(_, k) => match(k, .Object => true, _ => false), _ => false);
   comptime_assert(is_object_kind, "should be Object kind");
+};
+
+test "TypeInfo compound: Struct kind - AtomicObject", {
+  MyAtomicObj :: atomic object(x : i32, y : i32);
+  info :: Type.get_info(MyAtomicObj);
+  comptime_assert(info.is_struct(), "atomic object should be struct");
+  is_atomic_kind :: match(info, .Struct(_, k) => match(k, .AtomicObject => true, _ => false), _ => false);
+  comptime_assert(is_atomic_kind, "should be AtomicObject kind");
 };
 
 test "TypeInfo compound: ComptimeList element type", {

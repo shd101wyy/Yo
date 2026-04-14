@@ -12,7 +12,6 @@ import { stringIsOperator, type Token } from "../token";
 import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import type {
-  ArcType,
   ArrayType,
   ComptimeListType,
   DynType,
@@ -182,9 +181,6 @@ export function typeContainsRcType(
     case TypeTag.Iso:
       // Iso itself is GC type (atomic RC), check inner type
       return typeContainsRcType((type as IsoType).childType, checkedTypes);
-    case TypeTag.Arc:
-      // Arc itself is GC type (atomic RC), check inner type
-      return typeContainsRcType((type as ArcType).childType, checkedTypes);
     case TypeTag.Module:
       return false; // Modules do not own references
     case TypeTag.Function: {
@@ -927,7 +923,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isAtomicRc ? "atomic " : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -1066,11 +1062,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Iso: {
       const isoType = type as IsoType;
       return `Iso(${typeToString(isoType.childType, visited)})`;
-    }
-
-    case TypeTag.Arc: {
-      const arcType = type as ArcType;
-      return `Arc(${typeToString(arcType.childType, visited)})`;
     }
 
     case TypeTag.Expr: {
@@ -1574,9 +1565,28 @@ function typeCanFormCyclicRcReference(
     return true;
   }
 
-  // If this is a different object, check if it could form cycles with the original
+  // If this is a different RC object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
     return canTypeFormRcCycle(type, new Set(visitedTypes), env);
+  }
+
+  // Value-type structs (struct, newtype) are stored inline but can contain RC references
+  // that form cycles. For example: Node :: atomic object(child: Option(Wrap(Self)))
+  // where Wrap :: (fn(T) -> Type)(struct(inner: T)) — the struct Wrap(Node) contains
+  // an RC pointer to Node, creating a cycle through the inline struct.
+  if (isStructType(type) && !type.isReferenceSemantics) {
+    for (const field of type.fields) {
+      if (
+        typeCanFormCyclicRcReference(
+          field.type,
+          originalRefStruct,
+          visitedTypes,
+          env
+        )
+      ) {
+        return true;
+      }
+    }
   }
 
   // Check through enum variants

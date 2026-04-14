@@ -2547,7 +2547,11 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 ## Arc Types
 
-`Arc(T)` provides **shared ownership** with atomic reference counting. Unlike `Iso(T)` which enforces unique ownership, multiple `Arc(T)` values can reference the same data. Arc is `Send`-safe, making it the primary mechanism for sharing data across threads.
+`Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
+a compiler built-in; it is defined in `std/prelude.yo` as a thin
+`atomic object(...)` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+thread-shareable values. Use `Arc(T)` when you want to share a single value.
+Use `atomic object(...)` when defining your own shared types.
 
 ```rust
 // Create with the arc() helper
@@ -2561,12 +2565,12 @@ copy := shared;             // refcount: 1 → 2
 
 // Cross-thread sharing
 { Thread } :: import "std/thread";
-ch := arc(Channel(i32).new(usize(10)));
+shared := arc(i32(42));
 t := Thread.spawn(() => {
-  ch.(*).send(i32(42));
+  assert((shared.(*) == i32(42)), "thread sees shared value");
 });
-result := ch.(*).recv().unwrap();
 t.join();
+assert((shared.(*) == i32(42)), "main still sees shared value");
 ```
 
 See [ARC.md](./ARC.md) for full details.

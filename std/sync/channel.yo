@@ -1,6 +1,9 @@
 //! Bounded multi-producer multi-consumer (MPMC) channel.
 //! Uses blocking send/recv via condition variables — does not require IO.
 //!
+//! Channel uses `atomic object` with atomic reference counting, so it can be
+//! safely shared across threads without `Arc` wrapping.
+//!
 //! # Example
 //!
 //! ```rust
@@ -16,43 +19,53 @@
 //! t.join();
 //! ```
 
-{ Deque } :: import "../collections/deque";
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
 { Mutex } :: import "./mutex";
 { Cond } :: import "./cond";
 
 /// Thread-safe bounded channel for passing values between threads.
-Channel :: (fn(comptime(T) : Type) -> comptime(Type))
-  object(
-    _buf      : Deque(T),
-    _capacity : usize,
-    _mutex    : Mutex,
+/// Uses atomic reference counting — implements `Send` and can be
+/// safely shared across threads without `Arc` wrapping.
+/// T must implement `Send` to ensure values are safe to transfer between threads.
+Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))
+  atomic object(
+    _data      : *(T),
+    _head      : usize,
+    _len       : usize,
+    _capacity  : usize,
+    _mutex     : Mutex,
     _not_empty : Cond,
     _not_full  : Cond,
-    _closed   : bool
+    _closed    : bool
   )
 ;
 
-impl(forall(T : Type), Channel(T),
-  // Create a bounded channel with the given capacity.
-  // Capacity must be > 0.
-  new : (fn(capacity: usize) -> Self)(
-    Self(
-      _buf: Deque(T).new(),
+impl(forall(T : Type), Channel(T), where(T <: Send),
+  /// Create a bounded channel with the given capacity.
+  /// Capacity must be > 0.
+  new : (fn(capacity: usize) -> Self)({
+    assert((capacity > usize(0)), "Channel.new: capacity must be > 0");
+    (ptr : *(T)) = *(T)(malloc((capacity * sizeof(T))).unwrap());
+    return Self(
+      _data: ptr,
+      _head: usize(0),
+      _len: usize(0),
       _capacity: capacity,
       _mutex: Mutex.new(),
       _not_empty: Cond.new(),
       _not_full: Cond.new(),
       _closed: false
-    )
-  ),
+    );
+  }),
 
-  // Send a value into the channel.
-  // Blocks if the channel is full until space becomes available.
-  // Returns .Ok(()) on success, .Err(()) if the channel is closed.
+  /// Send a value into the channel.
+  /// Blocks if the channel is full until space becomes available.
+  /// Returns .Ok(()) on success, .Err(()) if the channel is closed.
   send : (fn(self: Self, value: T) -> Result(unit, unit))({
     self._mutex.lock();
     // Wait while buffer is full and channel is not closed
-    while runtime(((self._buf.len() >= self._capacity) && (!(self._closed)))), {
+    while runtime(((self._len >= self._capacity) && (!(self._closed)))), {
       self._not_full.wait(self._mutex);
     };
     cond(
@@ -62,63 +75,85 @@ impl(forall(T : Type), Channel(T),
       },
       true => ()
     );
-    self._buf.push_back(value);
+    // Write value at tail position
+    (tail : usize) = ((self._head + self._len) % self._capacity);
+    consume((self._data &+ tail).* = value);
+    self._len = (self._len + usize(1));
     self._not_empty.signal();
     self._mutex.unlock();
     return .Ok(());
   }),
 
-  // Receive a value from the channel.
-  // Blocks if the channel is empty until a value is available.
-  // Returns .Some(value) on success, .None if the channel is closed and empty.
+  /// Receive a value from the channel.
+  /// Blocks if the channel is empty until a value is available.
+  /// Returns .Some(value) on success, .None if the channel is closed and empty.
   recv : (fn(self: Self) -> ?T)({
     self._mutex.lock();
     // Wait while buffer is empty and channel is not closed
-    while runtime(((self._buf.is_empty()) && (!(self._closed)))), {
+    while runtime(((self._len == usize(0)) && (!(self._closed)))), {
       self._not_empty.wait(self._mutex);
     };
-    result := self._buf.pop_front();
     cond(
-      (result.is_some()) => self._not_full.signal(),
+      (self._len == usize(0)) => {
+        self._mutex.unlock();
+        return .None;
+      },
       true => ()
     );
+    // Read value at head position and neutralize the slot's RC
+    element_ptr := (self._data &+ self._head);
+    (val : T) = element_ptr.*;
+    unsafe.drop(element_ptr.*);
+    self._head = ((self._head + usize(1)) % self._capacity);
+    self._len = (self._len - usize(1));
+    self._not_full.signal();
     self._mutex.unlock();
-    return result;
+    return .Some(val);
   }),
 
-  // Try to send a value without blocking.
-  // Returns .Ok(()) if sent, .Err(()) if full or closed.
+  /// Try to send a value without blocking.
+  /// Returns .Ok(()) if sent, .Err(()) if full or closed.
   try_send : (fn(self: Self, value: T) -> Result(unit, unit))({
     self._mutex.lock();
     cond(
-      (self._closed || (self._buf.len() >= self._capacity)) => {
+      (self._closed || (self._len >= self._capacity)) => {
         self._mutex.unlock();
         return .Err(());
       },
       true => ()
     );
-    self._buf.push_back(value);
+    (tail : usize) = ((self._head + self._len) % self._capacity);
+    consume((self._data &+ tail).* = value);
+    self._len = (self._len + usize(1));
     self._not_empty.signal();
     self._mutex.unlock();
     return .Ok(());
   }),
 
-  // Try to receive a value without blocking.
-  // Returns .Some(value) if available, .None if empty.
+  /// Try to receive a value without blocking.
+  /// Returns .Some(value) if available, .None if empty.
   try_recv : (fn(self: Self) -> ?T)({
     self._mutex.lock();
-    result := self._buf.pop_front();
     cond(
-      (result.is_some()) => self._not_full.signal(),
+      (self._len == usize(0)) => {
+        self._mutex.unlock();
+        return .None;
+      },
       true => ()
     );
+    element_ptr := (self._data &+ self._head);
+    (val : T) = element_ptr.*;
+    unsafe.drop(element_ptr.*);
+    self._head = ((self._head + usize(1)) % self._capacity);
+    self._len = (self._len - usize(1));
+    self._not_full.signal();
     self._mutex.unlock();
-    return result;
+    return .Some(val);
   }),
 
-  // Close the channel. No more values can be sent.
-  // Pending recv() calls will return .None once the buffer is drained.
-  // Pending send() calls will return .Err(()).
+  /// Close the channel. No more values can be sent.
+  /// Pending recv() calls will return .None once the buffer is drained.
+  /// Pending send() calls will return .Err(()).
   close : (fn(self: Self) -> unit)({
     self._mutex.lock();
     self._closed = true;
@@ -127,20 +162,33 @@ impl(forall(T : Type), Channel(T),
     self._mutex.unlock();
   }),
 
-  // Check if the channel is closed.
+  /// Check if the channel is closed.
   is_closed : (fn(self: Self) -> bool)(
     self._closed
   ),
 
-  // Return the number of values currently buffered.
+  /// Return the number of values currently buffered.
   len : (fn(self: Self) -> usize)(
-    self._buf.len()
+    self._len
   ),
 
-  // Check if the channel buffer is empty.
+  /// Check if the channel buffer is empty.
   is_empty : (fn(self: Self) -> bool)(
-    self._buf.is_empty()
+    (self._len == usize(0))
   )
 );
+
+// Dispose: drop remaining elements and free the buffer
+impl(forall(T : Type), Channel(T), where(T <: Send), Dispose(
+  dispose : (fn(self: Self) -> unit)({
+    (i : usize) = usize(0);
+    while runtime((i < self._len)), {
+      (idx : usize) = ((self._head + i) % self._capacity);
+      unsafe.drop((self._data &+ idx).*);
+      i = (i + usize(1));
+    };
+    free(.Some(*(void)(self._data)));
+  })
+));
 
 export Channel;

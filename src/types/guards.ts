@@ -1,7 +1,6 @@
 import { typeImplementsFuture } from "../evaluator/trait-checking";
 import { FunctionValue } from "../function-value";
 import type {
-  ArcType,
   ArrayType,
   ComptimeListType,
   ConcreteModuleType,
@@ -172,6 +171,16 @@ export function isObjectType(
   );
 }
 
+export function isAtomicObjectType(
+  type?: Type
+): type is StructType & { isReferenceSemantics: true; isAtomicRc: true } {
+  return (
+    type?.tag === TypeTag.Struct &&
+    (type as StructType).isReferenceSemantics &&
+    (type as StructType).isAtomicRc === true
+  );
+}
+
 export function isNewtypeType(
   type?: Type
 ): type is StructType & { isNewtype: true } {
@@ -248,10 +257,6 @@ export function isIsoType(type?: Type): type is IsoType {
   return type?.tag === TypeTag.Iso;
 }
 
-export function isArcType(type?: Type): type is ArcType {
-  return type?.tag === TypeTag.Arc;
-}
-
 export function isDynType(type?: Type): type is DynType {
   return type?.tag === TypeTag.Dyn;
 }
@@ -289,9 +294,7 @@ export function isRcType(type?: Type): boolean {
     // The DynType is a struct that contains a pointer to data where the data must be an ObjectType
     isDynType(type) ||
     // IsoType uses atomic reference counting
-    isIsoType(type) ||
-    // ArcType uses atomic reference counting
-    isArcType(type)
+    isIsoType(type)
   );
 }
 

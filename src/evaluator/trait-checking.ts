@@ -79,7 +79,6 @@ function typeImplementsComptimeBuiltin(
 
     // Runtime-only types - always return false
     case TypeTag.Iso:
-    case TypeTag.Arc:
     case TypeTag.Dyn:
     case TypeTag.Void:
     case TypeTag.Union:
@@ -150,7 +149,6 @@ function typeImplementsRuntimeBuiltin(
 
     // Runtime-only types
     case TypeTag.Iso:
-    case TypeTag.Arc:
     case TypeTag.Dyn:
     case TypeTag.Void:
     case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
@@ -622,12 +620,41 @@ export function typeImplementsRuntime(type: Type, env: Environment): boolean {
  *
  * Send types can be safely transferred between threads.
  */
+/**
+ * Set of type IDs currently undergoing Send auto-derivation.
+ * Used to break cycles in self-referential types like `atomic object(_next: Option(Self))`.
+ * When a type is in this set and encountered during Send checking, it's assumed to be Send.
+ */
+const sendDerivationInProgress = new Set<string>();
+
+/**
+ * Mark a type as currently undergoing Send auto-derivation.
+ * Call `endSendDerivation(id)` when done.
+ */
+export function beginSendDerivation(typeId: string): void {
+  sendDerivationInProgress.add(typeId);
+}
+
+/**
+ * Remove a type from the Send auto-derivation in-progress set.
+ */
+export function endSendDerivation(typeId: string): void {
+  sendDerivationInProgress.delete(typeId);
+}
+
 export function typeImplementsSend(
   type: Type | undefined,
   env: Environment
 ): boolean {
   if (!type) {
     return false;
+  }
+
+  // Break cycles: if this type is currently being checked for Send derivation,
+  // optimistically assume it implements Send. This handles self-referential types
+  // like `atomic object(_next: Option(Self))` where the Send check would recurse.
+  if (sendDerivationInProgress.has(type.id)) {
+    return true;
   }
 
   const sendTraitType = getTraitTypeFromEnv(env, "Send");

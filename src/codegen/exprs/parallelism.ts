@@ -1,5 +1,5 @@
 import type { FnCallExpr } from "../../expr";
-import type { SomeType, Type } from "../../types/definitions";
+import type { StructType, SomeType, Type } from "../../types/definitions";
 import { isSomeType, isStructType } from "../../types/guards";
 import { randomId } from "../../utils";
 import {
@@ -9,41 +9,82 @@ import {
 } from "../utils";
 import { getEvidenceParameters } from "../functions/declarations";
 import { generateExpr } from "./expr";
+import { getDupFunctionForType, getDropFunctionForType } from "./drop-dup";
+import { typeContainsRcType } from "../../types/utils";
 
 /**
- * Generate a wrapper function name for thread/worker spawn when the closure
- * has evidence parameters (e.g., IO module fields). The wrapper bridges
- * __yo_thread_fn (void(*)(void*)) to the actual closure signature with
- * NULL evidence args.
+ * Generate a spawn wrapper function for thread/worker spawn.
+ *
+ * The wrapper handles proper RC cleanup for heap-copied capture structs:
+ * 1. Calls the actual closure function (with NULL evidence args if needed)
+ * 2. NULLs out captured fields that were consumed (own(self)) inside the closure
+ * 3. Drops the capture struct (releases thread/worker-owned RC refs, skips NULLed fields)
+ * 4. Frees the heap-allocated capture struct
+ *
+ * This prevents double-free when a closure consumes a captured variable via own(self):
+ * - The heap copy is dup'd before spawn, giving both creator and thread independent RC refs
+ * - The closure body consumes the field (decrements RC via own + drop)
+ * - NULLing prevents the wrapper's drop from decrementing the same field again
+ * - The creator's deferred drop handles the creator-owned RC ref
  */
-function maybeGenerateSpawnWrapper(
+function generateSpawnWrapper(
   closureFunctionCName: string,
-  closureInfo: { callType?: import("../../types/definitions").FunctionType },
+  closureInfo: {
+    callType?: import("../../types/definitions").FunctionType;
+    consumedCaptures?: string[];
+  },
+  captureStructCName: string,
+  captureType: Type | undefined,
   context: CodeGenContext,
   prefix: string
 ): string {
-  if (!closureInfo.callType) {
-    return closureFunctionCName;
-  }
+  const evidenceParams = closureInfo.callType
+    ? getEvidenceParameters(closureInfo.callType)
+    : [];
+  const nullArgs =
+    evidenceParams.length > 0
+      ? `, ${evidenceParams.map(() => "NULL").join(", ")}`
+      : "";
 
-  const evidenceParams = getEvidenceParameters(closureInfo.callType);
-  if (evidenceParams.length === 0) {
-    return closureFunctionCName;
-  }
-
-  // Generate NULL args for evidence parameters
-  const nullArgs = evidenceParams.map(() => "NULL").join(", ");
-
-  // Generate a wrapper function that bridges void(*)(void*) to the closure signature
   const wrapperId = randomId(prefix);
   const wrapperName = `__yo_spawn_wrapper_${wrapperId}`;
 
+  // Build the wrapper body
+  let body = "";
+
+  // Step 1: Call the closure function
+  body += `  ${closureFunctionCName}(closure${nullArgs});\n`;
+
+  // Step 2-4: NULL consumed fields, drop capture struct, free heap memory
+  const dropFn =
+    captureType && isStructType(captureType)
+      ? getDropFunctionForType(captureType, context)
+      : undefined;
+
+  if (dropFn && captureType && isStructType(captureType)) {
+    // NULL out consumed captures (fields that were passed to own(self))
+    const consumedCaptures = closureInfo.consumedCaptures;
+    if (consumedCaptures && consumedCaptures.length > 0) {
+      const structType = captureType as StructType;
+      for (const fieldName of consumedCaptures) {
+        const field = structType.fields.find((f) => f.label === fieldName);
+        if (field && typeContainsRcType(field.type)) {
+          body += `  ((${captureStructCName}*)closure)->${fieldName} = NULL;\n`;
+        }
+      }
+    }
+    // Drop the capture struct (releases thread's RC refs, skips NULLed fields)
+    body += `  ${dropFn}(*(${captureStructCName}*)closure);\n`;
+  }
+
+  // Free heap memory
+  body += `  __yo_free(closure);\n`;
+
+  // Emit the wrapper function in the declaration section
   context.emitter.emitDeclarationLine(`
-// Spawn wrapper: bridges __yo_thread_fn to closure with evidence params
+// Spawn wrapper: handles RC cleanup for thread-spawned closures
 static void ${wrapperName}(void* closure) {
-  ${closureFunctionCName}(closure, ${nullArgs});
-}
-`);
+${body}}`);
 
   return wrapperName;
 }
@@ -106,10 +147,12 @@ export function generateThreadSpawnCall(
   const closureFunctionCName = closureInfo.functionCName;
   const captureStructCName = getTypeString(concreteType, context);
 
-  // Generate wrapper if the closure has evidence parameters (e.g., IO)
-  const spawnFnName = maybeGenerateSpawnWrapper(
+  // Always generate a wrapper that handles RC cleanup for the heap-copied capture struct
+  const spawnFnName = generateSpawnWrapper(
     closureFunctionCName,
     closureInfo,
+    captureStructCName,
+    concreteType,
     context,
     expr.$?.env.modulePath ?? ""
   );
@@ -123,12 +166,15 @@ export function generateThreadSpawnCall(
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
-  // The thread entry wrapper will free this after the closure runs
   const heapDataVar = `_thread_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
+  const dupFn = getDupFunctionForType(concreteType, context);
+  if (dupFn) {
+    context.emitter.emitLine(`${indent}${dupFn}(*${heapDataVar});`);
+  }
 
   // Get the return type for __yo_thread_spawn which is __yo_thread_t
   const tempVar = expr.$?.variableName;
@@ -194,10 +240,12 @@ export function generateWorkerSpawnCall(
   const closureFunctionCName = closureInfo.functionCName;
   const captureStructCName = getTypeString(concreteType, context);
 
-  // Generate wrapper if the closure has evidence parameters (e.g., IO)
-  const spawnFnName = maybeGenerateSpawnWrapper(
+  // Always generate a wrapper that handles RC cleanup for the heap-copied capture struct
+  const spawnFnName = generateSpawnWrapper(
     closureFunctionCName,
     closureInfo,
+    captureStructCName,
+    concreteType,
     context,
     expr.$?.env.modulePath ?? ""
   );
@@ -211,12 +259,15 @@ export function generateWorkerSpawnCall(
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
-  // The worker thread will free this after the task runs
   const heapDataVar = `_worker_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
+  const dupFn = getDupFunctionForType(concreteType, context);
+  if (dupFn) {
+    context.emitter.emitLine(`${indent}${dupFn}(*${heapDataVar});`);
+  }
 
   // __yo_worker_spawn returns void (unit), so just emit the call
   context.emitter.emitLine(

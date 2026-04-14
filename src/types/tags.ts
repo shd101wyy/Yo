@@ -80,9 +80,6 @@ export enum TypeTag {
   // Isolated Type (atomic reference counting for thread safety)
   Iso = "Iso",
 
-  // Atomically Reference Counted Type (shared ownership across threads)
-  Arc = "Arc",
-
   // Dynamic Dispatch Type
   Dyn = "Dyn",
 
