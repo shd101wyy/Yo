@@ -941,7 +941,7 @@ export function findMethodsFromGenericImpls({
   // Check cache: if we've already resolved this concrete type + method name
   // with the same registry version, return the cached result
   if (!isSomeType(concreteType)) {
-    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cacheKey = concreteType.id + "\0" + methodName;
     const cached = genericImplMethodCache.get(cacheKey);
     if (cached && cached.version === genericImplRegistryVersion) {
       return cached.result;
@@ -996,12 +996,29 @@ export function findMethodsFromGenericImpls({
             ([key, type]) => key !== "Self" && isSomeType(type)
           );
 
+          // When any forall type parameter is NOT in substitutions, the concrete
+          // type is the impl's own receiver pattern (template type, e.g.,
+          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
+          // We can't specialize the body because the forall params won't be in scope.
+          const hasMissingForallParams = impl.forallParameters.some(
+            (p) => p.kind === "type" && !match.substitutions.has(p.name)
+          );
+
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
             (match.valueSubstitutions.size > 0 ||
               match.substitutions.size > 0) &&
             !hasUnknownTypes &&
-            !hasUnresolvedTypeParams;
+            !hasUnresolvedTypeParams &&
+            !hasMissingForallParams;
+
+          // When forall type parameters are missing from substitutions, the
+          // concrete type is the impl's own unspecialized template (e.g.,
+          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
+          // We cannot specialize or use this method — skip it entirely.
+          if (hasMissingForallParams) {
+            continue;
+          }
 
           if (shouldCreateSpecializedValue) {
             // Use the environment where the impl was originally defined
@@ -1293,7 +1310,7 @@ export function findMethodsFromGenericImpls({
 
   // Store result in cache for non-SomeType concrete types
   if (!isSomeType(concreteType)) {
-    const cacheKey = typeToString(concreteType) + "\0" + methodName;
+    const cacheKey = concreteType.id + "\0" + methodName;
     genericImplMethodCache.set(cacheKey, {
       result: filteredMethods,
       version: genericImplRegistryVersion,

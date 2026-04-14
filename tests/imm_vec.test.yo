@@ -385,3 +385,31 @@ test "Vec COW dedup unique path", {
   assert((v.get(usize(1)).unwrap() == i32(2)), "dedup 1");
   assert((v.get(usize(2)).unwrap() == i32(3)), "dedup 2");
 };
+
+// Regression test: Vec(ImmString) exercises genericImplMethodCache with
+// same-named types from different modules (std/imm/string::String vs
+// std/string::String).
+test "Vec of ImmString push and get", {
+  v := Vec(String).new();
+  v = v.push(String.from("hello"));
+  v = v.push(String.from("world"));
+  assert((v.len() == usize(2)), "length should be 2");
+  assert((v.get(usize(0)).unwrap() == String.from("hello")), "elem 0");
+  assert((v.get(usize(1)).unwrap() == String.from("world")), "elem 1");
+};
+
+test "Vec of ImmString concat", {
+  a := Vec(String).new().push(String.from("a")).push(String.from("b"));
+  b := Vec(String).new().push(String.from("c"));
+  c := a.concat(b);
+  assert((c.len() == usize(3)), "concat length");
+  assert((c.get(usize(2)).unwrap() == String.from("c")), "concat elem 2");
+};
+
+test "Vec of ImmString with struct element", {
+  v := Vec(VecRcEntry).new();
+  v = v.push(VecRcEntry(text: String.from("item1")));
+  v = v.push(VecRcEntry(text: String.from("item2")));
+  assert((v.len() == usize(2)), "length");
+  assert((v.get(usize(0)).unwrap().text == String.from("item1")), "text 0");
+};
