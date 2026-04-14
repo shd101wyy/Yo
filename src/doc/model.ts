@@ -159,4 +159,6 @@ export interface DocModel {
   name: string;
   /** All documented modules */
   modules: DocModule[];
+  /** Release version (e.g., "v0.1.12") */
+  version?: string;
 }

@@ -804,6 +804,10 @@ yo --version                     Show version number
             type: "string",
             choices: ["html", "markdown", "json"],
             default: "html",
+          })
+          .option("version", {
+            describe: "Release version to display (e.g., v0.1.12)",
+            type: "string",
           });
       },
       async (argv) => {
@@ -815,6 +819,7 @@ yo --version                     Show version number
           verbose: argv.verbose as boolean,
           title: argv.title as string | undefined,
           format: argv.format as "html" | "markdown" | "json",
+          version: argv.version as string | undefined,
         });
       }
     )

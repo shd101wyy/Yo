@@ -57,11 +57,29 @@ export function getStdDocCommand(rootDir: string = ROOT): {
 // ── Parse args ───────────────────────────────────────────────────────
 
 let outputDir = path.join(ROOT, "site");
+let siteVersion: string | undefined;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--output" && args[i + 1]) {
     outputDir = path.resolve(args[i + 1]!);
     i++;
+  } else if (args[i] === "--version" && args[i + 1]) {
+    siteVersion = args[i + 1]!;
+    i++;
+  }
+}
+
+// Fallback: detect version from package.json if not provided
+if (!siteVersion) {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")
+    );
+    if (pkg.version) {
+      siteVersion = `v${pkg.version}`;
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -306,6 +324,17 @@ th {
   margin-top: 8px;
 }
 
+.version-badge {
+  font-size: 0.4em;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--bg-secondary);
+  padding: 2px 10px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
 .site-nav {
   margin-top: 16px;
   display: flex;
@@ -341,7 +370,15 @@ th {
 `;
 }
 
-function wrapHomepage(title: string, bodyHtml: string, css: string): string {
+function wrapHomepage(
+  title: string,
+  bodyHtml: string,
+  css: string,
+  version?: string
+): string {
+  const versionBadge = version
+    ? `<span class="version-badge">${escapeHtml(version)}</span>`
+    : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -354,7 +391,7 @@ function wrapHomepage(title: string, bodyHtml: string, css: string): string {
   <div class="container">
     <div class="site-header">
       <img src="Yo_logo.png" alt="Yo logo" width="80" height="80">
-      <h1>Yo Programming Language</h1>
+      <h1>Yo Programming Language ${versionBadge}</h1>
       <p class="tagline">A general-purpose, ahead-of-time compiled language with algebraic effects</p>
       <div class="site-nav">
         <a href="${GITHUB_REPO}">GitHub</a>
@@ -434,7 +471,12 @@ export async function main(): Promise<void> {
   readmeHtml = rewriteReadmeLinks(readmeHtml);
 
   const css = generateHomepageCSS();
-  const homepage = wrapHomepage("Yo Programming Language", readmeHtml, css);
+  const homepage = wrapHomepage(
+    "Yo Programming Language",
+    readmeHtml,
+    css,
+    siteVersion
+  );
   fs.writeFileSync(path.join(outputDir, "index.html"), homepage, "utf-8");
   console.log("  ✓ index.html");
 
@@ -461,15 +503,15 @@ export async function main(): Promise<void> {
 
   try {
     const stdDocCommand = getStdDocCommand();
-    execFileSync(
-      stdDocCommand.command,
-      [...stdDocCommand.args, "--output", stdOutputDir],
-      {
-        cwd: ROOT,
-        stdio: ["ignore", "inherit", "inherit"],
-        timeout: 600_000,
-      }
-    );
+    const docArgs = [...stdDocCommand.args, "--output", stdOutputDir];
+    if (siteVersion) {
+      docArgs.push("--version", siteVersion);
+    }
+    execFileSync(stdDocCommand.command, docArgs, {
+      cwd: ROOT,
+      stdio: ["ignore", "inherit", "inherit"],
+      timeout: 600_000,
+    });
     console.log("  ✓ Standard library docs generated");
   } catch (err) {
     console.error(

@@ -37,6 +37,8 @@ export interface DocCommandOptions {
   title?: string;
   /** Output format (default: html) */
   format?: DocFormat;
+  /** Release version to display (e.g., "v0.1.12") */
+  version?: string;
 }
 
 /**
@@ -229,6 +231,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
     verbose,
     title,
     format = "html",
+    version,
   } = options;
 
   const basePath = path.resolve(
@@ -272,6 +275,7 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
   const model: DocModel = {
     name: projectName,
     modules,
+    version,
   };
 
   // Render output in the chosen format

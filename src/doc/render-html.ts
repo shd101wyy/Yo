@@ -219,6 +219,17 @@ body {
   color: var(--text-secondary);
 }
 
+.version-badge {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--bg-code);
+  padding: 2px 8px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
 .sidebar-section {
   padding: 8px 20px;
 }
@@ -1044,9 +1055,12 @@ ${content}
 // ── Sidebar rendering ────────────────────────────────────────────────
 
 function renderSidebar(model: DocModel, activeModule?: string): string {
+  const versionHtml = model.version
+    ? `\n  <span class="version">${escapeHtml(model.version)}</span>`
+    : "";
   let html = `<nav class="sidebar">
 <div class="sidebar-header">
-  <h2>${escapeHtml(model.name)}</h2>
+  <h2>${escapeHtml(model.name)}</h2>${versionHtml}
 </div>
 <div class="search-box">
   <input type="text" id="doc-search" placeholder="Search..." autocomplete="off">
@@ -1651,7 +1665,10 @@ function renderConstant(
 // ── Index page ───────────────────────────────────────────────────────
 
 function renderIndexContent(md: MarkdownRenderer, model: DocModel): string {
-  let html = `<h1>${escapeHtml(model.name)} — API Documentation</h1>`;
+  const versionBadge = model.version
+    ? ` <span class="version-badge">${escapeHtml(model.version)}</span>`
+    : "";
+  let html = `<h1>${escapeHtml(model.name)} — API Documentation${versionBadge}</h1>`;
 
   if (model.modules.length === 0) {
     html += `<p>No documented modules found.</p>`;
