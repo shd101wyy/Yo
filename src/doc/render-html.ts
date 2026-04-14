@@ -958,8 +958,10 @@ function buildSearchIndex(model: DocModel): SearchEntry[] {
 }
 
 function firstSentence(text: string): string {
-  const match = text.match(/^[^.!?\n]+[.!?]?/);
-  const result = match ? match[0].trim() : text.trim();
+  const [firstLine = ""] = text.trim().split(/\r?\n/, 1);
+  const line = firstLine.trim();
+  const match = line.match(/^.*?[.!?](?=(?:[`"'’”)\]}>]*)(?:\s|$))/u);
+  const result = match ? match[0].trim() : line;
   return result.length > 120 ? result.slice(0, 120).trim() : result;
 }
 

@@ -67,6 +67,20 @@ describe("firstSentence", () => {
     expect(firstSentence("First line\nSecond line.")).toBe("First line");
   });
 
+  test("ignores periods inside inline code", () => {
+    expect(
+      firstSentence(
+        "C11 `<assert.h>` — assertion debugging facility. More details here."
+      )
+    ).toBe("C11 `<assert.h>` — assertion debugging facility.");
+  });
+
+  test("ignores periods inside filenames", () => {
+    expect(firstSentence("Use stdio.h for C I/O. More text here.")).toBe(
+      "Use stdio.h for C I/O."
+    );
+  });
+
   test("truncates long text without punctuation", () => {
     const longText = "a".repeat(200);
     const result = firstSentence(longText);
@@ -161,6 +175,29 @@ describe("buildSearchIndex", () => {
     const model: DocModel = { name: "empty", modules: [] };
     const index = buildSearchIndex(model);
     expect(index.length).toBe(0);
+  });
+
+  test("preserves inline code with periods in search docs", () => {
+    const model: DocModel = {
+      name: "headers",
+      modules: [
+        {
+          name: "assert",
+          path: "std/libc/assert",
+          doc: "C11 `<assert.h>` — assertion debugging facility. More details here.",
+          functions: [],
+          types: [],
+          traits: [],
+          constants: [],
+          submodules: [],
+        },
+      ],
+    };
+
+    const index = buildSearchIndex(model);
+    expect(index[0]?.doc).toBe(
+      "C11 `<assert.h>` — assertion debugging facility."
+    );
   });
 });
 
@@ -586,6 +623,30 @@ describe("renderDocSite", () => {
     );
 
     expect(html).toContain("prefers-color-scheme: dark");
+  });
+
+  test("renders module card summary with inline code periods", async () => {
+    cleanup();
+    const model: DocModel = {
+      name: "HeaderDocs",
+      modules: [
+        makeModule({
+          name: "assert",
+          path: "std/libc/assert",
+          doc: "C11 `<assert.h>` — assertion debugging facility. More details here.",
+        }),
+      ],
+    };
+
+    await renderDocSite({ model, outputDir: TEST_OUTPUT_DIR });
+
+    const html = fs.readFileSync(
+      path.join(TEST_OUTPUT_DIR, "index.html"),
+      "utf-8"
+    );
+
+    expect(html).toContain("<code>&lt;assert.h&gt;</code>");
+    expect(html).toContain("assertion debugging facility.");
   });
 
   test("function with type params and effects", async () => {
