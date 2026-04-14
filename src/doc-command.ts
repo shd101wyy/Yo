@@ -8,6 +8,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { execFileSync } from "child_process";
 import { tokenize } from "./lexer";
 import { ModuleManager } from "./module-manager";
 import { extractDocComments } from "./doc/extractor";
@@ -23,6 +24,32 @@ import type { DocModel, DocModule } from "./doc/model";
 import type { ModuleValue } from "./value";
 
 export type DocFormat = "html" | "markdown" | "json";
+
+/**
+ * Detect version from git: prefer tag on HEAD, fall back to short commit hash.
+ * Returns undefined if git is unavailable or not in a repo.
+ */
+export function detectGitVersion(cwd?: string): string | undefined {
+  function git(...gitArgs: string[]): string | undefined {
+    try {
+      return (
+        execFileSync("git", gitArgs, {
+          cwd,
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim() || undefined
+      );
+    } catch {
+      return undefined;
+    }
+  }
+  // Try exact tag on HEAD first
+  return (
+    git("describe", "--tags", "--exact-match", "HEAD") ??
+    git("describe", "--tags", "--abbrev=0") ??
+    git("rev-parse", "--short", "HEAD")
+  );
+}
 
 export interface DocCommandOptions {
   /** File or directory to document (default: current directory) */
@@ -271,11 +298,14 @@ export async function runDoc(options: DocCommandOptions): Promise<void> {
   // Build cross-references (trait → implementors)
   buildCrossReferences(modules);
 
+  // Auto-detect version from git if not provided
+  const resolvedVersion = version || detectGitVersion(basePath);
+
   // Build the doc model
   const model: DocModel = {
     name: projectName,
     modules,
-    version,
+    version: resolvedVersion,
   };
 
   // Render output in the chosen format

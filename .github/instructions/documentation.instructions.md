@@ -58,6 +58,7 @@ yo doc ./src/                    # All .yo files in directory
 yo doc -o docs                   # Custom output directory (default: yo-out/doc)
 yo doc --title "My Project"      # Set doc site title
 yo doc --format html|markdown|json  # Output format (default: html)
+yo doc --version v1.0.0          # Release version (auto-detects from git if omitted)
 yo doc --document-private        # Include non-exported items
 ```
 

@@ -298,6 +298,7 @@ Alternative output for embedding in READMEs or other docs.
 yo doc [path]              # Generate docs for project or file
   --output, -o <dir>       # Output directory (default: yo-out/doc)
   --format <html|markdown|json>  # Output format (default: html)
+  --version <version>      # Release version (auto-detects from git if omitted)
   --document-private       # Include non-exported declarations
   --no-deps                # Don't document dependencies
   --open                   # Open in browser after generation
@@ -389,6 +390,7 @@ DocConfig :: struct(
   (include_private : bool) ?= false,             // Document non-exported items
   (include_deps : bool) ?= false,                // Document dependencies too
   (title : comptime_string) ?= "",                // Custom site title (default: project name)
+  (version : comptime_string) ?= "",              // Release version (auto-detects from git if empty)
   (logo : comptime_string) ?= "",                 // Path to logo image
   (favicon : comptime_string) ?= ""               // Path to favicon
 );
@@ -404,7 +406,8 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
   __yo_build_doc(
     config.name, config.root, config.output, fmt_str,
     config.include_private, config.include_deps,
-    config.title, config.logo, config.favicon
+    config.title, config.logo, config.favicon,
+    config.version
   );
   Step(name: config.name, kind: StepKind.Documentation)
 };
@@ -427,6 +430,7 @@ doc_step :: build.doc({
   format: build.DocFormat.Markdown,
   include_deps: true,
   title: "My Library API",
+  version: "v1.0.0",
   logo: "./assets/logo.png"
 });
 

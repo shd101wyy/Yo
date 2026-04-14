@@ -1164,6 +1164,7 @@ yo doc --format json        # Machine-readable JSON
 yo doc -o docs/api          # Custom output directory
 yo doc --name "My Library"  # Override project name
 yo doc --document-private   # Include non-exported items
+yo doc --version v1.0.0     # Set version (auto-detects from git if omitted)
 ```
 
 ### Build System Integration
@@ -1179,7 +1180,8 @@ docs :: build.doc({
   root: "./src",
   output: "yo-out/doc",
   format: build.DocFormat.Html,
-  title: "My Project API"
+  title: "My Project API",
+  version: "v1.0.0"
 });
 
 // Wire into the build DAG

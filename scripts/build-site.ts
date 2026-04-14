@@ -69,18 +69,30 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-// Fallback: detect version from package.json if not provided
+// Fallback: auto-detect version from git (tag or commit hash)
 if (!siteVersion) {
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")
-    );
-    if (pkg.version) {
-      siteVersion = `v${pkg.version}`;
+  siteVersion = detectGitVersion(ROOT);
+}
+
+function detectGitVersion(cwd: string): string | undefined {
+  function git(...gitArgs: string[]): string | undefined {
+    try {
+      return (
+        execFileSync("git", gitArgs, {
+          cwd,
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim() || undefined
+      );
+    } catch {
+      return undefined;
     }
-  } catch {
-    // ignore
   }
+  return (
+    git("describe", "--tags", "--exact-match", "HEAD") ??
+    git("describe", "--tags", "--abbrev=0") ??
+    git("rev-parse", "--short", "HEAD")
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
