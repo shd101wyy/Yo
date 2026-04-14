@@ -1114,6 +1114,9 @@ Got:      "${paramName}"`,
     functionValue.funcId = `closure_${randomId(env.modulePath)}`;
 
     // Set the closure info for easy codegen access
+    const consumedCaptureNames = evaluationContext.ownConsumedCaptures
+      ? Array.from(evaluationContext.ownConsumedCaptures)
+      : undefined;
     functionValue.closureInfo = {
       closureType: closureType,
       captureType: captureType,
@@ -1121,6 +1124,9 @@ Got:      "${paramName}"`,
         effectParamEntries.length > 0
           ? effectParamEntries.map((e) => e.name)
           : undefined,
+      consumedCaptures: consumedCaptureNames?.length
+        ? consumedCaptureNames
+        : undefined,
     };
 
     // Validate that the capture struct implements all required non-Fn traits (e.g., Send)

@@ -164,6 +164,7 @@ export function createFunctionBodyEvaluationContext(
     isEvaluatingFunctionType: false,
     isEvaluatingLoopBody: undefined, // Clear loop body context for function body
     capturedVariables, // Set the captured variables map here
+    ownConsumedCaptures: new Set(), // Track captures consumed via own(self)
     expectedType: {
       type: functionType.return.type,
       env: env,

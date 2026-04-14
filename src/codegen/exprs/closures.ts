@@ -268,6 +268,7 @@ export function generateClosureConstruction(
         functionCName,
         callTypeId: fnModule.isFn.callType.id,
         callType: fnModule.isFn.callType,
+        consumedCaptures: closureFunctionValue.closureInfo?.consumedCaptures,
       });
       return captureTempVar;
     }

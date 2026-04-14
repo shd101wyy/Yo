@@ -393,6 +393,18 @@ export function checkIfFunctionParameterMatchesArgument({
           : [];
         const argVar = argVars.length ? argVars[argVars.length - 1] : undefined;
 
+        // Track captured variables consumed via own(self) for thread spawn correctness
+        if (
+          argVarName &&
+          context.isEvaluatingFunctionBodyOrAsyncBlock &&
+          context.capturedVariables?.has(argVarName)
+        ) {
+          if (!context.ownConsumedCaptures) {
+            context.ownConsumedCaptures = new Set();
+          }
+          context.ownConsumedCaptures.add(argVarName);
+        }
+
         if (argVar?.isOwningTheRcValue) {
           // Argument already owns: move it (no dup), and consume at call site.
           callerEnv = setExprAsConsumed(

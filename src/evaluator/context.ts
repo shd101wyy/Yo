@@ -94,6 +94,14 @@ export interface EvaluatorContext {
   capturedVariables?: Map<string, CapturedVariableInfo>;
 
   /**
+   * Captured variables that are actually consumed via own(self) parameter passing
+   * inside the closure body. This is a subset of capturedVariables where usageType === "own".
+   * Used by thread/worker spawn codegen to NULL these fields in the heap-copied capture
+   * struct after the closure runs, preventing double-free.
+   */
+  ownConsumedCaptures?: Set<string>;
+
+  /**
    * Whether we are currently evaluating a while/for loop.
    * This record the env that is used for the while/for loop body.
    */

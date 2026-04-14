@@ -385,3 +385,86 @@ test "Worker pool creates independent List versions", {
   };
   assert((sum == i32(600)), "sum of prepended heads is 600");
 };
+
+// ============================================================================
+// own(self) consumption in thread closures
+// ============================================================================
+
+test "Thread closure consumes Vec via own(self) push — no double-free", {
+  if((arch == Arch.Wasm32), return ());
+
+  // base is consumed by push (own(self)), ch is only borrowed (.send())
+  // This tests the codegen wrapper correctly NULLs only consumed captures
+  base := Vec(i32).new().push(i32(1)).push(i32(2));
+  ch := Channel(usize).new(usize(4));
+
+  t1 := Thread.spawn(() => {
+    v1 := base.push(i32(3));
+    ch.send(v1.len());
+  });
+
+  len := ch.recv().unwrap();
+  assert((len == usize(3)), "thread pushed to get length 3");
+  t1.join();
+};
+
+test "Multiple threads each consume own Vec independently", {
+  if((arch == Arch.Wasm32), return ());
+
+  ch := Channel(usize).new(usize(10));
+
+  a := Vec(i32).new().push(i32(1));
+  t1 := Thread.spawn(() => {
+    v := a.push(i32(2)).push(i32(3));
+    ch.send(v.len());
+  });
+
+  b := Vec(i32).new().push(i32(10)).push(i32(20));
+  t2 := Thread.spawn(() => {
+    v := b.push(i32(30)).push(i32(40)).push(i32(50));
+    ch.send(v.len());
+  });
+
+  l1 := ch.recv().unwrap();
+  l2 := ch.recv().unwrap();
+  assert(((l1 + l2) == usize(8)), "combined lengths = 3 + 5 = 8");
+  t1.join();
+  t2.join();
+};
+
+test "Worker consumes Vec via own(self) push", {
+  if((arch == Arch.Wasm32), return ());
+
+  base := Vec(i32).new().push(i32(42));
+  ch := Channel(usize).new(usize(4));
+  wg := WaitGroup.new();
+  wg.add(i32(1));
+
+  Worker.spawn(() => {
+    v := base.push(i32(99));
+    ch.send(v.len());
+    wg.done();
+  });
+
+  wg.wait();
+  len := ch.recv().unwrap();
+  assert((len == usize(2)), "worker push produced length 2");
+};
+
+test "Thread closure borrows only — no own(self) consumption", {
+  if((arch == Arch.Wasm32), return ());
+
+  // Only borrowing — no own(self) method called on any capture
+  v := Vec(i32).new().push(i32(5)).push(i32(10));
+  ch := Channel(usize).new(usize(4));
+
+  t1 := Thread.spawn(() => {
+    ch.send(v.len());
+    ch.send(v.len());
+  });
+
+  l1 := ch.recv().unwrap();
+  l2 := ch.recv().unwrap();
+  assert(((l1 + l2) == usize(4)), "two borrows return correct length");
+  t1.join();
+};

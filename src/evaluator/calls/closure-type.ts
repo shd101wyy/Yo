@@ -185,9 +185,15 @@ export function tryToImplementClosureByFnModuleType({
   });
 
   // Set the closure info on the function value for easy codegen access
+  const consumedCaptureNames = evaluationContext.ownConsumedCaptures
+    ? Array.from(evaluationContext.ownConsumedCaptures)
+    : undefined;
   functionValue.closureInfo = {
     closureType: fnModuleType,
     captureType: inferredCaptureType,
+    consumedCaptures: consumedCaptureNames?.length
+      ? consumedCaptureNames
+      : undefined,
   };
 
   // Validate that the capture struct implements all required non-Fn traits (e.g., Send)

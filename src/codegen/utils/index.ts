@@ -146,6 +146,9 @@ export interface CodeGenContext {
       callTypeId: TypeId;
       /** The Fn call type — used to determine evidence parameters for spawn wrappers */
       callType?: FunctionType;
+      /** Captured field names consumed by own() inside the closure body.
+       *  Used by spawn wrapper to NULL these fields before dropping the capture struct. */
+      consumedCaptures?: string[];
     }
   >;
 
