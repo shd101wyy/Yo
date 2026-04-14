@@ -114,3 +114,37 @@ test "Atomic object implements Acyclic", {
   comptime_assert(Type.impls(AtomicResource, Acyclic), "AtomicResource should implement Acyclic");
   println("Atomic object Acyclic: OK");
 };
+
+/// Test that cycles through value-type struct intermediaries are detected
+test "Cycle through struct wrapper does not derive Acyclic", {
+  Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  CyclicNode :: atomic object(data: i32, child: Option(Wrap(Self)));
+
+  // Wrap(i32) has no cycle — should be Acyclic
+  comptime_assert(Type.impls(Wrap(i32), Acyclic), "Wrap(i32) should be Acyclic");
+
+  // CyclicNode -> Option(Wrap(CyclicNode)) -> Wrap(CyclicNode) -> struct(inner: CyclicNode) -> CyclicNode
+  comptime_assert((Type.impls(CyclicNode, Acyclic) == false), "cycle through struct wrapper should not derive Acyclic");
+  comptime_assert(Type.impls(CyclicNode, Send), "cycle through struct wrapper should still derive Send");
+  println("Cycle through struct wrapper Acyclic check: OK");
+};
+
+/// Test that cycles through multiple struct intermediaries are detected
+test "Cycle through chained struct wrappers does not derive Acyclic", {
+  WrapA :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  WrapB :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  DeepNode :: atomic object(data: i32, child: Option(WrapA(WrapB(Self))));
+
+  comptime_assert((Type.impls(DeepNode, Acyclic) == false), "deep cycle through struct wrappers should not derive Acyclic");
+  comptime_assert(Type.impls(DeepNode, Send), "deep cycle should still derive Send");
+  println("Cycle through chained struct wrappers: OK");
+};
+
+/// Test that newtype wrapper cycles are also detected
+test "Cycle through newtype wrapper does not derive Acyclic", {
+  Wrapper :: (fn(comptime(T) : Type) -> comptime(Type))(newtype(inner: T));
+  NewtypeNode :: atomic object(data: i32, child: Option(Wrapper(Self)));
+
+  comptime_assert((Type.impls(NewtypeNode, Acyclic) == false), "cycle through newtype should not derive Acyclic");
+  println("Cycle through newtype wrapper: OK");
+};

@@ -1565,9 +1565,28 @@ function typeCanFormCyclicRcReference(
     return true;
   }
 
-  // If this is a different object, check if it could form cycles with the original
+  // If this is a different RC object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
     return canTypeFormRcCycle(type, new Set(visitedTypes), env);
+  }
+
+  // Value-type structs (struct, newtype) are stored inline but can contain RC references
+  // that form cycles. For example: Node :: atomic object(child: Option(Wrap(Self)))
+  // where Wrap :: (fn(T) -> Type)(struct(inner: T)) — the struct Wrap(Node) contains
+  // an RC pointer to Node, creating a cycle through the inline struct.
+  if (isStructType(type) && !type.isReferenceSemantics) {
+    for (const field of type.fields) {
+      if (
+        typeCanFormCyclicRcReference(
+          field.type,
+          originalRefStruct,
+          visitedTypes,
+          env
+        )
+      ) {
+        return true;
+      }
+    }
   }
 
   // Check through enum variants
