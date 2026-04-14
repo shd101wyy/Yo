@@ -148,3 +148,58 @@ test "Cycle through newtype wrapper does not derive Acyclic", {
   comptime_assert((Type.impls(NewtypeNode, Acyclic) == false), "cycle through newtype should not derive Acyclic");
   println("Cycle through newtype wrapper: OK");
 };
+
+/// Test that non-Send type is rejected by atomic object definition
+test "comptime_expect_error: atomic object with non-Send object field", {
+  NonSendObj :: object(x: i32);
+  comptime_expect_error({
+    Bad :: atomic object(inner: NonSendObj);
+  });
+  println("Reject non-Send object field: OK");
+};
+
+/// Test that Acyclic constraint rejects self-referential atomic object
+test "comptime_expect_error: Acyclic constraint rejects cyclic type", {
+  SelfRef :: atomic object(val: i32, next: Option(Self));
+  AcyclicBox :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(inner: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicBox(SelfRef);
+  });
+  println("Reject cyclic type with Acyclic constraint: OK");
+};
+
+/// Test that Acyclic constraint rejects cycle through struct wrapper
+test "comptime_expect_error: Acyclic constraint rejects struct-wrapped cycle", {
+  Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner: T));
+  CyclicNode :: atomic object(data: i32, child: Option(Wrap(Self)));
+  AcyclicContainer :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(value: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicContainer(CyclicNode);
+  });
+  println("Reject struct-wrapped cycle with Acyclic constraint: OK");
+};
+
+/// Test that Send constraint rejects regular object
+test "comptime_expect_error: Send constraint rejects regular object", {
+  NonSendObj :: object(x: i32);
+  SendContainer :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+    struct(value: T)
+  );
+  comptime_expect_error({
+    Bad :: SendContainer(NonSendObj);
+  });
+  println("Reject non-Send type with Send constraint: OK");
+};
+
+/// Test that combined Send + Acyclic constraint rejects non-Acyclic atomic object
+test "comptime_expect_error: Send+Acyclic rejects cyclic atomic object", {
+  CyclicAO :: atomic object(val: i32, next: Option(Self));
+  comptime_expect_error({
+    Bad :: AtomicBox(CyclicAO);
+  });
+  println("Reject cyclic atomic object with Send+Acyclic: OK");
+};
