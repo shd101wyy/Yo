@@ -203,3 +203,30 @@ test "comptime_expect_error: Send+Acyclic rejects cyclic atomic object", {
   });
   println("Reject cyclic atomic object with Send+Acyclic: OK");
 };
+
+/// Test that cycles through enum intermediaries are detected
+test "Cycle through enum wrapper does not derive Acyclic", {
+  MyEnum :: (fn(comptime(T) : Type) -> comptime(Type))(
+    enum(Present(val: T), Absent)
+  );
+  EnumNode :: atomic object(data: i32, child: MyEnum(Self));
+
+  comptime_assert((Type.impls(EnumNode, Acyclic) == false), "cycle through enum wrapper should not derive Acyclic");
+  comptime_assert(Type.impls(EnumNode, Send), "cycle through enum wrapper should still derive Send");
+  println("Cycle through enum wrapper Acyclic check: OK");
+};
+
+/// Test that Acyclic constraint rejects enum-wrapped cyclic type
+test "comptime_expect_error: Acyclic constraint rejects enum-wrapped cycle", {
+  MyEnum :: (fn(comptime(T) : Type) -> comptime(Type))(
+    enum(Present(val: T), Absent)
+  );
+  EnumNode :: atomic object(data: i32, child: MyEnum(Self));
+  AcyclicBox :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
+    struct(inner: T)
+  );
+  comptime_expect_error({
+    Bad :: AcyclicBox(EnumNode);
+  });
+  println("Reject enum-wrapped cycle with Acyclic constraint: OK");
+};
