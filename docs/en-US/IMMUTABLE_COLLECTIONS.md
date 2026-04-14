@@ -80,6 +80,30 @@ those pages for method-by-method reference.
 4. **API docs are generated, not hand-maintained**: this document stays focused on
    concepts, tradeoffs, and module selection instead of duplicating signatures.
 
+### Acyclic trait and self-referential nodes
+
+`atomic object` types use atomic reference counting without a cycle collector.
+The compiler automatically derives the `Acyclic` trait for types whose structure
+cannot form cycles. Self-referential types (e.g., linked list nodes with
+`_next : Option(Self)`) fail auto-derivation because the structure _could_ form
+cycles.
+
+Immutable collections can **never** form cycles at runtime because all operations
+create new nodes — existing nodes are never mutated. To express this guarantee, the
+internal node types declare a **manual `Acyclic` impl**:
+
+```rust
+ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic object(_value : T, _next : Option(Self))
+);
+impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
+```
+
+This is analogous to Rust's `unsafe impl Send` — the programmer asserts a safety
+property the compiler cannot verify structurally. The `Send` constraint on `atomic
+object` fields is enforced as a hard error; `Acyclic` is auto-derived when possible
+and manually declared otherwise.
+
 ## Copy-on-write (COW) optimization
 
 `Vec(T)` and `imm.String` use **copy-on-write** semantics via `own(self)`

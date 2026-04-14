@@ -8,6 +8,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { createStructType } from "../../types/creators";
+import { typeToString } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -15,7 +16,11 @@ import {
   addRcFunctionSignaturesToStructType,
   autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
-import { beginSendDerivation, endSendDerivation } from "../trait-checking";
+import {
+  beginSendDerivation,
+  endSendDerivation,
+  typeImplementsSend,
+} from "../trait-checking";
 
 export function evaluateStructType({
   expr,
@@ -118,6 +123,25 @@ export function evaluateStructType({
   // Clear the Send cycle break AFTER auto-derive is complete
   if (needsSendCycleBreak) {
     endSendDerivation(structType.id);
+  }
+
+  // Enforce Send + Acyclic for atomic object types.
+  // This check runs AFTER endSendDerivation so the cycle breaker doesn't
+  // interfere with the typeImplementsSend check.
+  if (isAtomicRc) {
+    if (!typeImplementsSend(structType, env)) {
+      const nonSendFields = structType.fields
+        .filter((field) => !typeImplementsSend(field.type, env))
+        .map((field) => `  - ${field.label}: ${typeToString(field.type)}`)
+        .join("\n");
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage:
+          `atomic object must implement Send (all fields must be Send), but ${typeToString(structType)} has non-Send fields:\n` +
+          nonSendFields +
+          `\nUse "object" instead if thread safety is not needed.`,
+      });
+    }
   }
 
   // console.log(typeToString(structType));

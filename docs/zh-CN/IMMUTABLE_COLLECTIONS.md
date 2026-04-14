@@ -73,6 +73,26 @@ yo doc ./std/imm
 3. **`Set(T)` / `SortedSet(T)` 内部用 `bool` 表示值**：`unit` 在 C 中没有表示形式，因此集合包装器使用 `Map(T, bool)` / `SortedMap(T, bool)`。
 4. **API 文档由生成工具负责**：本文档聚焦在概念、取舍与模块选择上，而不是手动维护签名表。
 
+### Acyclic trait 与自引用节点
+
+`atomic object` 类型使用原子引用计数，没有循环收集器。编译器会自动为结构上
+不可能形成环的类型派生 `Acyclic` trait。自引用类型（如链表节点的
+`_next : Option(Self)`）无法通过自动派生，因为其结构上*可能*形成环。
+
+不可变集合在运行时**永远**不会形成环，因为所有操作都是创建新节点——已有节点
+从不被修改。为了表达这一安全保证，内部节点类型声明了**手动 `Acyclic` 实现**：
+
+```rust
+ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic object(_value : T, _next : Option(Self))
+);
+impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
+```
+
+这类似于 Rust 的 `unsafe impl Send` ——由程序员断言一个编译器无法从结构上
+验证的安全属性。`atomic object` 字段的 `Send` 约束作为硬性错误强制执行；
+`Acyclic` 在可能时自动派生，否则由程序员手动声明。
+
 ## 写时复制（COW）优化
 
 `Vec(T)` 和 `imm.String` 通过 `own(self)` 参数在变更方法上实现了**写时复制**

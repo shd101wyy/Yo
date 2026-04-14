@@ -5493,17 +5493,17 @@ export (^);
 /// a := arc(i32(42));
 /// assert((a.* == i32(42)), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))
   atomic object(
     (*) : V
   )
 ;
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
+arc :: (fn(forall(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))
   Arc(V)(value)
 ;
 
-impl(forall(T : Type), where(T <: Send), Arc(T), Send());
+impl(forall(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 
 export Arc, arc;
 

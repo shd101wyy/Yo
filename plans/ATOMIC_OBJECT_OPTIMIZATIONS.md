@@ -153,3 +153,20 @@ Five compiler bugs were discovered and fixed:
    check.
 
 See `issues/` directory for detailed write-ups of each bug.
+
+---
+
+## 4. Send enforcement for atomic object
+
+`atomic object` types now produce a **hard compile error** if any field does not
+implement `Send`. This catches mistakes early — e.g., putting a regular `object`
+(non-thread-safe) inside an `atomic object`.
+
+The `Acyclic` trait is **auto-derived** for types that cannot form reference cycles
+(checked structurally). Self-referential types like `ListNode(_next: Option(Self))`
+do not auto-derive `Acyclic`, but can declare it manually via
+`impl(ListNode(T), Acyclic())`. This opt-in pattern is used by `std/imm/list` and
+`std/imm/sorted_map` for their immutable node types, where the immutability
+invariant prevents cycles at runtime despite structural self-reference.
+
+Location: `src/evaluator/types/struct.ts` (enforcement check after auto-derive).

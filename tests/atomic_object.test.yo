@@ -35,7 +35,7 @@ test "Atomic object reference counting", {
 };
 
 /// Atomic object as a generic type
-AtomicBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+AtomicBox :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic object(value : T)
 );
 
@@ -46,10 +46,9 @@ test "Generic atomic object", {
 };
 
 /// Atomic object with Send constraint
-SendBox :: (fn(comptime(T) : Type) -> comptime(Type))({
-  comptime_assert(Type.impls(T, Send), "SendBox requires T to implement Send");
+SendBox :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic object(value : T)
-});
+);
 
 test "Atomic object with Send constraint", {
   (b : SendBox(i32)) = SendBox(i32)(i32(77));
@@ -84,4 +83,34 @@ test "Atomic object Send constraint rejects non-Send types", {
   /// Here we just verify the constraint works positively.
   comptime_assert(Type.impls(SendBox(i32), Send), "SendBox(i32) should implement Send");
   println("Send constraint validation: OK");
+};
+
+/// Test that atomic object with non-Send field is rejected at compile time
+test "Atomic object rejects non-Send fields", {
+  comptime_expect_error(atomic object(inner : RegularPoint));
+  println("Non-Send field rejection: OK");
+};
+
+/// Test that self-referential atomic object compiles but does not auto-derive Acyclic
+test "Self-referential atomic object does not auto-derive Acyclic", {
+  SelfRefNode :: atomic object(_value : i32, _next : Option(Self));
+  comptime_assert((Type.impls(SelfRefNode, Acyclic) == false), "self-referential atomic object should not derive Acyclic");
+  comptime_assert(Type.impls(SelfRefNode, Send), "self-referential atomic object should still derive Send");
+  println("Self-referential Acyclic check: OK");
+};
+
+/// Test that manual Acyclic impl works for self-referential types
+test "Manual Acyclic impl for self-referential type", {
+  ImmNode :: atomic object(_value : i32, _next : Option(Self));
+  impl(ImmNode, Acyclic());
+  comptime_assert(Type.impls(ImmNode, Acyclic), "manual Acyclic impl should work");
+  println("Manual Acyclic impl: OK");
+};
+
+/// Test that atomic objects implement Acyclic
+test "Atomic object implements Acyclic", {
+  comptime_assert(Type.impls(AtomicPoint, Acyclic), "AtomicPoint should implement Acyclic");
+  comptime_assert(Type.impls(AtomicCounter, Acyclic), "AtomicCounter should implement Acyclic");
+  comptime_assert(Type.impls(AtomicResource, Acyclic), "AtomicResource should implement Acyclic");
+  println("Atomic object Acyclic: OK");
 };
