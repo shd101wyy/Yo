@@ -995,13 +995,27 @@ yo --version                     Show version number
     )
     .command(
       "skills <action>",
-      "Manage Yo AI agent skill files",
+      "Manage Yo AI agent skill files for use with AI coding agents",
       (_yargs) => {
-        _yargs.positional("action", {
-          describe: "Skills action",
-          choices: ["install"],
-          type: "string",
-        });
+        _yargs
+          .positional("action", {
+            describe: "Action to perform",
+            choices: ["install"],
+            type: "string",
+          })
+          .epilog(
+            [
+              "Actions:",
+              "  install   Copy bundled skill files into the current project",
+              "",
+              "The install action copies Yo skill files into all agent config directories",
+              "found in the current project (.github, .agents, .claude, .opencode,",
+              ".openai, .cursor). If none exist, .agents/skills/ is created.",
+              "",
+              "Examples:",
+              "  yo skills install       Install skills in the current project",
+            ].join("\n")
+          );
       },
       async (argv) => {
         const action = argv.action as string;
