@@ -993,6 +993,26 @@ yo --version                     Show version number
         }
       }
     )
+    .command(
+      "skills <action>",
+      "Manage Yo AI agent skill files",
+      (_yargs) => {
+        _yargs.positional("action", {
+          describe: "Skills action",
+          choices: ["install"],
+          type: "string",
+        });
+      },
+      async (argv) => {
+        const action = argv.action as string;
+        if (action === "install") {
+          const { runSkillsInstall } = await import("./skills-command");
+          await runSkillsInstall({
+            cwd: process.env.YO_ORIGINAL_CWD ?? process.cwd(),
+          });
+        }
+      }
+    )
     .demandCommand(
       1,
       "You need to specify a command (e.g., 'compile', 'build', 'init')"
