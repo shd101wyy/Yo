@@ -244,9 +244,11 @@ describe("Documentation site helpers", () => {
       path.resolve(__dirname, "../../scripts/build-site.ts"),
       "utf-8"
     );
-    expect(content).toContain(
-      'execFileSync("git", ["describe", "--tags", "--abbrev=0"]'
-    );
+    // Uses --exact-match (shows tag only when HEAD is exactly at that tag)
+    // instead of --abbrev=0 (which would always return the latest tag).
+    expect(content).toContain('"--exact-match"');
+    expect(content).toContain('"--tags"');
+    expect(content).not.toContain('"--abbrev=0"');
     expect(content).not.toContain("2>/dev/null");
     expect(content).toContain('command: "node"');
     expect(content).toContain('path.join(rootDir, "out", "cjs", "yo-cli.cjs")');
