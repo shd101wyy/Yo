@@ -25,24 +25,25 @@ import { execFileSync } from "child_process";
 const ROOT = path.resolve(import.meta.dir, "..");
 const GITHUB_REPO = "https://github.com/shd101wyy/Yo";
 
-// Detect the latest release tag for stable links.
-// Falls back to "main" if no tags exist or git fails.
-export function getLatestTag(rootDir: string = ROOT): string {
+// Detect the exact tag on HEAD for stable GitHub blob links.
+// Falls back to "develop" if HEAD has no exact tag or git fails.
+export function getExactTagOrDevelop(rootDir: string = ROOT): string {
   try {
-    const result = execFileSync("git", ["describe", "--tags", "--abbrev=0"], {
-      cwd: rootDir,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-    }).trim();
-    return result || "main";
+    const result = execFileSync(
+      "git",
+      ["describe", "--tags", "--exact-match", "HEAD"],
+      {
+        cwd: rootDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+      }
+    ).trim();
+    return result || "develop";
   } catch {
-    return "main";
+    return "develop";
   }
 }
-
-const GITHUB_REF = getLatestTag();
-const GITHUB_BLOB = `${GITHUB_REPO}/blob/${GITHUB_REF}`;
 
 export function getStdDocCommand(rootDir: string = ROOT): {
   command: string;
@@ -73,6 +74,14 @@ for (let i = 0; i < args.length; i++) {
 if (!siteVersion) {
   siteVersion = detectGitVersion(ROOT);
 }
+
+// Use the explicit version (e.g., "v0.1.17" from --version flag) for blob links
+// when it looks like a tag; otherwise use the exact tag on HEAD; otherwise "develop".
+const GITHUB_REF =
+  siteVersion && /^v\d/.test(siteVersion)
+    ? siteVersion
+    : getExactTagOrDevelop(ROOT);
+const GITHUB_BLOB = `${GITHUB_REPO}/blob/${GITHUB_REF}`;
 
 function detectGitVersion(cwd: string): string | undefined {
   function git(...gitArgs: string[]): string | undefined {

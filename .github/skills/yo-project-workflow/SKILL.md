@@ -19,6 +19,7 @@ Use this skill when you need to:
 - choose between `yo build`, `yo compile`, and `yo test`
 - manage dependencies with `yo install` or `yo fetch`
 - pin or manage Yo versions with `yo version`
+- install AI agent skill files with `yo skills install`
 - generate API documentation with `yo doc` or `build.doc()`
 - reason about targets, compilers, or cross-platform setup
 
@@ -38,6 +39,7 @@ Use this skill when you need to:
 - `yo test ./tests/some.test.yo --parallel 1` is the focused single-file test pattern.
 - Use `yo install` and `yo fetch` for git or path dependencies.
 - Use `yo version pin` to create a `.yo-version` file for reproducible builds.
+- Use `yo skills install` to copy Yo skill files into all agent config directories in the project.
 - Prefer symbolic build APIs and target constants in `build.yo` instead of ad-hoc shell logic.
 
 ## Resource

@@ -993,6 +993,40 @@ yo --version                     Show version number
         }
       }
     )
+    .command(
+      "skills <action>",
+      "Manage Yo AI agent skill files for use with AI coding agents",
+      (_yargs) => {
+        _yargs
+          .positional("action", {
+            describe: "Action to perform",
+            choices: ["install"],
+            type: "string",
+          })
+          .epilog(
+            [
+              "Actions:",
+              "  install   Copy bundled skill files into the current project",
+              "",
+              "The install action copies Yo skill files into all agent config directories",
+              "found in the current project (.github, .agents, .claude, .opencode,",
+              ".openai, .cursor). If none exist, .agents/skills/ is created.",
+              "",
+              "Examples:",
+              "  yo skills install       Install skills in the current project",
+            ].join("\n")
+          );
+      },
+      async (argv) => {
+        const action = argv.action as string;
+        if (action === "install") {
+          const { runSkillsInstall } = await import("./skills-command");
+          await runSkillsInstall({
+            cwd: process.env.YO_ORIGINAL_CWD ?? process.cwd(),
+          });
+        }
+      }
+    )
     .demandCommand(
       1,
       "You need to specify a command (e.g., 'compile', 'build', 'init')"
