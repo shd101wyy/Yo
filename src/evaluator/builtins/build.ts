@@ -127,6 +127,7 @@ export interface BuildDocConfig {
   title: string;
   logo: string;
   favicon: string;
+  version: string;
 }
 
 export class BuildRegistry {
@@ -856,12 +857,12 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_doc(name, root, output, format, include_private, include_deps, title, logo, favicon)
+  // __yo_build_doc(name, root, output, format, include_private, include_deps, title, logo, favicon, version)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_doc)) {
-    if (expr.args.length < 9) {
+    if (expr.args.length < 10) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_doc expects 9 arguments, got ${expr.args.length}`,
+        errorMessage: `__yo_build_doc expects 10 arguments, got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -901,6 +902,11 @@ export function evaluateYoBuildFunctions({
       "favicon",
       expr.token
     );
+    const version = extractComptimeString(
+      expr.args[9]!.$?.value,
+      "version",
+      expr.token
+    );
     registry.registerDocumentation({
       name,
       root,
@@ -911,6 +917,7 @@ export function evaluateYoBuildFunctions({
       title,
       logo,
       favicon,
+      version,
     });
     return makeUnitResult(expr, env);
   }

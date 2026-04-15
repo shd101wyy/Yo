@@ -182,11 +182,51 @@ function renderType(type: DocType): string {
     lines.push("");
   }
 
-  if (type.methods.length > 0) {
-    lines.push("**Methods:**");
-    lines.push("");
+  if ((type.impls && type.impls.length > 0) || type.methods.length > 0) {
+    const methodsByName = new Map<string, DocFunction>();
     for (const m of type.methods) {
-      lines.push(indent(renderFunction(m), 0));
+      methodsByName.set(m.name, m);
+    }
+    const claimedMethods = new Set<string>();
+
+    if (type.impls && type.impls.length > 0) {
+      for (const impl of type.impls) {
+        lines.push(`#### \`${impl.signature}\``);
+        lines.push("");
+        if (impl.associatedTypes && impl.associatedTypes.length > 0) {
+          for (const at of impl.associatedTypes) {
+            lines.push(`- \`${at.name}\` : \`${at.type}\``);
+          }
+          lines.push("");
+        }
+        const implMethods = impl.methodNames
+          .map((name) => methodsByName.get(name))
+          .filter((m): m is DocFunction => m !== undefined);
+        for (const name of impl.methodNames) {
+          claimedMethods.add(name);
+        }
+        for (const m of implMethods) {
+          lines.push(indent(renderFunction(m), 0));
+        }
+        const unresolvedNames = impl.methodNames.filter(
+          (name) => !methodsByName.has(name)
+        );
+        if (unresolvedNames.length > 0) {
+          lines.push(
+            `Methods: ${unresolvedNames.map((name) => `\`${name}\``).join(", ")}`
+          );
+          lines.push("");
+        }
+      }
+    }
+
+    const unclaimed = type.methods.filter((m) => !claimedMethods.has(m.name));
+    if (unclaimed.length > 0) {
+      lines.push("**Methods:**");
+      lines.push("");
+      for (const m of unclaimed) {
+        lines.push(indent(renderFunction(m), 0));
+      }
     }
   }
 

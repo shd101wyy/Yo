@@ -460,6 +460,9 @@ DocConfig :: struct(
   (include_deps : bool) ?= false,
   /// Custom site title (default: project name).
   (title : comptime_string) ?= "",
+  /// Release version to display (e.g., "v1.0.0").
+  /// When empty, auto-detects from git tag or commit hash.
+  (version : comptime_string) ?= "",
   /// Path to logo image.
   (logo : comptime_string) ?= "",
   /// Path to favicon.
@@ -483,7 +486,8 @@ export DocConfig;
 ///   root: "./src",
 ///   output: "docs/api",
 ///   format: DocFormat.Markdown,
-///   title: "My Library API"
+///   title: "My Library API",
+///   version: "v1.0.0"
 /// });
 ///
 /// install :: build.step("install", "Build all artifacts");
@@ -498,7 +502,8 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
   __yo_build_doc(
     config.name, config.root, config.output, fmt_str,
     config.include_private, config.include_deps,
-    config.title, config.logo, config.favicon
+    config.title, config.logo, config.favicon,
+    config.version
   );
   Step(name: config.name, kind: StepKind.Documentation)
 };

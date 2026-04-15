@@ -9,6 +9,7 @@ export type DocItemKind =
   | "function"
   | "struct"
   | "object"
+  | "atomic object"
   | "enum"
   | "newtype"
   | "union"
@@ -50,6 +51,19 @@ export interface DocAssociatedType {
   constraint?: string;
 }
 
+export interface DocImplAssocType {
+  name: string;
+  type: string;
+  doc?: string;
+}
+
+export interface DocImpl {
+  signature: string;
+  traitName?: string;
+  methodNames: string[];
+  associatedTypes?: DocImplAssocType[];
+}
+
 // ── Function documentation ───────────────────────────────────────────
 
 export interface DocFunction {
@@ -85,6 +99,7 @@ export interface DocType {
   variants?: DocVariant[];
   methods: DocFunction[];
   traitImpls: string[];
+  impls?: DocImpl[];
   /** From ## Deprecated section */
   deprecated?: string;
   /** From ## Examples section (raw markdown) */
@@ -144,4 +159,6 @@ export interface DocModel {
   name: string;
   /** All documented modules */
   modules: DocModule[];
+  /** Release version (e.g., "v0.1.12") */
+  version?: string;
 }

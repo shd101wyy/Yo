@@ -1162,6 +1162,7 @@ yo doc --format json        # 机器可读的 JSON
 yo doc -o docs/api          # 自定义输出目录
 yo doc --name "My Library"  # 覆盖项目名称
 yo doc --document-private   # 包含非导出项
+yo doc --version v1.0.0     # 设置版本号（未指定时自动从 git 检测）
 ```
 
 ### 构建系统集成
@@ -1177,7 +1178,8 @@ docs :: build.doc({
   root: "./src",
   output: "yo-out/doc",
   format: build.DocFormat.Html,
-  title: "My Project API"
+  title: "My Project API",
+  version: "v1.0.0"
 });
 
 // 接入构建 DAG

@@ -42,6 +42,7 @@ function buildDocFromSource(source: string, moduleName?: string): DocModule {
   const modulePath = `file://${filePath}`;
   const { moduleValue, moduleError } =
     sharedModuleManager.loadModule(modulePath);
+  const evaluator = sharedModuleManager.modules.get(modulePath)?.evaluator;
 
   if (moduleError) {
     throw moduleError;
@@ -61,6 +62,7 @@ function buildDocFromSource(source: string, moduleName?: string): DocModule {
     moduleValue,
     extraction,
     tokens,
+    env: evaluator?.getEnv(),
   });
 }
 
@@ -188,6 +190,20 @@ export Container;
     expect(type.fields).toHaveLength(1);
   });
 
+  test("documents an atomic object", () => {
+    const doc = buildDocFromSource(`
+/// A thread-safe ref-counted container.
+Container :: atomic object(data : i32);
+export Container;
+`);
+
+    expect(doc.types).toHaveLength(1);
+    const type = doc.types[0]!;
+    expect(type.name).toBe("Container");
+    expect(type.kind).toBe("atomic object");
+    expect(type.fields).toHaveLength(1);
+  });
+
   test("documents a trait", () => {
     const doc = buildDocFromSource(`
 /// Adds a name method.
@@ -276,6 +292,100 @@ export Point;
     expect(doc.functions[1]!.name).toBe("sub");
     expect(doc.types).toHaveLength(1);
     expect(doc.types[0]!.name).toBe("Point");
+  });
+
+  test("includes methods from generic impl blocks", () => {
+    const doc = buildDocFromSource(`
+ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(len : usize)
+);
+
+impl(forall(T : Type), ArrayList(T),
+  /// Return the number of elements.
+  length : (fn(self : Self) -> usize)(self.len),
+  /// Check whether the list is empty.
+  is_empty : (fn(self : Self) -> bool)(((self.len == usize(0))))
+);
+
+export ArrayList;
+`);
+
+    expect(doc.types).toHaveLength(1);
+    const type = doc.types[0]!;
+    expect(type.methods.map((method) => method.name)).toEqual([
+      "length",
+      "is_empty",
+    ]);
+    expect(type.impls?.[0]?.signature).toContain(
+      "impl(forall(T : Type), ArrayList(T), ...)"
+    );
+  });
+
+  test("captures where constraints in impl signatures", () => {
+    const doc = buildDocFromSource(`
+List :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(len : usize)
+);
+
+impl(forall(T : Type), where(T <: Send), List(T),
+  size : (fn(self : Self) -> usize)(self.len)
+);
+
+export List;
+`);
+
+    expect(doc.types).toHaveLength(1);
+    const type = doc.types[0]!;
+    expect(type.methods.map((method) => method.name)).toContain("size");
+    expect(type.impls?.[0]?.signature).toContain("forall(T : Type)");
+    expect(type.impls?.[0]?.signature).toContain("where(T <: Send)");
+  });
+
+  test("keeps trait impl signatures compact", () => {
+    const doc = buildDocFromSource(`
+Boxed :: object(value : i32);
+
+impl(Boxed, Dispose(
+  dispose : (fn(self : Self) -> unit)(())
+));
+
+export Boxed;
+`);
+
+    expect(doc.types).toHaveLength(1);
+    const type = doc.types[0]!;
+    expect(
+      type.impls?.some((impl) => impl.signature === "impl(Boxed, Dispose(...))")
+    ).toBe(true);
+    // Trait impl should extract method names from body
+    const disposeImpl = type.impls?.find(
+      (impl) => impl.traitName === "Dispose"
+    );
+    expect(disposeImpl?.methodNames).toContain("dispose");
+  });
+
+  test("separates associated types from methods in trait impl", () => {
+    const doc = buildDocFromSource(`
+MyVec :: struct(data : i32, len : i32);
+
+impl(MyVec, Index(usize)(
+  Output : i32,
+  index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(&(self.data))
+));
+
+export MyVec;
+`);
+
+    expect(doc.types).toHaveLength(1);
+    const type = doc.types[0]!;
+    const indexImpl = type.impls?.find((impl) => impl.traitName === "Index");
+    expect(indexImpl).toBeDefined();
+    // Output should be an associated type, not a method
+    expect(indexImpl?.methodNames).toContain("index");
+    expect(indexImpl?.methodNames).not.toContain("Output");
+    expect(indexImpl?.associatedTypes).toHaveLength(1);
+    expect(indexImpl?.associatedTypes?.[0]?.name).toBe("Output");
+    expect(indexImpl?.associatedTypes?.[0]?.type).toBe("i32");
   });
 
   test("documents block doc comments", () => {

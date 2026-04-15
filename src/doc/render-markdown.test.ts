@@ -170,6 +170,20 @@ describe("renderTypeMd", () => {
     expect(md).toContain("`x` : `i32`");
   });
 
+  it("renders atomic object type kind", () => {
+    const md = renderTypeMd(
+      makeType({
+        name: "Cond",
+        kind: "atomic object",
+        signature: "Cond :: atomic object(_raw : usize)",
+        fields: [{ name: "_raw", type: "usize" }],
+      })
+    );
+
+    expect(md).toContain("*atomic object*");
+    expect(md).toContain("Cond :: atomic object(_raw : usize)");
+  });
+
   it("renders an enum with variants", () => {
     const md = renderTypeMd(
       makeType({
@@ -194,6 +208,27 @@ describe("renderTypeMd", () => {
   it("renders trait impls", () => {
     const md = renderTypeMd(makeType({ traitImpls: ["Display", "Clone"] }));
     expect(md).toContain("**Implements:** `Display`, `Clone`");
+  });
+
+  it("renders impl blocks with methods", () => {
+    const md = renderTypeMd(
+      makeType({
+        impls: [
+          {
+            signature: "impl(forall(T : Type), where(T <: Send), List(T))",
+            methodNames: ["size", "is_empty"],
+          },
+        ],
+        methods: [
+          makeFunction({ name: "size", isMethod: true, selfType: "List" }),
+          makeFunction({ name: "is_empty", isMethod: true, selfType: "List" }),
+        ],
+      })
+    );
+
+    expect(md).toContain("`impl(forall(T : Type), where(T <: Send), List(T))`");
+    expect(md).toContain("List.size");
+    expect(md).toContain("List.is_empty");
   });
 
   it("renders type parameters", () => {

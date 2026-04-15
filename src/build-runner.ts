@@ -1989,5 +1989,6 @@ async function runDocGeneration(
     verbose: ctx.verbose ?? false,
     title: docConfig.title || undefined,
     format,
+    version: docConfig.version || undefined,
   });
 }
