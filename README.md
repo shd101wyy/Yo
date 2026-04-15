@@ -378,7 +378,15 @@ This repository ships a set of **agent skill files** that teach AI agents how to
 
 ### Using in your own project
 
-Copy the skills directory into your Yo project:
+The easiest way is with the `yo` CLI:
+
+```bash
+yo skills install
+```
+
+This copies all skill files into every agent config directory found in the current project (`.github`, `.agents`, `.claude`, `.opencode`, `.openai`, `.cursor`). If none exist, `.agents/skills/` is created automatically.
+
+You can also copy them manually:
 
 ```bash
 cp -r .github/skills /path/to/your-yo-project/.github/

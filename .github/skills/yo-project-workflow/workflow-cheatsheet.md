@@ -20,6 +20,7 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
 | Generate docs for project | `yo doc ./src`                                            |
 | Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
+| Install AI agent skills   | `yo skills install`                                       |
 | Install dependency        | `yo install user/repo`                                    |
 | Install pinned dependency | `yo install user/repo@v1.2.3`                             |
 | Fetch dependency graph    | `yo fetch`                                                |
@@ -230,6 +231,14 @@ yo version clean 0.1.12         # Remove specific cached version
 - When `.yo-version` exists with a different version, `yo` auto-dispatches to the cached version
 - The LSP also reads `.yo-version` to resolve the correct `std/` library for go-to-definition
 - Commit `.yo-version` to version control for reproducible builds across the team
+
+## Skills for AI agents
+
+```bash
+yo skills install       # Copy bundled skill files into the current project
+```
+
+`yo skills install` detects which agent config directories exist in the current project (`.github`, `.agents`, `.claude`, `.opencode`, `.openai`, `.cursor`) and copies all Yo skill files into each. Falls back to creating `.agents/skills/` if none exist.
 
 ## Dependency management
 
