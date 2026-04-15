@@ -26,8 +26,8 @@ const ROOT = path.resolve(import.meta.dir, "..");
 const GITHUB_REPO = "https://github.com/shd101wyy/Yo";
 
 // Detect the exact tag on HEAD for stable GitHub blob links.
-// Falls back to "main" if HEAD has no exact tag or git fails.
-export function getExactTagOrMain(rootDir: string = ROOT): string {
+// Falls back to "develop" if HEAD has no exact tag or git fails.
+export function getExactTagOrDevelop(rootDir: string = ROOT): string {
   try {
     const result = execFileSync(
       "git",
@@ -39,9 +39,9 @@ export function getExactTagOrMain(rootDir: string = ROOT): string {
         timeout: 5000,
       }
     ).trim();
-    return result || "main";
+    return result || "develop";
   } catch {
-    return "main";
+    return "develop";
   }
 }
 
@@ -76,11 +76,11 @@ if (!siteVersion) {
 }
 
 // Use the explicit version (e.g., "v0.1.17" from --version flag) for blob links
-// when it looks like a tag; otherwise use the exact tag on HEAD; otherwise "main".
+// when it looks like a tag; otherwise use the exact tag on HEAD; otherwise "develop".
 const GITHUB_REF =
   siteVersion && /^v\d/.test(siteVersion)
     ? siteVersion
-    : getExactTagOrMain(ROOT);
+    : getExactTagOrDevelop(ROOT);
 const GITHUB_BLOB = `${GITHUB_REPO}/blob/${GITHUB_REF}`;
 
 function detectGitVersion(cwd: string): string | undefined {
