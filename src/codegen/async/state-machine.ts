@@ -612,6 +612,9 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(
     `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
+  emitter.emitLine(
+    `  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`
+  );
   emitter.emitLine(`  switch (sm->state) {`);
 
   // Generate code for each state segment
@@ -2066,10 +2069,14 @@ export function generateAsyncBlockResumeFunction(
           `      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`
         );
         emitter.emitLine(
-          `        // Already complete or aborted — yield once for fairness`
+          `        // Already complete — bounded inline fast-path to avoid scheduler round-trip`
         );
+        emitter.emitLine(`        if (__yo_inline_budget > 0) {`);
+        emitter.emitLine(`          __yo_inline_budget--;`);
+        emitter.emitLine(`          goto state_${nextState};`);
+        emitter.emitLine(`        }`);
         emitter.emitLine(
-          `        // Yield once to event loop for fairness (microtask yield)`
+          `        // Budget exhausted — yield once for fairness (microtask yield)`
         );
         emitter.emitLine(
           `        __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
