@@ -16,7 +16,7 @@ import {
   exprIsFunctionCallOf,
 } from "./expr";
 import { isFunctionType } from "./types/guards";
-import { isTypeValue } from "./value";
+import { isFunctionValue, isTypeValue } from "./value";
 
 /**
  * Returns true if this expression is a `->` or `=>` that defines a new function boundary
@@ -38,6 +38,12 @@ function isFunctionBoundaryArrow(expr: Expr): boolean {
 
   // Case 1: Evaluated anonymous function definition
   if (expr.$?.isAnonymousFunctionDefinition === true) return true;
+
+  // Case 1b: Arrow that evaluated to a FunctionValue via a non-anonymous-fn
+  // evaluation path (e.g., module field value evaluation in function.ts).
+  // These arrows are function implementations even though
+  // isAnonymousFunctionDefinition was not set.
+  if (expr.$?.value !== undefined && isFunctionValue(expr.$.value)) return true;
 
   // Case 2: Function type arrow — fn(...) -> T or Fn(...) -> T
   if (
