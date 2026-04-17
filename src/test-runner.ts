@@ -480,6 +480,7 @@ function compileBatchedBinary(
       : [
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
+          "-fno-strict-aliasing",
           ...(isEmcc
             ? ["-w"]
             : [

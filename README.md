@@ -277,6 +277,7 @@ export main;
 | [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                            | Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing & routing                                                                                    |
 | [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)                                                      | Direct port of the popular JavaScript markdown parser [markdown-it](https://github.com/markdown-it/markdown-it) to Yo, showcasing string processing and performance                 |
 | [markdown_yo](https://github.com/shd101wyy/markdown_yo) \| [Online Demo](https://shd101wyy.github.io/markdown_yo/) | High-performance markdown-to-HTML converter — 5-7× faster than markdown-it (native), 2-6× faster (WASM at ≥1 MB). [Try it in the browser](https://shd101wyy.github.io/markdown_yo/) |
+| [yo_http_benchmark](https://github.com/shd101wyy/yo_http_benchmark)                                                | HTTP throughput benchmark — Yo vs Bun vs Deno vs Node.js vs Go, using [wrk](https://github.com/wg/wrk) load testing                                                                 |
 
 ## Contributing
 

@@ -251,6 +251,7 @@ export class CodeGenerator {
             : [
                 ...(compiler === "zig" ? ["cc"] : []),
                 "-std=c11",
+                "-fno-strict-aliasing",
                 "-c",
                 ...(needsPositionIndependentCode ? ["-fPIC"] : []),
                 "-w",
@@ -374,6 +375,7 @@ export class CodeGenerator {
           : [
               ...(options.cCompiler === "zig" ? ["cc"] : []),
               "-std=c11",
+              "-fno-strict-aliasing",
               ...optimizationFlags,
               tempCFile,
               "-o",

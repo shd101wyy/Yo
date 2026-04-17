@@ -276,6 +276,7 @@ export main;
 | [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)                                         | 简单的 HTTP/1.1 服务器 —— 异步 I/O、代数效应、TCP 网络、请求解析与路由                                                                              |
 | [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)                                                   | 将流行的 JavaScript markdown 解析器 [markdown-it](https://github.com/markdown-it/markdown-it) 直接移植到 Yo，展示了字符串处理能力和性能             |
 | [markdown_yo](https://github.com/shd101wyy/markdown_yo) \| [在线演示](https://shd101wyy.github.io/markdown_yo/) | 高性能 markdown 转 HTML 转换器 —— 原生比 markdown-it 快 5-7 倍，WASM 快 2-6 倍（≥1 MB）。[在浏览器中试用](https://shd101wyy.github.io/markdown_yo/) |
+| [yo_http_benchmark](https://github.com/shd101wyy/yo_http_benchmark)                                             | HTTP 吞吐量基准测试 —— Yo 对比 Bun、Deno、Node.js、Go，使用 [wrk](https://github.com/wg/wrk) 负载测试                                               |
 
 ## 贡献
 
