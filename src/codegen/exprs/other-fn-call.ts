@@ -187,9 +187,9 @@ export function generateOtherFunctionCall(
       : undefined);
 
   if (isFunctionType(functionType)) {
-    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder ?? [];
+    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
-    {
+    if (runtimeArgExprs) {
       // Check if this is a method call on a dyn object
       let isDynMethodCall = false;
       if (

@@ -349,16 +349,9 @@ export function findFunctionCallsInExpr(
   }
 
   if (exprIsFunctionCall(expr)) {
+    const functionType = expr.func.$?.type;
     const functionValue = expr.func.$?.value;
-    // Fall back to functionValue's type if the func expression has no type attached.
-    // This happens for calls whose func reference is not re-evaluated in every context
-    // (e.g., calling a top-level fn that has only `using(...)` effect params from
-    // inside a closure body).
-    const functionType =
-      expr.func.$?.type ??
-      (isFunctionValue(functionValue)
-        ? (functionValue.specializedType ?? functionValue.type)
-        : undefined);
+
     if (expr.func.token.value === "?=") {
       // Skip the default value assignment in a module/function parameter?
       return;
