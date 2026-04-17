@@ -233,6 +233,13 @@ ${
   
 ${hasIO ? `  __yo_io_cleanup();` : ``}
   
+  // Free the continuation node free-list so worker threads don't leak.
+  while (__yo_cont_free_list) {
+    __yo_continuation_t* node = __yo_cont_free_list;
+    __yo_cont_free_list = node->next;
+    __yo_free(node);
+  }
+  
   ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", future->state);
   
   if (future->state == -2) {
@@ -286,6 +293,13 @@ ${
       break;
     }`
 }
+  }
+  
+  // Free the continuation node free-list so worker threads don't leak.
+  while (__yo_cont_free_list) {
+    __yo_continuation_t* node = __yo_cont_free_list;
+    __yo_cont_free_list = node->next;
+    __yo_free(node);
   }
   
   ASYNC_DEBUG("[ASYNC] All tasks completed\\n");
