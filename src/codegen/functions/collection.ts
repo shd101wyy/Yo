@@ -349,9 +349,16 @@ export function findFunctionCallsInExpr(
   }
 
   if (exprIsFunctionCall(expr)) {
-    const functionType = expr.func.$?.type;
     const functionValue = expr.func.$?.value;
-
+    // Fall back to functionValue's type if the func expression has no type attached.
+    // This happens for calls whose func reference is not re-evaluated in every context
+    // (e.g., calling a top-level fn that has only `using(...)` effect params from
+    // inside a closure body).
+    const functionType =
+      expr.func.$?.type ??
+      (isFunctionValue(functionValue)
+        ? (functionValue.specializedType ?? functionValue.type)
+        : undefined);
     if (expr.func.token.value === "?=") {
       // Skip the default value assignment in a module/function parameter?
       return;
@@ -359,9 +366,20 @@ export function findFunctionCallsInExpr(
 
     if (isFunctionType(functionType)) {
       // If the callee is a ctl function, the handler will be inlined by
-      // the effect state machine. Don't collect it as a standalone function,
-      // but still recurse into its body to collect sub-function calls (e.g., println).
       if (isFunctionValue(functionValue) && functionValue.isControlFunction) {
+        // Normally a ctl function is inlined at its call site by the SM.
+        // But when the call is NOT a handler installation (e.g., a user fn
+        // that happens to contain `escape` in a nested handler, being called
+        // via direct call or via evidence passing), it must exist as a
+        // standalone C function. Mark it as a module effect member so
+        // generateEscape sets __yo_effect_escaped, and register it.
+        functionValue.isModuleEffectMember = true;
+        if (!context.functions[functionValue.funcId]) {
+          context.functions[functionValue.funcId] = {
+            value: functionValue,
+            cName: sanitizeForCIdentifier(functionValue.funcId),
+          };
+        }
         findFunctionCallsInExpr(functionValue.body, context);
         // Still recurse into args
         for (const arg of expr.args) {
