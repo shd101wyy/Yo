@@ -814,25 +814,41 @@ static void __yo_io_process_event(struct kevent* ev) {
 static void __yo_kq_flush_changes(void) {
   if (__yo_kq_n_changes == 0) return;
   struct kevent err_events[__YO_KQ_CHANGES_MAX];
-  int n = kevent(__yo_io_kq, __yo_kq_changes, (int)__yo_kq_n_changes,
-                 err_events, __YO_KQ_CHANGES_MAX, NULL);
-  __yo_kq_n_changes = 0;
-  if (n > 0) {
-    for (int i = 0; i < n; i++) {
-      // Only EV_ERROR entries are surfaced here (when timeout is NULL and
-      // we passed a changelist). Other ready events come back in this call,
-      // so process them too.
-      if (err_events[i].flags & EV_ERROR) {
-        __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)err_events[i].udata;
-        if (pending) {
-          pending->future->result = -(int32_t)err_events[i].data;
-          __yo_pending_io_count--;
-          __yo_io_wake_continuation(pending->future);
-          __yo_kq_free_pending(pending);
-        }
-      } else {
-        __yo_io_process_event(&err_events[i]);
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges,
+               err_events, __YO_KQ_CHANGES_MAX, NULL);
+  } while (n < 0 && errno == EINTR);
+  // On a true syscall failure (e.g., EBADF), the changelist was not processed.
+  // Surface each queued op as an error so counters/free list stay balanced.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
+      if (pending) {
+        pending->future->result = -err;
+        __yo_pending_io_count--;
+        __yo_io_wake_continuation(pending->future);
+        __yo_kq_free_pending(pending);
       }
+    }
+    __yo_kq_n_changes = 0;
+    return;
+  }
+  __yo_kq_n_changes = 0;
+  for (int i = 0; i < n; i++) {
+    // EV_ERROR entries report per-change registration failures.
+    if (err_events[i].flags & EV_ERROR) {
+      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)err_events[i].udata;
+      if (pending) {
+        pending->future->result = -(int32_t)err_events[i].data;
+        __yo_pending_io_count--;
+        __yo_io_wake_continuation(pending->future);
+        __yo_kq_free_pending(pending);
+      }
+    } else {
+      __yo_io_process_event(&err_events[i]);
     }
   }
 }
@@ -844,8 +860,28 @@ static int __yo_io_poll(void) {
 
   // Submit any pending changes atomically with the reap syscall.
   int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &ts);
+  } while (n < 0 && errno == EINTR);
+  // Only clear the changelist if kevent accepted it (n >= 0). On hard
+  // failure, surface each queued op so we do not leak pending_ops or
+  // desync __yo_pending_io_count.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
+      if (pending) {
+        pending->future->result = -err;
+        __yo_pending_io_count--;
+        __yo_io_wake_continuation(pending->future);
+        __yo_kq_free_pending(pending);
+      }
+    }
+    __yo_kq_n_changes = 0;
+    return __yo_poll_and_fs_event_tick();
+  }
   __yo_kq_n_changes = 0;
-  int n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &ts);
 
   int processed = 0;
   for (int i = 0; i < n; i++) {
@@ -883,7 +919,7 @@ static int __yo_io_wait(void) {
   }
   if (__yo_pending_io_count == 0) {
     // Defensive: if we have deferred changes but nothing pending, flush
-    // them so they don't sit indefinitely (rare — registration bumps
+    // them so they do not sit indefinitely (rare -- registration bumps
     // __yo_pending_io_count, so this should normally be a no-op).
     if (__yo_kq_n_changes > 0) __yo_kq_flush_changes();
     return 0;
@@ -895,8 +931,25 @@ static int __yo_io_wait(void) {
   // Submit any pending changes atomically with the blocking wait. This
   // turns N registration syscalls + 1 wait syscall into a single syscall.
   int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &timeout);
+  } while (n < 0 && errno == EINTR);
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
+      if (pending) {
+        pending->future->result = -err;
+        __yo_pending_io_count--;
+        __yo_io_wake_continuation(pending->future);
+        __yo_kq_free_pending(pending);
+      }
+    }
+    __yo_kq_n_changes = 0;
+    return 0;
+  }
   __yo_kq_n_changes = 0;
-  int n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &timeout);
 
   int processed = 0;
   for (int i = 0; i < n; i++) {

@@ -618,10 +618,21 @@ static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
 }
 
 // Flush any queued SQEs to the kernel if non-empty. Returns the liburing result.
+// On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
+// is left unchanged -- the next submit attempt (via poll/wait) will retry them.
 static inline int __yo_io_flush_sq(void) {
   if (__yo_sq_unsubmitted == 0) return 0;
-  int ret = io_uring_submit(&__yo_io_ring);
-  __yo_sq_unsubmitted = 0;
+  int ret;
+  do {
+    ret = io_uring_submit(&__yo_io_ring);
+  } while (ret == -EINTR);
+  if (ret > 0) {
+    if ((size_t)ret >= __yo_sq_unsubmitted) {
+      __yo_sq_unsubmitted = 0;
+    } else {
+      __yo_sq_unsubmitted -= (size_t)ret;
+    }
+  }
   return ret;
 }
 
@@ -695,15 +706,24 @@ static int __yo_io_wait(void) {
   }
 
   struct io_uring_cqe* cqe;
-  // Combined submit + wait in a single syscall — this is the main batching win:
+  // Combined submit + wait in a single syscall -- this is the main batching win:
   // all deferred SQEs are submitted alongside the blocking wait for a CQE.
   int ret;
   if (__yo_sq_unsubmitted > 0) {
-    ret = io_uring_submit_and_wait(&__yo_io_ring, 1);
-    __yo_sq_unsubmitted = 0;
+    do {
+      ret = io_uring_submit_and_wait(&__yo_io_ring, 1);
+    } while (ret == -EINTR);
     if (ret < 0) {
+      // SQEs remain in the SQ ring; do not drop __yo_sq_unsubmitted so the
+      // next poll/wait retries them.
       ASYNC_DEBUG("[IO] WARNING: io_uring_submit_and_wait failed: %d\\n", ret);
       return 0;
+    }
+    // ret >= 0: that many SQEs were submitted.
+    if ((size_t)ret >= __yo_sq_unsubmitted) {
+      __yo_sq_unsubmitted = 0;
+    } else {
+      __yo_sq_unsubmitted -= (size_t)ret;
     }
     // After submit_and_wait, at least one CQE should be available; peek it.
     if (io_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
