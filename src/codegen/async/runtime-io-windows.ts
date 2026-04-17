@@ -2078,6 +2078,11 @@ static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
   return (DWORD)delta;
 }
 
+// Forward declarations -- these are defined after the IOCP poll/wait
+// functions but called by __yo_win_process_completion which comes first.
+static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset);
+static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov);
+
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
 
