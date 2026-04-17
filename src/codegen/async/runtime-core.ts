@@ -55,8 +55,12 @@ typedef struct {
 // Thread-local async runtime state
 ${
   isTargetWindows(targetInfo)
-    ? `static __declspec(thread) __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};`
-    : `static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};`
+    ? `static __declspec(thread) __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
+// Free-list of reusable continuation nodes to avoid per-completion malloc/free.
+static __declspec(thread) __yo_continuation_t* __yo_cont_free_list = NULL;`
+    : `static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
+// Free-list of reusable continuation nodes to avoid per-completion malloc/free.
+static __thread __yo_continuation_t* __yo_cont_free_list = NULL;`
 }
 
 // Async scheduler initialized flag (per-thread — each thread has its own event loop)
@@ -93,12 +97,18 @@ static void __yo_async_scheduler_init(void) {
 // Use __yo_async_spawn_task for spawning tasks with proper lifetime management.
 static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Enqueueing continuation: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
-  
-  __yo_continuation_t* cont = (__yo_continuation_t*)__yo_malloc(sizeof(__yo_continuation_t));
+
+  __yo_continuation_t* cont;
+  if (__yo_cont_free_list) {
+    cont = __yo_cont_free_list;
+    __yo_cont_free_list = cont->next;
+  } else {
+    cont = (__yo_continuation_t*)__yo_malloc(sizeof(__yo_continuation_t));
+  }
   cont->resume_fn = resume_fn;
   cont->state_machine = state_machine;
   cont->next = NULL;
-  
+
   if (__yo_thread_async_queue.tail) {
     __yo_thread_async_queue.tail->next = cont;
     __yo_thread_async_queue.tail = cont;
@@ -106,7 +116,7 @@ static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* stat
     __yo_thread_async_queue.head = cont;
     __yo_thread_async_queue.tail = cont;
   }
-  
+
   __yo_thread_async_queue.count++;
   ASYNC_DEBUG("[ASYNC] Queue count: %zu\\n", __yo_thread_async_queue.count);
 }
@@ -132,7 +142,9 @@ static void __yo_async_run_ready_tasks(void) {
     }
     __yo_thread_async_queue.count--;
     cont->resume_fn(cont->state_machine);
-    __yo_free(cont);
+    // Return the node to the free-list instead of freeing it.
+    cont->next = __yo_cont_free_list;
+    __yo_cont_free_list = cont;
   }
 }
 
@@ -181,7 +193,9 @@ ${hasIO ? `  __yo_io_init();  // Initialize platform-specific async I/O` : ``}
                   (void*)cont->resume_fn, cont->state_machine, __yo_thread_async_queue.count);
       
       cont->resume_fn(cont->state_machine);
-      __yo_free(cont);
+      // Return the node to the free-list instead of freeing it.
+      cont->next = __yo_cont_free_list;
+      __yo_cont_free_list = cont;
       tasks_run++;
     }
     

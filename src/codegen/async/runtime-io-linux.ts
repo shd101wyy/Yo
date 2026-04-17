@@ -547,6 +547,9 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 static _Thread_local struct io_uring __yo_io_ring;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;
+// Number of SQEs queued in userspace but not yet submitted to the kernel.
+// Deferred submission lets us batch many SQEs into a single syscall.
+static _Thread_local unsigned __yo_sq_unsubmitted = 0;
 
 // I/O Future types - __yo_io_future_t is defined in types/generation.ts
 // It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
@@ -556,14 +559,37 @@ static _Thread_local size_t __yo_pending_io_count = 0;
 // Initialize io_uring (called once at event loop start)
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
-  
-  int ret = io_uring_queue_init(256, &__yo_io_ring, 0);
+
+  // Try modern kernel flags for lower overhead (requires Linux 6.0+):
+  //   IORING_SETUP_COOP_TASKRUN — avoids inter-processor interrupts on task wakeup
+  //     since we know our thread will reap completions.
+  //   IORING_SETUP_SINGLE_ISSUER — we only submit from the owner thread.
+  //   IORING_SETUP_DEFER_TASKRUN — completions run only when we call wait_cqe,
+  //     avoiding random overhead on timer interrupts.
+  struct io_uring_params params;
+  memset(&params, 0, sizeof(params));
+#ifdef IORING_SETUP_SINGLE_ISSUER
+  params.flags |= IORING_SETUP_SINGLE_ISSUER;
+#endif
+#ifdef IORING_SETUP_COOP_TASKRUN
+  params.flags |= IORING_SETUP_COOP_TASKRUN;
+#endif
+#ifdef IORING_SETUP_DEFER_TASKRUN
+  params.flags |= IORING_SETUP_DEFER_TASKRUN;
+#endif
+
+  int ret = io_uring_queue_init_params(1024, &__yo_io_ring, &params);
+  if (ret < 0) {
+    // Retry without any flags for older kernels
+    memset(&params, 0, sizeof(params));
+    ret = io_uring_queue_init_params(1024, &__yo_io_ring, &params);
+  }
   if (ret < 0) {
     fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
     exit(1);
   }
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] io_uring initialized with 256 entries\\n");
+  ASYNC_DEBUG("[IO] io_uring initialized with 1024 entries (flags=0x%x)\\n", params.flags);
 }
 
 // Cleanup io_uring
@@ -582,13 +608,21 @@ static inline bool __yo_has_pending_io(void) {
 // Forward declaration for poll/fs_event tick (defined in runtime-io-common)
 static int __yo_poll_and_fs_event_tick(void);
 
-// Submit an SQE to io_uring with an event-loop RC reference.
-// The reference is released in __yo_io_process_cqe after the CQE is consumed,
-// preventing use-after-free if the user drops the future before completion.
+// Queue an SQE for later submission to io_uring (deferred submit).
+// The actual io_uring_submit() syscall happens inside __yo_io_poll / __yo_io_wait,
+// so many SQEs produced within one "drain tasks" pass batch into one syscall.
 static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
   future->header.ref_count++;    // io_uring holds a reference until CQE
-  io_uring_submit(&__yo_io_ring);
   __yo_pending_io_count++;
+  __yo_sq_unsubmitted++;
+}
+
+// Flush any queued SQEs to the kernel if non-empty. Returns the liburing result.
+static inline int __yo_io_flush_sq(void) {
+  if (__yo_sq_unsubmitted == 0) return 0;
+  int ret = io_uring_submit(&__yo_io_ring);
+  __yo_sq_unsubmitted = 0;
+  return ret;
 }
 
 // Process completions from CQ
@@ -627,17 +661,24 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
 
 // Poll for I/O completions (non-blocking)
 static int __yo_io_poll(void) {
-  struct io_uring_cqe* cqe;
+  // Flush any queued SQEs so their completions can be reaped.
+  __yo_io_flush_sq();
+
+  struct io_uring_cqe* cqes[64];
   int count = 0;
-  
-  while (io_uring_peek_cqe(&__yo_io_ring, &cqe) == 0) {
-    __yo_io_process_cqe(cqe);
-    count++;
+
+  unsigned n;
+  while ((n = io_uring_peek_batch_cqe(&__yo_io_ring, cqes, 64)) > 0) {
+    for (unsigned i = 0; i < n; ++i) {
+      __yo_io_process_cqe(cqes[i]);
+      count++;
+    }
+    if (n < 64) break;
   }
-  
+
   // Also tick poll/fs_event handles
   count += __yo_poll_and_fs_event_tick();
-  
+
   if (count > 0) {
     ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
   }
@@ -652,14 +693,31 @@ static int __yo_io_wait(void) {
     nanosleep(&ts, NULL);
     return __yo_poll_and_fs_event_tick();
   }
-  
+
   struct io_uring_cqe* cqe;
-  int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
-  if (ret < 0) {
-    ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
-    return 0;
+  // Combined submit + wait in a single syscall — this is the main batching win:
+  // all deferred SQEs are submitted alongside the blocking wait for a CQE.
+  int ret;
+  if (__yo_sq_unsubmitted > 0) {
+    ret = io_uring_submit_and_wait(&__yo_io_ring, 1);
+    __yo_sq_unsubmitted = 0;
+    if (ret < 0) {
+      ASYNC_DEBUG("[IO] WARNING: io_uring_submit_and_wait failed: %d\\n", ret);
+      return 0;
+    }
+    // After submit_and_wait, at least one CQE should be available; peek it.
+    if (io_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
+      // Rare: spurious wake. Fall back to explicit wait.
+      if (io_uring_wait_cqe(&__yo_io_ring, &cqe) < 0) return 0;
+    }
+  } else {
+    ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
+    if (ret < 0) {
+      ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
+      return 0;
+    }
   }
-  
+
   ASYNC_DEBUG("[IO] Waiting for I/O completion...\\n");
   __yo_io_process_cqe(cqe);
   return 1 + __yo_io_poll();  // Process any additional completions
