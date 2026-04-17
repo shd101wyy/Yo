@@ -1949,6 +1949,12 @@ typedef struct {
   DWORD sock_flags;
 } __yo_win_overlapped_t;
 
+// Per-thread free list for __yo_win_overlapped_t to eliminate malloc/free
+// per I/O op. The first sizeof(void*) bytes of an overlapped struct overlay
+// the 'next' pointer when the struct is on the free list (it is fully
+// re-initialized on alloc, so trampling OVERLAPPED.Internal is fine).
+static __declspec(thread) __yo_win_overlapped_t* __yo_win_ov_free_list = NULL;
+
 
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
@@ -2075,7 +2081,19 @@ static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
 
-  if (ov->is_socket) {
+  // The byte count is already in OVERLAPPED_ENTRY.dwNumberOfBytesTransferred
+  // (passed in as the bytes argument) and the NTSTATUS is in
+  // ov->overlapped.Internal. Calling WSAGetOverlappedResult /
+  // GetOverlappedResult here would do redundant work -- those APIs
+  // essentially return what IOCP already gave us. Use the OVERLAPPED
+  // fields directly to save a per-completion syscall.
+  NTSTATUS status = (NTSTATUS)ov->overlapped.Internal;
+  if (status == 0) {
+    ov->future->result = (int32_t)bytes;
+  } else if (ov->is_socket) {
+    // RtlNtStatusToDosError lives in ntdll; rather than dynamically loading
+    // it, fall back to the same WSAGetOverlappedResult path on error so
+    // we get the proper WSA errno mapping.
     DWORD flags = 0;
     DWORD transferred = bytes;
     BOOL ok = WSAGetOverlappedResult(ov->sock, &ov->overlapped, &transferred, FALSE, &flags);
@@ -2100,7 +2118,7 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   }
 
   __yo_io_wake_continuation(ov->future);
-  __yo_free(ov);
+  __yo_win_free_overlapped(ov);
 }
 
 static int __yo_io_poll(void) {
@@ -2136,24 +2154,32 @@ static int __yo_io_wait(void) {
   }
   if (__yo_pending_io_count == 0) return 0;
 
-  DWORD bytes = 0;
-  ULONG_PTR key = 0;
-  OVERLAPPED* ov = NULL;
   DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
   if (__yo_active_watch_count > 0 && (timeout_ms == INFINITE || timeout_ms > 50)) {
     timeout_ms = 50;
   }
-  BOOL ok = GetQueuedCompletionStatus(__yo_io_iocp, &bytes, &key, &ov, timeout_ms);
-  if (!ok && GetLastError() == WAIT_TIMEOUT) {
-    return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
-  }
+
+  // Use the batched Ex variant so that when the wait wakes up due to one
+  // ready completion we drain ALL ready completions in a single syscall,
+  // rather than taking N trips through the event loop for N completions
+  // ready at the same time. This is the Windows analogue of Linux's
+  // io_uring_submit_and_wait + peek_batch_cqe pattern and matters a lot
+  // for HTTP-style workloads where many sockets become ready together.
+  OVERLAPPED_ENTRY entries[64];
+  ULONG count = 0;
+  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, timeout_ms, FALSE);
   if (!ok) {
     return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
-  if (!ov) return __yo_poll_and_fs_event_tick();
 
-  __yo_win_process_completion((__yo_win_overlapped_t*)ov, bytes);
-  return 1 + __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
+  int processed = 0;
+  for (ULONG i = 0; i < count; i++) {
+    if (!entries[i].lpOverlapped) continue;
+    __yo_win_process_completion((__yo_win_overlapped_t*)entries[i].lpOverlapped,
+                                entries[i].dwNumberOfBytesTransferred);
+    processed++;
+  }
+  return processed + __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
 }
 
 
@@ -2193,8 +2219,14 @@ static void __yo_win_fd_unmark_append(int fd) {
 static void __yo_win_cleanup_dir_state(int32_t fd);
 
 static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset) {
-  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
-  if (!ov) return NULL;
+  __yo_win_overlapped_t* ov;
+  if (__yo_win_ov_free_list) {
+    ov = __yo_win_ov_free_list;
+    __yo_win_ov_free_list = *(__yo_win_overlapped_t**)ov;
+  } else {
+    ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
+    if (!ov) return NULL;
+  }
   memset(ov, 0, sizeof(__yo_win_overlapped_t));
   ov->future = future;
   ov->handle = handle;
@@ -2203,6 +2235,18 @@ static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future
   ov->overlapped.Offset = (DWORD)(offset & 0xFFFFFFFF);
   ov->overlapped.OffsetHigh = (DWORD)((offset >> 32) & 0xFFFFFFFF);
   return ov;
+}
+
+// Return an overlapped struct to the per-thread free list. Used by the
+// IOCP completion path AND by the synchronous-completion paths in
+// recv/send (where FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means no IOCP
+// packet will arrive) and by error paths. The first sizeof(void*) bytes
+// of the struct are repurposed for the free-list pointer; alloc re-zeroes
+// the entire struct so this is safe.
+static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov) {
+  if (!ov) return;
+  *(__yo_win_overlapped_t**)ov = __yo_win_ov_free_list;
+  __yo_win_ov_free_list = ov;
 }
 
 static DWORD __yo_win_access_flags(int32_t flags) {
@@ -2267,13 +2311,13 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     DWORD bytes_transferred = 0;
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     atomic_store(&future->state, -1);
     return future;
   }
   DWORD err = GetLastError();
   if (err != ERROR_IO_PENDING) {
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     if (err == ERROR_HANDLE_EOF) {
       future->result = 0;
     } else {
@@ -2342,13 +2386,13 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     DWORD bytes_transferred = 0;
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     atomic_store(&future->state, -1);
     return future;
   }
   DWORD err = GetLastError();
   if (err != ERROR_IO_PENDING) {
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     future->result = -__yo_win_error_to_errno(err);
     atomic_store(&future->state, -1);
     return future;
@@ -3067,7 +3111,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
     // no IOCP packet will be posted, so complete the future immediately.
     future->result = (int32_t)sent;
     atomic_init(&future->state, -1);
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     return future;
   }
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
@@ -3078,7 +3122,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
 
   future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
-  __yo_free(ov);
+  __yo_win_free_overlapped(ov);
   return future;
 }
 
@@ -3116,7 +3160,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     // no IOCP packet will be posted, so complete the future immediately.
     future->result = (int32_t)received;
     atomic_init(&future->state, -1);
-    __yo_free(ov);
+    __yo_win_free_overlapped(ov);
     return future;
   }
   if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
@@ -3127,7 +3171,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
 
   future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
-  __yo_free(ov);
+  __yo_win_free_overlapped(ov);
   return future;
 }
 
