@@ -622,6 +622,17 @@ static _Thread_local int __yo_io_kq = -1;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;  // per-thread event loop counter
 
+// Batched kevent changelist. Instead of issuing one kevent() syscall per
+// I/O op to register EVFILT_READ/EVFILT_WRITE, we append changes to a
+// thread-local array and submit them in bulk as part of the kevent() call
+// in __yo_io_poll / __yo_io_wait. This is the kqueue analogue of deferred
+// io_uring submission on Linux and batched GetQueuedCompletionStatusEx on
+// Windows. Size = 64 matches the events[] buffer so EV_ERROR packets
+// always fit alongside the reaped events.
+#define __YO_KQ_CHANGES_MAX 64
+static _Thread_local struct kevent __yo_kq_changes[__YO_KQ_CHANGES_MAX];
+static _Thread_local size_t __yo_kq_n_changes = 0;
+
 // Pending operation types for kqueue completion dispatch
 typedef enum {
   __YO_IO_OP_READ,
@@ -650,6 +661,43 @@ typedef struct __yo_io_pending_op_t {
   };
 } __yo_io_pending_op_t;
 
+// Per-thread free list for __yo_io_pending_op_t to eliminate malloc/free
+// per async I/O op. The first sizeof(void*) bytes are overlaid with a
+// 'next' pointer when the struct sits on the free list; allocation sites
+// fully re-initialize all fields they care about (op, future, and the
+// active union arm), so trampling the front of the struct is safe.
+static _Thread_local __yo_io_pending_op_t* __yo_io_pending_free_list = NULL;
+
+static inline __yo_io_pending_op_t* __yo_kq_alloc_pending(void) {
+  if (__yo_io_pending_free_list) {
+    __yo_io_pending_op_t* p = __yo_io_pending_free_list;
+    __yo_io_pending_free_list = *(__yo_io_pending_op_t**)p;
+    return p;
+  }
+  return (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+}
+
+static inline void __yo_kq_free_pending(__yo_io_pending_op_t* p) {
+  if (!p) return;
+  *(__yo_io_pending_op_t**)p = __yo_io_pending_free_list;
+  __yo_io_pending_free_list = p;
+}
+
+// Forward declaration — defined after __yo_io_init
+static void __yo_io_wake_continuation(__yo_io_future_t* future);
+
+static inline void __yo_kq_cancel_pending(__yo_io_pending_op_t* pending, int err, bool wake) {
+  if (!pending) return;
+  pending->future->result = -err;
+  __yo_pending_io_count--;
+  if (wake) {
+    __yo_io_wake_continuation(pending->future);
+  } else {
+    atomic_store_explicit(&pending->future->state, -1, memory_order_release);
+  }
+  __yo_kq_free_pending(pending);
+}
+
 // Initialize kqueue subsystem
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
@@ -666,7 +714,13 @@ static void __yo_io_init(void) {
 // Cleanup kqueue
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
-  
+  // If async main returns while registrations are still only queued in the
+  // deferred changelist, cancel them explicitly instead of dropping them on
+  // close(kqueue).
+  for (size_t i = 0; i < __yo_kq_n_changes; i++) {
+    __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, ECANCELED, false);
+  }
+  __yo_kq_n_changes = 0;
   if (__yo_io_kq >= 0) {
     close(__yo_io_kq);
     __yo_io_kq = -1;
@@ -772,26 +826,86 @@ static void __yo_io_process_event(struct kevent* ev) {
   
   __yo_pending_io_count--;
   __yo_io_wake_continuation(future);
-  __yo_free(pending);
+  __yo_kq_free_pending(pending);
+}
+
+// Flush any queued kevent changes to the kernel synchronously. Called when
+// the deferred changelist is full, or just before tearing down. Normal
+// flow amortizes changes into the next kevent() reap call in poll/wait.
+static void __yo_kq_flush_changes(void) {
+  if (__yo_kq_n_changes == 0) return;
+  struct kevent err_events[__YO_KQ_CHANGES_MAX];
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges,
+               err_events, __YO_KQ_CHANGES_MAX, NULL);
+  } while (n < 0 && errno == EINTR);
+  // On a true syscall failure (e.g., EBADF), the changelist was not processed.
+  // Surface each queued op as an error so counters/free list stay balanced.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return;
+  }
+  __yo_kq_n_changes = 0;
+  for (int i = 0; i < n; i++) {
+    // EV_ERROR entries report per-change registration failures.
+    if (err_events[i].flags & EV_ERROR) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)err_events[i].udata, (int)err_events[i].data, true);
+    } else {
+      __yo_io_process_event(&err_events[i]);
+    }
+  }
 }
 
 // Process completions (non-blocking poll)
 static int __yo_io_poll(void) {
   struct kevent events[64];
   struct timespec ts = {0, 0};  // non-blocking
-  int n = kevent(__yo_io_kq, NULL, 0, events, 64, &ts);
-  
+
+  // Submit any pending changes atomically with the reap syscall.
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &ts);
+  } while (n < 0 && errno == EINTR);
+  // Only clear the changelist if kevent accepted it (n >= 0). On hard
+  // failure, surface each queued op so we do not leak pending_ops or
+  // desync __yo_pending_io_count.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return __yo_poll_and_fs_event_tick();
+  }
+  __yo_kq_n_changes = 0;
+
+  int processed = 0;
   for (int i = 0; i < n; i++) {
+    if (events[i].flags & EV_ERROR) {
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        processed++;
+      }
+      continue;
+    }
     __yo_io_process_event(&events[i]);
+    processed++;
   }
-  
-  if (n > 0) {
-    ASYNC_DEBUG("[IO] Polled %d kqueue completions\\n", n);
+
+  if (processed > 0) {
+    ASYNC_DEBUG("[IO] Polled %d kqueue completions\\n", processed);
   }
-  
+
   // Also tick poll/fs_event handles
   int extra = __yo_poll_and_fs_event_tick();
-  return (n > 0 ? n : 0) + extra;
+  return processed + extra;
 }
 
 // Wait for at least one I/O completion (blocking)
@@ -802,30 +916,61 @@ static int __yo_io_wait(void) {
     nanosleep(&ts, NULL);
     return __yo_poll_and_fs_event_tick();
   }
-  if (__yo_pending_io_count == 0) return 0;
-  
+  if (__yo_pending_io_count == 0) {
+    // Defensive: if we have deferred changes but nothing pending, flush
+    // them so they do not sit indefinitely (rare -- registration bumps
+    // __yo_pending_io_count, so this should normally be a no-op).
+    if (__yo_kq_n_changes > 0) __yo_kq_flush_changes();
+    return 0;
+  }
+
   struct kevent events[64];
   struct timespec timeout = {0, 100 * 1000 * 1000};  // 100ms timeout
-  int n = kevent(__yo_io_kq, NULL, 0, events, 64, &timeout);
-  
-  for (int i = 0; i < n; i++) {
-    __yo_io_process_event(&events[i]);
+
+  // Submit any pending changes atomically with the blocking wait. This
+  // turns N registration syscalls + 1 wait syscall into a single syscall.
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &timeout);
+  } while (n < 0 && errno == EINTR);
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return 0;
   }
-  
-  return (n > 0) ? n : 0;
+  __yo_kq_n_changes = 0;
+
+  int processed = 0;
+  for (int i = 0; i < n; i++) {
+    if (events[i].flags & EV_ERROR) {
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        processed++;
+      }
+      continue;
+    }
+    __yo_io_process_event(&events[i]);
+    processed++;
+  }
+
+  return processed;
 }
 
-// Helper to register a kevent and track the pending operation
+// Queue a kevent change onto the per-thread deferred changelist. The
+// actual kevent() syscall is amortized into the next poll/wait call —
+// see __yo_kq_flush_changes / __yo_io_poll / __yo_io_wait. If the
+// changelist is full we flush synchronously to make room.
 static void __yo_io_register_kevent(__yo_io_pending_op_t* pending, int fd, int16_t filter) {
-  struct kevent ev;
-  EV_SET(&ev, fd, filter, EV_ADD | EV_ONESHOT, 0, 0, (void*)pending);
-  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
-    // Registration failed — complete immediately with error
-    pending->future->result = -errno;
-    __yo_io_wake_continuation(pending->future);
-    __yo_free(pending);
-    return;
+  if (__yo_kq_n_changes >= __YO_KQ_CHANGES_MAX) {
+    __yo_kq_flush_changes();
   }
+  EV_SET(&__yo_kq_changes[__yo_kq_n_changes], fd, filter,
+         EV_ADD | EV_ONESHOT, 0, 0, (void*)pending);
+  __yo_kq_n_changes++;
   __yo_pending_io_count++;
 }
 
@@ -868,7 +1013,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   }
   
   // Would block — register kevent(EVFILT_READ) for readability notification
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_READ;
   pending->future = future;
   pending->read.fd = fd;
@@ -929,7 +1074,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   }
   
   // Would block — register kevent(EVFILT_WRITE) for writability notification
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_WRITE;
   pending->future = future;
   pending->write.fd = fd;
@@ -1325,7 +1470,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_ACCEPT;
   pending->future = future;
   pending->accept.fd = sockfd;
@@ -1369,7 +1514,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_CONNECT;
   pending->future = future;
   pending->connect.fd = sockfd;
@@ -1411,7 +1556,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_SEND;
   pending->future = future;
   pending->send.fd = sockfd;
@@ -1456,7 +1601,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_RECV;
   pending->future = future;
   pending->recv.fd = sockfd;
@@ -1502,7 +1647,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_SENDTO;
   pending->future = future;
   pending->sendto.fd = sockfd;
@@ -1550,7 +1695,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   atomic_init(&future->state, 0);
   future->result = 0;
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
   pending->op = __YO_IO_OP_RECVFROM;
   pending->future = future;
   pending->recvfrom.fd = sockfd;
