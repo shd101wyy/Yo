@@ -2,7 +2,9 @@
 
 ## Status
 
-Fixed in commit `53bece33` — "fix(codegen): register control functions called as regular functions".
+**Fully fixed** by commit `16a152f8` (root-cause fix in `src/expr-traversal.ts`). See `issues/iscontrolfunction-false-positive-with-escape-handler.md` for the root cause analysis.
+
+An earlier commit `53bece33` added a codegen workaround in `collection.ts`, but that has been reverted now that the root cause is fixed.
 
 ## Symptom
 
