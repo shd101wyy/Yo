@@ -683,6 +683,9 @@ static inline void __yo_kq_free_pending(__yo_io_pending_op_t* p) {
   __yo_io_pending_free_list = p;
 }
 
+// Forward declaration — defined after __yo_io_init
+static void __yo_io_wake_continuation(__yo_io_future_t* future);
+
 static inline void __yo_kq_cancel_pending(__yo_io_pending_op_t* pending, int err, bool wake) {
   if (!pending) return;
   pending->future->result = -err;
