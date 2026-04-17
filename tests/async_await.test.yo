@@ -2975,3 +2975,156 @@ test "SM opt: RC types excluded from overlapping storage", {
   r := io.await(task);
   assert((r == usize(10)), "RC types excluded from sharing, lengths should sum to 10");
 };
+
+// Regression: multiple io.await calls in a single while loop body
+// Previously, the second await generated `int32_t temp = ;` (empty expression)
+// because the state machine only handled the first await and passed remaining
+// expressions through generateExpr which can't handle io.await in SM context.
+test "Regression: multiple awaits in while loop body", {
+  task := io.async((using(io : IO)) => {
+    counter := i32(0);
+    while runtime((counter < i32(3))), {
+      // First await in while body
+      io.await(yield());
+      // Second await in while body
+      io.await(yield());
+      counter = (counter + i32(1));
+    };
+    return counter;
+  });
+  r := io.await(task);
+  assert((r == i32(3)), "multiple awaits in while should iterate 3 times");
+};
+
+test "Regression: two awaits in while loop with result values", {
+  task := io.async((using(io : IO)) => {
+    sum := i32(0);
+    i := i32(0);
+    while runtime((i < i32(4))), {
+      a := io.await(io.async((using(io : IO)) => {
+        return (i + i32(1));
+      }));
+      b := io.await(io.async((using(io : IO)) => {
+        return (a * i32(2));
+      }));
+      sum = (sum + b);
+      i = (i + i32(1));
+    };
+    return sum;
+  });
+  r := io.await(task);
+  assert((r == i32(20)), "two awaits in while with values should sum to 20");
+};
+
+test "Regression: three awaits in while loop body", {
+  task := io.async((using(io : IO)) => {
+    counter := i32(0);
+    while runtime((counter < i32(2))), {
+      io.await(yield());
+      io.await(yield());
+      io.await(yield());
+      counter = (counter + i32(1));
+    };
+    return counter;
+  });
+  r := io.await(task);
+  assert((r == i32(2)), "three awaits in while should iterate 2 times");
+};
+
+// ---------------------------------------------------------------------------
+// Regression: cond-with-await inside while loop body
+// Pattern: while { io.await(X); cond(flag => io.await(Y), true => ()) }
+// The cond branch containing await must properly set up the future and
+// skip the await when the non-await branch is taken.
+// ---------------------------------------------------------------------------
+test "Regression: cond with await in while loop body", {
+  task := io.async((using(io : IO)) => {
+    counter := i32(0);
+    done := false;
+    while runtime(!(done)), {
+      io.await(yield());
+      counter = (counter + i32(1));
+      cond(
+        (counter >= i32(3)) => {
+          done = true;
+        },
+        true => ()
+      );
+      cond(
+        !(done) => {
+          io.await(yield());
+        },
+        true => ()
+      );
+    };
+    return counter;
+  });
+  r := io.await(task);
+  assert((r == i32(3)), "cond-with-await in while should count to 3");
+};
+
+test "Regression: cond with await in while - both branches exercised", {
+  task := io.async((using(io : IO)) => {
+    sum := i32(0);
+    i := i32(0);
+    while runtime((i < i32(4))), {
+      val := io.await(io.async((using(io : IO)) => {
+        return (i + i32(1));
+      }));
+      cond(
+        ((val % i32(2)) == i32(0)) => {
+          extra := io.await(io.async((using(io : IO)) => {
+            return i32(10);
+          }));
+          sum = (sum + extra);
+        },
+        true => {
+          sum = (sum + val);
+        }
+      );
+      i = (i + i32(1));
+    };
+    return sum;
+  });
+  r := io.await(task);
+  // i=0: val=1 (odd) -> sum += 1 = 1
+  // i=1: val=2 (even) -> sum += 10 = 11
+  // i=2: val=3 (odd) -> sum += 3 = 14
+  // i=3: val=4 (even) -> sum += 10 = 24
+  assert((r == i32(24)), "cond branches with/without await should compute 24");
+};
+
+test "Regression: recv-then-cond-send pattern (HTTP server style)", {
+  task := io.async((using(io : IO)) => {
+    responses := i32(0);
+    done := false;
+    while runtime(!(done)), {
+      // Simulate recv
+      n := io.await(io.async((using(io : IO)) => {
+        return cond(
+          (responses < i32(3)) => i32(100),
+          true => i32(0)
+        );
+      }));
+      cond(
+        (n <= i32(0)) => {
+          done = true;
+        },
+        true => ()
+      );
+      cond(
+        !(done) => {
+          // Simulate send
+          io.await(io.async((using(io : IO)) => {
+            return i32(1);
+          }));
+          responses = (responses + i32(1));
+        },
+        true => ()
+      );
+    };
+    return responses;
+  });
+  r := io.await(task);
+  assert((r == i32(3)), "recv-then-cond-send should handle 3 responses");
+};

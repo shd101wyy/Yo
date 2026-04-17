@@ -124,6 +124,13 @@ export interface FunctionGenerationContext extends CodeGenContext {
       stepExpr?: Expr; // Optional step expression (3-arg while form)
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+      // For chained awaits in while loops: the original while loop's await point index.
+      // Used so loop-back gotos and active-flag checks reference the correct while loop.
+      whileLoopOriginIndex?: number;
+      // When true, this entry was created by chaining from a previous await in the same
+      // while loop body. The transition code should use whileLoopOriginIndex for the
+      // while_loop_N_active guard instead of segment.awaitPoint.index.
+      isChainedAwait?: boolean;
       // Expressions from an enclosing cond branch that come after this while loop.
       // These should only be executed after the while loop exits, not on every resume.
       condBranchPostWhileExprs?: {

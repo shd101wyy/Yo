@@ -612,6 +612,9 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(
     `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
+  emitter.emitLine(
+    `  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`
+  );
   emitter.emitLine(`  switch (sm->state) {`);
 
   // Generate code for each state segment
@@ -1192,12 +1195,21 @@ export function generateAsyncBlockResumeFunction(
           prevAwait.index
         );
         if (whileLoopData) {
+          // For chained awaits, use the original while loop's index for all
+          // while_loop_N references (active flag, labels, loop-back state).
+          const whileLoopActiveIndex =
+            whileLoopData.whileLoopOriginIndex ?? prevAwait.index;
+
           emitter.emitLine(
             `      // Execute remaining code from while loop body and continue loop`
           );
           emitter.emitLine(
-            `      if (sm->while_loop_${prevAwait.index}_active) {`
+            `      if (sm->while_loop_${whileLoopActiveIndex}_active) {`
           );
+
+          // Track whether the remaining expressions contain another await
+          // that chains to the next state. If so, skip the loop-back code.
+          let chainedToNextAwait = false;
 
           // If there are remaining expressions after the await, generate them
           if (
@@ -1244,18 +1256,61 @@ export function generateAsyncBlockResumeFunction(
             const previousSmWhileContinueInfo = context.smWhileContinueInfo;
             const previousSmWhileBodyDrops = context.smWhileBodyDrops;
             context.smWhileBreakInfo = {
-              label: `after_while_loop_${prevAwait.index}`,
-              activeIndex: prevAwait.index,
+              label: `after_while_loop_${whileLoopActiveIndex}`,
+              activeIndex: whileLoopActiveIndex,
             };
             context.smWhileContinueInfo = {
-              label: `while_loop_${prevAwait.index}_continue`,
+              label: `while_loop_${whileLoopActiveIndex}_continue`,
             };
             context.smWhileBodyDrops = [
               ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
             ];
 
-            // Generate the remaining expressions
-            for (const expr of whileLoopData.bodyExprsAfterAwait) {
+            // Generate the remaining expressions, detecting additional awaits
+            for (
+              let exprIdx = 0;
+              exprIdx < whileLoopData.bodyExprsAfterAwait.length;
+              exprIdx++
+            ) {
+              const expr = whileLoopData.bodyExprsAfterAwait[exprIdx]!;
+
+              if (exprContainsAwait(expr) && segment.awaitPoint) {
+                // This remaining expression contains another io.await.
+                // Chain to the next state: set up the future and register
+                // a new whileLoopInfo entry for the next resume state.
+                generateRemainingExprFuture(
+                  expr,
+                  segment.awaitPoint,
+                  analysis,
+                  "        ",
+                  context
+                );
+
+                // Collect remaining expressions after this await
+                const furtherRemaining =
+                  whileLoopData.bodyExprsAfterAwait.slice(exprIdx + 1);
+
+                // Register whileLoopInfo for the next state to find
+                functionContext.asyncWhileLoopInfo!.set(
+                  segment.awaitPoint.index,
+                  {
+                    conditionExpr: whileLoopData.conditionExpr,
+                    stepExpr: whileLoopData.stepExpr,
+                    bodyExpr: whileLoopData.bodyExpr,
+                    bodyExprsAfterAwait: furtherRemaining,
+                    whileLoopOriginIndex: whileLoopActiveIndex,
+                    isChainedAwait: true,
+                    condBranchPostWhileExprs:
+                      whileLoopData.condBranchPostWhileExprs,
+                    outerWhileLoop: whileLoopData.outerWhileLoop,
+                  }
+                );
+
+                chainedToNextAwait = true;
+                break;
+              }
+
+              // Normal expression — generate as code
               const code = generateExpr(expr, "        ", context);
               // Skip empty code, expressions without metadata, and temp variable references
               if (
@@ -1280,28 +1335,96 @@ export function generateAsyncBlockResumeFunction(
             context.pendingDeferredDrops = previousPendingDeferredDropsForLoop;
           }
 
-          // Label for continue to jump to (skip rest of body, re-evaluate condition)
-          emitter.emitLine(`      while_loop_${prevAwait.index}_continue:`);
+          if (chainedToNextAwait) {
+            // Chained to next state for additional await in while body.
+            // Close the while_loop_active block — the loop-back code (condition
+            // check, goto) and the after_while_loop label will be generated by
+            // the final chained state.
+            emitter.emitLine(`      }`);
+            emitter.emitLine(``);
+          } else {
+            // Normal (non-chained): generate continue label, condition check, loop-back
 
-          // Drop while loop body locals before condition re-evaluation
-          // Both normal fall-through and explicit 'continue' reach this label
-          {
-            const whileBodyDrops =
-              whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
-            if (whileBodyDrops.length > 0) {
-              const prevInSM = context.inAsyncStateMachine;
-              const prevSMVars = context.stateMachineVariables;
-              const prevVarRemap = context.variableIdRemapping;
+            // Label for continue to jump to (skip rest of body, re-evaluate condition)
+            emitter.emitLine(
+              `      while_loop_${whileLoopActiveIndex}_continue:`
+            );
+
+            // Drop while loop body locals before condition re-evaluation
+            // Both normal fall-through and explicit 'continue' reach this label
+            {
+              const whileBodyDrops =
+                whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
+              if (whileBodyDrops.length > 0) {
+                const prevInSM = context.inAsyncStateMachine;
+                const prevSMVars = context.stateMachineVariables;
+                const prevVarRemap = context.variableIdRemapping;
+                context.inAsyncStateMachine = { futureType };
+                context.variableIdRemapping = analysis.variableIdRemapping;
+
+                const dropCombinedVars = new Map<string, CapturedVariable>();
+                for (const v of analysis.capturedVariables) {
+                  dropCombinedVars.set(v.id, v);
+                }
+                if (captureType) {
+                  for (const field of captureType.fields) {
+                    dropCombinedVars.set(field.label, {
+                      id: field.label,
+                      name: field.label,
+                      type: field.type,
+                      kind: "outer",
+                      isOwningTheSameRcValueAs: undefined,
+                    });
+                  }
+                }
+                context.stateMachineVariables = dropCombinedVars;
+
+                for (const dropExpr of whileBodyDrops) {
+                  const dropCode = generateExpr(dropExpr, "        ", context);
+                  if (dropCode && dropCode.includes("sm->")) {
+                    emitter.emitLine(`        ${dropCode};`);
+                  }
+                }
+
+                context.inAsyncStateMachine = prevInSM;
+                context.stateMachineVariables = prevSMVars;
+                context.variableIdRemapping = prevVarRemap;
+              }
+            }
+
+            // Re-evaluate the loop condition
+            emitter.emitLine(
+              `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
+            );
+
+            // Clear declaredTempVars so re-generated condition/step expressions
+            // can re-declare their temp variables (they're in a new C scope).
+            const previousDeclaredTempVars = (
+              context as FunctionGenerationContext
+            ).declaredTempVars;
+            (context as FunctionGenerationContext).declaredTempVars = undefined;
+
+            // Generate step expression (3-arg while form) before condition re-evaluation
+            if (whileLoopData.stepExpr) {
+              const previousInStateMachineForStep = context.inAsyncStateMachine;
+              const previousStateMachineVariablesForStep =
+                context.stateMachineVariables;
+              const previousVariableIdRemappingForStep =
+                context.variableIdRemapping;
+
               context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
 
-              const dropCombinedVars = new Map<string, CapturedVariable>();
+              const combinedVariablesForStep = new Map<
+                string,
+                CapturedVariable
+              >();
               for (const v of analysis.capturedVariables) {
-                dropCombinedVars.set(v.id, v);
+                combinedVariablesForStep.set(v.id, v);
               }
               if (captureType) {
                 for (const field of captureType.fields) {
-                  dropCombinedVars.set(field.label, {
+                  combinedVariablesForStep.set(field.label, {
                     id: field.label,
                     name: field.label,
                     type: field.type,
@@ -1310,158 +1433,107 @@ export function generateAsyncBlockResumeFunction(
                   });
                 }
               }
-              context.stateMachineVariables = dropCombinedVars;
+              context.stateMachineVariables = combinedVariablesForStep;
 
-              for (const dropExpr of whileBodyDrops) {
-                const dropCode = generateExpr(dropExpr, "        ", context);
-                if (dropCode && dropCode.includes("sm->")) {
-                  emitter.emitLine(`        ${dropCode};`);
-                }
+              const stepCode = generateExpr(
+                whileLoopData.stepExpr,
+                "        ",
+                context
+              );
+              if (stepCode) {
+                emitter.emitLine(`        ${stepCode};`);
               }
 
-              context.inAsyncStateMachine = prevInSM;
-              context.stateMachineVariables = prevSMVars;
-              context.variableIdRemapping = prevVarRemap;
+              context.inAsyncStateMachine = previousInStateMachineForStep;
+              context.stateMachineVariables =
+                previousStateMachineVariablesForStep;
+              context.variableIdRemapping = previousVariableIdRemappingForStep;
             }
-          }
 
-          // Re-evaluate the loop condition
-          emitter.emitLine(
-            `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
-          );
-
-          // Clear declaredTempVars so re-generated condition/step expressions
-          // can re-declare their temp variables (they're in a new C scope).
-          const previousDeclaredTempVars = (
-            context as FunctionGenerationContext
-          ).declaredTempVars;
-          (context as FunctionGenerationContext).declaredTempVars = undefined;
-
-          // Generate step expression (3-arg while form) before condition re-evaluation
-          if (whileLoopData.stepExpr) {
-            const previousInStateMachineForStep = context.inAsyncStateMachine;
-            const previousStateMachineVariablesForStep =
+            // Set up state machine context for condition evaluation
+            const previousInStateMachineForCond = context.inAsyncStateMachine;
+            const previousStateMachineVariablesForCond =
               context.stateMachineVariables;
-            const previousVariableIdRemappingForStep =
+            const previousVariableIdRemappingForCond =
               context.variableIdRemapping;
 
             context.inAsyncStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
 
-            const combinedVariablesForStep = new Map<
+            // Combine outer captured variables and local variables
+            const combinedVariablesForCond = new Map<
               string,
               CapturedVariable
             >();
             for (const v of analysis.capturedVariables) {
-              combinedVariablesForStep.set(v.id, v);
+              combinedVariablesForCond.set(v.id, v);
             }
             if (captureType) {
               for (const field of captureType.fields) {
-                combinedVariablesForStep.set(field.label, {
+                combinedVariablesForCond.set(field.label, {
                   id: field.label,
                   name: field.label,
                   type: field.type,
                   kind: "outer",
-                  isOwningTheSameRcValueAs: undefined,
+                  isOwningTheSameRcValueAs: undefined, // FIXME
                 });
               }
             }
-            context.stateMachineVariables = combinedVariablesForStep;
+            context.stateMachineVariables = combinedVariablesForCond;
 
-            const stepCode = generateExpr(
-              whileLoopData.stepExpr,
+            // Generate condition check
+            const condCode = generateExpr(
+              whileLoopData.conditionExpr,
               "        ",
               context
             );
-            if (stepCode) {
-              emitter.emitLine(`        ${stepCode};`);
-            }
 
-            context.inAsyncStateMachine = previousInStateMachineForStep;
+            // Restore context
+            context.inAsyncStateMachine = previousInStateMachineForCond;
             context.stateMachineVariables =
-              previousStateMachineVariablesForStep;
-            context.variableIdRemapping = previousVariableIdRemappingForStep;
+              previousStateMachineVariablesForCond;
+            context.variableIdRemapping = previousVariableIdRemappingForCond;
+
+            // Restore declaredTempVars
+            (context as FunctionGenerationContext).declaredTempVars =
+              previousDeclaredTempVars;
+
+            emitter.emitLine(`        if (!(${condCode})) {`);
+            emitter.emitLine(
+              `          sm->while_loop_${whileLoopActiveIndex}_active = false;`
+            );
+            emitter.emitLine(
+              `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
+            );
+            emitter.emitLine(`        } else {`);
+            emitter.emitLine(
+              `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
+            );
+
+            // Transition back to the state where the while loop started
+            const whileLoopStateNumber = whileLoopActiveIndex;
+            emitter.emitLine(
+              `          // Loop back by transitioning to while loop state`
+            );
+            emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
+            emitter.emitLine(
+              `          goto while_loop_${whileLoopStateNumber}_start;`
+            );
+
+            emitter.emitLine(`        }`);
+            emitter.emitLine(`      }`);
+
+            emitter.emitLine(``);
+            // Add label for code after while loop (for break to jump to)
+            emitter.emitLine(`      after_while_loop_${whileLoopActiveIndex}:`);
           }
-
-          // Set up state machine context for condition evaluation
-          const previousInStateMachineForCond = context.inAsyncStateMachine;
-          const previousStateMachineVariablesForCond =
-            context.stateMachineVariables;
-          const previousVariableIdRemappingForCond =
-            context.variableIdRemapping;
-
-          context.inAsyncStateMachine = { futureType };
-          context.variableIdRemapping = analysis.variableIdRemapping;
-
-          // Combine outer captured variables and local variables
-          const combinedVariablesForCond = new Map<string, CapturedVariable>();
-          for (const v of analysis.capturedVariables) {
-            combinedVariablesForCond.set(v.id, v);
-          }
-          if (captureType) {
-            for (const field of captureType.fields) {
-              combinedVariablesForCond.set(field.label, {
-                id: field.label,
-                name: field.label,
-                type: field.type,
-                kind: "outer",
-                isOwningTheSameRcValueAs: undefined, // FIXME
-              });
-            }
-          }
-          context.stateMachineVariables = combinedVariablesForCond;
-
-          // Generate condition check
-          const condCode = generateExpr(
-            whileLoopData.conditionExpr,
-            "        ",
-            context
-          );
-
-          // Restore context
-          context.inAsyncStateMachine = previousInStateMachineForCond;
-          context.stateMachineVariables = previousStateMachineVariablesForCond;
-          context.variableIdRemapping = previousVariableIdRemappingForCond;
-
-          // Restore declaredTempVars
-          (context as FunctionGenerationContext).declaredTempVars =
-            previousDeclaredTempVars;
-
-          emitter.emitLine(`        if (!(${condCode})) {`);
-          emitter.emitLine(
-            `          sm->while_loop_${prevAwait.index}_active = false;`
-          );
-          emitter.emitLine(
-            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
-          );
-          emitter.emitLine(`        } else {`);
-          emitter.emitLine(
-            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
-          );
-
-          // Transition back to the state where the while loop started
-          // The while loop is in the state that contains the await - which is prevAwait.index
-          const whileLoopStateNumber = prevAwait.index;
-          emitter.emitLine(
-            `          // Loop back by transitioning to while loop state`
-          );
-          emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
-          emitter.emitLine(
-            `          goto while_loop_${whileLoopStateNumber}_start;`
-          );
-
-          emitter.emitLine(`        }`);
-          emitter.emitLine(`      }`);
-
-          emitter.emitLine(``);
-          // Add label for code after while loop (for break to jump to)
-          emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
 
           // Emit post-while-loop expressions from enclosing cond branch.
           // These were deferred from the "remaining code from chosen cond branch"
           // handler because they must only execute once (after the while loop
           // exits), not on every state machine resume.
-          if (whileLoopData.condBranchPostWhileExprs) {
+          // Skip for chained states — the final state handles post-while code.
+          if (!chainedToNextAwait && whileLoopData.condBranchPostWhileExprs) {
             const postWhileData = whileLoopData.condBranchPostWhileExprs;
             const pwCondField = postWhileData.condBranchFieldIndex;
             const pwBranchIdx = postWhileData.branchIndex;
@@ -1974,7 +2046,10 @@ export function generateAsyncBlockResumeFunction(
             )
           : undefined;
         if (isInsideWhile && whileLoopInfoForAwait) {
-          const whileLoopIndex = segment.awaitPoint.index;
+          // For chained awaits, use the original while loop's index
+          const whileLoopIndex =
+            whileLoopInfoForAwait.whileLoopOriginIndex ??
+            segment.awaitPoint.index;
           emitter.emitLine(
             `      // Only await if while loop is still active (not broken)`
           );
@@ -1994,10 +2069,14 @@ export function generateAsyncBlockResumeFunction(
           `      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`
         );
         emitter.emitLine(
-          `        // Already complete or aborted — yield once for fairness`
+          `        // Already complete — bounded inline fast-path to avoid scheduler round-trip`
         );
+        emitter.emitLine(`        if (__yo_inline_budget > 0) {`);
+        emitter.emitLine(`          __yo_inline_budget--;`);
+        emitter.emitLine(`          goto state_${nextState};`);
+        emitter.emitLine(`        }`);
         emitter.emitLine(
-          `        // Yield once to event loop for fairness (microtask yield)`
+          `        // Budget exhausted — yield once for fairness (microtask yield)`
         );
         emitter.emitLine(
           `        __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
@@ -2075,7 +2154,10 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      return;`);
 
         if (isInsideWhile && whileLoopInfoForAwait) {
-          const whileLoopIndex = segment.awaitPoint.index;
+          // For chained awaits, use the original while loop's index for the label
+          const whileLoopIndex =
+            whileLoopInfoForAwait.whileLoopOriginIndex ??
+            segment.awaitPoint.index;
           // Add else branch to jump to code after while loop when broken
           emitter.emitLine(`      } else {`);
           emitter.emitLine(
