@@ -683,6 +683,18 @@ static inline void __yo_kq_free_pending(__yo_io_pending_op_t* p) {
   __yo_io_pending_free_list = p;
 }
 
+static inline void __yo_kq_cancel_pending(__yo_io_pending_op_t* pending, int err, bool wake) {
+  if (!pending) return;
+  pending->future->result = -err;
+  __yo_pending_io_count--;
+  if (wake) {
+    __yo_io_wake_continuation(pending->future);
+  } else {
+    atomic_store_explicit(&pending->future->state, -1, memory_order_release);
+  }
+  __yo_kq_free_pending(pending);
+}
+
 // Initialize kqueue subsystem
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
@@ -699,7 +711,13 @@ static void __yo_io_init(void) {
 // Cleanup kqueue
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
-  
+  // If async main returns while registrations are still only queued in the
+  // deferred changelist, cancel them explicitly instead of dropping them on
+  // close(kqueue).
+  for (size_t i = 0; i < __yo_kq_n_changes; i++) {
+    __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, ECANCELED, false);
+  }
+  __yo_kq_n_changes = 0;
   if (__yo_io_kq >= 0) {
     close(__yo_io_kq);
     __yo_io_kq = -1;
@@ -825,13 +843,7 @@ static void __yo_kq_flush_changes(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
-      if (pending) {
-        pending->future->result = -err;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
-      }
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return;
@@ -840,13 +852,7 @@ static void __yo_kq_flush_changes(void) {
   for (int i = 0; i < n; i++) {
     // EV_ERROR entries report per-change registration failures.
     if (err_events[i].flags & EV_ERROR) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)err_events[i].udata;
-      if (pending) {
-        pending->future->result = -(int32_t)err_events[i].data;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
-      }
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)err_events[i].udata, (int)err_events[i].data, true);
     } else {
       __yo_io_process_event(&err_events[i]);
     }
@@ -870,13 +876,7 @@ static int __yo_io_poll(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
-      if (pending) {
-        pending->future->result = -err;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
-      }
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return __yo_poll_and_fs_event_tick();
@@ -886,12 +886,8 @@ static int __yo_io_poll(void) {
   int processed = 0;
   for (int i = 0; i < n; i++) {
     if (events[i].flags & EV_ERROR) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)events[i].udata;
-      if (pending) {
-        pending->future->result = -(int32_t)events[i].data;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
         processed++;
       }
       continue;
@@ -938,13 +934,7 @@ static int __yo_io_wait(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)__yo_kq_changes[i].udata;
-      if (pending) {
-        pending->future->result = -err;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
-      }
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return 0;
@@ -954,12 +944,8 @@ static int __yo_io_wait(void) {
   int processed = 0;
   for (int i = 0; i < n; i++) {
     if (events[i].flags & EV_ERROR) {
-      __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)events[i].udata;
-      if (pending) {
-        pending->future->result = -(int32_t)events[i].data;
-        __yo_pending_io_count--;
-        __yo_io_wake_continuation(pending->future);
-        __yo_kq_free_pending(pending);
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
         processed++;
       }
       continue;

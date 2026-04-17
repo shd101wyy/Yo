@@ -547,9 +547,13 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 static _Thread_local struct io_uring __yo_io_ring;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;
+// Ring size matches the fixed io_uring queue depth we initialize below.
+#define __YO_IO_RING_ENTRIES 1024
 // Number of SQEs queued in userspace but not yet submitted to the kernel.
 // Deferred submission lets us batch many SQEs into a single syscall.
 static _Thread_local unsigned __yo_sq_unsubmitted = 0;
+static _Thread_local unsigned __yo_sq_deferred_head = 0;
+static _Thread_local __yo_io_future_t* __yo_sq_deferred_futures[__YO_IO_RING_ENTRIES];
 
 // I/O Future types - __yo_io_future_t is defined in types/generation.ts
 // It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
@@ -578,23 +582,35 @@ static void __yo_io_init(void) {
   params.flags |= IORING_SETUP_DEFER_TASKRUN;
 #endif
 
-  int ret = io_uring_queue_init_params(1024, &__yo_io_ring, &params);
+  int ret = io_uring_queue_init_params(__YO_IO_RING_ENTRIES, &__yo_io_ring, &params);
   if (ret < 0) {
     // Retry without any flags for older kernels
     memset(&params, 0, sizeof(params));
-    ret = io_uring_queue_init_params(1024, &__yo_io_ring, &params);
+    ret = io_uring_queue_init_params(__YO_IO_RING_ENTRIES, &__yo_io_ring, &params);
   }
   if (ret < 0) {
     fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
     exit(1);
   }
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] io_uring initialized with 1024 entries (flags=0x%x)\\n", params.flags);
+  ASYNC_DEBUG("[IO] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
 }
 
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
+  // If async main returns while some SQEs are still only queued in userspace,
+  // cancel them here instead of silently dropping the event-loop ref we took in
+  // __yo_io_ring_submit.
+  while (__yo_sq_unsubmitted > 0) {
+    __yo_io_future_t* future = __yo_sq_deferred_futures[__yo_sq_deferred_head];
+    __yo_sq_deferred_head = (__yo_sq_deferred_head + 1) % __YO_IO_RING_ENTRIES;
+    __yo_sq_unsubmitted--;
+    __yo_pending_io_count--;
+    future->result = -ECANCELED;
+    future->state = -1;
+    __yo_decr_rc((void*)future);
+  }
   io_uring_queue_exit(&__yo_io_ring);
   __yo_io_initialized = false;
   ASYNC_DEBUG("[IO] io_uring cleaned up\\n");
@@ -614,6 +630,7 @@ static int __yo_poll_and_fs_event_tick(void);
 static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
   future->header.ref_count++;    // io_uring holds a reference until CQE
   __yo_pending_io_count++;
+  __yo_sq_deferred_futures[(__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES] = future;
   __yo_sq_unsubmitted++;
 }
 
@@ -628,8 +645,10 @@ static inline int __yo_io_flush_sq(void) {
   } while (ret == -EINTR);
   if (ret > 0) {
     if ((size_t)ret >= __yo_sq_unsubmitted) {
+      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
       __yo_sq_unsubmitted = 0;
     } else {
+      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
       __yo_sq_unsubmitted -= (size_t)ret;
     }
   }
@@ -721,8 +740,10 @@ static int __yo_io_wait(void) {
     }
     // ret >= 0: that many SQEs were submitted.
     if ((size_t)ret >= __yo_sq_unsubmitted) {
+      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
       __yo_sq_unsubmitted = 0;
     } else {
+      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
       __yo_sq_unsubmitted -= (size_t)ret;
     }
     // After submit_and_wait, at least one CQE should be available; peek it.
