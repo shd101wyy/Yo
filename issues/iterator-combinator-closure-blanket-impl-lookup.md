@@ -29,7 +29,7 @@ impl(CountIter, Iterator(
 
 main :: (fn() -> unit)({
   iter := CountIter(i32(0), i32(5));
-  filtered := iter.filter((x : *(i32)) => (x.* > i32(2)));
+  filtered := iter.filter(x => (x.* > i32(2)));
   result := (&filtered).next();   // ← fails here
 });
 

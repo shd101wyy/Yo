@@ -88,6 +88,32 @@ Use `cond` when there are more than two branches or when the branches are large.
 - Method definitions in struct use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
 - Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
 
+## Anonymous function (`=>`) parameters cannot have type annotations
+
+The `=>` arrow form is for anonymous functions whose parameter types are inferred from the expected `Fn(...)` signature at the call site. **You cannot annotate `=>` parameters with `: Type`** — parameter types come from the expected `Fn` signature.
+
+```rust
+// CORRECT — types inferred from expected Fn signature:
+filtered := iter.filter((x) => (x.* > i32(2)));
+
+// CORRECT — single parameter, parens optional:
+filtered := iter.filter(x => (x.* > i32(2)));
+
+// WRONG — `=>` parameters cannot have type annotations:
+filtered := iter.filter((x : *(i32)) => (x.* > i32(2)));
+```
+
+If you need to specify parameter types explicitly, use the full `fn(...)` form or `Impl(Fn(...))(...)`:
+
+```rust
+// Use fn(...) form when types must be explicit:
+pred :: (fn(x : *(i32)) -> bool)(x.* > i32(2));
+filtered := iter.filter(pred);
+
+// Or inline:
+filtered := iter.filter((fn(x : *(i32)) -> bool)(x.* > i32(2)));
+```
+
 ## Return value rules
 
 - The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.

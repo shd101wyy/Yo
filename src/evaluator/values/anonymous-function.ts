@@ -27,7 +27,12 @@ import type {
 } from "../../function-value";
 import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createEffectsRowType, createFnTraitType } from "../../types/creators";
+import {
+  createEffectsRowType,
+  createFnTraitType,
+  createSomeType,
+  createType0,
+} from "../../types/creators";
 import type {
   EffectsRowType,
   FnTraitType,
@@ -674,19 +679,8 @@ Got:      "${paramName}"`,
 
   // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
-    let paramExpr = regularParamExprs[i]!;
+    const paramExpr = regularParamExprs[i]!;
     const expectedParam = functionType.parameters[i]!;
-
-    // Unpack `name : Type` syntax — the user-provided type annotation is
-    // ignored (we always use expectedParam.type from the function signature),
-    // but we need the name from the LHS of the `:`.
-    if (
-      exprIsFunctionCall(paramExpr) &&
-      exprIsFunctionCallOf(paramExpr, ":", 2) &&
-      exprIsAtom(paramExpr.args[0]!)
-    ) {
-      paramExpr = paramExpr.args[0]!;
-    }
 
     if (expectedParam.isCompileTimeOnly) {
       // For comptime parameters, require exact name matching (except for _ which is a wildcard)
@@ -1158,14 +1152,40 @@ Got:      "${paramName}"`,
       });
     }
 
-    // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
-    // (e.g. `box`) can observe the concrete capture struct and codegen can use it.
-    // We also return a resolved copy for local typing, but the in-place update is the key.
-    wrapperType.resolvedConcreteType = captureType;
-    finalType = {
-      ...wrapperType,
-      resolvedConcreteType: captureType,
-    } as SomeType;
+    // IMPORTANT: When wrapperType is a forall SomeType (e.g., F from `forall(F:Type)`)
+    // whose Fn trait constraint comes from a where-clause (not requiredTraits),
+    // setting wrapperType.resolvedConcreteType = captureType (the bare closure struct)
+    // strips the Fn trait info. Subsequent where-clause checks would then fail with
+    // "Type struct() does not implement required trait Fn(...)".
+    //
+    // Fix: build a synthetic Impl(Fn(...)) SomeType wrapper that includes the Fn
+    // trait in requiredTraits, and set THAT as F's resolvedConcreteType. Codegen
+    // sees the concrete capture struct via one extra unwrap.
+    const wrapperHasFnInRequired = wrapperType.requiredTraits.some(
+      ({ traitType }) => traitType.id === expectedFnModuleType.id
+    );
+    if (!wrapperHasFnInRequired && captureType) {
+      const implFnWrapper = createSomeType(createType0(), "__impl_fn", {
+        requiredTraits: [expectedFnModuleType],
+        env,
+        context,
+      });
+      implFnWrapper.resolvedConcreteType = captureType;
+      wrapperType.resolvedConcreteType = implFnWrapper;
+      finalType = {
+        ...wrapperType,
+        resolvedConcreteType: implFnWrapper,
+      } as SomeType;
+    } else {
+      // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
+      // (e.g. `box`) can observe the concrete capture struct and codegen can use it.
+      // We also return a resolved copy for local typing, but the in-place update is the key.
+      wrapperType.resolvedConcreteType = captureType;
+      finalType = {
+        ...wrapperType,
+        resolvedConcreteType: captureType,
+      } as SomeType;
+    }
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code
