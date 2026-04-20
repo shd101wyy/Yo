@@ -5390,12 +5390,41 @@ impl(forall(T : Type), where(T <: Clone), Option(T), Clone(
   )
 ));
 
+/// Equality for `Option(T)` — `Some(a) == Some(b)` iff `a == b`; `None == None`.
+impl(forall(T : Type), where(T <: Eq(T)), Option(T), Eq(Option(T))(
+  (==) : ((lhs, rhs) ->
+    match(lhs,
+      .None => match(rhs, .None => true, .Some(_) => false),
+      .Some(a) => match(rhs,
+        .None => false,
+        .Some(b) => (a == b)
+      )
+    )
+  )
+));
+
 /// Clone for `Result(T, E)` — clones the inner value or error.
 impl(forall(T : Type, E : Type), where(T <: Clone, E <: Clone), Result(T, E), Clone(
   clone : ((self) ->
     match(self.*,
       .Ok(v) => Result(T, E).Ok((&v).clone()),
       .Err(e) => Result(T, E).Err((&e).clone())
+    )
+  )
+));
+
+/// Equality for `Result(T, E)` — variants must match and inner values must be equal.
+impl(forall(T : Type, E : Type), where(T <: Eq(T), E <: Eq(E)), Result(T, E), Eq(Result(T, E))(
+  (==) : ((lhs, rhs) ->
+    match(lhs,
+      .Ok(a) => match(rhs,
+        .Ok(b) => (a == b),
+        .Err(_) => false
+      ),
+      .Err(a) => match(rhs,
+        .Ok(_) => false,
+        .Err(b) => (a == b)
+      )
     )
   )
 ));

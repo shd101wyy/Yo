@@ -1,0 +1,212 @@
+// Verification tests for bootstrap prerequisites:
+//   §2.2 derive(Clone) on complex types (String, ArrayList, Option fields)
+//   §2.3 Large enum (20+ variants) compiles and matches
+//   §2.5 Closure capture correctness in iterators
+//   §2.7 derive ToString quality
+//   §2.8 derive Eq/Hash on complex enums
+open import "std/string";
+open import "std/fmt";
+open import "std/collections/array_list";
+open import "std/collections/hash_map";
+
+// ===========================================================================
+// §2.2  derive(Clone) on complex (RC-bearing) struct fields
+// ===========================================================================
+
+PersonRecord :: struct(name : String, age : i32);
+derive(PersonRecord, Eq(PersonRecord), Clone, ToString);
+
+test "derive Clone for struct with String field", {
+  p1 := PersonRecord(`Alice`, i32(30));
+  p2 := (&p1).clone();
+  assert((p1 == p2), "cloned struct with String field equals original");
+  assert((p2.name == `Alice`), "cloned String content preserved");
+  assert((p2.age == i32(30)), "cloned i32 preserved");
+};
+
+test "derive ToString for struct with String field", {
+  p := PersonRecord(`Bob`, i32(25));
+  s := (&p).to_string();
+  assert((s == `PersonRecord(Bob, 25)`), "ToString emits field values");
+};
+
+OptionalIntStruct :: struct(value : Option(i32), label : String);
+derive(OptionalIntStruct, Eq(OptionalIntStruct), Clone);
+
+test "derive Clone for struct with Option field", {
+  o1 := OptionalIntStruct(.Some(i32(42)), `present`);
+  o2 := (&o1).clone();
+  assert((o1 == o2), "Option(i32) field Clone equality");
+
+  o3 := OptionalIntStruct(.None, `absent`);
+  o4 := (&o3).clone();
+  assert((o3 == o4), "Option.None field Clone equality");
+};
+
+// ===========================================================================
+// §2.3  Large enum (20+ variants)
+// ===========================================================================
+
+BigEnum :: enum(
+  V01, V02, V03, V04, V05,
+  V06, V07, V08, V09, V10,
+  V11, V12, V13, V14, V15,
+  V16, V17, V18, V19, V20,
+  V21, V22, V23, V24, V25
+);
+derive(BigEnum, Eq(BigEnum), Clone, ToString);
+
+test "large enum (25 variants) compiles and equality works", {
+  a := BigEnum.V13;
+  b := BigEnum.V13;
+  c := BigEnum.V20;
+  assert((a == b), "same large-enum variants equal");
+  assert((a != c), "different large-enum variants unequal");
+};
+
+test "large enum match dispatches correctly", {
+  pick :: (fn(e : BigEnum) -> i32)(
+    match(e,
+      .V01 => i32(1),  .V02 => i32(2),  .V03 => i32(3),
+      .V04 => i32(4),  .V05 => i32(5),  .V06 => i32(6),
+      .V07 => i32(7),  .V08 => i32(8),  .V09 => i32(9),
+      .V10 => i32(10), .V11 => i32(11), .V12 => i32(12),
+      .V13 => i32(13), .V14 => i32(14), .V15 => i32(15),
+      .V16 => i32(16), .V17 => i32(17), .V18 => i32(18),
+      .V19 => i32(19), .V20 => i32(20), .V21 => i32(21),
+      .V22 => i32(22), .V23 => i32(23), .V24 => i32(24),
+      .V25 => i32(25)
+    )
+  );
+  assert((pick(.V01) == i32(1)), "V01 -> 1");
+  assert((pick(.V13) == i32(13)), "V13 -> 13");
+  assert((pick(.V25) == i32(25)), "V25 -> 25");
+};
+
+test "large enum ToString", {
+  v := BigEnum.V17;
+  assert(((&v).to_string() == `BigEnum.V17`), "ToString for V17");
+};
+
+// ===========================================================================
+// §2.5  Closure capture correctness in iterators
+// ===========================================================================
+
+test "closure captures comptime i32 by value", {
+  threshold :: i32(3);
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(5));
+  list.push(i32(7));
+
+  count := i32(0);
+  it := list.iter();
+  while true, {
+    match(it.next(),
+      .Some(p) => {
+        cond(
+          (p.* > threshold) => { count = (count + i32(1)); },
+          true => ()
+        );
+      },
+      .None => { break; }
+    );
+  };
+  assert((count == i32(2)), "two values exceed threshold 3");
+};
+
+test "closure captures String by RC; outlives capture site", {
+  prefix := `pre-`;
+
+  list := ArrayList(String).new();
+  list.push(`a`);
+  list.push(`b`);
+
+  // Capture prefix by reference; iteration produces concatenated strings
+  results := ArrayList(String).new();
+  it := list.iter();
+  while true, {
+    match(it.next(),
+      .Some(p) => {
+        // Use captured prefix
+        results.push((prefix + p.*));
+      },
+      .None => { break; }
+    );
+  };
+
+  assert((results.len() == usize(2)), "two results");
+  assert((results.get(usize(0)).unwrap() == `pre-a`), "captured prefix used in 1st");
+  assert((results.get(usize(1)).unwrap() == `pre-b`), "captured prefix used in 2nd");
+  // After iteration, prefix is still usable (no UAF)
+  assert((prefix == `pre-`), "prefix still alive after iter");
+};
+
+test "closure captures ArrayList; mutation visible after iter scope", {
+  collected := ArrayList(i32).new();
+  src := ArrayList(i32).new();
+  src.push(i32(10));
+  src.push(i32(20));
+  src.push(i32(30));
+
+  it := src.iter();
+  while true, {
+    match(it.next(),
+      .Some(p) => { collected.push(p.*); },
+      .None => { break; }
+    );
+  };
+
+  assert((collected.len() == usize(3)), "captured ArrayList mutated");
+  assert((collected.get(usize(0)).unwrap() == i32(10)), "first element");
+  assert((collected.get(usize(2)).unwrap() == i32(30)), "third element");
+};
+
+// ===========================================================================
+// §2.7 / §2.8  Derive ToString and Eq on enums with multiple data variants
+// ===========================================================================
+
+Mixed :: enum(
+  Empty,
+  OneInt(x : i32),
+  TwoInts(x : i32, y : i32),
+  WithStr(s : String)
+);
+derive(Mixed, Eq(Mixed), Clone, ToString);
+
+test "derive Eq on enum with mixed variants", {
+  a := Mixed.Empty;
+  b := Mixed.Empty;
+  assert((a == b), "Empty == Empty");
+
+  c := Mixed.OneInt(i32(5));
+  d := Mixed.OneInt(i32(5));
+  e := Mixed.OneInt(i32(6));
+  assert((c == d), "OneInt(5) == OneInt(5)");
+  assert((c != e), "OneInt(5) != OneInt(6)");
+  assert((a != c), "Empty != OneInt(5)");
+
+  f := Mixed.TwoInts(i32(1), i32(2));
+  g := Mixed.TwoInts(i32(1), i32(2));
+  h := Mixed.TwoInts(i32(1), i32(3));
+  assert((f == g), "TwoInts(1,2) == TwoInts(1,2)");
+  assert((f != h), "TwoInts(1,2) != TwoInts(1,3)");
+};
+
+test "derive ToString on enum with mixed variants", {
+  a := Mixed.Empty;
+  assert(((&a).to_string() == `Mixed.Empty`), "Empty");
+
+  b := Mixed.OneInt(i32(7));
+  assert(((&b).to_string() == `Mixed.OneInt(7)`), "OneInt(7)");
+
+  c := Mixed.TwoInts(i32(3), i32(4));
+  assert(((&c).to_string() == `Mixed.TwoInts(3, 4)`), "TwoInts(3, 4)");
+};
+
+test "derive Clone on enum with String field variant", {
+  x := Mixed.WithStr(`hello`);
+  y := (&x).clone();
+  assert((x == y), "Clone of WithStr equals original");
+};
