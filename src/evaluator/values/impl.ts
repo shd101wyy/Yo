@@ -37,6 +37,7 @@ import type {
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
+  isFnTraitType,
   isFunctionType,
   isSliceType,
   isSomeType,
@@ -45,6 +46,7 @@ import {
   isType0,
 } from "../../types/guards";
 import { typeContainsUnknownValue, typeToString } from "../../types/utils";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
   createTraitValue,
   createTypeValue,
@@ -2119,21 +2121,64 @@ function someTypeHasTraitConstraint(
   env: Environment
 ): boolean {
   const traitName = requiredTrait.typeName;
-  if (!traitName) {
-    return false;
-  }
+  // For anonymous traits without a typeName (e.g., Fn(...) trait values produced
+  // by the `Fn` comptime function), each evaluation creates a fresh TraitType
+  // with a new id. We must compare structurally instead of by id/name.
+  const useStructuralCompare = !traitName && isFnTraitType(requiredTrait);
 
   // Check in requiredTraits (SomeType-level constraints)
   for (const requiredTraitEntry of someType.requiredTraits) {
     if (requiredTraitEntry.traitType.id === requiredTrait.id) {
       return true;
     }
+    if (
+      useStructuralCompare &&
+      areTypesCompatible(
+        { type: requiredTrait, env },
+        { type: requiredTraitEntry.traitType, env }
+      )
+    ) {
+      return true;
+    }
+  }
+
+  // If this SomeType has been resolved to another SomeType (e.g., a wrapper
+  // Impl(Fn(...))) carrying the trait constraint, follow the resolution chain.
+  // This is critical when a forall SomeType `F` is bound to a closure whose
+  // value-type is `Impl(Fn(...))`-wrapped — the Fn constraint sits on the
+  // wrapper, not on F itself.
+  if (
+    someType.resolvedConcreteType &&
+    isSomeType(someType.resolvedConcreteType)
+  ) {
+    if (
+      someTypeHasTraitConstraint(
+        someType.resolvedConcreteType,
+        requiredTrait,
+        env
+      )
+    ) {
+      return true;
+    }
+  }
+
+  if (!traitName && !useStructuralCompare) {
+    return false;
   }
 
   const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
   if (whereConstraints) {
     for (const requiredTraitType of whereConstraints.requiredTraits) {
       if (requiredTraitType.id === requiredTrait.id) {
+        return true;
+      }
+      if (
+        useStructuralCompare &&
+        areTypesCompatible(
+          { type: requiredTrait, env },
+          { type: requiredTraitType, env }
+        )
+      ) {
         return true;
       }
     }
@@ -2143,6 +2188,15 @@ function someTypeHasTraitConstraint(
   for (const field of someType.trait.fields) {
     if (isTraitValue(field.assignedValue)) {
       if (field.assignedValue.type.id === requiredTrait.id) {
+        return true;
+      }
+      if (
+        useStructuralCompare &&
+        areTypesCompatible(
+          { type: requiredTrait, env },
+          { type: field.assignedValue.type, env }
+        )
+      ) {
         return true;
       }
     }

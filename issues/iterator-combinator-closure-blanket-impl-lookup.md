@@ -97,11 +97,50 @@ filtered := iter.filter(my_pred);  // works
 Top-level fn types are FunctionType (not SomeType wrapper), so no
 where-clause Fn extraction is involved.
 
-## Status
+## Resolution
 
-Deferred. Blocks one path of iterator combinator usage but does not block
-the broader trait-checking env refactor (other tests pass). Bootstrapping
-the compiler in Yo can use the workaround pattern until this is resolved.
+**Status:** Partial fix landed.
+
+### What was fixed
+
+1. **Evaluator: structural Fn-trait matching for anonymous traits.**
+   `someTypeHasTraitConstraint` (in `src/evaluator/values/impl.ts`) now uses
+   structural comparison via `areTypesCompatible` for traits without a
+   `typeName` (e.g., `Fn(...)` trait values produced by the `Fn` comptime
+   function). Each `Fn(...)` evaluation creates a fresh `TraitType` with a
+   new id, so id-based comparison would always fail across impl-site and
+   call-site evaluations. The early `if (!traitName) return false` bailout
+   has been removed for the Fn-trait case and replaced with a structural
+   check.
+
+2. **Codegen: `=>` and `=>>` lambda expressions as values.**
+   `src/codegen/exprs/generation.ts` now handles closure expressions
+   `(x) => body` / `(x) =>> body` the same way it handles
+   `(fn(x) -> body)(...)` — by emitting the pre-evaluated `FunctionValue`
+   reference. Previously these fell through to the "Unhandled function
+   call" error in codegen.
+
+3. **`someTypeHasTraitConstraint` follows `resolvedConcreteType` chain.**
+   When a forall SomeType `F` is bound to a closure whose value-type is a
+   synthetic `Impl(Fn(...))`-wrapped SomeType, the Fn constraint sits on
+   the wrapper. The function now recursively follows
+   `resolvedConcreteType` when it points to another SomeType.
+
+### What still needs work
+
+After the fix, `iter.filter(x => ...)` evaluation succeeds, but C codegen
+of the resulting struct/method-dispatch chain still has rough edges:
+
+- The `IterFilter(CountIter, __impl_fn(...))` instantiation produces a
+  struct type that isn't getting forward-declared in the C output.
+- The blanket Iterator impl's `next` method is being emitted as a
+  struct-field access (`filtered.next`) rather than a standalone trait
+  method dispatch.
+
+These appear to be downstream codegen issues triggered by the closure
+SomeType wrapper ending up as a struct type parameter, and are tracked
+separately. Top-level `fn(...)` callbacks remain the recommended pattern
+until the codegen rough edges are smoothed out.
 
 ## Related
 

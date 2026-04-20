@@ -1096,6 +1096,24 @@ function generateFuncCall(
       return `// Error: Anonymous function missing function value`;
     }
   }
+  // closure / lambda (x => body) or (x =>> body)
+  else if (
+    exprIsFunctionCallOf(expr, "=>", 2) ||
+    exprIsFunctionCallOf(expr, "=>>", 2)
+  ) {
+    // Skip closure-type annotations (fn(x : T) => U); only handle implementations
+    const isClosureType =
+      exprIsFunctionCall(expr.args[0]) &&
+      exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn);
+    if (!isClosureType) {
+      const functionValue = expr.$?.value;
+      if (isFunctionValue(functionValue)) {
+        return generateComptimeValue(functionValue, context);
+      } else {
+        return `// Error: Anonymous closure missing function value`;
+      }
+    }
+  }
   // consume
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
     return generateConsume(expr, indent, context);
