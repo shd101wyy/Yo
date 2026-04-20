@@ -105,7 +105,15 @@ export function evaluateAnonymousFunctionImplementation({
     functionType = expectedType;
   } else if (isSomeType(expectedType)) {
     // Handle Impl(Fn(...)) - SomeType with required modules containing a FnTraitType
-    const fnModuleFromWrapper = extractFnTraitFromType(expectedType);
+    // The where-clause constraint (e.g., `where(F <: Fn(...))`) is registered in
+    // the callee's env, not the caller's env. The lambda is evaluated with `env =
+    // callerEnv`, so we must consult `context.expectedType?.env` (the calleeEnv)
+    // when looking up where-clause constraints for SomeType `F`.
+    const expectedTypeEnv = context.expectedType?.env ?? env;
+    const fnModuleFromWrapper = extractFnTraitFromType(
+      expectedType,
+      expectedTypeEnv
+    );
     if (fnModuleFromWrapper) {
       expectedFnModuleType = fnModuleFromWrapper;
       functionType = fnModuleFromWrapper.isFn.callType;
@@ -666,8 +674,19 @@ Got:      "${paramName}"`,
 
   // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
-    const paramExpr = regularParamExprs[i]!;
+    let paramExpr = regularParamExprs[i]!;
     const expectedParam = functionType.parameters[i]!;
+
+    // Unpack `name : Type` syntax — the user-provided type annotation is
+    // ignored (we always use expectedParam.type from the function signature),
+    // but we need the name from the LHS of the `:`.
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, ":", 2) &&
+      exprIsAtom(paramExpr.args[0]!)
+    ) {
+      paramExpr = paramExpr.args[0]!;
+    }
 
     if (expectedParam.isCompileTimeOnly) {
       // For comptime parameters, require exact name matching (except for _ which is a wildcard)

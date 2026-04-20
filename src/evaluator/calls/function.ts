@@ -783,7 +783,7 @@ export function evaluateFunctionCall({
     functions.length === 1 &&
     (isFunctionType(functions[0]!.type) ||
       ((isSomeType(functions[0]!.type) || isDynType(functions[0]!.type)) &&
-        !!extractFnTraitFromType(functions[0]!.type)));
+        !!extractFnTraitFromType(functions[0]!.type, env)));
 
   const canSkipCheckingPhase = hasSingleFunctionLikeCandidate;
 
@@ -857,10 +857,13 @@ export function evaluateFunctionCall({
           }
         } else if (
           (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-          extractFnTraitFromType(functionToCall.type)
+          extractFnTraitFromType(functionToCall.type, env)
         ) {
           // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-          const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+          const fnModuleType = extractFnTraitFromType(
+            functionToCall.type,
+            env
+          )!;
           try {
             // NOTE: We need to pass the cloneExpr expr and argExprs here because
             // we might modify the expressions during the tryToCallFunctionWithArguments

@@ -13,12 +13,12 @@
 
 open import "std/collections/array_list";
 
-IterMap :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
 
 impl(forall(I : Type, A : Type, B : Type, F : Type),
-     IterMap(I, A, B, F),
+     LocalMapIter(I, A, B, F),
      Iterator(
        Item : B,
        next : (fn(self : *(Self)) -> Option(B))(
@@ -27,11 +27,11 @@ impl(forall(I : Type, A : Type, B : Type, F : Type),
      ));
 
 impl(forall(I : Type), where(I <: Iterator), I,
-  map_to : (fn(forall(A : Type, B : Type, F : Type),
+  local_map_to : (fn(forall(A : Type, B : Type, F : Type),
                self : Self, f : F,
                where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B)))
-            -> IterMap(Self, A, B, F))(
-    IterMap(Self, A, B, F)(_inner: self, _f: f)
+            -> LocalMapIter(Self, A, B, F))(
+    LocalMapIter(Self, A, B, F)(_inner: self, _f: f)
   )
 );
 
@@ -42,9 +42,9 @@ test "where-clause associated-type inference binds A and B from impl + Fn signat
   list.push(i32(1));
   it1 := list.into_iter();
   // The annotation forces the result type explicitly. Before the fix, the
-  // call would specialize `map_to` with A,B left as SomeTypes, producing a
-  // distinct shadow IterMap struct that didn't satisfy the annotation.
-  (iter : IterMap(typeof(it1), i32, i32, fn(x : i32) -> i32)) = it1.map_to(double);
+  // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
+  // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
+  (iter : LocalMapIter(typeof(it1), i32, i32, fn(x : i32) -> i32)) = it1.local_map_to(double);
   match(iter.next(),
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")
@@ -56,7 +56,7 @@ test "where-clause inference with bool callback return type", {
   list.push(i32(1));
   it1 := list.into_iter();
   is_pos :: (fn(x : i32) -> bool)((x > i32(0)));
-  (iter : IterMap(typeof(it1), i32, bool, fn(x : i32) -> bool)) = it1.map_to(is_pos);
+  (iter : LocalMapIter(typeof(it1), i32, bool, fn(x : i32) -> bool)) = it1.local_map_to(is_pos);
   match(iter.next(),
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")

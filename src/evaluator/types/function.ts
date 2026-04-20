@@ -77,7 +77,6 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   findSomeTypeMissingComptimeConstraint,
   typeImplementsTrait,
-  typeImplementsTraitBool,
 } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
@@ -918,7 +917,11 @@ function validateSingleTraitOnConcreteType({
   }
 
   const traitType = traitTypeValue.value;
-  const implemented = typeImplementsTraitBool({
+  // Use the full typeImplementsTrait (not Bool) so that bindings produced
+  // during trait satisfaction (e.g. synthesizing `A=i32` from
+  // `F <: Fn(item:A)->B` against `fn(item:i32)->i32`) are propagated back
+  // into the returned env.
+  const { implemented, env: envAfterCheck } = typeImplementsTrait({
     targetType: concreteType,
     traitType,
     env,
@@ -940,7 +943,7 @@ function validateSingleTraitOnConcreteType({
     }
   }
 
-  return { env, success: true };
+  return { env: envAfterCheck, success: true };
 }
 
 /**

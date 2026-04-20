@@ -193,18 +193,21 @@ function typeImplementsRuntimeBuiltin(
 /**
  * Check if a concrete type satisfies associated type constraints on a specialized trait.
  * e.g., for Iterator(Item := i32), verify that targetType's Iterator.Item resolves to i32.
- * Returns true if there are no constraints, or all constraints are satisfied.
+ *
+ * Returns `{ satisfied, env }` where `env` includes any SomeType bindings produced by
+ * matching constraint types against resolved associated types (e.g., `Item := A` against
+ * `Item = i32` produces `A = i32` via synthesizeTypes).
  */
 function checkAssociatedTypeConstraints(
   targetType: Type,
   traitType: TraitType,
   env: Environment
-): boolean {
+): { satisfied: boolean; env: Environment } {
   if (
     !traitType.associatedTypeConstraints ||
     traitType.associatedTypeConstraints.length === 0
   ) {
-    return true;
+    return { satisfied: true, env };
   }
 
   for (const constraint of traitType.associatedTypeConstraints) {
@@ -256,7 +259,7 @@ function checkAssociatedTypeConstraints(
     }
 
     if (!resolvedType) {
-      return false;
+      return { satisfied: false, env };
     }
 
     // Check if the resolved type matches the constraint
@@ -266,11 +269,19 @@ function checkAssociatedTypeConstraints(
         { type: resolvedType, env }
       )
     ) {
-      return false;
+      return { satisfied: false, env };
     }
+
+    // Propagate SomeType bindings from constraint matching.
+    // e.g., constraint `Item := SomeType_A` resolved to `i32` → binds A=i32.
+    const { expectedEnv } = synthesizeTypes(
+      { type: constraint.constraintType, env },
+      { type: resolvedType, env }
+    );
+    env = expectedEnv;
   }
 
-  return true;
+  return { satisfied: true, env };
 }
 
 /**
@@ -352,12 +363,17 @@ export function typeImplementsTrait({
       ) {
         continue;
       }
-      if (!checkAssociatedTypeConstraints(targetType, traitType, env)) {
+      const assocResult = checkAssociatedTypeConstraints(
+        targetType,
+        traitType,
+        env
+      );
+      if (!assocResult.satisfied) {
         continue;
       }
       const { expectedEnv } = synthesizeTypes(
-        { type: expectedTraitWithReceiver, env },
-        { type: fieldTraitType, env }
+        { type: expectedTraitWithReceiver, env: assocResult.env },
+        { type: fieldTraitType, env: assocResult.env }
       );
       return { implemented: true, env: expectedEnv };
     }
@@ -456,9 +472,14 @@ export function typeImplementsTrait({
     if (result === undefined) {
       return { implemented: false, env };
     }
+    const assocResult = checkAssociatedTypeConstraints(
+      targetType,
+      traitType,
+      env
+    );
     return {
-      implemented: checkAssociatedTypeConstraints(targetType, traitType, env),
-      env,
+      implemented: assocResult.satisfied,
+      env: assocResult.env,
     };
   } finally {
     traitCheckRecursionGuard.delete(guardKey);
@@ -797,7 +818,10 @@ export function typeImplementsFn(
  * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
  * Returns the FnTraitType if found, otherwise undefined.
  */
-export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
+export function extractFnTraitFromType(
+  type: Type,
+  env?: Environment
+): FnTraitType | undefined {
   // If the type is already a FnTraitType, return it directly
   if (isFnTraitType(type)) {
     return type;
@@ -808,6 +832,22 @@ export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
     for (const { traitType } of type.requiredTraits) {
       if (isFnTraitType(traitType)) {
         return traitType;
+      }
+    }
+  }
+
+  // For SomeType, also check where-clause constraints from the env.
+  // A forall parameter `F : Type` constrained as `where(F <: (Fn(...) -> ...))`
+  // stores the Fn trait constraint in env.whereClauseConstraints, NOT in
+  // F.requiredTraits. Without checking here, lambda type-resolution at call
+  // sites that pass `f : F` would fail with "Expected a function type".
+  if (env && isSomeType(type)) {
+    const constraints = getWhereClauseConstraintsForSomeType(env, type);
+    if (constraints) {
+      for (const traitType of constraints.requiredTraits) {
+        if (isFnTraitType(traitType)) {
+          return traitType;
+        }
       }
     }
   }

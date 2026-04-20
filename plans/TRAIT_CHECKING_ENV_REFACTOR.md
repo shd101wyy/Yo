@@ -94,4 +94,38 @@ Escalate to the full refactor when **any** of the following holds:
   - `tests/blanket_impl_inner_forall.test.yo`
 - Related issue: `issues/blanket-impl-inner-forall-sometype-leakage.md`
 - Bootstrap dependency: `plans/BOOTSTRAPPING_PREREQUISITES.md` §1.2
-  (Iterator combinators) — now unblocked.
+  (Iterator combinators) — partially unblocked.
+
+## Follow-up: env-aware `extractFnTraitFromType`
+
+Discovered while exercising iterator combinators with inline lambdas:
+`extractFnTraitFromType` only inspected `SomeType.requiredTraits`, missing
+Fn-trait constraints stored in env's `whereClauseConstraints` map (which is
+where `where(F <: Fn(...))` constraints actually live for forall-introduced
+SomeTypes).
+
+Fix: `extractFnTraitFromType` now takes an optional `env` parameter. When
+provided, it also walks `getWhereClauseConstraintsForSomeType(env, type)`
+in addition to `requiredTraits`. Callers in
+`src/evaluator/values/anonymous-function.ts` and
+`src/evaluator/calls/function.ts` were updated to pass env. The lambda-arg
+call site in anonymous-function uses `context.expectedType?.env` (the
+**callee** env), since that's where the where-clause was registered.
+
+Also fixed: typed lambda parameter syntax `(x : *(i32)) => ...` was failing
+with "Variable x not found" because regular-param handling assumed each
+param was a bare atom. The fix unpacks the `:` FnCallExpr's LHS atom for
+the variable name; the user-provided type annotation is ignored because
+the function signature's parameter type is authoritative.
+
+### Known limitation (deferred)
+
+Calling iterator combinator chains with inline closures (e.g.,
+`iter.filter((x : *(i32)) => x.* > i32(2)).next()`) still fails to find
+the matching blanket Iterator impl for `IterFilter(I, F)`. The lambda's
+where-clause Fn check now passes correctly, but the subsequent generic
+impl lookup against `IterFilter(I, F-bound-to-closure)` does not match.
+Top-level `fn(...)` callbacks (FunctionType, not SomeType wrapper) work
+fine. This requires deeper investigation in the synthesizer's handling of
+SomeType wrappers around closure capture structs and is tracked as future
+work.

@@ -5759,6 +5759,351 @@ for :: (fn(
 };
 export for;
 
+// =============================================================================
+// Iterator Combinators
+// =============================================================================
+
+/// `IterPair` — a two-element product type used by `enumerate` and `zip`.
+IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(_0 : A, _1 : B)
+);
+export IterPair;
+
+// ---------------------------------------------------------------------------
+// IterMap
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that maps each element through a function `F`.
+///
+/// Created by calling `.map(f)` on any iterator.
+/// `I` is the source iterator type, `B` is the output element type,
+/// `F` is the mapper closure type satisfying `Fn(item : A) -> B`.
+IterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F)
+);
+
+impl(forall(I : Type, A : Type, B : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> B)),
+  IterMap(I, B, F),
+  Iterator(
+    Item : B,
+    next : (fn(self : *(Self)) -> Option(B))(
+      match(&(self._inner).next(),
+        .None => .None,
+        .Some(item) => .Some((self._f)(item))
+      )
+    )
+  )
+);
+
+export IterMap;
+
+// ---------------------------------------------------------------------------
+// IterFilter
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that skips elements for which the predicate returns `false`.
+///
+/// Created by calling `.filter(pred)` on any iterator.
+/// `I` is the source iterator type, `F` is the predicate closure type
+/// satisfying `Fn(item : *(A)) -> bool`.
+IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F)
+);
+
+impl(forall(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool)),
+  IterFilter(I, F),
+  Iterator(
+    Item : A,
+    next : (fn(self : *(Self)) -> Option(A))(
+      {
+        (loop_result : Option(A)) = .None;
+        while runtime(true), {
+          candidate := &(self._inner).next();
+          match(candidate,
+            .None => { break; },
+            .Some(item) => {
+              cond(
+                (self._f)(&item) => {
+                  loop_result = .Some(item);
+                  break;
+                },
+                true => ()
+              );
+            }
+          );
+        };
+        loop_result
+      }
+    )
+  )
+);
+
+export IterFilter;
+
+// ---------------------------------------------------------------------------
+// IterTake
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that yields at most `n` elements from the source.
+///
+/// Created by calling `.take(n)` on any iterator.
+IterTake :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(_inner : I, _remaining : usize)
+);
+
+impl(forall(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterTake(I),
+  Iterator(
+    Item : A,
+    next : (fn(self : *(Self)) -> Option(A))(
+      cond(
+        (self._remaining == usize(0)) => .None,
+        true => {
+          self._remaining = (self._remaining - usize(1));
+          &(self._inner).next()
+        }
+      )
+    )
+  )
+);
+
+export IterTake;
+
+// ---------------------------------------------------------------------------
+// IterSkip
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that skips the first `n` elements of the source, then yields
+/// all remaining elements.
+///
+/// Created by calling `.skip(n)` on any iterator.
+IterSkip :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(_inner : I, _to_skip : usize)
+);
+
+impl(forall(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterSkip(I),
+  Iterator(
+    Item : A,
+    next : (fn(self : *(Self)) -> Option(A))(
+      {
+        while (self._to_skip > usize(0)), {
+          result := &(self._inner).next();
+          match(result,
+            .None => {
+              self._to_skip = usize(0);
+              return .None;
+            },
+            .Some(_) => { self._to_skip = (self._to_skip - usize(1)); }
+          );
+        };
+        &(self._inner).next()
+      }
+    )
+  )
+);
+
+export IterSkip;
+
+// ---------------------------------------------------------------------------
+// IterEnumerate
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that pairs each element with its zero-based index.
+///
+/// Created by calling `.enumerate()` on any iterator.
+/// Yields `IterPair(usize, A)` values where `_0` is the index and `_1` is
+/// the original element.
+IterEnumerate :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(_inner : I, _index : usize)
+);
+
+impl(forall(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterEnumerate(I),
+  Iterator(
+    Item : IterPair(usize, A),
+    next : (fn(self : *(Self)) -> Option(IterPair(usize, A)))(
+      match(&(self._inner).next(),
+        .None => .None,
+        .Some(item) => {
+          idx := self._index;
+          self._index = (self._index + usize(1));
+          .Some(IterPair(usize, A)(_0: idx, _1: item))
+        }
+      )
+    )
+  )
+);
+
+export IterEnumerate;
+
+// ---------------------------------------------------------------------------
+// IterZip
+// ---------------------------------------------------------------------------
+
+/// Lazy iterator that combines two iterators element-by-element into pairs.
+/// Stops as soon as either iterator is exhausted.
+///
+/// Created by calling `.zip(other)` on any iterator.
+/// Yields `IterPair(A, B)` values.
+IterZip :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
+  struct(_left : I, _right : J)
+);
+
+impl(forall(I : Type, J : Type, A : Type, B : Type),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := B)),
+  IterZip(I, J),
+  Iterator(
+    Item : IterPair(A, B),
+    next : (fn(self : *(Self)) -> Option(IterPair(A, B)))(
+      match(&(self._left).next(),
+        .None => .None,
+        .Some(a) => match(&(self._right).next(),
+          .None => .None,
+          .Some(b) => .Some(IterPair(A, B)(_0: a, _1: b))
+        )
+      )
+    )
+  )
+);
+
+export IterZip;
+
+// ---------------------------------------------------------------------------
+// Blanket methods — added to all types implementing Iterator
+// ---------------------------------------------------------------------------
+
+impl(forall(I : Type), where(I <: Iterator), I,
+  /// Transform each element with `f`, producing an `IterMap` iterator.
+  map : (fn(forall(A : Type, B : Type, F : Type), self : Self, f : F,
+            where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> B))) -> IterMap(Self, B, F))(
+    IterMap(Self, B, F)(_inner: self, _f: f)
+  ),
+
+  /// Keep only elements for which `pred` returns `true`, producing an `IterFilter` iterator.
+  filter : (fn(forall(A : Type, F : Type), self : Self, f : F,
+               where(Self <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool))) -> IterFilter(Self, F))(
+    IterFilter(Self, F)(_inner: self, _f: f)
+  ),
+
+  /// Yield at most `n` elements, producing an `IterTake` iterator.
+  take : (fn(forall(A : Type), self : Self, n : usize,
+             where(Self <: Iterator(Item := A))) -> IterTake(Self))(
+    IterTake(Self)(_inner: self, _remaining: n)
+  ),
+
+  /// Skip the first `n` elements, producing an `IterSkip` iterator.
+  skip : (fn(forall(A : Type), self : Self, n : usize,
+             where(Self <: Iterator(Item := A))) -> IterSkip(Self))(
+    IterSkip(Self)(_inner: self, _to_skip: n)
+  ),
+
+  /// Pair each element with its zero-based index, producing an `IterEnumerate` iterator.
+  enumerate : (fn(forall(A : Type), self : Self,
+                  where(Self <: Iterator(Item := A))) -> IterEnumerate(Self))(
+    IterEnumerate(Self)(_inner: self, _index: usize(0))
+  ),
+
+  /// Combine with another iterator element-by-element, producing an `IterZip` iterator.
+  zip : (fn(forall(A : Type, J : Type, B : Type), self : Self, other : J,
+            where(Self <: Iterator(Item := A), J <: Iterator(Item := B))) -> IterZip(Self, J))(
+    IterZip(Self, J)(_left: self, _right: other)
+  ),
+
+  /// Reduce the iterator to a single value by repeatedly applying `f`.
+  fold : (fn(forall(A : Type, Acc : Type, F : Type), self : Self, init : Acc, f : F,
+             where(Self <: Iterator(Item := A), F <: (Fn(acc : Acc, item : A) -> Acc))) -> Acc)(
+    {
+      acc := init;
+      iter := self;
+      while runtime(true), {
+        match(&iter.next(),
+          .None => { break; },
+          .Some(item) => { acc = (f)(acc, item); }
+        );
+      };
+      acc
+    }
+  ),
+
+  /// Apply `f` to each element, consuming the iterator.
+  for_each : (fn(forall(A : Type, F : Type), self : Self, f : F,
+                 where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> unit))) -> unit)(
+    {
+      iter := self;
+      while runtime(true), {
+        match(&iter.next(),
+          .None => { break; },
+          .Some(item) => { (f)(item); }
+        );
+      };
+    }
+  ),
+
+  /// Count the number of remaining elements.
+  count : (fn(forall(A : Type), self : Self,
+              where(Self <: Iterator(Item := A))) -> usize)(
+    {
+      n := usize(0);
+      iter := self;
+      while runtime(true), {
+        match(&iter.next(),
+          .None => { break; },
+          .Some(_) => { n = (n + usize(1)); }
+        );
+      };
+      n
+    }
+  ),
+
+  /// Return `true` if any element satisfies `pred`.  Short-circuits on first match.
+  any : (fn(forall(A : Type, F : Type), self : Self, pred : F,
+            where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))) -> bool)(
+    {
+      result := false;
+      iter := self;
+      while runtime(true), {
+        match(&iter.next(),
+          .None => { break; },
+          .Some(item) => {
+            cond(
+              (pred)(item) => { result = true; break; },
+              true => ()
+            );
+          }
+        );
+      };
+      result
+    }
+  ),
+
+  /// Return `true` if every element satisfies `pred`.  Short-circuits on first failure.
+  all : (fn(forall(A : Type, F : Type), self : Self, pred : F,
+            where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))) -> bool)(
+    {
+      result := true;
+      iter := self;
+      while runtime(true), {
+        match(&iter.next(),
+          .None => { break; },
+          .Some(item) => {
+            cond(
+              !(pred(item)) => { result = false; break; },
+              true => ()
+            );
+          }
+        );
+      };
+      result
+    }
+  )
+);
+
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
   /// The future has been created but not yet started.

@@ -63,6 +63,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
+  typeImplementsTrait,
   typeImplementsTraitBool,
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
@@ -2043,16 +2044,23 @@ function tryMatchGenericImpl({
         continue;
       }
 
-      // Check if the bound type implements the required trait
-      if (
-        !typeImplementsTraitBool({
-          targetType: boundType,
-          traitType: actualConstraintTrait,
-          env: expectedEnv,
-        })
-      ) {
+      // Check if the bound type implements the required trait.
+      // Use the full typeImplementsTrait (not Bool) so that bindings produced
+      // during trait satisfaction (e.g. synthesizing `A=i32` from
+      // `F <: Fn(item:A)->B` against `fn(item:i32)->i32`) are propagated back
+      // into expectedEnv.  This is necessary for forall params that are only
+      // constrained through where-clauses (not struct fields) to appear in the
+      // final substitutions map and avoid a false hasMissingForallParams skip.
+      const { implemented, env: afterConstraintEnv } = typeImplementsTrait({
+        targetType: boundType,
+        traitType: actualConstraintTrait,
+        env: expectedEnv,
+      });
+      if (!implemented) {
         return noMatch;
       }
+      // Propagate new bindings (e.g. A=i32) into expectedEnv.
+      expectedEnv = afterConstraintEnv;
     }
 
     // Extract type substitutions from the unified environment
@@ -2778,23 +2786,10 @@ export function evaluateModuleValue({
         });
       }
 
-      // Evaluate with isInsideWhereClause context
-      // This will attach the trait constraint to the SomeType's trait fields
-      const evaluated = evaluateExpression({
-        expr: constraintExpr,
-        env,
-        context: {
-          ...context,
-          isInsideWhereClause: true,
-        },
-      });
-      if (evaluated.$?.env) {
-        env = evaluated.$.env;
-      }
-
       const lhsExpr = constraintExpr.args[0]!;
       const rhsExpr = constraintExpr.args[1]!;
 
+      // Evaluate LHS first to get the SomeType (side-effect-free variable lookup)
       const evaluatedLhs = evaluateExpression({
         expr: lhsExpr,
         env,
@@ -2814,8 +2809,32 @@ export function evaluateModuleValue({
           errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
         });
       }
-      env = evaluatedLhs.$.env;
+      const lhsSomeType = evaluatedLhs.$.value.value;
 
+      // Snapshot constraint counts BEFORE the <: evaluation.
+      // addWhereClauseConstraintToEnv mutates in-place, so we capture lengths.
+      const constraintsBefore = getWhereClauseConstraintsForSomeType(
+        env,
+        lhsSomeType
+      );
+      const prevRequiredCount = constraintsBefore?.requiredTraits.length ?? 0;
+      const prevNegativeCount = constraintsBefore?.negativeTraits.length ?? 0;
+
+      // Evaluate with isInsideWhereClause context
+      // This will attach the trait constraint to the SomeType via addWhereClauseConstraintToEnv
+      const evaluated = evaluateExpression({
+        expr: constraintExpr,
+        env,
+        context: {
+          ...context,
+          isInsideWhereClause: true,
+        },
+      });
+      if (evaluated.$?.env) {
+        env = evaluated.$.env;
+      }
+
+      // Parse RHS trait expressions to collect the source ASTs
       const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
       if (
         exprIsFunctionCall(rhsExpr) &&
@@ -2842,29 +2861,41 @@ export function evaluateModuleValue({
         traitExprs.push({ expr: rhsExpr, isNegated: false });
       }
 
-      for (const { expr: traitExpr } of traitExprs) {
-        const evaluatedRhs = evaluateExpression({
-          expr: traitExpr,
-          env,
-          context: {
-            ...context,
-          },
-        });
+      // Get the ACTUAL constraint trait types that were added by the <: evaluation.
+      // These are the same TraitType objects stored in the env's whereClauseConstraints,
+      // which will be retrieved later in tryMatchGenericImpl. Using their IDs ensures
+      // the expression map keys match the constraint lookup keys.
+      // (Previously, re-evaluating the RHS created NEW TraitType objects with different
+      // IDs, causing Fn-trait expressions to be unfindable.)
+      const constraintsAfter = getWhereClauseConstraintsForSomeType(
+        env,
+        lhsSomeType
+      );
+      const newRequired =
+        constraintsAfter?.requiredTraits.slice(prevRequiredCount) ?? [];
+      const newNegative =
+        constraintsAfter?.negativeTraits.slice(prevNegativeCount) ?? [];
 
-        if (
-          !evaluatedRhs.$ ||
-          !evaluatedRhs.$.value ||
-          !isTypeValue(evaluatedRhs.$.value) ||
-          !isTraitType(evaluatedRhs.$.value.value)
-        ) {
-          throw formatErrorMessage({
-            token: traitExpr.token,
-            errorMessage: `Expected trait type for right-hand side expression.`,
-          });
+      let reqIdx = 0;
+      let negIdx = 0;
+      for (const { expr: traitExpr, isNegated } of traitExprs) {
+        if (isNegated) {
+          if (negIdx < newNegative.length) {
+            whereConstraintTraitExprById.set(
+              newNegative[negIdx]!.id,
+              cloneExpr(traitExpr)
+            );
+            negIdx++;
+          }
+        } else {
+          if (reqIdx < newRequired.length) {
+            whereConstraintTraitExprById.set(
+              newRequired[reqIdx]!.id,
+              cloneExpr(traitExpr)
+            );
+            reqIdx++;
+          }
         }
-        env = evaluatedRhs.$.env;
-        const traitType = evaluatedRhs.$.value.value;
-        whereConstraintTraitExprById.set(traitType.id, cloneExpr(traitExpr));
       }
     }
   }
