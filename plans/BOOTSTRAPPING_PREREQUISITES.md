@@ -150,13 +150,13 @@ impl(StringBuilder,
 
 **Estimated effort**: ~100–150 lines. Trivial wrapper around `ArrayList(u8)`.
 
-### 1.4 🟡 Ordered Map (`std/collections/ordered_map`)
+### 1.4 ✅ Ordered Map (`std/collections/ordered_map`) — Done
 
 **Why**: JavaScript `Map` preserves insertion order. The TS compiler relies on this in at least some places (struct field ordering, module member ordering, declaration ordering in codegen).
 
-**What's needed**: `OrderedMap(K, V)` using HashMap + ArrayList for O(1) lookup + insertion-order iteration.
+**What's implemented**: `OrderedMap(K, V)` backed by `HashMap(K, V)` for O(1) lookup + `ArrayList(K)` for insertion-order iteration. Public API: `new`, `len`, `is_empty`, `contains_key`, `get`, `set`, `remove`, `clear`, `keys`, `values`, `iter`. Iterators: `OrderedMapKeys`, `OrderedMapValues`, `OrderedMapIter` yielding `OrderedMapEntry(K, V)`.
 
-**Estimated effort**: ~300–400 lines.
+Verified by `tests/collections/ordered_map.test.yo` (9 tests, all passing). Covers empty, set/get, update preserves order, iteration, iter pairs, remove, clear, re-insert appends to end, 50-entry stress.
 
 ### 1.5 🟡 String Additions ✅ Done
 
@@ -421,7 +421,7 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 | 5   | Collection literal macros (array_list, hash_map, hash_set)                 | 🟡 P2    | 200–400               | Ergonomics throughout        |
 | 6   | StringBuilder (sync in-memory)                                             | 🟡 P2    | 100–150               | Codegen port                 |
 | 7   | String additions (repeat, join, lines)                                     | 🟡 P2    | 60–100                | Throughout                   |
-| 8   | OrderedMap                                                                 | 🟡 P2    | 300–400               | Evaluator port               |
+| 8   | OrderedMap                                                                 | ✅ Done  | 0                     | Evaluator port               |
 | 9   | ArgParser subcommand support                                               | ✅ Done  | 0                     | CLI port                     |
 | 10  | Large enum + recursive type verification                                   | 🟡 P2    | 0–300 (if fix needed) | AST design                   |
 | 11  | Closure capture verification                                               | 🟡 P2    | 0–200 (if fix needed) | Iterator usage               |
