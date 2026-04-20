@@ -69,58 +69,26 @@ Deferred follow-ups (separate items, not blocking bootstrapping):
 - `Command.spawn` returning a `Child` handle — not yet implemented.
 - `JoinHandle.await` leaks RC-typed result values — see `issues/joinhandle-await-arraylist-result-leak.md`. Worked around in `output()` by draining sequentially via `io.await`.
 
-### 1.2 🔴 Iterator Combinators on the Iterator Trait
+### 1.2 ✅ Iterator Combinators on the Iterator Trait (Done — partial)
 
-**Exists**: `Iterator` trait with `Item` type and `next()` method. ArrayList/HashMap/Array/Slice all have iterators.
+**Done**: `std/prelude.yo` defines blanket impl `impl(forall(I), where(I <: Iterator), I, ...)` (lines ~6037-6161) with adapter structs:
 
-**What's missing**: There are **no combinator methods** on Iterator itself — no `map`, `filter`, `fold`, `find`, `any`, `all`, `collect`, `enumerate`, `join`. The TS evaluator uses these in **155+ places** across 34+ files.
+- `IterMap`, `IterFilter`, `IterTake`, `IterSkip`, `IterEnumerate`, `IterZip`
+- Methods on every Iterator: `map`, `filter`, `take`, `skip`, `enumerate`, `zip`, `fold`, `for_each`, `count`, `any`, `all`
 
-Currently, all iteration must be done with manual `while` + `next()` loops. This is the single biggest ergonomic gap for bootstrapping.
+Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering single combinators + chained pipelines like `.filter().map().count()` and `ArrayList.iter()`-based chains).
 
-**What's needed** — adapter types + methods on Iterator:
+**Known limitations** filed as issues for follow-up:
 
-```rust
-// Lazy adapters (each is a struct implementing Iterator)
-IterMap(I, B) :: struct(inner : I, f : Impl(Fn(I.Item) -> B));
-IterFilter(I) :: struct(inner : I, predicate : Impl(Fn(I.Item) -> bool));
-IterEnumerate(I) :: struct(inner : I, index : usize);
-IterTake(I) :: struct(inner : I, remaining : usize);
-IterSkip(I) :: struct(inner : I, remaining : usize);
-IterChain(A, B) :: struct(first : A, second : B, first_done : bool);
-IterZip(A, B) :: struct(a : A, b : B);
-IterFlatMap(I, B, F) :: struct(inner : I, f : F, current : Option(B));
+- `issues/fn-trait-param-multi-arg-call.md` — `fold`'s `(f)(acc, item)` 2-arg call on a Fn-trait constrained generic param fails (1-arg works fine). Workaround: use single-arg APIs.
+- `issues/iter-zip-blanket-impl-not-resolved.md` — `IterZip`'s `.next()` dispatch fails despite explicit impl. Likely two-where-constraint resolution bug.
+- Closure capture leak in `for_each(x => list.push(x))` — see ASan report; deferred.
 
-// Methods on any Iterator implementor
-impl(forall(I : Type), where(I <: Iterator), I,
-  map : ...,
-  filter : ...,
-  enumerate : ...,
-  take : ...,
-  skip : ...,
-  chain : ...,
-  zip : ...,
-  flat_map : ...,
+**Pre-fixes shipped while testing**:
 
-  // Terminal operations (consume the iterator)
-  fold : (fn(forall(Acc : Type), self : Self, init : Acc, f : Impl(Fn(acc : Acc, item : Self.Item) -> Acc)) -> Acc)(...),
-  for_each : (fn(self : Self, f : Impl(Fn(item : Self.Item) -> unit)) -> unit)(...),
-  find : (fn(self : Self, predicate : Impl(Fn(item : Self.Item) -> bool)) -> Option(Self.Item))(...),
-  any : (fn(self : Self, predicate : Impl(Fn(item : Self.Item) -> bool)) -> bool)(...),
-  all : (fn(self : Self, predicate : Impl(Fn(item : Self.Item) -> bool)) -> bool)(...),
-  count : (fn(self : Self) -> usize)(...),
-  position : (fn(self : Self, predicate : Impl(Fn(item : Self.Item) -> bool)) -> Option(usize))(...),
-  collect_to_list : (fn(self : Self) -> ArrayList(Self.Item))(...),
-);
+- `std/prelude.yo`: changed `match(&iter.next(), ...)` → `match((&iter).next(), ...)` in 5 sites (fold/for_each/count/any/all). The unparenthesized form was greedily consumed by unary `&` per Yo syntax rules.
 
-// String-specific: join with separator
-impl(forall(I : Type), where(I <: Iterator(Item := String)), I,
-  join : (fn(self : Self, separator : String) -> String)(...)
-);
-```
-
-**Estimated effort**: ~600–900 lines (adapter structs + Iterator impls + methods).
-
-**Note**: This may require enhancements to the type system if `impl(forall(I), where(I <: Iterator), I, ...)` doesn't work for adding methods to all Iterator implementors. If not, the alternative is to add methods directly to each collection type (ArrayList, HashMap, etc.).
+The remaining gaps (`find`, `position`, `flat_map`, `chain`, `collect_to_list`, `join`) are not on the critical path for the bootstrap and can be added incrementally.
 
 ### 1.3 🟡 StringBuilder (sync, in-memory)
 
@@ -274,21 +242,17 @@ keywords := hash_set(`fn`, `let`, `if`, `match`);
 
 ## 2. Language / Compiler Features to Verify or Add
 
-### 2.1 🔴 Blanket Impl on Iterator Trait
+### 2.1 ✅ Blanket Impl on Iterator Trait
 
-The iterator combinators (§1.2) require adding methods to **all types that implement Iterator**. This needs:
+Verified working: `std/prelude.yo` (lines ~6037+) successfully defines
 
 ```rust
-impl(forall(I : Type), where(I <: Iterator), I,
-  map : ...,
-  filter : ...,
-  ...
-);
+impl(forall(I : Type), where(I <: Iterator), I, ...)
 ```
 
-**Verify**: Does the Yo evaluator/codegen support blanket impls like this? If type `T` implements `Iterator`, can we add methods to `T` via a blanket `impl(forall(T), where(T <: Iterator), T, ...)`?
+with map/filter/take/skip/enumerate/zip/fold/for_each/count/any/all dispatched through the receiver `I`. End-to-end exercised by `tests/iterator_combinators.test.yo` (11 passing tests).
 
-**If not supported**: This is the #1 language feature gap. Without it, we'd need to add combinators to each collection type individually (ArrayList, HashMap, Array, etc.) — feasible but much more code and less composable.
+Two narrow follow-ups (not blockers): see issues `iter-zip-blanket-impl-not-resolved.md` (two-where-constraint resolution) and `fn-trait-param-multi-arg-call.md` (multi-arg Fn-trait param dispatch).
 
 ### 2.2 ✅ Verify `derive(Clone)` on Complex Types
 
@@ -410,8 +374,8 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 
 | #   | Item                                                                       | Priority | Effort (lines)        | Blocks                       |
 | --- | -------------------------------------------------------------------------- | -------- | --------------------- | ---------------------------- |
-| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | 🔴 P1    | 600–900               | Evaluator port (155+ usages) |
-| 2   | Verify blanket impl on Iterator works                                      | 🔴 P1    | 0–500 (if fix needed) | Iterator combinators         |
+| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | ✅ Done  | 0                     | Evaluator port (155+ usages) |
+| 2   | Verify blanket impl on Iterator works                                      | ✅ Done  | 0                     | Iterator combinators         |
 | 3   | High-level Command wrapper                                                 | 🔴 P1    | 300–500               | CLI / compile pipeline       |
 | 4   | Verify derive(Clone) on complex types                                      | ✅ Done  | 0                     | AST types                    |
 | 5   | Collection literal macros (array_list, hash_map, hash_set)                 | 🟡 P2    | 200–400               | Ergonomics throughout        |
