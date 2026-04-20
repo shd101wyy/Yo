@@ -413,6 +413,20 @@ export function synthesizeTypes(
       );
       const variable = existingVariables[existingVariables.length - 1];
       if (!variable) {
+        // Place the binding at the SomeType's definitionFrameLevel when
+        // possible, so subsequent lookups via `getValueOfSomeTypeFromEnv`
+        // (which keys off `definitionFrameLevel`) can find it. Without this
+        // the binding goes onto the top frame and the fast/fallback paths in
+        // env-lookup miss it, returning the SomeType as "unbound".
+        let deltaFrame: number | undefined = undefined;
+        const defLevel = expected.type.definitionFrameLevel;
+        if (
+          defLevel !== undefined &&
+          defLevel >= 0 &&
+          defLevel < expected.env.frames.length
+        ) {
+          deltaFrame = defLevel - (expected.env.frames.length - 1);
+        }
         const { env: nextEnv } = addVariableToEnv({
           env: expected.env,
           variable: {
@@ -425,6 +439,7 @@ export function synthesizeTypes(
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheRcValue: false,
           },
+          deltaFrame,
         });
         expected.env = nextEnv;
       } else if (variable) {

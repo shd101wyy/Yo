@@ -606,6 +606,28 @@ function evaluateImplFieldList({
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
+ * Set of "receiverTypeId:traitTypeId" pairs that are currently mid-registration
+ * in evaluateModuleValue (non-generic impls only). Used to handle recursive types
+ * such as `TreeNode :: enum(Branch(left: Box(Self), ...))` with `derive(TreeNode, Clone)`:
+ * when the clone body validates `Box(TreeNode) <: Clone`, it checks `TreeNode <: Clone`,
+ * which would fail because the impl hasn't been registered yet.
+ */
+const currentlyRegisteringConcreteImpls: Set<string> = new Set();
+
+/**
+ * Check if a concrete impl (receiverTypeId : traitTypeId) is currently being
+ * registered. Called from typeImplementsTrait to handle recursive trait impls.
+ */
+export function isConcreteImplBeingRegistered(
+  receiverTypeId: string,
+  traitTypeId: string
+): boolean {
+  return currentlyRegisteringConcreteImpls.has(
+    `${receiverTypeId}:${traitTypeId}`
+  );
+}
+
+/**
  * Version counter for the generic impl registry. Incremented whenever a new
  * generic impl is registered or the registry is mutated. Used to invalidate
  * the method lookup cache.
@@ -2682,12 +2704,42 @@ export function evaluateModuleValue({
     const isStructuralType =
       isSliceType(receiverType) || isArrayType(receiverType);
 
-    const { env: nextEnv, traitEntries } = evaluateImplFieldList({
-      fieldExprs,
-      env,
-      context: { ...context },
-      receiverType,
-    });
+    // Pre-register concrete trait impls being evaluated so that recursive types
+    // (e.g. TreeNode containing Box(TreeNode)) can find their own Clone impl
+    // while the function body is being validated.
+    const preRegisteredKeys: string[] = [];
+    for (const fExpr of fieldExprs) {
+      // Skip named-field assignments (label : value) — not trait names
+      if (exprIsFunctionCall(fExpr) && exprIsFunctionCallOf(fExpr, ":", 2)) {
+        continue;
+      }
+      // Trait name is either the atom value (bare trait like `Hash`) or the
+      // head token of a call expr (parameterized trait like `Clone(...)` or
+      // `Eq(Point)(...)`). All trait names start with uppercase.
+      const traitName = fExpr.token.value;
+      if (traitName && /^[A-Z]/.test(traitName)) {
+        const key = `${receiverType.id}:${traitName}`;
+        currentlyRegisteringConcreteImpls.add(key);
+        preRegisteredKeys.push(key);
+      }
+    }
+
+    let nextEnv: Environment;
+    let traitEntries: ImplTraitEntry[];
+    try {
+      const result = evaluateImplFieldList({
+        fieldExprs,
+        env,
+        context: { ...context },
+        receiverType,
+      });
+      nextEnv = result.env;
+      traitEntries = result.traitEntries;
+    } finally {
+      for (const key of preRegisteredKeys) {
+        currentlyRegisteringConcreteImpls.delete(key);
+      }
+    }
     env = nextEnv;
 
     if (traitEntries.length === 0) {

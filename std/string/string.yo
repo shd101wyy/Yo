@@ -1558,6 +1558,226 @@ impl(String,
   )
 );
 
+/// === String utility methods ===
+
+/**
+ * Line iterator for `String` — yields one line at a time (split on `\n`).
+ * The trailing newline is not included in each yielded line.
+ * Used by `lines()`.
+ */
+StringLines :: struct(
+  _string     : String,
+  _byte_index : usize
+);
+
+impl(StringLines, Iterator(
+  Item : String,
+  next : (fn(self : *(Self)) -> Option(String))(
+    match(self._string._bytes,
+      .None => .None,
+      .Some(al) => {
+        total := al.len();
+        cond(
+          (self._byte_index >= total) => .None,
+          true => {
+            start := self._byte_index;
+            i := start;
+            while ((i < total)),
+                  (i = (i + usize(1))),
+            {
+              byte_opt := al.get(i);
+              match(byte_opt,
+                .Some(b) => {
+                  cond(
+                    (b == u8(10)) => { break; },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
+            line_buf := ArrayList(u8).with_capacity((i - start));
+            j := start;
+            while ((j < i)),
+                  (j = (j + usize(1))),
+            {
+              byte_opt := al.get(j);
+              match(byte_opt,
+                .Some(b) => { line_buf.push(b); },
+                .None => ()
+              );
+            };
+            self._byte_index = cond(
+              (i < total) => (i + usize(1)),
+              true => total
+            );
+            cond(
+              (line_buf.len() == usize(0)) => .Some(String(_bytes: .None)),
+              true => .Some(String(_bytes: .Some(line_buf)))
+            )
+          }
+        )
+      }
+    )
+  )
+));
+
+impl(String,
+  /**
+   * Returns a line iterator over the string.
+   * Each call to `next()` yields the next line (without the trailing `\n`).
+   *
+   * ## Example
+   * ```rust
+   * s := `hello\nworld`;
+   * iter := s.lines();
+   * assert(iter.next() == .Some(`hello`), "first line");
+   * assert(iter.next() == .Some(`world`), "second line");
+   * assert(iter.next() == .None, "done");
+   * ```
+   */
+  lines : (fn(self : Self) -> StringLines)(
+    StringLines(_string: self, _byte_index: usize(0))
+  ),
+
+  /**
+   * Returns a new string containing `n` copies of `self`.
+   * Returns an empty string when `n == 0` or `self` is empty.
+   *
+   * ## Example
+   * ```rust
+   * assert(`ab`.repeat(usize(3)) == `ababab`, "repeat");
+   * assert(`x`.repeat(usize(0)) == ``, "repeat 0");
+   * ```
+   */
+  repeat : (fn(self: Self, n: usize) -> Self)({
+    cond(
+      (n == usize(0)) => Self(_bytes: .None),
+      self.is_empty() => Self(_bytes: .None),
+      true => {
+        self_byte_len := self.bytes_len();
+        total := (self_byte_len * n);
+        buf := ArrayList(u8).with_capacity(total);
+        i := usize(0);
+        while ((i < n)),
+              (i = (i + usize(1))),
+        {
+          match(self._bytes,
+            .Some(al) => {
+              j := usize(0);
+              while ((j < self_byte_len)),
+                    (j = (j + usize(1))),
+              {
+                byte_opt := al.get(j);
+                match(byte_opt,
+                  .Some(b) => { buf.push(b); },
+                  .None => ()
+                );
+              };
+            },
+            .None => ()
+          );
+        };
+        Self(_bytes: .Some(buf))
+      }
+    )
+  }),
+
+  /**
+   * Join an `ArrayList(String)` with this string as separator.
+   * Returns an empty string when `items` is empty.
+   *
+   * ## Example
+   * ```rust
+   * items := ArrayList(String).new();
+   * items.push(`a`);
+   * items.push(`b`);
+   * items.push(`c`);
+   * result := `, `.join(items);
+   * assert(result == `a, b, c`, "join");
+   * ```
+   */
+  join : (fn(self: Self, items: ArrayList(Self)) -> Self)({
+    count := items.len();
+    cond(
+      (count == usize(0)) => Self(_bytes: .None),
+      true => {
+        sep_byte_len := self.bytes_len();
+        total_bytes := usize(0);
+        k := usize(0);
+        while ((k < count)),
+              (k = (k + usize(1))),
+        {
+          item_opt := items.get(k);
+          match(item_opt,
+            .Some(item) => {
+              total_bytes = (total_bytes + item.bytes_len());
+            },
+            .None => ()
+          );
+        };
+        cond(
+          (count > usize(1)) => {
+            total_bytes = (total_bytes + (sep_byte_len * (count - usize(1))));
+          },
+          true => ()
+        );
+        buf := ArrayList(u8).with_capacity(total_bytes);
+        m := usize(0);
+        while ((m < count)),
+              (m = (m + usize(1))),
+        {
+          item_opt := items.get(m);
+          match(item_opt,
+            .Some(item) => {
+              match(item._bytes,
+                .Some(al) => {
+                  p := usize(0);
+                  while ((p < al.len())),
+                        (p = (p + usize(1))),
+                  {
+                    byte_opt := al.get(p);
+                    match(byte_opt,
+                      .Some(b) => { buf.push(b); },
+                      .None => ()
+                    );
+                  };
+                },
+                .None => ()
+              );
+              cond(
+                (m < (count - usize(1))) => {
+                  match(self._bytes,
+                    .Some(sep_al) => {
+                      q := usize(0);
+                      while ((q < sep_byte_len)),
+                            (q = (q + usize(1))),
+                      {
+                        byte_opt := sep_al.get(q);
+                        match(byte_opt,
+                          .Some(b) => { buf.push(b); },
+                          .None => ()
+                        );
+                      };
+                    },
+                    .None => ()
+                  );
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        };
+        cond(
+          (buf.len() == usize(0)) => Self(_bytes: .None),
+          true => Self(_bytes: .Some(buf))
+        )
+      }
+    )
+  })
+);
+
 /// === Numeric parsing methods ===
 
 impl(String,
@@ -1932,9 +2152,33 @@ impl(String, Index(usize)(
   )
 ));
 
+/// Clone implementation — produces an independent byte-level copy.
+impl(String, Clone(
+  clone : (fn(self: *(Self)) -> Self)(
+    match(self._bytes,
+      .None => Self(_bytes: .None),
+      .Some(al) => {
+        n := al.len();
+        cond(
+          (n == usize(0)) => Self(_bytes: .None),
+          true => {
+            buf := ArrayList(u8).with_capacity(n);
+            match(al._ptr,
+              .Some(ptr) => buf.extend_from_ptr(ptr, n),
+              .None => ()
+            );
+            Self(_bytes: .Some(buf))
+          }
+        )
+      }
+    )
+  )
+));
+
 export
   String,
   StringError,
   StringChars,
-  StringBytes
+  StringBytes,
+  StringLines
 ;

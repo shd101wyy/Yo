@@ -1,0 +1,160 @@
+open import "std/string";
+open import "std/collections/array_list";
+
+// ===== String.repeat =====
+
+test "repeat basic", {
+  assert((`ab`.repeat(usize(3)) == `ababab`), "repeat 3");
+};
+
+test "repeat zero", {
+  assert(`x`.repeat(usize(0)).is_empty(), "repeat 0");
+};
+
+test "repeat one", {
+  assert((`hello`.repeat(usize(1)) == `hello`), "repeat 1");
+};
+
+test "repeat empty string", {
+  assert(``.repeat(usize(5)).is_empty(), "repeat empty");
+};
+
+// ===== String.join =====
+
+test "join three items", {
+  items := ArrayList(String).new();
+  items.push(`a`);
+  items.push(`b`);
+  items.push(`c`);
+  assert((`, `.join(items) == `a, b, c`), "join 3");
+};
+
+test "join one item", {
+  items := ArrayList(String).new();
+  items.push(`only`);
+  assert((`, `.join(items) == `only`), "join 1");
+};
+
+test "join empty list", {
+  assert(`x`.join(ArrayList(String).new()).is_empty(), "join 0");
+};
+
+test "join no separator", {
+  items := ArrayList(String).new();
+  items.push(`foo`);
+  items.push(`bar`);
+  assert((``.join(items) == `foobar`), "join no sep");
+};
+
+// ===== String.lines =====
+
+test "lines basic", {
+  iter := `foo\nbar\nbaz`.lines();
+  l1 := iter.next();
+  l2 := iter.next();
+  l3 := iter.next();
+  l4 := iter.next();
+  match(l1, .Some(v) => assert((v == `foo`), "l1"), .None => assert(false, "l1 none"));
+  match(l2, .Some(v) => assert((v == `bar`), "l2"), .None => assert(false, "l2 none"));
+  match(l3, .Some(v) => assert((v == `baz`), "l3"), .None => assert(false, "l3 none"));
+  match(l4, .Some(_) => assert(false, "l4 should be none"), .None => ());
+};
+
+test "lines single line no newline", {
+  iter := `hello`.lines();
+  l1 := iter.next();
+  l2 := iter.next();
+  match(l1, .Some(v) => assert((v == `hello`), "single"), .None => assert(false, "none"));
+  match(l2, .Some(_) => assert(false, "should be none"), .None => ());
+};
+
+test "lines trailing newline", {
+  iter := `a\nb\n`.lines();
+  l1 := iter.next();
+  l2 := iter.next();
+  l3 := iter.next();
+  match(l1, .Some(v) => assert((v == `a`), "l1"), .None => assert(false, "l1 none"));
+  match(l2, .Some(v) => assert((v == `b`), "l2"), .None => assert(false, "l2 none"));
+  match(l3, .Some(_) => assert(false, "l3 should be none"), .None => ());
+};
+
+test "lines empty string", {
+  iter := ``.lines();
+  match(iter.next(), .Some(_) => assert(false, "should be none"), .None => ());
+};
+
+// ===== StringBuilder =====
+
+test "StringBuilder new is empty", {
+  sb := StringBuilder.new();
+  assert(sb.is_empty(), "empty");
+  assert((sb.len() == usize(0)), "len 0");
+};
+
+test "StringBuilder write_str", {
+  sb := StringBuilder.new();
+  sb.write_str("hello");
+  sb.write_str(", world");
+  result := sb.to_string();
+  assert((result == `hello, world`), "write_str");
+};
+
+test "StringBuilder write_string", {
+  sb := StringBuilder.new();
+  sb.write_string(`foo`);
+  sb.write_string(`bar`);
+  result := sb.to_string();
+  assert((result == `foobar`), "write_string");
+};
+
+test "StringBuilder write_byte", {
+  sb := StringBuilder.new();
+  sb.write_byte(u8(65));  // 'A'
+  sb.write_byte(u8(66));  // 'B'
+  sb.write_byte(u8(67));  // 'C'
+  result := sb.to_string();
+  assert((result == `ABC`), "write_byte");
+};
+
+test "StringBuilder write_line", {
+  sb := StringBuilder.new();
+  sb.write_line(`line1`);
+  sb.write_line(`line2`);
+  result := sb.to_string();
+  assert((result == `line1\nline2\n`), "write_line");
+};
+
+test "StringBuilder to_string empties buffer", {
+  sb := StringBuilder.new();
+  sb.write_str("data");
+  _ := sb.to_string();
+  assert(sb.is_empty(), "empty after to_string");
+  result2 := sb.to_string();
+  assert(result2.is_empty(), "empty string after clear");
+};
+
+test "StringBuilder clear", {
+  sb := StringBuilder.new();
+  sb.write_str("abc");
+  sb.clear();
+  assert(sb.is_empty(), "cleared");
+  sb.write_str("xyz");
+  assert((sb.to_string() == `xyz`), "after clear");
+};
+
+test "StringBuilder with_capacity", {
+  sb := StringBuilder.with_capacity(usize(64));
+  sb.write_string(`hello`);
+  assert((sb.to_string() == `hello`), "with_capacity");
+};
+
+test "StringBuilder mixed writes", {
+  sb := StringBuilder.new();
+  sb.write_str("Hello");
+  sb.write_byte(u8(44));   // ','
+  sb.write_byte(u8(32));   // ' '
+  sb.write_string(`world`);
+  sb.write_byte(u8(33));   // '!'
+  result := sb.to_string();
+  assert((result == `Hello, world!`), "mixed");
+};

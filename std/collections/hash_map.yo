@@ -673,6 +673,32 @@ impl(forall(K : Type, V : Type), HashMap(K, V), Index(K)(
   })
 ));
 
+/// Clone implementation for HashMap — deep-clones all key-value entries.
+impl(forall(K : Type, V : Type),
+     where(K <: (Clone, Eq(K), Hash), V <: Clone),
+     HashMap(K, V),
+     Clone(
+       clone : (fn(self: *(Self)) -> Self)(
+         {
+           result := Self.new();
+           it := self.iter();
+           running := true;
+           while running, {
+             nxt := it.next();
+             match(nxt,
+               .None => { running = false; },
+               .Some(bucket_ptr) => {
+                 k := (&(bucket_ptr.*.key)).clone();
+                 v := (&(bucket_ptr.*.value)).clone();
+                 result.set(k, v);
+               }
+             );
+           };
+           result
+         }
+       )
+     ));
+
 export
   HashMap,
   HashMapError,

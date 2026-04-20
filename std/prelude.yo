@@ -5380,6 +5380,26 @@ impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorTyp
   )
 );
 
+/// Clone for `Option(T)` — clones the inner value when `Some`.
+impl(forall(T : Type), where(T <: Clone), Option(T), Clone(
+  clone : ((self) ->
+    match(self.*,
+      .None => Option(T).None,
+      .Some(v) => Option(T).Some((&v).clone())
+    )
+  )
+));
+
+/// Clone for `Result(T, E)` — clones the inner value or error.
+impl(forall(T : Type, E : Type), where(T <: Clone, E <: Clone), Result(T, E), Clone(
+  clone : ((self) ->
+    match(self.*,
+      .Ok(v) => Result(T, E).Ok((&v).clone()),
+      .Err(e) => Result(T, E).Err((&e).clone())
+    )
+  )
+));
+
 export
   Result
 ;
@@ -5417,6 +5437,13 @@ impl(forall(T : Type),
        Box(T),
        Eq(Box(T))(
          (==) : ((lhs, rhs) -> (lhs.* == rhs.*))
+       )
+);
+impl(forall(T : Type),
+       where(T <: Clone),
+       Box(T),
+       Clone(
+         clone : ((self) -> box((&(self.*.*)).clone()))
        )
 );
 

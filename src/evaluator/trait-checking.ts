@@ -43,6 +43,7 @@ import type { EvaluatorContext } from "./context";
 import {
   findAssociatedTypeFromGenericImpls,
   findMatchingGenericImpl,
+  isConcreteImplBeingRegistered,
 } from "./values/impl";
 
 /**
@@ -53,6 +54,31 @@ import {
  * if SomeType implements Runtime, which could loop indefinitely.
  */
 const traitCheckRecursionGuard = new Set<string>();
+
+/**
+ * Tracks concrete impls currently being registered.
+ * Used to handle recursive types (e.g., TreeNode: Clone where TreeNode contains Box(TreeNode)).
+ * When `impl(TreeNode, Clone(...))` is being processed, its function bodies are validated
+ * before the impl is formally registered. This set lets `typeImplementsTrait` return `true`
+ * for `TreeNode: Clone` during that window.
+ *
+ * Key format: `${typeId}:${traitTypeId}`
+ */
+const currentlyRegisteringConcreteImpls = new Set<string>();
+
+export function markConcreteImplBeingRegistered(
+  typeId: string,
+  traitId: string
+): void {
+  currentlyRegisteringConcreteImpls.add(`${typeId}:${traitId}`);
+}
+
+export function unmarkConcreteImplBeingRegistered(
+  typeId: string,
+  traitId: string
+): void {
+  currentlyRegisteringConcreteImpls.delete(`${typeId}:${traitId}`);
+}
 
 function typeImplementsComptimeBuiltin(
   type: Type | undefined
@@ -452,6 +478,24 @@ export function typeImplementsTrait({
       return { implemented: false, env };
     }
     targetType = resolvedType;
+  }
+
+  // 7.5. Check if this concrete impl is currently being registered.
+  // This handles recursive types: when `impl(TreeNode, Clone(...))` is being
+  // evaluated, its function bodies see `Box(TreeNode): Clone` which requires
+  // `TreeNode: Clone` — but that impl is in progress. Return true to unblock.
+  if (
+    currentlyRegisteringConcreteImpls.has(`${targetType.id}:${traitType.id}`)
+  ) {
+    return { implemented: true, env };
+  }
+
+  // 7.5. Check if a non-generic concrete impl for this type+trait is currently
+  // being registered (handles recursive types like TreeNode containing Box(Self)
+  // with derive(TreeNode, Clone)). The impl hasn't been added to the registry yet
+  // but is guaranteed to exist once registration completes.
+  if (isConcreteImplBeingRegistered(targetType.id, traitType.typeName ?? "")) {
+    return { implemented: true, env };
   }
 
   // 8. Generic impl registry.
