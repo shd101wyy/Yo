@@ -1215,7 +1215,7 @@ export function evaluateFunctionCall({
             (isSomeType(value.value) || isDynType(value.value))
           ) {
             const wrapperType = value.value;
-            const fnModuleType = extractFnTraitFromType(wrapperType);
+            const fnModuleType = extractFnTraitFromType(wrapperType, env);
             if (fnModuleType) {
               try {
                 tryToImplementClosureByFnModuleType({
@@ -2088,10 +2088,10 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
   } else if (
     // Check if it's a closure call
     (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-    extractFnTraitFromType(functionToCall.type)
+    extractFnTraitFromType(functionToCall.type, env)
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-    const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+    const fnModuleType = extractFnTraitFromType(functionToCall.type, env)!;
 
     // Re-call tryToCallFunctionWithArguments with the ORIGINAL args (not clones).
     // The checking phase used cloned args (which get $ annotations but are discarded),
@@ -2171,10 +2171,27 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     // Preserve runtimeArgExprsInOrder and deferredDropExpressions if func was
     // a pre-evaluated function call (chained call pattern like `opt.unwrap()(args)`).
     const isChainedCallCallee = exprIsFunctionCall(func);
+    // If the resolved value is a plain top-level FunctionValue (not a closure
+    // value), expose its concrete FunctionType on `func.$.type` so codegen takes
+    // the direct-call path instead of the closure-call (`.call(.data)`) path.
+    // This handles `(f)(args)` where f : F with where(F <: Fn(...)) is bound
+    // to a top-level named function.
+    const resolvedFuncValue = specializedFunctionValue || functionToCall.value;
+    let funcExprType: Type = functionToCall.type;
+    if (
+      isSomeType(functionToCall.type) &&
+      isFunctionValue(resolvedFuncValue) &&
+      isFunctionType(
+        resolvedFuncValue.specializedType ?? resolvedFuncValue.type
+      )
+    ) {
+      funcExprType =
+        resolvedFuncValue.specializedType ?? resolvedFuncValue.type;
+    }
     func.$ = {
       env,
-      type: functionToCall.type,
-      value: specializedFunctionValue || functionToCall.value,
+      type: funcExprType,
+      value: resolvedFuncValue,
       pathCollection: [],
       runtimeArgExprsInOrder: func.$?.runtimeArgExprsInOrder,
       deferredDropExpressions: func.$?.deferredDropExpressions,
@@ -2183,8 +2200,8 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     if (methodExpr) {
       methodExpr.$ = {
         env,
-        type: functionToCall.type,
-        value: specializedFunctionValue || functionToCall.value,
+        type: funcExprType,
+        value: resolvedFuncValue,
         pathCollection: [],
       };
     }

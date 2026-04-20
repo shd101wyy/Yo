@@ -30,16 +30,25 @@ to the "Function call is not implemented yet" throw at line ~2576.
 - `std/prelude.yo` — `Iterator.fold` (line ~6075)
 - Any user combinator with a 2-argument Fn callback through a generic param.
 
-## Workaround
+## Status: RESOLVED
 
-For now, restructure the API to take 1-arg callbacks (e.g., capture `acc` in
-a Box passed by reference), or call the function by its concrete name
-(non-generic).
+Fixed by:
 
-## Suggested fix
+1. **Evaluator** (`src/evaluator/calls/function.ts`): pass `env` to
+   `extractFnTraitFromType` at lines 1218, 2091, 2094 so where-clause
+   constraints stored on `env.whereClauseConstraints` are consulted (not just
+   `requiredTraits`). Without `env` these calls returned undefined for
+   forall-F-with-where-Fn cases and the dispatch fell through to "Function
+   call is not implemented yet". This also fixes the SINGLE-arg case for
+   top-level (non-lambda) function values passed through such params.
 
-In `tryToCallFunctionWithArguments` (`src/evaluator/calls/function.ts`), the
-SomeType/DynType branch (~line 2088) should handle the multi-arg case the
-same way as 1-arg. Investigate whether `extractFnTraitFromType` returns the
-correct `callType` when the Fn trait has 2+ params, and whether the arg
-binding loop assumes a single arg.
+2. **Codegen** (`src/codegen/exprs/other-fn-call.ts`): when `expr.func` is an
+   atom referencing a parameter of `currentFunctionType` whose specialized
+   type is a `FunctionType`, emit a direct C call `f(args...)` and use the
+   parameter's `return.type` as the result type. Previously the closure-call
+   branch always emitted `(f).call((f).data, args...)`, which mismatched the
+   function-pointer C parameter declared by `declarations.ts`, and used the
+   unspecialized `Acc` callsig return type (rendered as `void*`).
+
+Verified with `tests/iterator_combinators.test.yo` (fold, two-arg combinators
+re-enabled) plus `tmp/fn_multiarg*.yo` and `tmp/any_named_fn.yo`.

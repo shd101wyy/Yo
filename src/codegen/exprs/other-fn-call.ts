@@ -1088,9 +1088,16 @@ export function generateOtherFunctionCall(
         }
       }
     }
-  } else if (functionType && typeImplementsFn(functionType)) {
+  } else if (
+    functionType &&
+    (typeImplementsFn(functionType) ||
+      extractFnTraitFromType(functionType, expr.func.$?.env))
+  ) {
     const closureValueType = functionType;
-    const fnModule = extractFnTraitFromType(closureValueType)!;
+    const fnModule = extractFnTraitFromType(
+      closureValueType,
+      expr.func.$?.env
+    )!;
     // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
     const isDynClosure = isDynType(closureValueType);
     {
@@ -1236,8 +1243,32 @@ export function generateOtherFunctionCall(
         // Dispatch:
         // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
         // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)
+        // - Function pointer parameter: direct call f(args...)
+        //   (when the parameter is a forall F constrained by where(F <: Fn(...)),
+        //    specialization replaces F with a concrete FunctionType, and the C
+        //    parameter is declared as a function pointer in declarations.ts.)
         let closureCall: string;
-        if (isDynClosure) {
+        let isFunctionPointerParam = false;
+        let functionPointerReturnType: Type | undefined;
+        if (
+          exprIsAtom(expr.func) &&
+          (context as FunctionGenerationContext).currentFunctionType
+        ) {
+          const funcVarName = expr.func.token.value;
+          const curFnType = (context as FunctionGenerationContext)
+            .currentFunctionType!;
+          const matchedParam = curFnType.parameters.find(
+            (p) => p.label === funcVarName
+          );
+          if (matchedParam && isFunctionType(matchedParam.type)) {
+            isFunctionPointerParam = true;
+            functionPointerReturnType = (matchedParam.type as FunctionType)
+              .return.type;
+          }
+        }
+        if (isFunctionPointerParam) {
+          closureCall = `${closureCode}(${args.join(", ")})`;
+        } else if (isDynClosure) {
           const allArgs = [`(${closureCode}).data`, ...args];
           closureCall = `(${closureCode}).vtable->call(${allArgs.join(", ")})`;
         } else {
@@ -1297,7 +1328,8 @@ export function generateOtherFunctionCall(
         }
 
         // Get return type from the closure's function signature
-        const returnType = callSig.return.type;
+        // (or from the specialized function-pointer parameter when applicable)
+        const returnType = functionPointerReturnType ?? callSig.return.type;
 
         if (isUnitType(returnType)) {
           // If the closure returns unit, just call it without assignment

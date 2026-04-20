@@ -109,8 +109,6 @@ test "iter.enumerate pairs index with value", {
 };
 
 // --- zip -------------------------------------------------------------------
-
-// --- zip -------------------------------------------------------------------
 // NOTE: iter.zip end-to-end is currently failing trait method dispatch:
 //   "No matching call found with arguments: (&it).next()"
 // This appears to be an impl-resolution issue with IterZip's two-where-clause
@@ -119,10 +117,18 @@ test "iter.enumerate pairs index with value", {
 // issues/iter-zip-blanket-impl-not-resolved.md.
 
 // --- fold ------------------------------------------------------------------
-// NOTE: fold's body uses a 2-arg call `(f)(acc, item)` on a Fn-trait param.
-// Multi-arg dispatch through a generic Fn-trait param currently fails with
-// "Function call is not implemented yet". Single-arg cases (map/filter/any/all)
-// work fine. Tracked in issues/fn-trait-param-multi-arg-call.md.
+
+test "iter.fold sums values", {
+  add :: (fn(acc : i32, x : i32) -> i32)((acc + x));
+  total := my_range(i32(1), i32(6)).fold(i32(0), add);
+  assert((total == i32(15)), "1+2+3+4+5=15");
+};
+
+test "iter.fold with single accumulation", {
+  mul :: (fn(acc : i32, x : i32) -> i32)((acc * x));
+  prod := my_range(i32(1), i32(5)).fold(i32(1), mul);
+  assert((prod == i32(24)), "1*2*3*4=24");
+};
 
 // --- for_each --------------------------------------------------------------
 // NOTE: for_each with a closure that captures an ArrayList currently leaks
@@ -178,7 +184,12 @@ test "ArrayList.iter combinators", {
   list.push(i32(4));
   list.push(i32(5));
 
-  // fold deferred — see fold note above; use count to verify .iter() chain works
+  add :: (fn(acc : i32, x : i32) -> i32)((acc + x));
+  even_sum := list.iter()
+    .filter(p => ((p.*.* % i32(2)) == i32(0)))
+    .fold(i32(0), (fn(acc : i32, p : *(i32)) -> i32)((acc + p.*)));
+  assert((even_sum == i32(6)), "2+4=6");
+
   even_count := list.iter()
     .filter(p => ((p.*.* % i32(2)) == i32(0)))
     .count();
