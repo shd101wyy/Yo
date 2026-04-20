@@ -5757,9 +5757,9 @@ try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
   quote {
     unquote(temp) := unquote(expr_to_try);
     match(unquote(temp),
-      .Ok => unquote(temp).value,
-      .Err => {
-        return unquote(temp).error;
+      .Ok(value) => value,
+      .Err(error) => {
+        return .Err(error);
       }
     )
   }
