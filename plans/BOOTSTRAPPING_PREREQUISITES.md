@@ -256,11 +256,16 @@ Hash: covered by existing `tests/derive.test.yo` (struct + fieldless enum hash).
 
 ## 3. Tooling Prerequisites
 
-### 3.1 🟡 Single-File C Amalgamation (`--amalgamate`)
+### 3.1 ✅ Single-File C Amalgamation — Effectively Done (libc allocator)
 
-**What's needed**: A flag for `yo compile` that produces a single `.c` file containing all generated code + runtime. Needed for distributing `yo.c`.
+`yo compile --emit-c --skip-c-compiler --allocator libc` already produces a **fully self-contained single `.c` file** that compiles with just `clang -std=c11 file.c -o out` — no extra source files, no vendored allocator dependency. This is the amalgamation we need for distributing pre-built single-source releases of the Yo compiler (`yo.c`).
 
-**Estimated effort**: ~200 lines. Mostly a build system / codegen concern.
+Verified: a hello-world program emits a 1.2k-line self-contained `.c` file that compiles and runs cleanly with `clang -std=c11 -O2`.
+
+**Optional future work** (not blocking bootstrap):
+
+- Inline `vendor/mimalloc/src/static.c` into the emitted `.c` when `--allocator mimalloc` is selected, so the high-performance allocator path is also single-file.
+- Add a dedicated `--amalgamate` CLI flag as a documented alias for `--emit-c --skip-c-compiler --allocator libc`.
 
 ### 3.2 🟢 Cross-Compilation Targets
 
@@ -302,7 +307,7 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 | 12  | `?` operator for Option/Result (`try` macro)                               | ✅ Done     | 0              | Evaluator ergonomics         |
 | 13  | Derive ToString/Eq/Hash quality verification                               | ✅ Done     | 0              | Error messages               |
 | 14  | Temporary files/directories                                                | ✅ Done     | 0              | Codegen tests, build cache   |
-| 15  | Single-file C amalgamation                                                 | 🟢 P3       | 200            | Distribution                 |
+| 15  | Single-file C amalgamation                                                 | ✅ Done     | 0              | Distribution                 |
 | 16  | Cross-compilation targets                                                  | 🟢 P3       | 300–500        | CI/CD                        |
 
-**Status**: All P1/P2 items complete or deferred with documented workarounds. Remaining P3 items (amalgamation, cross-compilation) are distribution/release concerns and do not block Phase 1 of the bootstrap effort.
+**Status**: All P1/P2 items and §3.1 are complete or deferred with documented workarounds. The only remaining item (§3.2 cross-compilation) is a CI/CD concern that does not block Phase 1 of the bootstrap effort.
