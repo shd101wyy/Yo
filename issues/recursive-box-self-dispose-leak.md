@@ -94,3 +94,24 @@ enum type, not via Box.
 **Blocker for the bootstrap port** — every AST-shaped data structure
 in the evaluator/codegen will be a recursive enum with `Box(Self)`
 fields. Must be fixed before serious self-hosting work can begin.
+
+---
+
+## Resolution (FIXED)
+
+Fixed by adding a post-pass `regenerateRcFunctionsForRecursiveStructs` in
+`src/evaluator/types/utils.ts` that runs after the enum body is fully
+evaluated (in `autoDeriveTraitsAndAddRcFunctionsForEnumType`).
+
+The pass walks all variant field types reachable from the enum, finds every
+`StructType` that has a field whose type references the enum (transitively),
+and re-runs `addRcFunctionsToStructType` on it. Since
+`addFunctionCodeToSelfTypeModule` replaces existing trait fields, the stale
+empty `___dispose` body is overwritten with the correct one that drops the
+inner `Self` field.
+
+Verified with `tests/recursive_enum.test.yo` — all 4 tests pass with no
+leaks (including the previously-failing nested tree and 50-spine cases).
+Regression suite (`derive`, `derive_clone_complex`, `option_result_combinators`,
+`impl`, `algebraic_effects`, `array`, `collections/{array_list,linked_list,hash_map}`)
+all green.

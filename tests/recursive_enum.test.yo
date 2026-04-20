@@ -57,13 +57,28 @@ test "Recursive enum: ArrayList(Self) variant", {
   assert((v == i32(37)), "10 + 20 + 7 == 37");
 };
 
-// NOTE: nested-Box(Self) and deeply-nested-spine cases are intentionally
-// disabled. They expose a codegen bug where Box(Self)'s dispose function
-// is generated against a partial Self type (only the first variant), so
-// inner Boxes leak. See issues/recursive-box-self-dispose-leak.md.
-//
-// test "Recursive enum: nested Box(Self) tree", { ... };
-// test "Recursive enum: deeply nested drop terminates", { ... };
+test "Recursive enum: nested Box(Self) tree", {
+  // ((1 + 2) * (3 + 4)) = 21
+  tree := MyExpr.Mul(
+    box(MyExpr.Add(box(MyExpr.Lit(i32(1))), box(MyExpr.Lit(i32(2))))),
+    box(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))))
+  );
+  v := eval(&tree);
+  assert((v == i32(21)), "(1+2)*(3+4) == 21");
+};
+
+build_spine :: (fn(n : i32) -> MyExpr) {
+  return cond(
+    (n <= i32(0)) => MyExpr.Lit(i32(1)),
+    true => MyExpr.Add(box(MyExpr.Lit(i32(1))), box(recur((n - i32(1)))))
+  );
+};
+
+test "Recursive enum: deeply nested drop terminates", {
+  spine := build_spine(i32(50));
+  v := eval(&spine);
+  assert((v == i32(51)), "spine of 50 Adds + 1 Lit sums to 51");
+};
 
 // === derive(Clone) on a recursive type ===
 // Note: derive(Clone) on Box(Self) currently has a known codegen ordering
