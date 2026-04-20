@@ -158,19 +158,17 @@ impl(StringBuilder,
 
 **Estimated effort**: ~300–400 lines.
 
-### 1.5 🟡 String Additions
+### 1.5 🟡 String Additions ✅ Done
 
-**Exists**: Most string methods already present (see inventory).
+All required methods already existed in `std/string/string.yo`:
 
-**What's missing**:
-| Method | Why needed | Effort |
-|---|---|---|
-| `repeat(n : usize) -> String` | Indentation generation (`"  ".repeat(depth)`) | ~15 lines |
-| `join(separator, items) -> String` | Join type names, parameters, etc. (18 uses in evaluator) | ~20 lines (or via Iterator.join) |
-| `lines() -> Iterator` | Read source files line by line | ~30 lines |
-| `pad_start(len, char)` / `pad_end(len, char)` | Formatted output alignment (low priority) | ~30 lines |
+- `repeat(n)` (line 1653)
+- `join(items)` (line 1700)
+- `lines()` returning `StringLines` iterator (line 1639)
 
-**Estimated effort**: ~60–100 lines for the important ones.
+Verified by new `tests/string/repeat_join_lines.test.yo` (12 tests, all passing). Covers basic, edge cases (empty, zero, single), UTF-8, empty separator, and trailing newlines.
+
+`pad_start`/`pad_end` not yet implemented — deferred (not blocking bootstrap).
 
 ### 1.6 🟡 CLI Argument Parser — Subcommand Support
 
