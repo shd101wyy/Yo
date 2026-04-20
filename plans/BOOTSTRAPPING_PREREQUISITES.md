@@ -90,33 +90,9 @@ Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering sing
 
 The remaining gaps (`find`, `position`, `flat_map`, `chain`, `collect_to_list`, `join`) are not on the critical path for the bootstrap and can be added incrementally.
 
-### 1.3 🟡 StringBuilder (sync, in-memory)
+### 1.3 ✅ StringBuilder (sync, in-memory) — Done
 
-**Exists**: `BufWriter` in `std/sys/bufio/` operates on file descriptors with async I/O.
-
-**What's missing**: A simple **synchronous** in-memory string builder for constructing C code output. The codegen builds strings of C code that are later written to a file. We don't want async I/O for every `emitLine` call.
-
-**What's needed**:
-
-```rust
-StringBuilder :: object(
-  _buf : ArrayList(u8)
-);
-
-impl(StringBuilder,
-  new : (fn() -> Self)(...),
-  with_capacity : (fn(cap : usize) -> Self)(...),
-  write_str : (fn(self : Self, s : str) -> unit)(...),
-  write_string : (fn(self : Self, s : String) -> unit)(...),
-  write_byte : (fn(self : Self, b : u8) -> unit)(...),
-  write_line : (fn(self : Self, s : str) -> unit)(...),  // appends + '\n'
-  to_string : (fn(self : Self) -> String)(...),
-  len : (fn(self : Self) -> usize)(...),
-  clear : (fn(self : Self) -> unit)(...)
-);
-```
-
-**Estimated effort**: ~100–150 lines. Trivial wrapper around `ArrayList(u8)`.
+Implemented in `std/string/string_builder.yo`. Verified by `tests/string/string_builder.test.yo` (21 tests, all passing). Public API: `new`, `with_capacity`, `len`, `is_empty`, `write_str`, `write_string`, `write_byte`, `write_line`, `to_string`, `clear`.
 
 ### 1.4 ✅ Ordered Map (`std/collections/ordered_map`) — Done
 
@@ -158,85 +134,24 @@ Supports arbitrarily nested subcommands. Help text auto-includes a `Subcommands:
 
 **Tests**: 8 new subcommand cases in `tests/cli/arg_parser.test.yo` (15 tests total).
 
-### 1.7 🟢 Temporary Files/Directories
+### 1.7 ✅ Temporary Files/Directories — Done
 
-**May exist** in `std/fs/`. Verify and fill gaps: `temp_dir()`, `create_temp_file(prefix)`, `create_temp_dir(prefix)`.
+Implemented in `std/fs/temp.yo` with RAII-managed `TempDir` and `TempFile` types. APIs: `TempDir.new()`, `TempDir.in(parent)`, `TempFile.new(prefix)`, `TempFile.in(parent, prefix)`, `path()`, `remove()`. Verified by `tests/fs/temp.test.yo` (7 tests, all passing).
 
-**Estimated effort**: ~50–80 lines.
+### 1.8 🟡 Collection Literal Macros — Deferred
 
-### 1.8 🟡 Collection Literal Macros
+**Why deferred**: Investigation during bootstrapping prep showed that variadic macro syntax (`...(quote(elems))`) works and produces an `ExprList`, but `unquote_splicing` fails during macro body validation when `elems` has `UnknownValue` — the splice expansion is skipped and arg-count validation rejects the call. See `issues/unquote-splicing-body-validation.md`.
 
-**Why**: The TS evaluator constructs arrays and maps with literal values everywhere. Without macros, each requires 4+ lines of boilerplate.
+**Workaround for bootstrapping**: Use `ArrayList(T).new()` + `.push(x)` / `HashMap(K, V).new()` + `.put(k, v)`. Verbose (4 lines instead of 1) but functional.
 
-**What's needed** — three builtin comptime macros:
+**Path forward** (post-bootstrap):
 
-#### `array_list(elem1, elem2, ...)`
+1. Fix `unquote_splicing` body-validation issue (~50 lines in `src/evaluator/builtins/quote.ts`), then implement `array_list` / `hash_map` / `hash_set` purely in `std/prelude.yo` (~50 lines).
+2. Or implement as builtin macros in `src/evaluator/builtins/collection-literals.ts` (~200-400 lines).
 
-Creates an ArrayList with the given elements. Type is inferred from the first element.
+#### Original design (preserved for reference)
 
-```rust
-// Usage:
-names := array_list(`Alice`, `Bob`, `Charlie`);
-// Expands to:
-{
-  __val_0 := `Alice`;
-  __arr := ArrayList(typeof(__val_0)).with_capacity(usize(3));
-  __arr.push(__val_0);
-  __arr.push(`Bob`);
-  __arr.push(`Charlie`);
-  __arr
-}
-```
-
-- Type inferred from first element (`typeof(first)`)
-- Pre-allocates with `with_capacity(N)` since count is comptime-known
-- Cannot create empty lists — use `ArrayList(T).new()` for that
-- All elements must be compatible with the inferred type
-
-#### `hash_map(key1 => val1, key2 => val2, ...)`
-
-Creates a HashMap with the given key-value pairs. Types inferred from the first pair.
-
-```rust
-// Usage:
-config := hash_map(`name` => `Yo`, `version` => `0.2.0`);
-// Expands to:
-{
-  __key_0 := `name`;
-  __val_0 := `Yo`;
-  __map := HashMap(typeof(__key_0), typeof(__val_0)).with_capacity(usize(2));
-  __map.put(__key_0, __val_0);
-  __map.put(`version`, `0.2.0`);
-  __map
-}
-```
-
-- Uses `=>` syntax to separate keys from values (consistent with match/cond branch syntax)
-- Type inferred from first key-value pair
-- Cannot create empty maps — use `HashMap(K, V).new()` for that
-
-#### `hash_set(elem1, elem2, ...)`
-
-Creates a HashSet with the given elements. Type inferred from the first element.
-
-```rust
-// Usage:
-keywords := hash_set(`fn`, `let`, `if`, `match`);
-// Expands to:
-{
-  __val_0 := `fn`;
-  __set := HashSet(typeof(__val_0)).with_capacity(usize(4));
-  __set.insert(__val_0);
-  __set.insert(`let`);
-  __set.insert(`if`);
-  __set.insert(`match`);
-  __set
-}
-```
-
-**Implementation**: These would be builtin comptime macros in the evaluator (similar to `derive`), since they need variadic arguments and comptime type inference.
-
-**Estimated effort**: ~200–400 lines in the evaluator (one handler per macro, shared expansion logic).
+`array_list(elem1, elem2, ...)`, `hash_map(key1 => val1, ...)`, `hash_set(elem1, ...)` — type inferred from the first element/pair, pre-allocates with `with_capacity(N)`, expands to a begin block of push/insert calls.
 
 ---
 
@@ -305,7 +220,7 @@ Verified by `tests/bootstrap_verification.test.yo`:
 - ✅ Closure captures `String` by RC; outlives capture site (no UAF, original still readable after iter)
 - ✅ Closure captures `ArrayList`; mutation visible after iter scope ends
 
-### 2.6 🟡 Optional Chaining Equivalent
+### 2.6 ✅ Optional Chaining Equivalent
 
 **Why**: 119 uses of `??` and 12 uses of `?.` in TS codebase.
 
@@ -314,10 +229,9 @@ Verified by `tests/bootstrap_verification.test.yo`:
 - `value.unwrap_or(default)` → replaces `??`
 - `value.map((o) => o.field)` → replaces `?.`
 - `value.and_then((o) => o.method())` → replaces `?.method()`
+- `try(expr)` macro in `std/prelude.yo` → equivalent of Rust's `?` operator for `Result`. Unwraps `Ok(value)` and early-returns `Err(error)` from the enclosing function. Verified by `tests/try_macro.test.yo` (4 tests covering Ok unwrap, Err propagation, chaining, RC error types).
 
-**Consider adding**: A `?` postfix operator for early return with `Option`/`Result` (like Rust). This would dramatically reduce boilerplate in the evaluator where many functions return `Option(T)` or `Result(T, E)`.
-
-**Decision**: Not strictly required — `match`/combinators/effects work. But worth considering if it's low-effort to implement.
+**Note**: The `try` macro previously contained invalid pattern syntax (`.Ok =>` instead of `.Ok(value)`); this was fixed during bootstrapping prep.
 
 ### 2.7 ✅ Derive `ToString` Quality for Enums
 
@@ -372,25 +286,23 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 
 ## 5. Summary: Work Items by Priority
 
-| #   | Item                                                                       | Priority | Effort (lines)        | Blocks                       |
-| --- | -------------------------------------------------------------------------- | -------- | --------------------- | ---------------------------- |
-| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | ✅ Done  | 0                     | Evaluator port (155+ usages) |
-| 2   | Verify blanket impl on Iterator works                                      | ✅ Done  | 0                     | Iterator combinators         |
-| 3   | High-level Command wrapper                                                 | 🔴 P1    | 300–500               | CLI / compile pipeline       |
-| 4   | Verify derive(Clone) on complex types                                      | ✅ Done  | 0                     | AST types                    |
-| 5   | Collection literal macros (array_list, hash_map, hash_set)                 | 🟡 P2    | 200–400               | Ergonomics throughout        |
-| 6   | StringBuilder (sync in-memory)                                             | 🟡 P2    | 100–150               | Codegen port                 |
-| 7   | String additions (repeat, join, lines)                                     | 🟡 P2    | 60–100                | Throughout                   |
-| 8   | OrderedMap                                                                 | ✅ Done  | 0                     | Evaluator port               |
-| 9   | ArgParser subcommand support                                               | ✅ Done  | 0                     | CLI port                     |
-| 10  | Large enum + recursive type verification                                   | ✅ Done  | 0                     | AST design                   |
-| 11  | Closure capture verification                                               | ✅ Done  | 0                     | Iterator usage               |
-| 12  | `?` operator for Option/Result                                             | 🟡 P2    | 200–400 (new feature) | Evaluator ergonomics         |
-| 13  | Derive ToString/Eq/Hash quality verification                               | ✅ Done  | 0                     | Error messages               |
-| 14  | Single-file C amalgamation                                                 | 🟢 P3    | 200                   | Distribution                 |
-| 15  | Cross-compilation targets                                                  | 🟢 P3    | 300–500               | CI/CD                        |
+| #   | Item                                                                       | Priority    | Effort (lines) | Blocks                       |
+| --- | -------------------------------------------------------------------------- | ----------- | -------------- | ---------------------------- |
+| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | ✅ Done     | 0              | Evaluator port (155+ usages) |
+| 2   | Verify blanket impl on Iterator works                                      | ✅ Done     | 0              | Iterator combinators         |
+| 3   | High-level Command wrapper                                                 | ✅ Done     | 0              | CLI / compile pipeline       |
+| 4   | Verify derive(Clone) on complex types                                      | ✅ Done     | 0              | AST types                    |
+| 5   | Collection literal macros (array_list, hash_map, hash_set)                 | 🟡 Deferred | 200–400        | Ergonomics throughout        |
+| 6   | StringBuilder (sync in-memory)                                             | ✅ Done     | 0              | Codegen port                 |
+| 7   | String additions (repeat, join, lines)                                     | ✅ Done     | 0              | Throughout                   |
+| 8   | OrderedMap                                                                 | ✅ Done     | 0              | Evaluator port               |
+| 9   | ArgParser subcommand support                                               | ✅ Done     | 0              | CLI port                     |
+| 10  | Large enum + recursive type verification                                   | ✅ Done     | 0              | AST design                   |
+| 11  | Closure capture verification                                               | ✅ Done     | 0              | Iterator usage               |
+| 12  | `?` operator for Option/Result (`try` macro)                               | ✅ Done     | 0              | Evaluator ergonomics         |
+| 13  | Derive ToString/Eq/Hash quality verification                               | ✅ Done     | 0              | Error messages               |
+| 14  | Temporary files/directories                                                | ✅ Done     | 0              | Codegen tests, build cache   |
+| 15  | Single-file C amalgamation                                                 | 🟢 P3       | 200            | Distribution                 |
+| 16  | Cross-compilation targets                                                  | 🟢 P3       | 300–500        | CI/CD                        |
 
-**Total estimated effort for P1**: ~900–2,100 lines of new code + verification
-**Total estimated effort for all**: ~2,260–4,850 lines
-
-These investments enrich the Yo standard library for **all** users, not just the compiler bootstrap.
+**Status**: All P1/P2 items complete or deferred with documented workarounds. Remaining P3 items (amalgamation, cross-compilation) are distribution/release concerns and do not block Phase 1 of the bootstrap effort.
