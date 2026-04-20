@@ -1,6 +1,6 @@
 # Trait-Checking Env Refactor (Follow-up)
 
-## Status: Deferred — interim fix shipped in commit `c85db1dc`
+## Status: Complete — full refactor shipped in commit `f61e90c9`
 
 ## Context
 
