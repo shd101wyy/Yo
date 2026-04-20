@@ -13,7 +13,7 @@ import { isSomeType, isTraitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
-import { typeImplementsTrait } from "../trait-checking";
+import { typeImplementsTraitBool } from "../trait-checking";
 import { evaluateExpression } from "./expr";
 
 /*
@@ -197,7 +197,7 @@ export function evaluateSubtypeOf({
   // Verify that the LHS type actually implements the RHS trait
   // Skip this check for SomeType (type parameters) as they are checked at instantiation time
   if (!isSomeType(targetType)) {
-    if (!typeImplementsTrait({ targetType, traitType, env })) {
+    if (!typeImplementsTraitBool({ targetType, traitType, env })) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Type "${typeToString(targetType)}" does not implement trait "${traitType.typeName ?? typeToString(traitType)}".`,

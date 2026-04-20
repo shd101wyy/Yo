@@ -63,7 +63,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
-  typeImplementsTrait,
+  typeImplementsTraitBool,
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
@@ -2022,7 +2022,7 @@ function tryMatchGenericImpl({
 
         // For concrete types, verify they do NOT implement the trait
         if (
-          typeImplementsTrait({
+          typeImplementsTraitBool({
             targetType: boundType,
             traitType: actualConstraintTrait,
             env,
@@ -2045,7 +2045,7 @@ function tryMatchGenericImpl({
 
       // Check if the bound type implements the required trait
       if (
-        !typeImplementsTrait({
+        !typeImplementsTraitBool({
           targetType: boundType,
           traitType: actualConstraintTrait,
           env: expectedEnv,
@@ -2210,9 +2210,9 @@ function checkGenericImplSelfConstraints({
   if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
     for (const constraintTrait of traitType.selfConstraints) {
       // Check if the receiver type pattern implements the constraint
-      // This uses typeImplementsTrait which will check generic impls
+      // This uses typeImplementsTraitBool which will check generic impls
       if (
-        typeImplementsTrait({
+        typeImplementsTraitBool({
           targetType: receiverTypePattern,
           traitType: constraintTrait,
           env,
@@ -2235,7 +2235,7 @@ function checkGenericImplSelfConstraints({
       }
 
       // Check if receiver type pattern relies on SomeTypes that have the required constraint
-      // For now, we just fail - the typeImplementsTrait check should handle this
+      // For now, we just fail - the typeImplementsTraitBool check should handle this
       // via findMatchingGenericImpl which checks someTypeHasTraitConstraint
 
       throw formatErrorMessage({
@@ -2254,7 +2254,7 @@ Consider adding "where(T <: ${constraintTrait.typeName ?? typeToString(constrain
     for (const constraintTrait of traitType.negativeSelfConstraints) {
       // If the receiver type pattern directly implements the forbidden trait, it's an error
       if (
-        typeImplementsTrait({
+        typeImplementsTraitBool({
           targetType: receiverTypePattern,
           traitType: constraintTrait,
           env,

@@ -21,7 +21,7 @@ import {
 } from "../../value";
 import type { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../trait-checking";
+import { typeImplementsTraitBool } from "../trait-checking";
 import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 
 /**
@@ -119,7 +119,7 @@ export function validateCaptureTraitRequirements({
     }
 
     if (
-      !typeImplementsTrait({
+      !typeImplementsTraitBool({
         targetType: captureType,
         traitType,
         env,
@@ -127,7 +127,7 @@ export function validateCaptureTraitRequirements({
     ) {
       const violatingFields = captureType.fields.filter(
         (field) =>
-          !typeImplementsTrait({
+          !typeImplementsTraitBool({
             targetType: field.type,
             traitType,
             env,

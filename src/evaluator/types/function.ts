@@ -77,7 +77,7 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   findSomeTypeMissingComptimeConstraint,
   typeImplementsTrait,
-  typeImplementsTraitWithBindings,
+  typeImplementsTraitBool,
 } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
@@ -918,7 +918,7 @@ function validateSingleTraitOnConcreteType({
   }
 
   const traitType = traitTypeValue.value;
-  const implemented = typeImplementsTrait({
+  const implemented = typeImplementsTraitBool({
     targetType: concreteType,
     traitType,
     env,
@@ -1532,13 +1532,11 @@ function validateConcreteTypeConstraints({
     }
 
     const traitType = traitTypeValue.value;
-    const { implemented, env: envAfterCheck } = typeImplementsTraitWithBindings(
-      {
-        targetType: concreteType,
-        traitType,
-        env,
-      }
-    );
+    const { implemented, env: envAfterCheck } = typeImplementsTrait({
+      targetType: concreteType,
+      traitType,
+      env,
+    });
     env = envAfterCheck;
 
     if (isNegated) {

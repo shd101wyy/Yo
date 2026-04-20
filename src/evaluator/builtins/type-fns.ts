@@ -68,7 +68,7 @@ import {
 import type { TypeValue } from "../../type-value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../trait-checking";
+import { typeImplementsTraitBool } from "../trait-checking";
 import { PlaceholderToken } from "../../token";
 
 export function evaluateYoTypeToString({
@@ -509,7 +509,7 @@ export function evaluateYoTypeImpls({
   env = traitArg.$.env;
 
   const value = createBooleanValue(
-    typeImplementsTrait({ targetType, traitType: expectedTraitType, env })
+    typeImplementsTraitBool({ targetType, traitType: expectedTraitType, env })
   );
 
   expr.$ = {

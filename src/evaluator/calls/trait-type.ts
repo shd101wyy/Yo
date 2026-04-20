@@ -29,7 +29,7 @@ import type {
   TraitTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../trait-checking";
+import { typeImplementsTraitBool } from "../trait-checking";
 
 /**
  * Specialize a trait type by binding associated types via `:=` arguments.
@@ -528,7 +528,7 @@ Got:   ${typeToString(argType)}`,
         };
       }
 
-      const result = typeImplementsTrait({
+      const result = typeImplementsTraitBool({
         targetType: concreteType,
         traitType: resolvedRequiredTrait,
         env: callerEnv,
