@@ -34,14 +34,14 @@ TypeValue :: enum(
 
 This applies equally to `impl` method signatures (use `Self` for parameter and return types).
 
-**For generic type constructor functions**, use `recur` instead of `Self` for recursive references — because type constructors are functions, and functions use `recur` for self-reference:
+`Self` also works inside **generic type constructor functions** — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
 
 ```rust
-// CORRECT — recur for generic type function recursion:
+// CORRECT — Self refers to Tree(T):
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Leaf(value : T),
-    Node(left : Box(recur(T)), right : Box(recur(T)))
+    Node(left : Self, right : Self)
   )
 );
 
@@ -49,12 +49,12 @@ Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Leaf(value : T),
-    Node(left : Box(Tree(T)), right : Box(Tree(T)))
+    Node(left : Tree(T), right : Tree(T))
   )
 );
 ```
 
-**Rule of thumb**: `Self` for non-generic types (`Expr :: enum(...Box(Self)...)`), `recur(args)` for generic type functions.
+Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
 
 ## Unicode: `rune` not `Char`
 

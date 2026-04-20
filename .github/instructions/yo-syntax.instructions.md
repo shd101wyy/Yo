@@ -251,16 +251,16 @@ impl(Tree,
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
 
-### `recur` for recursive type constructors
+### `Self` in generic type constructors
 
-Generic type constructors are functions (`fn(comptime(T) : Type) -> comptime(Type)`). Since functions cannot call themselves by name, recursive type constructors must also use `recur`:
+`Self` works inside generic type constructor functions too — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
 
 ```rust
-// CORRECT — use recur for recursive generic type constructors:
+// CORRECT — Self refers to Tree(T):
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Leaf(value : T),
-    Node(left : Box(recur(T)), right : Box(recur(T)))
+    Node(left : Box(Self), right : Box(Self))
   )
 );
 
@@ -273,7 +273,7 @@ Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 ```
 
-**Summary**: Use `Self` for non-generic recursive types (`Expr :: enum(...Box(Self)...)`). Use `recur(args)` for generic type constructor functions that need to reference themselves with type arguments.
+Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
 
 ## Module imports
 
