@@ -19,7 +19,7 @@ Before listing gaps, here is what **already exists** and is usable:
 | Capability                           | Module                              | Status                                                                                                                                                             |
 | ------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Process spawn** (low-level)        | `std/sys/process.yo`                | ✅ `spawn(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)`, `waitpid`, `kill`, `exit_status`, `term_signal`                                                      |
-| **CLI argument parser**              | `std/cli/arg_parser.yo`             | ✅ `ArgParser` with flags, options, positionals, help text                                                                                                         |
+| **CLI argument parser**              | `std/cli/arg_parser.yo`             | ✅ `ArgParser` with flags, options, positionals, help text, **subcommands** (nested)                                                                               |
 | **Environment variables**            | `std/env`                           | ✅ `env.get(name)`, `env.set(name, value, overwrite?)`                                                                                                             |
 | **Platform detection**               | `std/process`                       | ✅ `platform`, `Platform`, `arch`, `Arch`                                                                                                                          |
 | **CWD / chdir**                      | `std/env`                           | ✅ `cwd()`, `chdir(path)`                                                                                                                                          |
@@ -170,22 +170,25 @@ Verified by new `tests/string/repeat_join_lines.test.yo` (12 tests, all passing)
 
 `pad_start`/`pad_end` not yet implemented — deferred (not blocking bootstrap).
 
-### 1.6 🟡 CLI Argument Parser — Subcommand Support
+### 1.6 ✅ CLI Argument Parser — Subcommand Support
 
-**Exists**: `ArgParser` with flags, options, positionals.
+**Exists**: `ArgParser` with flags, options, positionals, help text, and **subcommands** (added in this session).
 
-**What may be missing**: Subcommand support (`yo compile`, `yo test`, `yo build`, `yo init`, etc.). The current ArgParser appears to be flat (no nested subcommands).
-
-**Verify**: Check if `ArgParser` supports subcommands. If not, add:
+**Subcommand API**:
 
 ```rust
-impl(ArgParser,
-  subcommand : (fn(self : Self, name : String, description : String) -> ArgParser)(...),
-  // parse() returns which subcommand was selected + its args
-);
+parser := ArgParser.new(`git`, `Distributed VCS`);
+commit_sub := parser.add_subcommand(`commit`, `Record changes`);
+commit_sub.add_flag(`--amend`, `-a`, `Amend previous commit`);
+
+// Returned ParsedArgs exposes:
+parsed.get_subcommand()        // -> Option(String)
+parsed.get_subcommand_args()   // -> Option(ParsedArgs)
 ```
 
-**Estimated effort**: ~100–200 lines if needed.
+Supports arbitrarily nested subcommands. Help text auto-includes a `Subcommands:` section. Subcommand parse errors propagate. Unknown subcommand names fall through and are treated as ordinary positionals.
+
+**Tests**: 8 new subcommand cases in `tests/cli/arg_parser.test.yo` (15 tests total).
 
 ### 1.7 🟢 Temporary Files/Directories
 
@@ -419,7 +422,7 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 | 6   | StringBuilder (sync in-memory)                                             | 🟡 P2    | 100–150               | Codegen port                 |
 | 7   | String additions (repeat, join, lines)                                     | 🟡 P2    | 60–100                | Throughout                   |
 | 8   | OrderedMap                                                                 | 🟡 P2    | 300–400               | Evaluator port               |
-| 9   | ArgParser subcommand support (verify/add)                                  | 🟡 P2    | 0–200                 | CLI port                     |
+| 9   | ArgParser subcommand support                                               | ✅ Done  | 0                     | CLI port                     |
 | 10  | Large enum + recursive type verification                                   | 🟡 P2    | 0–300 (if fix needed) | AST design                   |
 | 11  | Closure capture verification                                               | 🟡 P2    | 0–200 (if fix needed) | Iterator usage               |
 | 12  | `?` operator for Option/Result                                             | 🟡 P2    | 200–400 (new feature) | Evaluator ergonomics         |
