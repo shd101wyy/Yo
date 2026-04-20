@@ -20,6 +20,7 @@ import type {
   ArrayType,
   FunctionType,
   SomeType,
+  Type,
 } from "../../types/definitions";
 import {
   isArrayType,
@@ -35,6 +36,7 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
   isModuleValue,
@@ -1245,7 +1247,14 @@ export function generateOtherFunctionCall(
           if (isSomeType(closureValueType)) {
             const someType = closureValueType as SomeType;
             if (someType.resolvedConcreteType) {
-              concreteTypeId = someType.resolvedConcreteType.id;
+              let cur: Type = someType;
+              while (cur.tag === TypeTag.SomeType) {
+                const s = cur as SomeType;
+                if (!s.resolvedConcreteType) break;
+                if (s.resolvedConcreteType === s) break;
+                cur = s.resolvedConcreteType;
+              }
+              concreteTypeId = cur.id;
             }
           }
 

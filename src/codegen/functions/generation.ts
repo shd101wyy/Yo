@@ -1,6 +1,9 @@
 import { type Environment } from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
-import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import {
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
   BuiltinFunctions,
@@ -1273,15 +1276,22 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Skip if the specialized type still has unresolved type parameters
     // Don't use isFunctionTypeGeneric — it treats implicitParameters as generic,
     // but resolved implicit params (from spread evidence) are NOT generic.
+    // SomeType params with resolvedConcreteType are also NOT generic — they
+    // were resolved during specialization to a concrete type (e.g., a closure
+    // SomeType wrapping its capture struct, or Impl(Fn)/Impl(Future)).
+    const isUnresolvedSomeType = (t: Type): boolean => {
+      if (!isSomeType(t)) return false;
+      if (t.resolvedConcreteType) return false;
+      if (typeImplementsFuture(t)) return false;
+      if (typeImplementsFn(t)) return false;
+      return true;
+    };
     const st = functionValue.specializedType;
     const hasForallOrCompileTimeSpec =
       st.forallParameters.length > 0 ||
       st.parameters.some((p) => p.isCompileTimeOnly);
     const hasSomeTypeParamsSpec = st.parameters.some(
-      (p) =>
-        !p.isCompileTimeOnly &&
-        isSomeType(p.type) &&
-        !typeImplementsFuture(p.type)
+      (p) => !p.isCompileTimeOnly && isUnresolvedSomeType(p.type)
     );
     if (hasForallOrCompileTimeSpec || hasSomeTypeParamsSpec) {
       continue;

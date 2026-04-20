@@ -10,9 +10,24 @@ import {
   ExprTag,
   type FnCallExpr,
 } from "../../expr";
-import type { SomeType, StructType } from "../../types/definitions";
+import type { SomeType, StructType, Type } from "../../types/definitions";
 import { isDynType, isStructType } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
+
+/**
+ * Walk a SomeType's resolvedConcreteType chain until we hit a non-SomeType.
+ * Returns the final Type (or the original if not a SomeType / no resolution).
+ */
+function resolveSomeTypeToConcrete(t: Type): Type {
+  let cur: Type = t;
+  while (cur.tag === TypeTag.SomeType) {
+    const some = cur as SomeType;
+    if (!some.resolvedConcreteType) break;
+    if (some.resolvedConcreteType === some) break;
+    cur = some.resolvedConcreteType;
+  }
+  return cur;
+}
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -264,7 +279,8 @@ export function generateClosureConstruction(
       return `${constructorName}(${captureTempVar}, ${disposeFunctionName}, ${castCallFunction})`;
     } else {
       // Impl(Fn(...)) is true static dispatch
-      context.implClosureCallMap.set(captureType.id, {
+      const captureKey = resolveSomeTypeToConcrete(captureType).id;
+      context.implClosureCallMap.set(captureKey, {
         functionCName,
         callTypeId: fnModule.isFn.callType.id,
         callType: fnModule.isFn.callType,
@@ -283,7 +299,8 @@ export function generateClosureConstruction(
       if (expr.$.type.tag === TypeTag.SomeType) {
         const someType = expr.$.type as SomeType;
         if (someType.resolvedConcreteType) {
-          context.implClosureCallMap.set(someType.resolvedConcreteType.id, {
+          const concreteFinal = resolveSomeTypeToConcrete(someType);
+          context.implClosureCallMap.set(concreteFinal.id, {
             functionCName,
             callTypeId: fnModule.isFn.callType.id,
             callType: fnModule.isFn.callType,

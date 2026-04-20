@@ -473,7 +473,12 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
     (p) =>
       !p.isCompileTimeOnly &&
       isSomeType(p.type) &&
-      !typeImplementsFuture(p.type)
+      !typeImplementsFuture(p.type) &&
+      // SomeType parameters with a resolved concrete type are fully specialized
+      // — codegen can use the concrete type via getTypeString. This matters for
+      // closure-typed parameters (e.g., `f : F` where F = Impl(Fn(...))
+      // resolves to the closure's capture struct).
+      !p.type.resolvedConcreteType
   );
 
   return hasCompileTimeParams || hasSomeTypeParams;

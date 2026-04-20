@@ -997,8 +997,13 @@ export function findMethodsFromGenericImpls({
           // When any forall type parameter is bound to a SomeType (e.g., T→U
           // inside a forall(U) method), we can't fully specialize the body.
           // The type-only specialization path handles this correctly.
+          // EXCEPTION: SomeTypes with resolvedConcreteType (e.g., closure
+          // wrappers `__impl_fn` carrying their concrete struct type) are
+          // effectively resolved — treat them as concrete here so the body
+          // can be specialized.
           const hasUnresolvedTypeParams = [...match.substitutions].some(
-            ([key, type]) => key !== "Self" && isSomeType(type)
+            ([key, type]) =>
+              key !== "Self" && isSomeType(type) && !type.resolvedConcreteType
           );
 
           // When any forall type parameter is NOT in substitutions, the concrete
@@ -2157,6 +2162,25 @@ function someTypeHasTraitConstraint(
         requiredTrait,
         env
       )
+    ) {
+      return true;
+    }
+  }
+
+  // If this SomeType has been resolved to a concrete type (closure struct,
+  // function type, struct/enum that impls Fn, etc.), delegate to the full
+  // trait check on the concrete type. This handles closures whose captures
+  // are wrapped in a struct that has the Fn trait impl'd structurally.
+  if (
+    someType.resolvedConcreteType &&
+    !isSomeType(someType.resolvedConcreteType)
+  ) {
+    if (
+      typeImplementsTraitBool({
+        targetType: someType.resolvedConcreteType,
+        traitType: requiredTrait,
+        env,
+      })
     ) {
       return true;
     }

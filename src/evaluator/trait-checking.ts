@@ -809,6 +809,13 @@ export function typeImplementsFn(
         return true;
       }
     }
+    // Look through resolvedConcreteType chain - a forall SomeType may have its
+    // Fn trait constraint stored on a wrapper Impl(Fn(...)) SomeType assigned as
+    // resolvedConcreteType (see anonymous-function.ts where wrapperType has its
+    // resolvedConcreteType set to an implFnWrapper).
+    if (isSomeType(type) && type.resolvedConcreteType) {
+      return typeImplementsFn(type.resolvedConcreteType);
+    }
   }
 
   return false;
@@ -834,9 +841,15 @@ export function extractFnTraitFromType(
         return traitType;
       }
     }
+    // Look through resolvedConcreteType chain (see typeImplementsFn for context).
+    if (isSomeType(type) && type.resolvedConcreteType) {
+      const fromConcrete = extractFnTraitFromType(
+        type.resolvedConcreteType,
+        env
+      );
+      if (fromConcrete) return fromConcrete;
+    }
   }
-
-  // For SomeType, also check where-clause constraints from the env.
   // A forall parameter `F : Type` constrained as `where(F <: (Fn(...) -> ...))`
   // stores the Fn trait constraint in env.whereClauseConstraints, NOT in
   // F.requiredTraits. Without checking here, lambda type-resolution at call
