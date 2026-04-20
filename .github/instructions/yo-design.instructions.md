@@ -12,6 +12,50 @@ description: "Use when making design decisions about the Yo language, writing st
 - Use `object(...)` for reference-counted types
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 
+## `Self` in type definitions
+
+Always use `Self` to refer to the type being defined inside `struct(...)`, `object(...)`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:
+
+```rust
+// CORRECT — Self for recursive references:
+TypeValue :: enum(
+  IntType(bits : u8),
+  PointerType(pointee : Box(Self)),
+  ArrayType(element : Box(Self), length : usize)
+);
+
+// WRONG — TypeValue not available inside its own enum:
+TypeValue :: enum(
+  IntType(bits : u8),
+  PointerType(pointee : Box(TypeValue)),
+  ArrayType(element : Box(TypeValue), length : usize)
+);
+```
+
+This applies equally to `impl` method signatures (use `Self` for parameter and return types).
+
+**For generic type constructor functions**, use `recur` instead of `Self` for recursive references — because type constructors are functions, and functions use `recur` for self-reference:
+
+```rust
+// CORRECT — recur for generic type function recursion:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(recur(T)), right : Box(recur(T)))
+  )
+);
+
+// WRONG — Tree is not available inside its own function body:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(Tree(T)), right : Box(Tree(T)))
+  )
+);
+```
+
+**Rule of thumb**: `Self` for non-generic types (`Expr :: enum(...Box(Self)...)`), `recur(args)` for generic type functions.
+
 ## Unicode: `rune` not `Char`
 
 - `char` is the C character type (8-bit)

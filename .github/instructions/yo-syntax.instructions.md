@@ -86,7 +86,7 @@ Use `cond` when there are more than two branches or when the branches are large.
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
 - No space between `(fn() -> ReturnType)` and `({ body; })`
 - Method definitions in struct use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
-- Use `Self` instead of the type name in method signatures
+- Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
 
 ## Return value rules
 
@@ -95,9 +95,23 @@ Use `cond` when there are more than two branches or when the branches are large.
 
 ## Enum definition syntax
 
-Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values:
+Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values.
+
+**Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Box(Self)`, `ArrayList(Self)`, etc.:
 
 ```rust
+// CORRECT — use Self for recursive references:
+Expr :: enum(
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), token : Token)
+);
+
+// WRONG — type name not available inside its own definition:
+Expr :: enum(
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Box(Expr), args : ArrayList(Expr), token : Token)
+);
+
 // CORRECT — no dots in definition:
 Color :: enum(Red, Green, Blue);
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -236,6 +250,30 @@ impl(Tree,
 ```
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
+
+### `recur` for recursive type constructors
+
+Generic type constructors are functions (`fn(comptime(T) : Type) -> comptime(Type)`). Since functions cannot call themselves by name, recursive type constructors must also use `recur`:
+
+```rust
+// CORRECT — use recur for recursive generic type constructors:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(recur(T)), right : Box(recur(T)))
+  )
+);
+
+// WRONG — Tree is not available inside its own body:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(Tree(T)), right : Box(Tree(T)))
+  )
+);
+```
+
+**Summary**: Use `Self` for non-generic recursive types (`Expr :: enum(...Box(Self)...)`). Use `recur(args)` for generic type constructor functions that need to reference themselves with type arguments.
 
 ## Module imports
 

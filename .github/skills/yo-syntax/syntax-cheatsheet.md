@@ -122,7 +122,8 @@ impl(Counter,
 ```
 
 - No space between a function type and its body: `(fn(...) -> T)(...)`
-- Use `Self` in method signatures
+- Use `Self` in method signatures and in type definitions for recursive references (the type name is not available during its own definition)
+- For generic type constructors (`fn(comptime(T) : Type) -> comptime(Type)`), use `recur(args)` for recursive self-references
 - Wrap `fn` types in parentheses when they appear after `:`
 
 ### Named arguments and default values
