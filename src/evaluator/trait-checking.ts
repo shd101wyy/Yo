@@ -9,6 +9,7 @@
  * generic impl registry, which is in the evaluator layer.
  */
 
+import { synthesizeTypes } from "./types/synthesizer";
 import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { formatErrorMessage } from "../error";
 import type { Token } from "../token";
@@ -28,6 +29,7 @@ import {
 import {
   isDynType,
   isFnTraitType,
+  isFunctionType,
   isFutureTraitType,
   isPtrType,
   isSomeType,
@@ -301,6 +303,16 @@ export function typeImplementsTrait({
     }
   }
 
+  // Fn trait satisfaction: any function type whose signature is compatible
+  // with the Fn(...) call type satisfies that Fn trait. This mirrors Rust's
+  // rule that `fn` items implement `Fn`/`FnMut`/`FnOnce`.
+  if (isFnTraitType(traitType) && isFunctionType(targetType)) {
+    return areTypesCompatible(
+      { type: traitType.isFn.callType, env },
+      { type: targetType, env }
+    );
+  }
+
   const expectedTraitWithReceiver: TraitType = {
     ...traitType,
     receiverType: targetType,
@@ -445,6 +457,108 @@ export function typeImplementsTrait({
   } finally {
     traitCheckRecursionGuard.delete(guardKey);
   }
+}
+
+/**
+ * Like typeImplementsTrait, but also propagates type bindings inferred during
+ * trait matching. When a where-clause constraint such as
+ *   where(Self <: Iterator(Item := A))
+ * is checked against a target type whose impl provides `Iterator(Item := i32)`,
+ * the SomeType `A` on the constraint side gets bound to `i32` in the returned
+ * env via synthesizeTypes.
+ *
+ * Use this from where-clause validation paths so that subsequent forall
+ * resolution and per-arg type inference can see those bindings.
+ */
+export function typeImplementsTraitWithBindings({
+  targetType,
+  traitType,
+  env,
+}: {
+  targetType: Type;
+  traitType: TraitType;
+  env: Environment;
+}): { implemented: boolean; env: Environment } {
+  // Fn-trait satisfaction with binding propagation: synth the trait's call
+  // type against the target function type so SomeTypes in parameter/return
+  // positions (e.g. `Fn(a:A) -> B` against `fn(x:i32) -> i32`) get bound.
+  if (isFnTraitType(traitType) && isFunctionType(targetType)) {
+    if (
+      !areTypesCompatible(
+        { type: traitType.isFn.callType, env },
+        { type: targetType, env }
+      )
+    ) {
+      return { implemented: false, env };
+    }
+    const { expectedEnv } = synthesizeTypes(
+      { type: traitType.isFn.callType, env },
+      { type: targetType, env }
+    );
+    return { implemented: true, env: expectedEnv };
+  }
+
+  // Fast path: delegate to existing logic for everything that does not
+  // involve a concrete impl whose associated types we want to read back.
+  if (
+    !targetType.trait ||
+    isFutureTraitType(traitType) ||
+    isDynType(targetType) ||
+    isSomeType(targetType)
+  ) {
+    return {
+      implemented: typeImplementsTrait({ targetType, traitType, env }),
+      env,
+    };
+  }
+
+  // Lazily import synthesizeTypes here is unnecessary now that we have the
+  // top-level import; left for readability.
+
+  const expectedTraitWithReceiver: TraitType = {
+    ...traitType,
+    receiverType: targetType,
+  };
+
+  let resultEnv = env;
+  let matched = false;
+  for (const field of targetType.trait.fields) {
+    if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
+      continue;
+    }
+    const fieldTraitType = (field.assignedValue as TraitValue).type;
+    if (
+      !areTypesCompatible(
+        { type: expectedTraitWithReceiver, env: resultEnv },
+        { type: fieldTraitType, env: resultEnv }
+      )
+    ) {
+      continue;
+    }
+    if (!checkAssociatedTypeConstraints(targetType, traitType, resultEnv)) {
+      continue;
+    }
+    // Propagate associated-type bindings: SomeTypes in the constraint trait
+    // (e.g. `Item := A`) get bound to the impl's concrete values
+    // (e.g. `Item := i32`).
+    const { expectedEnv } = synthesizeTypes(
+      { type: expectedTraitWithReceiver, env: resultEnv },
+      { type: fieldTraitType, env: resultEnv }
+    );
+    resultEnv = expectedEnv;
+    matched = true;
+    break;
+  }
+
+  if (matched) {
+    return { implemented: true, env: resultEnv };
+  }
+
+  // Fall back to the standard checker for generic-impl registry / other paths.
+  return {
+    implemented: typeImplementsTrait({ targetType, traitType, env: resultEnv }),
+    env: resultEnv,
+  };
 }
 
 /**

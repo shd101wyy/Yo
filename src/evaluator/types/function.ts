@@ -77,6 +77,7 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   findSomeTypeMissingComptimeConstraint,
   typeImplementsTrait,
+  typeImplementsTraitWithBindings,
 } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
@@ -1531,11 +1532,14 @@ function validateConcreteTypeConstraints({
     }
 
     const traitType = traitTypeValue.value;
-    const implemented = typeImplementsTrait({
-      targetType: concreteType,
-      traitType,
-      env,
-    });
+    const { implemented, env: envAfterCheck } = typeImplementsTraitWithBindings(
+      {
+        targetType: concreteType,
+        traitType,
+        env,
+      }
+    );
+    env = envAfterCheck;
 
     if (isNegated) {
       // Negative constraint: type must NOT implement this trait

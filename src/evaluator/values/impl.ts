@@ -1006,13 +1006,33 @@ export function findMethodsFromGenericImpls({
             (p) => p.kind === "type" && !match.substitutions.has(p.name)
           );
 
+          // When the method itself has its own forall parameters (inner
+          // forall, e.g., `map :: fn(forall(A, B), ...)` inside a blanket
+          // `impl(forall(I), I, map: ...)`), those A/B params are NOT in
+          // `match.substitutions` — they are resolved at the call site from
+          // argument types. We must NOT pre-evaluate the body here, because
+          // doing so would leave A/B as unresolved SomeTypes baked into any
+          // returned struct/enum types (e.g., `IterMap(Self, A, B)` would
+          // contain `SomeType(A)`, `SomeType(B)` forever).
+          //
+          // Instead, do the type-only specialization (re-evaluate the
+          // function type so Self/I are concrete) and let the call site's
+          // `createSpecializedFunctionInline` evaluate the body once A/B are
+          // bound from argument types.
+          const methodHasUnresolvedInnerForall =
+            isFunctionType(method.type) &&
+            method.type.forallParameters.some(
+              (fp) => !match.substitutions.has(fp.label)
+            );
+
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
             (match.valueSubstitutions.size > 0 ||
               match.substitutions.size > 0) &&
             !hasUnknownTypes &&
             !hasUnresolvedTypeParams &&
-            !hasMissingForallParams;
+            !hasMissingForallParams &&
+            !methodHasUnresolvedInnerForall;
 
           // When forall type parameters are missing from substitutions, the
           // concrete type is the impl's own unspecialized template (e.g.,
@@ -1172,10 +1192,21 @@ export function findMethodsFromGenericImpls({
               value: specializedFunctionValue,
             });
             methodIsInherent.push(isInherentImpl);
-          } else if (hasUnknownTypes || hasUnresolvedTypeParams) {
-            // We have unknown types (like unknown array length), or unresolved type
-            // parameters (like T→U inside a forall(U) method). We can't fully
-            // specialize the function body.
+          } else if (
+            hasUnknownTypes ||
+            hasUnresolvedTypeParams ||
+            methodHasUnresolvedInnerForall
+          ) {
+            // We have unknown types (like unknown array length), unresolved type
+            // parameters (like T→U inside a forall(U) method), or the method
+            // has its own inner forall params not yet bound by the impl's
+            // substitutions. We can't fully specialize the function body here.
+            //
+            // For the inner-forall case, we still produce a FunctionValue
+            // (carrying the original body and the partially specialized type)
+            // so that the call site's `createSpecializedFunctionInline` can
+            // finish specialization once argument-driven inference resolves
+            // the inner forall params (e.g., A, B in `IterMap(Self, A, B)`).
 
             // Use the environment where the impl was originally defined
             const baseEnv = impl.definitionEnv;
@@ -1226,7 +1257,24 @@ export function findMethodsFromGenericImpls({
               specializedEnv,
               SelfType: match.substitutions.get("Self"),
             });
-            methods.push({ type: specializedType, value: undefined });
+
+            // For the inner-forall case, attach the original FunctionValue
+            // (with original body) so the call site can re-specialize via
+            // createSpecializedFunctionInline once inner forall params are
+            // bound from arguments. Without a FunctionValue, the call site
+            // has no body to evaluate.
+            let typeOnlyValue: FunctionValue | undefined = undefined;
+            if (
+              methodHasUnresolvedInnerForall &&
+              isFunctionValue(originalValue)
+            ) {
+              typeOnlyValue = {
+                ...originalValue,
+                specializedType,
+              };
+            }
+
+            methods.push({ type: specializedType, value: typeOnlyValue });
             methodIsInherent.push(isInherentImpl);
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
