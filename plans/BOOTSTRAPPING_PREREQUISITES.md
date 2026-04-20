@@ -16,79 +16,58 @@ Features, standard library modules, and language improvements needed **before** 
 
 Before listing gaps, here is what **already exists** and is usable:
 
-| Capability                    | Module                              | Status                                                                                                                                                             |
-| ----------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Process spawn** (low-level) | `std/sys/process.yo`                | ✅ `spawn(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)`, `waitpid`, `kill`, `exit_status`, `term_signal`                                                      |
-| **CLI argument parser**       | `std/cli/arg_parser.yo`             | ✅ `ArgParser` with flags, options, positionals, help text                                                                                                         |
-| **Environment variables**     | `std/process.yo`                    | ✅ `env.get(name)`, `env.set(name, value, overwrite?)`                                                                                                             |
-| **Platform detection**        | `std/process.yo`                    | ✅ `platform`, `Platform`, `arch`, `Arch`                                                                                                                          |
-| **CWD / chdir**               | `std/process.yo`                    | ✅ `cwd()`, `chdir(path)`                                                                                                                                          |
-| **Command-line args**         | `std/process.yo`                    | ✅ `args()` → `ArrayList(String)`, `raw_args()`                                                                                                                    |
-| **Buffered writer**           | `std/sys/bufio/buf_writer.yo`       | ✅ `BufWriter` with fd-based async writes + flush                                                                                                                  |
-| **Buffered reader**           | `std/sys/bufio/buf_reader.yo`       | ✅ `BufReader` with fd-based async reads                                                                                                                           |
-| **Writer trait**              | `std/io/writer.yo`                  | ✅ `Writer` trait with `write` + `flush`                                                                                                                           |
-| **Reader trait**              | `std/io/reader.yo`                  | ✅ `Reader` trait with `read`                                                                                                                                      |
-| **File I/O**                  | `std/fs/file.yo`                    | ✅ Async open, read, write, seek, metadata                                                                                                                         |
-| **Path manipulation**         | `std/path.yo`                       | ✅ `Path` with join, extension, parent, etc.                                                                                                                       |
-| **Derive system**             | `derive(Type, Trait1, Trait2, ...)` | ✅ Phase 1+2 complete: Eq, Hash, Clone, Ord, ToString + user-defined `derive_rule`                                                                                 |
-| **Clone trait**               | `prelude.yo`                        | ✅ `Clone :: trait(clone : fn(self: *(Self)) -> Self)`, `derive(T, Clone)` supported                                                                               |
-| **String methods**            | `std/string/string.yo`              | ✅ `starts_with`, `ends_with`, `contains`, `split`, `replace`, `replace_all`, `trim`, `trim_start`, `trim_end`, `to_uppercase`, `to_lowercase`, `chars()` iterator |
-| **HashMap**                   | `std/collections/hash_map.yo`       | ✅ SwissTable impl with `contains_key`, `keys()`, `values()`, `iter()`, `into_iter()`                                                                              |
-| **ArrayList**                 | `std/collections/array_list.yo`     | ✅ `into_iter()`, `iter()`, `contains()`, `sort()`, `extend_from_ptr()`, `clear()`, `slice()`                                                                      |
-| **Iterator trait**            | `prelude.yo`                        | ✅ `Iterator(Item, next)` + `IntoIterator` + Array/Slice/ArrayList/HashMap iterators                                                                               |
-| **Regex**                     | `std/regex/`                        | ✅ Full NFA engine                                                                                                                                                 |
-| **JSON**                      | `std/encoding/json.yo`              | ✅ `json_parse`, `json_stringify`                                                                                                                                  |
-| **Error handling**            | prelude                             | ✅ `Result(T, E)`, `Option(T)` with combinators, `Exception` effect                                                                                                |
-| **Type reflection**           | builtins                            | ✅ `Type.get_info`, `Type.get_struct_fields`, `Type.get_enum_variants`, etc.                                                                                       |
+| Capability                           | Module                              | Status                                                                                                                                                             |
+| ------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Process spawn** (low-level)        | `std/sys/process.yo`                | ✅ `spawn(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)`, `waitpid`, `kill`, `exit_status`, `term_signal`                                                      |
+| **CLI argument parser**              | `std/cli/arg_parser.yo`             | ✅ `ArgParser` with flags, options, positionals, help text                                                                                                         |
+| **Environment variables**            | `std/env`                           | ✅ `env.get(name)`, `env.set(name, value, overwrite?)`                                                                                                             |
+| **Platform detection**               | `std/process`                       | ✅ `platform`, `Platform`, `arch`, `Arch`                                                                                                                          |
+| **CWD / chdir**                      | `std/env`                           | ✅ `cwd()`, `chdir(path)`                                                                                                                                          |
+| **Command-line args**                | `std/env`                           | ✅ `args()` → `ArrayList(String)`, `raw_args()`                                                                                                                    |
+| **Child process spawn (high-level)** | `std/process/command`               | ✅ `Command.new(prog).arg(a).status() / .output()` — captures stdout/stderr through pipes                                                                          |
+| **Buffered writer**                  | `std/sys/bufio/buf_writer.yo`       | ✅ `BufWriter` with fd-based async writes + flush                                                                                                                  |
+| **Buffered reader**                  | `std/sys/bufio/buf_reader.yo`       | ✅ `BufReader` with fd-based async reads                                                                                                                           |
+| **Writer trait**                     | `std/io/writer.yo`                  | ✅ `Writer` trait with `write` + `flush`                                                                                                                           |
+| **Reader trait**                     | `std/io/reader.yo`                  | ✅ `Reader` trait with `read`                                                                                                                                      |
+| **File I/O**                         | `std/fs/file.yo`                    | ✅ Async open, read, write, seek, metadata                                                                                                                         |
+| **Path manipulation**                | `std/path.yo`                       | ✅ `Path` with join, extension, parent, etc.                                                                                                                       |
+| **Derive system**                    | `derive(Type, Trait1, Trait2, ...)` | ✅ Phase 1+2 complete: Eq, Hash, Clone, Ord, ToString + user-defined `derive_rule`                                                                                 |
+| **Clone trait**                      | `prelude.yo`                        | ✅ `Clone :: trait(clone : fn(self: *(Self)) -> Self)`, `derive(T, Clone)` supported                                                                               |
+| **String methods**                   | `std/string/string.yo`              | ✅ `starts_with`, `ends_with`, `contains`, `split`, `replace`, `replace_all`, `trim`, `trim_start`, `trim_end`, `to_uppercase`, `to_lowercase`, `chars()` iterator |
+| **HashMap**                          | `std/collections/hash_map.yo`       | ✅ SwissTable impl with `contains_key`, `keys()`, `values()`, `iter()`, `into_iter()`                                                                              |
+| **ArrayList**                        | `std/collections/array_list.yo`     | ✅ `into_iter()`, `iter()`, `contains()`, `sort()`, `extend_from_ptr()`, `clear()`, `slice()`                                                                      |
+| **Iterator trait**                   | `prelude.yo`                        | ✅ `Iterator(Item, next)` + `IntoIterator` + Array/Slice/ArrayList/HashMap iterators                                                                               |
+| **Regex**                            | `std/regex/`                        | ✅ Full NFA engine                                                                                                                                                 |
+| **JSON**                             | `std/encoding/json.yo`              | ✅ `json_parse`, `json_stringify`                                                                                                                                  |
+| **Error handling**                   | prelude                             | ✅ `Result(T, E)`, `Option(T)` with combinators, `Exception` effect                                                                                                |
+| **Type reflection**                  | builtins                            | ✅ `Type.get_info`, `Type.get_struct_fields`, `Type.get_enum_variants`, etc.                                                                                       |
 
 ---
 
 ## 1. Standard Library Gaps
 
-### 1.1 🔴 High-Level Command Wrapper (`std/process/command`)
+### 1.1 🔴 High-Level Command Wrapper (`std/process/command`) ✅ Done
 
-**Exists**: Low-level `std/sys/process.yo` provides raw `spawn(file, argv, envp, ...)`.
+Implemented in `std/process/command.yo`:
 
-**What's missing**: A high-level ergonomic wrapper. Building null-terminated `argv`/`envp` arrays manually from `ArrayList(String)` is error-prone and verbose. The compiler invokes `cc`/`clang`/`zig` in many places.
+- `Command :: object(_program, _args, _stdin_fd, _stdout_fd, _stderr_fd)` with builder methods `Command.new(prog)`, `arg(s)`, `args(list)`.
+- `status(using(io)) -> Future(ExitStatus, IO, Exception)` — inherits stdio, waits for child.
+- `output(using(io)) -> Future(Output, IO, Exception)` — captures stdout/stderr through pipes.
+- `ExitStatus :: struct(raw)` with `success()`, `code()`, `signal()` helpers.
+- `Output :: object(status, stdout, stderr)`.
 
-**What's needed**:
+Tests in `tests/process/command.test.yo` (3 tests passing).
 
-```rust
-Command :: object(
-  _program : String,
-  _args : ArrayList(String),
-  _env_overrides : ArrayList(Tuple(String, String)),
-  _cwd : Option(String),
-  _stdin_fd : i32,
-  _stdout_fd : i32,
-  _stderr_fd : i32
-);
+**Std module reorg done at the same time** to better match Rust conventions:
 
-impl(Command,
-  new : (fn(program : String) -> Command)(...),
-  arg : (fn(self : Self, arg : String) -> Self)(...),
-  args : (fn(self : Self, args : ArrayList(String)) -> Self)(...),
-  env : (fn(self : Self, key : String, value : String) -> Self)(...),
-  current_dir : (fn(self : Self, dir : String) -> Self)(...),
-  // Captures stdout/stderr into memory, returns after child exits
-  output : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(Output, IOError), IO)))(...),
-  // Returns exit status only
-  status : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(ExitStatus, IOError), IO)))(...),
-  // Spawns and returns a handle to the running child
-  spawn : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(Child, IOError), IO)))(...)
-);
+- `std/process` now contains only platform/arch detection, `exit`, and the `Command` API.
+- `std/env` (new) holds `args`, `raw_args`, `argc`, `argv`, the `env` submodule (`get`/`set`), `cwd`, `chdir`.
 
-Output :: struct(status : ExitStatus, stdout : ArrayList(u8), stderr : ArrayList(u8));
-ExitStatus :: struct(code : i32);
-```
+Deferred follow-ups (separate items, not blocking bootstrapping):
 
-This wraps `std/sys/process.spawn` internally, handling:
-
-- String → null-terminated C string array conversion
-- Pipe creation for stdout/stderr capture
-- Process waiting and status extraction
-
-**Estimated effort**: ~300–500 lines (builds on existing primitives).
+- `Command.env(k, v)` / `current_dir(dir)` — not yet implemented.
+- `Command.spawn` returning a `Child` handle — not yet implemented.
+- `JoinHandle.await` leaks RC-typed result values — see `issues/joinhandle-await-arraylist-result-leak.md`. Worked around in `output()` by draining sequentially via `io.await`.
 
 ### 1.2 🔴 Iterator Combinators on the Iterator Trait
 

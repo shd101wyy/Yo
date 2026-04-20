@@ -320,15 +320,15 @@ function generateBatchedTestProgram(
   }
   lines.push("");
 
-  // Import process module for env var dispatch (unique name to avoid conflicts)
-  lines.push('__yo_batch_process :: import "std/process";');
+  // Import env module for env var dispatch (unique name to avoid conflicts)
+  lines.push('__yo_batch_env :: import "std/env";');
   lines.push("");
 
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
   // (escape/given) need to be in the same codegen scope as main.
   lines.push("main :: (fn(using(io : IO)) -> unit) {");
-  lines.push("  match(__yo_batch_process.env.get(`YO_TEST_INDEX`),");
+  lines.push("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {
     const test = tests[i]!;
