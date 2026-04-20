@@ -271,6 +271,22 @@ Verified: a hello-world program emits a 1.2k-line self-contained `.c` file that 
 
 Extend `--target` to native triples (`x86_64-linux-gnu`, `aarch64-apple-darwin`, etc.) for CI builds. Or use per-platform GitHub Actions runners.
 
+### 3.3 ✅ Install Scripts — Done
+
+Single-command installers that drop Yo into a user-writable location and wire it into `PATH`:
+
+- `scripts/install.sh` — Linux/macOS. Defaults: `$HOME/.local/Yo` (sources) + `$HOME/.local/bin/yo` (wrapper). Auto-installs `bun` if missing. Configurable via `YO_INSTALL_DIR`, `YO_BIN_DIR`, `YO_REPO`, `YO_REF`, `YO_FORCE`.
+- `scripts/install.ps1` — Windows. Defaults: `$env:LOCALAPPDATA\Yo` + `…\Yo\bin\yo.cmd` (added to user PATH persistently). Auto-installs `bun` if missing. Parameters: `-InstallDir`, `-BinDir`, `-Repo`, `-Ref`, `-Force`.
+
+Both scripts:
+
+1. Verify required tools (`git`, C compiler) and warn if a C compiler is missing.
+2. Install `bun` via the official installer if absent.
+3. Clone Yo at the requested ref, run `bun install` + `bun run build`.
+4. Drop a thin wrapper (`yo`) that execs `<install_dir>/yo-cli`.
+
+Verified end-to-end on macOS by installing into a temp dir; `yo --version` works through the wrapper. Once the bootstrap produces a native `yo` binary + single-file `yo.c`, the scripts can switch from "clone + build" to "download release tarball" without changing the user-facing interface.
+
 ---
 
 ## 4. Verification Plan
@@ -309,5 +325,6 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 | 14  | Temporary files/directories                                                | ✅ Done     | 0              | Codegen tests, build cache   |
 | 15  | Single-file C amalgamation                                                 | ✅ Done     | 0              | Distribution                 |
 | 16  | Cross-compilation targets                                                  | 🟢 P3       | 300–500        | CI/CD                        |
+| 17  | Install scripts (Linux/macOS + Windows)                                    | ✅ Done     | 0              | Distribution / onboarding    |
 
 **Status**: All P1/P2 items and §3.1 are complete or deferred with documented workarounds. The only remaining item (§3.2 cross-compilation) is a CI/CD concern that does not block Phase 1 of the bootstrap effort.
