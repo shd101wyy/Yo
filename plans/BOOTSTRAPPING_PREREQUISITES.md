@@ -315,7 +315,7 @@ The AST `Expr` enum will have 20+ variants, some containing `Box(Self)`, `ArrayL
 - `derive(Clone, Eq, Hash, ToString)` on 20+ variant enum compiles in reasonable time
 - Nested match (match inside match branch) doesn't cause exponential codegen
 
-### 2.4 🟡 Recursive Enum Types
+### 2.4 🟡 Recursive Enum Types — ⚠️ Partial
 
 ```rust
 Expr :: enum(
@@ -326,9 +326,13 @@ Expr :: enum(
 
 **Verify**:
 
-- `Box(Self)` in enum definitions compiles
-- RC drop for recursive types terminates (no infinite recursion in destructor)
-- `derive(Clone)` on recursive types terminates and produces correct deep clones
+- ✅ `Box(Self)` in enum definitions compiles
+- ✅ Single-level Box(Self) drop works correctly
+- ✅ `ArrayList(Self)` variant drops correctly (per-element drop iterates)
+- ❌ **Nested Box(Self) leaks** — see `issues/recursive-box-self-dispose-leak.md`. Box's `___dispose` is generated against a partial `Self` type (only first variant) so inner Boxes are never dropped. **Blocker for AST port.**
+- ❌ `derive(Clone)` on recursive types — see `issues/recursive-derive-clone-codegen-vtable.md`
+
+Tests: `tests/recursive_enum.test.yo` (2 passing, 2 disabled pending dispose fix).
 
 ### 2.5 🟡 Closure Capture Correctness in Iterators
 

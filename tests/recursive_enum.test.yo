@@ -1,0 +1,71 @@
+open import "std/string";
+open import "std/collections/array_list";
+
+// === Recursive enum with Box(Self) ===
+// Mirrors the AST MyExpr shape we'll need for the compiler port.
+
+MyExpr :: enum(
+  Lit(value : i32),
+  Add(lhs : Box(Self), rhs : Box(Self)),
+  Mul(lhs : Box(Self), rhs : Box(Self)),
+  List(items : ArrayList(Self))
+);
+
+eval :: (fn(e : *(MyExpr)) -> i32) {
+  return match(e.*,
+    .Lit(v) => v,
+    .Add(l, r) => {
+      lv := recur(&(l.*));
+      rv := recur(&(r.*));
+      (lv + rv)
+    },
+    .Mul(l, r) => {
+      lv := recur(&(l.*));
+      rv := recur(&(r.*));
+      (lv * rv)
+    },
+    .List(items) => {
+      sum := i32(0);
+      i := usize(0);
+      while ((i < items.len())), (i = (i + usize(1))), {
+        match(items.get(i),
+          .Some(it) => { sum = (sum + recur(&it)); },
+          .None => ()
+        );
+      };
+      sum
+    }
+  );
+};
+
+test "Recursive enum: construct + match Box(Self) leaves", {
+  e := MyExpr.Add(
+    box(MyExpr.Lit(i32(2))),
+    box(MyExpr.Lit(i32(3)))
+  );
+  v := eval(&e);
+  assert((v == i32(5)), "2 + 3 == 5");
+};
+
+test "Recursive enum: ArrayList(Self) variant", {
+  items := ArrayList(MyExpr).new();
+  items.push(MyExpr.Lit(i32(10)));
+  items.push(MyExpr.Lit(i32(20)));
+  items.push(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))));
+  e := MyExpr.List(items);
+  v := eval(&e);
+  assert((v == i32(37)), "10 + 20 + 7 == 37");
+};
+
+// NOTE: nested-Box(Self) and deeply-nested-spine cases are intentionally
+// disabled. They expose a codegen bug where Box(Self)'s dispose function
+// is generated against a partial Self type (only the first variant), so
+// inner Boxes leak. See issues/recursive-box-self-dispose-leak.md.
+//
+// test "Recursive enum: nested Box(Self) tree", { ... };
+// test "Recursive enum: deeply nested drop terminates", { ... };
+
+// === derive(Clone) on a recursive type ===
+// Note: derive(Clone) on Box(Self) currently has a known codegen ordering
+// issue (issues/recursive-derive-clone-codegen-vtable.md). We skip the
+// derive call here and only test that the bare recursive enum works.
