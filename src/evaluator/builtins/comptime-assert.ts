@@ -1,12 +1,14 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, type FnCallExpr } from "../../expr";
-import { isUnitType } from "../../types/guards";
+import { isBooleanType, isUnitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
   createUnknownValue,
   isBooleanValue,
   isComptimeStringValue,
+  isUnknownValue,
   valueToString,
 } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -25,6 +27,31 @@ export function evaluateComptimeAssert({
   // Use expectedType if available (for match branches), otherwise use unit.
   // This allows comptime_assert to type-check correctly in branches that expect a specific type.
   if (context.isValidatingFunctionDefinition || !context.isExecuting) {
+    // Still evaluate the condition argument so its type is checked.
+    // Without this, malformed expressions like `(i32 == i32)` would silently
+    // pass validation inside function bodies and only error when actually executed.
+    const argExpr = expr.args[0];
+    if (argExpr) {
+      const evaluatedArgExpr = evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (
+        evaluatedArgExpr.$ &&
+        !isBooleanType(evaluatedArgExpr.$.type) &&
+        !isUnknownValue(evaluatedArgExpr.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected bool expression for "comptime_assert", got:\n${exprToString(argExpr)}\n\nType:\n${typeToString(evaluatedArgExpr.$.type)}`,
+          isAssertionError: true,
+        });
+      }
+    }
+
     const returnType = context.expectedType?.type ?? VUnit.type;
     expr.$ = {
       env,
