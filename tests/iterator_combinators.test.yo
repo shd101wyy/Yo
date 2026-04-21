@@ -109,12 +109,36 @@ test "iter.enumerate pairs index with value", {
 };
 
 // --- zip -------------------------------------------------------------------
-// NOTE: iter.zip end-to-end is currently failing trait method dispatch:
-//   "No matching call found with arguments: (&it).next()"
-// This appears to be an impl-resolution issue with IterZip's two-where-clause
-// signature `where(I <: Iterator(Item := A), J <: Iterator(Item := B))`.
-// Disabled pending a separate fix; tracked in
-// issues/iter-zip-blanket-impl-not-resolved.md.
+
+test "iter.zip pairs two iterators", {
+  it := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
+  match((&it).next(),
+    .Some(p) => {
+      assert((p._0 == i32(0)), "first left is 0");
+      assert((p._1 == i32(100)), "first right is 100");
+    },
+    .None => assert(false, "expected first pair")
+  );
+  match((&it).next(),
+    .Some(p) => {
+      assert((p._0 == i32(1)), "second left is 1");
+      assert((p._1 == i32(101)), "second right is 101");
+    },
+    .None => assert(false, "expected second pair")
+  );
+};
+
+test "iter.zip stops at shorter iterator", {
+  it := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
+  count := i32(0);
+  while runtime(true), {
+    match((&it).next(),
+      .Some(_) => { count = (count + i32(1)); },
+      .None => { break; }
+    );
+  };
+  assert((count == i32(2)), "should have 2 pairs (limited by shorter)");
+};
 
 // --- fold ------------------------------------------------------------------
 

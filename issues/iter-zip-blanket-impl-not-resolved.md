@@ -1,6 +1,19 @@
 # IterZip blanket impl not resolved by trait method dispatch
 
-## Symptom
+## Status
+
+**Fixed** in `src/evaluator/values/impl.ts` — `whereConstraintTraitExprById` map
+was keyed by `traitType.id`, but specialized variants of the same trait
+(e.g., `Iterator(Item := A)` and `Iterator(Item := B)`) share the base
+trait's id. The second constraint's expression overwrote the first, causing
+both where-clauses to re-evaluate against the wrong source expression.
+
+Fix: key by `(someType.id, "req"|"neg", absolute index in constraint array)`
+instead of `traitType.id`. Regression tests added to
+`tests/iterator_combinators.test.yo` (`iter.zip pairs two iterators`,
+`iter.zip stops at shorter iterator`).
+
+## Symptom (historical)
 
 Calling `.next()` (or `(&it).next()`) on an `IterZip(I, J)` value fails with:
 

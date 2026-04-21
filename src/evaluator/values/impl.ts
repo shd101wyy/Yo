@@ -3006,23 +3006,23 @@ export function evaluateModuleValue({
       const newNegative =
         constraintsAfter?.negativeTraits.slice(prevNegativeCount) ?? [];
 
+      // Key by (someType.id, req|neg, absolute index in the someType's constraint
+      // array). Trait IDs alone are not unique: two specialized variants of the
+      // same trait (e.g., `Iterator(Item := A)` and `Iterator(Item := B)`) share
+      // the base trait's id, so keying by id would collide and overwrite.
       let reqIdx = 0;
       let negIdx = 0;
       for (const { expr: traitExpr, isNegated } of traitExprs) {
         if (isNegated) {
           if (negIdx < newNegative.length) {
-            whereConstraintTraitExprById.set(
-              newNegative[negIdx]!.id,
-              cloneExpr(traitExpr)
-            );
+            const key = `${lhsSomeType.id}:neg:${prevNegativeCount + negIdx}`;
+            whereConstraintTraitExprById.set(key, cloneExpr(traitExpr));
             negIdx++;
           }
         } else {
           if (reqIdx < newRequired.length) {
-            whereConstraintTraitExprById.set(
-              newRequired[reqIdx]!.id,
-              cloneExpr(traitExpr)
-            );
+            const key = `${lhsSomeType.id}:req:${prevRequiredCount + reqIdx}`;
+            whereConstraintTraitExprById.set(key, cloneExpr(traitExpr));
             reqIdx++;
           }
         }
@@ -3044,14 +3044,16 @@ export function evaluateModuleValue({
     if (!constraints) {
       continue;
     }
-    for (const requiredTraitType of constraints.requiredTraits) {
+    for (let i = 0; i < constraints.requiredTraits.length; i++) {
+      const requiredTraitType = constraints.requiredTraits[i]!;
       whereConstraints.push({
         someType,
         traitType: requiredTraitType,
-        traitExpr: whereConstraintTraitExprById.get(requiredTraitType.id),
+        traitExpr: whereConstraintTraitExprById.get(`${someType.id}:req:${i}`),
       });
     }
-    for (const negativeTraitType of constraints.negativeTraits) {
+    for (let i = 0; i < constraints.negativeTraits.length; i++) {
+      const negativeTraitType = constraints.negativeTraits[i]!;
       const negatedTrait: TraitType = {
         ...negativeTraitType,
         isNegatedConstraint: true,
@@ -3059,7 +3061,7 @@ export function evaluateModuleValue({
       whereConstraints.push({
         someType,
         traitType: negatedTrait,
-        traitExpr: whereConstraintTraitExprById.get(negativeTraitType.id),
+        traitExpr: whereConstraintTraitExprById.get(`${someType.id}:neg:${i}`),
       });
     }
   }

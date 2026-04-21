@@ -81,7 +81,7 @@ Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering sing
 **Known limitations** filed as issues for follow-up:
 
 - `issues/fn-trait-param-multi-arg-call.md` — `fold`'s `(f)(acc, item)` 2-arg call on a Fn-trait constrained generic param fails (1-arg works fine). Workaround: use single-arg APIs.
-- `issues/iter-zip-blanket-impl-not-resolved.md` — `IterZip`'s `.next()` dispatch fails despite explicit impl. Likely two-where-constraint resolution bug.
+- ~~`issues/iter-zip-blanket-impl-not-resolved.md`~~ — **Fixed**. Root cause: where-constraint expression map keyed by `traitType.id` collided across specialized variants of the same trait. Now keyed by `(someType, kind, index)`.
 - Closure capture leak in `for_each(x => list.push(x))` — see ASan report; deferred.
 
 **Pre-fixes shipped while testing**:
@@ -172,9 +172,9 @@ Verified working: `std/prelude.yo` (lines ~6037+) successfully defines
 impl(forall(I : Type), where(I <: Iterator), I, ...)
 ```
 
-with map/filter/take/skip/enumerate/zip/fold/for_each/count/any/all dispatched through the receiver `I`. End-to-end exercised by `tests/iterator_combinators.test.yo` (11 passing tests).
+with map/filter/take/skip/enumerate/zip/fold/for_each/count/any/all dispatched through the receiver `I`. End-to-end exercised by `tests/iterator_combinators.test.yo` (15 passing tests, including 2 zip tests).
 
-Two narrow follow-ups (not blockers): see issues `iter-zip-blanket-impl-not-resolved.md` (two-where-constraint resolution) and `fn-trait-param-multi-arg-call.md` (multi-arg Fn-trait param dispatch).
+One narrow follow-up (not a blocker): see issue `fn-trait-param-multi-arg-call.md` (multi-arg Fn-trait param dispatch).
 
 ### 2.2 ✅ Verify `derive(Clone)` on Complex Types
 
