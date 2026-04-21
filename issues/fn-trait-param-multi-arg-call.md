@@ -30,7 +30,14 @@ to the "Function call is not implemented yet" throw at line ~2576.
 - `std/prelude.yo` — `Iterator.fold` (line ~6075)
 - Any user combinator with a 2-argument Fn callback through a generic param.
 
-## Status: RESOLVED
+## Status: PARTIALLY RESOLVED
+
+**Working:**
+
+- Named-fn arguments: `fold(0, add)` where `add :: (fn(acc:i32, x:i32) -> i32)(...)`.
+- Inline named-fn arguments: `fold(0, (fn(acc : i32, x : i32) -> i32)((acc + x)))`.
+- Single-arg lambdas: `iter.filter(x => (x.* > i32(0)))`.
+- Single-arg lambdas via Fn(\*) trait param.
 
 Fixed by:
 
@@ -39,16 +46,33 @@ Fixed by:
    constraints stored on `env.whereClauseConstraints` are consulted (not just
    `requiredTraits`). Without `env` these calls returned undefined for
    forall-F-with-where-Fn cases and the dispatch fell through to "Function
-   call is not implemented yet". This also fixes the SINGLE-arg case for
-   top-level (non-lambda) function values passed through such params.
+   call is not implemented yet".
 
 2. **Codegen** (`src/codegen/exprs/other-fn-call.ts`): when `expr.func` is an
    atom referencing a parameter of `currentFunctionType` whose specialized
    type is a `FunctionType`, emit a direct C call `f(args...)` and use the
-   parameter's `return.type` as the result type. Previously the closure-call
-   branch always emitted `(f).call((f).data, args...)`, which mismatched the
-   function-pointer C parameter declared by `declarations.ts`, and used the
-   unspecialized `Acc` callsig return type (rendered as `void*`).
+   parameter's `return.type` as the result type.
 
-Verified with `tests/iterator_combinators.test.yo` (fold, two-arg combinators
-re-enabled) plus `tmp/fn_multiarg*.yo` and `tmp/any_named_fn.yo`.
+**NOT yet working — multi-arg lambda form:**
+
+```rust
+fold(i32(0), (acc, x) => (acc + x))   // FAILS C compile
+```
+
+Root cause (codegen): the lambda's `closureFunctionValue.type.parameters[i].type`
+is set to the unresolved forall SomeType (`Acc`) from the outer call's Fn
+trait constraint. `Acc.resolvedConcreteType` is never populated because
+fold's specialization binds `Acc → i32` via the env's comptime variable
+binding, not by mutating the SomeType wrapper. As a result:
+
+- `declarations.ts` skips emitting the closure C function (it has SomeType
+  params, looks "generic").
+- The call site `closure_xxx(&f, acc, item)` references an undeclared
+  function → C compile error.
+
+**Workaround:** use `(fn(acc : i32, x : i32) -> i32)(...)` instead of the
+`=>` lambda form for multi-arg callbacks until the substitution issue is
+fixed at evaluator level (substitute SomeTypes through env when assigning
+expected param types to lambda parameters in `anonymous-function.ts`).
+
+Verified-working forms in `tests/iterator_combinators.test.yo`.
