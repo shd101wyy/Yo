@@ -10,7 +10,7 @@ open import "std/collections/hash_set";
 // ---------------------------------------------------------------------------
 
 test "array_list with multiple i32 elements", {
-  xs := array_list(i32, i32(10), i32(20), i32(30));
+  xs := array_list(i32(10), i32(20), i32(30));
   assert(xs.len() == usize(3), "len");
   total := i32(0);
   it := xs.iter();
@@ -23,13 +23,12 @@ test "array_list with multiple i32 elements", {
   assert((total == i32(60)), "sum");
 };
 
-test "array_list empty produces an empty list", {
-  xs := array_list(i32);
-  assert(xs.len() == usize(0), "empty len");
+test "array_list rejects empty literal", {
+  comptime_expect_error(array_list());
 };
 
 test "array_list with single element", {
-  xs := array_list(i32, i32(42));
+  xs := array_list(i32(42));
   assert(xs.len() == usize(1), "len");
   it := xs.iter();
   match(it.next(),
@@ -39,7 +38,7 @@ test "array_list with single element", {
 };
 
 test "array_list with String elements (RC types)", {
-  xs := array_list(String, `hello`, `world`);
+  xs := array_list(`hello`, `world`);
   assert(xs.len() == usize(2), "len");
   it := xs.iter();
   match(it.next(),
@@ -53,9 +52,9 @@ test "array_list with String elements (RC types)", {
 };
 
 test "array_list nested literals", {
-  outer := array_list(ArrayList(i32),
-    array_list(i32, i32(1), i32(2)),
-    array_list(i32, i32(3), i32(4), i32(5))
+  outer := array_list(
+    array_list(i32(1), i32(2)),
+    array_list(i32(3), i32(4), i32(5))
   );
   assert(outer.len() == usize(2), "outer len");
   it := outer.iter();
@@ -74,7 +73,7 @@ test "array_list nested literals", {
 // ---------------------------------------------------------------------------
 
 test "hash_map with multiple entries", {
-  m := hash_map(i32, i32, i32(1) => i32(10), i32(2) => i32(20), i32(3) => i32(30));
+  m := hash_map(i32(1) => i32(10), i32(2) => i32(20), i32(3) => i32(30));
   assert(m.len() == usize(3), "len");
   match(m.get(i32(2)),
     .Some(v) => assert((v == i32(20)), "key 2"),
@@ -82,14 +81,12 @@ test "hash_map with multiple entries", {
   );
 };
 
-test "hash_map empty literal", {
-  m := hash_map(i32, i32);
-  assert(m.len() == usize(0), "empty len");
-  assert(m.is_empty(), "is_empty");
+test "hash_map rejects empty literal", {
+  comptime_expect_error(hash_map());
 };
 
 test "hash_map with String keys and i32 values", {
-  m := hash_map(String, i32, `alice` => i32(30), `bob` => i32(25));
+  m := hash_map(`alice` => i32(30), `bob` => i32(25));
   assert(m.len() == usize(2), "len");
   match(m.get(`alice`),
     .Some(v) => assert((v == i32(30)), "alice"),
@@ -102,20 +99,18 @@ test "hash_map with String keys and i32 values", {
 // ---------------------------------------------------------------------------
 
 test "hash_set with multiple elements", {
-  s := hash_set(i32, i32(1), i32(2), i32(3));
+  s := hash_set(i32(1), i32(2), i32(3));
   assert(s.len() == usize(3), "len");
   assert(s.contains(i32(2)), "contains 2");
   assert(!(s.contains(i32(99))), "no 99");
 };
 
-test "hash_set empty literal", {
-  s := hash_set(i32);
-  assert(s.len() == usize(0), "empty len");
-  assert(s.is_empty(), "is_empty");
+test "hash_set rejects empty literal", {
+  comptime_expect_error(hash_set());
 };
 
 test "hash_set deduplicates equal elements", {
-  s := hash_set(i32, i32(5), i32(5), i32(5));
+  s := hash_set(i32(5), i32(5), i32(5));
   assert(s.len() == usize(1), "len after dedup");
   assert(s.contains(i32(5)), "contains 5");
 };

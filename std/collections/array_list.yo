@@ -742,28 +742,39 @@ __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprLis
 
 /// `array_list` macro — construct an `ArrayList(T)` literal.
 ///
+/// The element type `T` is inferred from the first element via `typeof`, so
+/// at least one element is required.
+///
 /// # Example
 /// ```rust
-/// xs := array_list(i32, i32(1), i32(2), i32(3));
-/// empty := array_list(String);
+/// xs := array_list(i32(1), i32(2), i32(3));
+/// names := array_list(`alice`, `bob`);
 /// ```
 ///
 /// Expands to:
 /// ```rust
 /// {
-///   __tmp := ArrayList(T).new();
-///   __tmp.push(elem1);
-///   __tmp.push(elem2);
+///   __first := <first elem>;
+///   __tmp := ArrayList(typeof(__first)).new();
+///   __tmp.push(__first);
+///   __tmp.push(<elem 2>);
 ///   ...
 ///   __tmp
 /// }
 /// ```
-array_list :: (fn(quote(T) : Expr, ...(quote(elems))) -> unquote(Expr)) {
+array_list :: (fn(...(quote(elems))) -> unquote(Expr)) {
+  __ :: comptime_assert((elems.len() > usize(0)),
+    "array_list requires at least one element to infer the element type");
+  first :: elems.car();
+  rest :: elems.cdr();
   tmp :: gensym("array_list");
-  pushes :: __array_list_build_pushes(tmp, elems);
+  first_tmp :: gensym("array_list_first");
+  rest_pushes :: __array_list_build_pushes(tmp, rest);
   quote {
-    unquote(tmp) := ArrayList(unquote(T)).new();
-    unquote_splicing(pushes);
+    unquote(first_tmp) := unquote(first);
+    unquote(tmp) := ArrayList(typeof(unquote(first_tmp))).new();
+    unquote(tmp).push(unquote(first_tmp));
+    unquote_splicing(rest_pushes);
     unquote(tmp)
   }
 };

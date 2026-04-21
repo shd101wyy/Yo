@@ -736,17 +736,35 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
 
 /// `hash_map` macro — construct a `HashMap(K, V)` literal.
 ///
+/// `K` and `V` are inferred from the first entry's key and value via `typeof`,
+/// so at least one entry is required.
+///
 /// # Example
 /// ```rust
-/// m := hash_map(String, i32, `a` => i32(1), `b` => i32(2));
-/// empty := hash_map(String, i32);
+/// m := hash_map(`a` => i32(1), `b` => i32(2));
 /// ```
-hash_map :: (fn(quote(K) : Expr, quote(V) : Expr, ...(quote(entries))) -> unquote(Expr)) {
+hash_map :: (fn(...(quote(entries))) -> unquote(Expr)) {
+  __ :: comptime_assert((entries.len() > usize(0)),
+    "hash_map requires at least one 'k => v' entry to infer K and V");
+  first :: entries.car();
+  __1 :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
+  callee :: first.get_callee();
+  __2 :: comptime_assert((callee.is_atom() && (callee == quote(=>))), "hash_map entries must use 'k => v'");
+  pair :: first.get_args();
+  __3 :: comptime_assert((pair.len() == usize(2)), "hash_map entries must use 'k => v'");
+  first_key :: pair.car();
+  first_val :: pair.cdr().car();
+  rest :: entries.cdr();
   tmp :: gensym("hash_map");
-  sets :: __hash_map_build_sets(tmp, entries);
+  k_tmp :: gensym("hash_map_k0");
+  v_tmp :: gensym("hash_map_v0");
+  rest_sets :: __hash_map_build_sets(tmp, rest);
   quote {
-    unquote(tmp) := HashMap(unquote(K), unquote(V)).new();
-    unquote_splicing(sets);
+    unquote(k_tmp) := unquote(first_key);
+    unquote(v_tmp) := unquote(first_val);
+    unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
+    unquote(tmp).set(unquote(k_tmp), unquote(v_tmp)).unwrap();
+    unquote_splicing(rest_sets);
     unquote(tmp)
   }
 };
