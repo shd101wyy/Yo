@@ -147,34 +147,31 @@ test "derive Clone for enum with ArrayList variant", {
 };
 
 // ===== 9. Recursive type: Expr containing Box(Self) =====
-// NOTE: Disabled — see issues/recursive-derive-clone-codegen-vtable.md
-// Evaluator now handles this correctly, but codegen emits vtable-style
-// dispatch for the recursive Box(T).clone specialization.
-// TreeNode :: enum(
-//   Leaf(value: i32),
-//   Branch(left: Box(Self), right: Box(Self))
-// );
-// derive(TreeNode, Clone);
-//
-// test "derive Clone for recursive enum with Box(Self)", {
-//   leaf_a := TreeNode.Leaf(i32(1));
-//   leaf_b := TreeNode.Leaf(i32(2));
-//   branch := TreeNode.Branch(left: box(leaf_a), right: box(leaf_b));
-//   c := branch.clone();
-//   match(c,
-//     .Branch(left, right) => {
-//       match(left.*,
-//         .Leaf(v) => assert((v == i32(1)), "left leaf"),
-//         .Branch(_, _) => assert(false, "unexpected branch")
-//       );
-//       match(right.*,
-//         .Leaf(v) => assert((v == i32(2)), "right leaf"),
-//         .Branch(_, _) => assert(false, "unexpected branch")
-//       );
-//     },
-//     .Leaf(_) => assert(false, "expected branch")
-//   );
-// };
+TreeNode :: enum(
+  Leaf(value: i32),
+  Branch(left: Box(Self), right: Box(Self))
+);
+derive(TreeNode, Clone);
+
+test "derive Clone for recursive enum with Box(Self)", {
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  branch := TreeNode.Branch(left: box(leaf_a), right: box(leaf_b));
+  c := branch.clone();
+  match(c,
+    .Branch(left, right) => {
+      match(left.*,
+        .Leaf(v) => assert((v == i32(1)), "left leaf"),
+        .Branch(_, _) => assert(false, "unexpected branch")
+      );
+      match(right.*,
+        .Leaf(v) => assert((v == i32(2)), "right leaf"),
+        .Branch(_, _) => assert(false, "unexpected branch")
+      );
+    },
+    .Leaf(_) => assert(false, "expected branch")
+  );
+};
 
 // ===== 10. Large enum with 20+ variants =====
 BigEnum :: enum(

@@ -1,6 +1,6 @@
 # Recursive `derive(T, Clone)` codegen falls back to vtable dispatch
 
-## Status: Open
+## Status: Fixed
 
 ## Repro
 
@@ -10,18 +10,11 @@ TreeNode :: enum(
   Branch(left : Box(Self), right : Box(Self))
 );
 derive(TreeNode, Clone);
-
-main :: (fn() -> unit)({
-  t := TreeNode.Branch(left: box(TreeNode.Leaf(i32(1))), right: box(TreeNode.Leaf(i32(2))));
-  c := t.clone();
-  ()
-});
-export main;
 ```
 
-## Symptom
+## Symptom (before fix)
 
-C compilation fails:
+C compilation failed:
 
 ```
 error: no member named 'clone' in 'struct __yo_enum_yo..._struct'
@@ -30,43 +23,32 @@ error: no member named 'clone' in 'struct __yo_enum_yo..._struct'
 
 ## Diagnosis
 
-The evaluator-side root cause was fixed in `src/evaluator/calls/trait-type.ts`
-(SelfType substitution when extending `receiverType.trait.fields`). The
-recursive `TreeNode.clone` body now type-checks correctly.
+The recursive `Box(T).clone` impl from `std/prelude.yo` is specialized for
+`T = TreeNode` _while_ `TreeNode.clone` itself is mid-registration. At that
+point, the call expression `(self.*.*).clone()` inside the generic body has
+no resolved `expr.$.value` (no concrete `FunctionValue`), so codegen fell
+through to a regular field access on the struct — emitting
+`(receiver)->clone` and casting it as a function pointer.
 
-The remaining failure is in **codegen specialization ordering**:
+## Fix (option 2 — late dispatch resolution at codegen)
 
-1. `derive(TreeNode, Clone)` registers a Clone impl whose body calls
-   `(self.*).clone()` on `Box(Self)` fields.
-2. During TreeNode.clone codegen, `Box(TreeNode).clone` is specialized.
-3. The generic `Box(T).clone` impl in `std/prelude.yo` has body
-   `box((&(self.*.*)).clone())` — `(self.*.*)` is `T` (= `TreeNode`).
-4. At specialization time for `T = TreeNode`, the codegen attempts to
-   dispatch `(self.*.*).clone()` but TreeNode.clone hasn't been emitted
-   yet (mid-registration), so it falls back to vtable-style dispatch
-   through a struct field (`->clone`) that doesn't exist.
+`src/codegen/exprs/property-access.ts` now performs a late lookup when
+`expr.$.value` is missing but the field name corresponds to a method on
+the receiver type's trait. The lookup:
 
-For non-recursive types (e.g. `Box(P)` where `P` is a plain struct),
-P.clone is fully registered before `Box(P).clone` is specialized, so the
-codegen emits a direct call `fn_yo..._clone(...)` correctly.
+1. Strips pointer layers from `objectType`.
+2. Skips when `fieldName` is a real data field of the receiver type.
+3. Searches the trait's direct fields for a matching `FunctionValue`.
+4. If not found, iterates nested trait impls (unlabeled trait fields whose
+   value is a `TraitValue` — the form created by `derive(...)`) and
+   returns the matching method's C function name.
 
-## Possible fixes
-
-1. **Two-pass specialization**: defer specialization of generic impl
-   bodies until all directly-related concrete impls (e.g. TreeNode's own
-   Clone) have been registered, then re-specialize.
-2. **Late dispatch resolution in codegen**: when emitting a trait method
-   call inside a generic impl body, look up the concrete impl at codegen
-   emit time rather than at specialization time.
-3. **Force generic impl body to use `recur` for self-typed calls** —
-   only works when self-typed; not applicable here because the call is
-   on a `Box(T)` field's content.
-
-Option 2 is likely the proper root-cause fix.
+This makes the dispatch decision at codegen emit time rather than relying
+on the evaluator having set the value during initial generic body
+type-checking. Concrete impls registered after the body is type-checked
+are now picked up correctly.
 
 ## Test
 
 `tests/derive_clone_complex.test.yo` — test "derive Clone for recursive
-enum with Box(Self)" (case 9).
-
-The test is currently disabled with a comment pending the codegen fix.
+enum with Box(Self)" (case 9). Re-enabled and passing.

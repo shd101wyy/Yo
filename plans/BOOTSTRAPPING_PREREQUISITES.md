@@ -184,8 +184,8 @@ derive(Clone) verified for:
 - ✅ Structs with `Option(T)` fields — `derive Clone for struct with Option field`
 - ✅ Enums with data variants — existing
 - ✅ Enums with `String` variant fields — `derive Clone on enum with String field variant`
-- 🟡 Structs with `ArrayList(T)` / `HashMap(K, V)` / `Box(T)` fields — not yet exercised by derive (will need ArrayList/HashMap/Box to impl Clone first; ArrayList already has it)
-- ❌ Recursive types: `Expr` containing `Box(Self)` — see `issues/recursive-derive-clone-codegen-vtable.md` (deferred)
+- ✅ Structs with `ArrayList(T)` / `HashMap(K, V)` / `Box(T)` fields — verified in `tests/derive_clone_complex.test.yo`
+- ✅ Recursive types: `TreeNode` containing `Box(Self)` — `tests/derive_clone_complex.test.yo` "derive Clone for recursive enum with Box(Self)" (codegen ordering bug fixed via late-dispatch resolution in `src/codegen/exprs/property-access.ts`; see `issues/recursive-derive-clone-codegen-vtable.md`)
 
 **Side fix**: Added missing `Eq` impls for `Option(T)` (where `T <: Eq(T)`) and `Result(T, E)` (where `T <: Eq(T), E <: Eq(E)`) in `std/prelude.yo` so that derive(Eq) works on structs containing Option/Result fields.
 
@@ -196,7 +196,7 @@ Verified by `tests/bootstrap_verification.test.yo`:
 - ✅ 25-variant `BigEnum` compiles and roundtrips equality
 - ✅ 25-arm `match` dispatches correctly
 - ✅ `derive(Eq, Clone, ToString)` on 25-variant enum compiles in normal time
-- 🟡 Variants with `Box(Self)` deferred to recursive enum work
+- ✅ Variants with `Box(Self)` verified in `tests/derive_clone_complex.test.yo` (recursive Clone case 9)
 
 ### 2.4 ✅ Recursive Enum Types
 
@@ -214,7 +214,7 @@ Expr :: enum(
 - ✅ `ArrayList(Self)` variant drops correctly (per-element drop iterates)
 - ✅ Nested Box(Self) trees drop correctly (fixed in `evaluator/types/utils.ts` via post-pass `regenerateRcFunctionsForRecursiveStructs`)
 - ✅ Deeply nested Box(Self) spines (50+ levels) drop without leaks
-- ❌ `derive(Clone)` on recursive types — see `issues/recursive-derive-clone-codegen-vtable.md` (separate codegen ordering bug; deferred)
+- ✅ `derive(Clone)` on recursive types — fixed via late-dispatch resolution in codegen (`src/codegen/exprs/property-access.ts`); see `issues/recursive-derive-clone-codegen-vtable.md`
 
 Tests: `tests/recursive_enum.test.yo` (4 passing).
 
