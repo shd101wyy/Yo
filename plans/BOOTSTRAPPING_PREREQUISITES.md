@@ -144,13 +144,14 @@ Implemented in `std/fs/temp.yo` with RAII-managed `TempDir` and `TempFile` types
 
 #### Syntax
 
+Element/key/value type is inferred from the first argument via `typeof`. Empty literals are not allowed (no type to infer from) and produce a `comptime_assert` error.
+
 ```rust
-xs := array_list(i32, i32(1), i32(2), i32(3));
-empty := array_list(String);
+xs := array_list(i32(1), i32(2), i32(3));            // ArrayList(i32)
 
-m := hash_map(String, i32, `a` => i32(1), `b` => i32(2));
+m := hash_map(`a` => i32(1), `b` => i32(2));         // HashMap(String, i32)
 
-s := hash_set(i32, i32(1), i32(2), i32(3));
+s := hash_set(i32(1), i32(2), i32(3));               // HashSet(i32)
 ```
 
 #### Bug discovered + fixed during implementation
@@ -302,7 +303,7 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 1. **High-level Command wrapper** — spawn `echo`, capture stdout, check exit code
 2. **Iterator combinators** — `list.iter().filter(...).map(...).collect()`
 3. **StringBuilder** — build a multi-line C function string, verify output
-4. **Collection literal macros** — `array_list(1, 2, 3)`, `hash_map(`a`=> 1,`b` => 2)`, `hash_set(`x`, `y`)`
+4. **Collection literal macros** — `array_list(1, 2, 3)`, `hash_map(`a`=> 1,`b` => 2)`, `hash_set(`x`, `y`)` (element/key/value type inferred via `typeof`)
 5. **Clone on complex types** — clone a struct with Box, ArrayList, String fields
 6. **Large enum** — define 20+ variant enum, match on it, derive traits
 7. **Recursive enum** — `Expr` with `Box(Self)`, clone it, match it
