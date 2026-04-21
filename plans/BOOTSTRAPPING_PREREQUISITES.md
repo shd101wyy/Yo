@@ -335,3 +335,12 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 | 17  | Install scripts (Linux/macOS + Windows)                                    | ✅ Done  | 0              | Distribution / onboarding    |
 
 **Status**: All P1/P2 items and §3.1 are complete or deferred with documented workarounds. The only remaining item (§3.2 cross-compilation) is a CI/CD concern that does not block Phase 1 of the bootstrap effort.
+
+---
+
+## Companion fixes (off-list bugs found during prep work)
+
+These bugs surfaced while completing the items above and are recorded for traceability.
+
+- **`comptime_assert` validation skipped argument type-checking inside function bodies** — Fixed in `src/evaluator/builtins/comptime-assert.ts`. Previously, `comptime_assert((i32 == i32), ...)` written inside a function body silently passed validation because `isValidatingFunctionDefinition || !isExecuting` early-returned without evaluating the condition. Now the condition is evaluated and required to be `bool` even in validation mode. Regression test added to `tests/comptime.test.yo`. This makes misuse like comparing `Type` values with `==` (use `Type.eq` / `Type.is_compatible_with` instead) reliably caught at definition time.
+- **Variadic-quote macros wrongly flagged for runtime emission** — Fixed in `src/codegen/functions/generation.ts` and `src/types/guards.ts`. `array_list`, `hash_map`, `hash_set` could escape the codegen skip because `parameters.some(p => p.isCompileTimeOnly)` ignored `variadicParameter.isCompileTimeOnly`/`isQuote`. The new defensive split makes `isComptimeFunction` always win and covers variadic flags in `isFunctionTypeGeneric`/`isFunctionTypeHardGeneric`.
