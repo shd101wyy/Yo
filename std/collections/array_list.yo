@@ -722,3 +722,49 @@ export
   ArrayListIter,
   ArrayListIterPtr
 ;
+
+// =============================================================================
+// array_list! literal macro
+// =============================================================================
+
+/// Internal helper: build a list of `tmp.push(elem)` statements from `elems`.
+__array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
+  cond(
+    (elems.len() == usize(0)) => ExprList(),
+    true => {
+      first :: elems.car();
+      rest :: elems.cdr();
+      stmt :: quote((unquote(tmp).push(unquote(first))));
+      stmt.cons(recur(tmp, rest))
+    }
+  )
+);
+
+/// `array_list` macro — construct an `ArrayList(T)` literal.
+///
+/// # Example
+/// ```rust
+/// xs := array_list(i32, i32(1), i32(2), i32(3));
+/// empty := array_list(String);
+/// ```
+///
+/// Expands to:
+/// ```rust
+/// {
+///   __tmp := ArrayList(T).new();
+///   __tmp.push(elem1);
+///   __tmp.push(elem2);
+///   ...
+///   __tmp
+/// }
+/// ```
+array_list :: (fn(quote(T) : Expr, ...(quote(elems))) -> unquote(Expr)) {
+  tmp :: gensym("array_list");
+  pushes :: __array_list_build_pushes(tmp, elems);
+  quote {
+    unquote(tmp) := ArrayList(unquote(T)).new();
+    unquote_splicing(pushes);
+    unquote(tmp)
+  }
+};
+export array_list;

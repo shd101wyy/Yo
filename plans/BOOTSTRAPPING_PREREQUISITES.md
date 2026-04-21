@@ -138,20 +138,26 @@ Supports arbitrarily nested subcommands. Help text auto-includes a `Subcommands:
 
 Implemented in `std/fs/temp.yo` with RAII-managed `TempDir` and `TempFile` types. APIs: `TempDir.new()`, `TempDir.in(parent)`, `TempFile.new(prefix)`, `TempFile.in(parent, prefix)`, `path()`, `remove()`. Verified by `tests/fs/temp.test.yo` (7 tests, all passing).
 
-### 1.8 🟡 Collection Literal Macros — Deferred
+### 1.8 ✅ Collection Literal Macros
 
-**Why deferred**: Investigation during bootstrapping prep showed that variadic macro syntax (`...(quote(elems))`) works and produces an `ExprList`, but `unquote_splicing` fails during macro body validation when `elems` has `UnknownValue` — the splice expansion is skipped and arg-count validation rejects the call. See `issues/unquote-splicing-body-validation.md`.
+**Status**: Implemented. `array_list`, `hash_map`, `hash_set` macros are defined in their respective `std/collections/*.yo` files (auto-available when the user `open import`s the collection module). Variadic `...(quote(elems))` parameters collect call-site exprs into an `ExprList`; recursive comptime helpers build the push/set/add statement list and the macro splices them into a begin block via `unquote_splicing`.
 
-**Workaround for bootstrapping**: Use `ArrayList(T).new()` + `.push(x)` / `HashMap(K, V).new()` + `.put(k, v)`. Verbose (4 lines instead of 1) but functional.
+#### Syntax
 
-**Path forward** (post-bootstrap):
+```rust
+xs := array_list(i32, i32(1), i32(2), i32(3));
+empty := array_list(String);
 
-1. Fix `unquote_splicing` body-validation issue (~50 lines in `src/evaluator/builtins/quote.ts`), then implement `array_list` / `hash_map` / `hash_set` purely in `std/prelude.yo` (~50 lines).
-2. Or implement as builtin macros in `src/evaluator/builtins/collection-literals.ts` (~200-400 lines).
+m := hash_map(String, i32, `a` => i32(1), `b` => i32(2));
 
-#### Original design (preserved for reference)
+s := hash_set(i32, i32(1), i32(2), i32(3));
+```
 
-`array_list(elem1, elem2, ...)`, `hash_map(key1 => val1, ...)`, `hash_set(elem1, ...)` — type inferred from the first element/pair, pre-allocates with `with_capacity(N)`, expands to a begin block of push/insert calls.
+#### Bug discovered + fixed during implementation
+
+`recur` in a comptime helper short-circuits to `UnknownValue` when called inside a macro body (because the caller's `isValidatingFunctionDefinition` flag was still set). Fixed in `src/evaluator/calls/function.ts` — the two macro-expansion call sites now clear validation flags. See `issues/recur-short-circuit-inside-macro-body.md` for details.
+
+Tests: `tests/collection_literals.test.yo` (11 tests, all passing).
 
 ---
 
@@ -307,24 +313,24 @@ Before starting Phase 1 of bootstrapping, write test programs that exercise ever
 
 ## 5. Summary: Work Items by Priority
 
-| #   | Item                                                                       | Priority    | Effort (lines) | Blocks                       |
-| --- | -------------------------------------------------------------------------- | ----------- | -------------- | ---------------------------- |
-| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | ✅ Done     | 0              | Evaluator port (155+ usages) |
-| 2   | Verify blanket impl on Iterator works                                      | ✅ Done     | 0              | Iterator combinators         |
-| 3   | High-level Command wrapper                                                 | ✅ Done     | 0              | CLI / compile pipeline       |
-| 4   | Verify derive(Clone) on complex types                                      | ✅ Done     | 0              | AST types                    |
-| 5   | Collection literal macros (array_list, hash_map, hash_set)                 | 🟡 Deferred | 200–400        | Ergonomics throughout        |
-| 6   | StringBuilder (sync in-memory)                                             | ✅ Done     | 0              | Codegen port                 |
-| 7   | String additions (repeat, join, lines)                                     | ✅ Done     | 0              | Throughout                   |
-| 8   | OrderedMap                                                                 | ✅ Done     | 0              | Evaluator port               |
-| 9   | ArgParser subcommand support                                               | ✅ Done     | 0              | CLI port                     |
-| 10  | Large enum + recursive type verification                                   | ✅ Done     | 0              | AST design                   |
-| 11  | Closure capture verification                                               | ✅ Done     | 0              | Iterator usage               |
-| 12  | `?` operator for Option/Result (`try` macro)                               | ✅ Done     | 0              | Evaluator ergonomics         |
-| 13  | Derive ToString/Eq/Hash quality verification                               | ✅ Done     | 0              | Error messages               |
-| 14  | Temporary files/directories                                                | ✅ Done     | 0              | Codegen tests, build cache   |
-| 15  | Single-file C amalgamation                                                 | ✅ Done     | 0              | Distribution                 |
-| 16  | Cross-compilation targets                                                  | 🟢 P3       | 300–500        | CI/CD                        |
-| 17  | Install scripts (Linux/macOS + Windows)                                    | ✅ Done     | 0              | Distribution / onboarding    |
+| #   | Item                                                                       | Priority | Effort (lines) | Blocks                       |
+| --- | -------------------------------------------------------------------------- | -------- | -------------- | ---------------------------- |
+| 1   | Iterator combinators (map/filter/find/any/all/fold/collect/enumerate/join) | ✅ Done  | 0              | Evaluator port (155+ usages) |
+| 2   | Verify blanket impl on Iterator works                                      | ✅ Done  | 0              | Iterator combinators         |
+| 3   | High-level Command wrapper                                                 | ✅ Done  | 0              | CLI / compile pipeline       |
+| 4   | Verify derive(Clone) on complex types                                      | ✅ Done  | 0              | AST types                    |
+| 5   | Collection literal macros (array_list, hash_map, hash_set)                 | ✅ Done  | 0              | Ergonomics throughout        |
+| 6   | StringBuilder (sync in-memory)                                             | ✅ Done  | 0              | Codegen port                 |
+| 7   | String additions (repeat, join, lines)                                     | ✅ Done  | 0              | Throughout                   |
+| 8   | OrderedMap                                                                 | ✅ Done  | 0              | Evaluator port               |
+| 9   | ArgParser subcommand support                                               | ✅ Done  | 0              | CLI port                     |
+| 10  | Large enum + recursive type verification                                   | ✅ Done  | 0              | AST design                   |
+| 11  | Closure capture verification                                               | ✅ Done  | 0              | Iterator usage               |
+| 12  | `?` operator for Option/Result (`try` macro)                               | ✅ Done  | 0              | Evaluator ergonomics         |
+| 13  | Derive ToString/Eq/Hash quality verification                               | ✅ Done  | 0              | Error messages               |
+| 14  | Temporary files/directories                                                | ✅ Done  | 0              | Codegen tests, build cache   |
+| 15  | Single-file C amalgamation                                                 | ✅ Done  | 0              | Distribution                 |
+| 16  | Cross-compilation targets                                                  | 🟢 P3    | 300–500        | CI/CD                        |
+| 17  | Install scripts (Linux/macOS + Windows)                                    | ✅ Done  | 0              | Distribution / onboarding    |
 
 **Status**: All P1/P2 items and §3.1 are complete or deferred with documented workarounds. The only remaining item (§3.2 cross-compilation) is a CI/CD concern that does not block Phase 1 of the bootstrap effort.

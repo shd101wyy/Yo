@@ -708,3 +708,46 @@ export
   HashMapKeys,
   HashMapValues
 ;
+
+// =============================================================================
+// hash_map! literal macro
+// =============================================================================
+
+/// Internal helper: build a list of `tmp.set(k, v).unwrap()` statements from
+/// a sequence of `k => v` arrow expressions.
+__hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList) -> comptime(ExprList))(
+  cond(
+    (entries.len() == usize(0)) => ExprList(),
+    true => {
+      first :: entries.car();
+      rest :: entries.cdr();
+      __ :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
+      callee :: first.get_callee();
+      __1 :: comptime_assert((callee.is_atom() && (callee == quote(=>))), "hash_map entries must use 'k => v'");
+      pair :: first.get_args();
+      __2 :: comptime_assert((pair.len() == usize(2)), "hash_map entries must use 'k => v'");
+      key :: pair.car();
+      val :: pair.cdr().car();
+      stmt :: quote((unquote(tmp).set(unquote(key), unquote(val)).unwrap()));
+      stmt.cons(recur(tmp, rest))
+    }
+  )
+);
+
+/// `hash_map` macro — construct a `HashMap(K, V)` literal.
+///
+/// # Example
+/// ```rust
+/// m := hash_map(String, i32, `a` => i32(1), `b` => i32(2));
+/// empty := hash_map(String, i32);
+/// ```
+hash_map :: (fn(quote(K) : Expr, quote(V) : Expr, ...(quote(entries))) -> unquote(Expr)) {
+  tmp :: gensym("hash_map");
+  sets :: __hash_map_build_sets(tmp, entries);
+  quote {
+    unquote(tmp) := HashMap(unquote(K), unquote(V)).new();
+    unquote_splicing(sets);
+    unquote(tmp)
+  }
+};
+export hash_map;

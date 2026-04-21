@@ -833,3 +833,38 @@ export
   HashSetIter,
   HashSetIterPtr
 ;
+
+// =============================================================================
+// hash_set! literal macro
+// =============================================================================
+
+/// Internal helper: build a list of `tmp.add(elem).unwrap()` statements from `elems`.
+__hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
+  cond(
+    (elems.len() == usize(0)) => ExprList(),
+    true => {
+      first :: elems.car();
+      rest :: elems.cdr();
+      stmt :: quote((unquote(tmp).add(unquote(first)).unwrap()));
+      stmt.cons(recur(tmp, rest))
+    }
+  )
+);
+
+/// `hash_set` macro — construct a `HashSet(T)` literal.
+///
+/// # Example
+/// ```rust
+/// s := hash_set(i32, i32(1), i32(2), i32(3));
+/// empty := hash_set(String);
+/// ```
+hash_set :: (fn(quote(T) : Expr, ...(quote(elems))) -> unquote(Expr)) {
+  tmp :: gensym("hash_set");
+  adds :: __hash_set_build_adds(tmp, elems);
+  quote {
+    unquote(tmp) := HashSet(unquote(T)).new();
+    unquote_splicing(adds);
+    unquote(tmp)
+  }
+};
+export hash_set;

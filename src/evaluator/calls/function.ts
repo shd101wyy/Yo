@@ -1836,7 +1836,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         functionCalleeExpr: func,
         argExprs: functionToCall.args ?? args,
         callerEnv: env,
-        context,
+        context: {
+          ...context,
+          // Macro expansion must fully evaluate the body to produce the
+          // expanded code. Clear validation flags so recursive comptime
+          // helpers (recur) and CTFE actually execute instead of short-
+          // circuiting to UnknownValue.
+          isValidatingFunctionDefinition: false,
+          isAnalyzingCtfeCapability: false,
+          isExecuting: true,
+        },
         isMethodCall: Boolean(methodExpr),
       });
 
@@ -1869,6 +1878,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
 
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
+    const isMacroCall = functionType.return.isUnquote;
 
     {
       // It's
@@ -1893,7 +1903,18 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         functionCalleeExpr: func,
         argExprs: functionToCall.args ?? args,
         callerEnv: env,
-        context,
+        context: isMacroCall
+          ? {
+              ...context,
+              // Macro expansion must fully evaluate the body to produce the
+              // expanded code. Clear validation flags so recursive comptime
+              // helpers (recur) and CTFE actually execute instead of short-
+              // circuiting to UnknownValue.
+              isValidatingFunctionDefinition: false,
+              isAnalyzingCtfeCapability: false,
+              isExecuting: true,
+            }
+          : context,
         isMethodCall: Boolean(methodExpr),
       });
 
