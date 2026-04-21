@@ -154,6 +154,18 @@ test "iter.fold with single accumulation", {
   assert((prod == i32(24)), "1*2*3*4=24");
 };
 
+test "iter.fold with multi-arg => lambda", {
+  total := my_range(i32(1), i32(6)).fold(i32(0), (acc, x) => (acc + x));
+  assert((total == i32(15)), "1+2+3+4+5=15 via => lambda");
+};
+
+test "iter.fold over ArrayList iter with multi-arg => lambda", {
+  list := array_list(i32(10), i32(20), i32(30), i32(40));
+  iter := list.iter();
+  total := iter.fold(i32(0), (acc, x) => (acc + x.*));
+  assert((total == i32(100)), "10+20+30+40=100 via => lambda over *(i32) iter");
+};
+
 // --- for_each --------------------------------------------------------------
 // NOTE: for_each with a closure that captures an ArrayList currently leaks
 // (ASan reports indirect leaks in push). This appears to be a real RC bug in

@@ -80,7 +80,7 @@ Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering sing
 
 **Known limitations** filed as issues for follow-up:
 
-- `issues/fn-trait-param-multi-arg-call.md` — **Partially resolved.** Named-fn 2-arg form (`fold(0, add)`) and inline `(fn(...) -> ...)` form work. The `=>` lambda form for 2+ args (`fold(0, (acc, x) => (acc + x))`) still fails — closure params receive unresolved forall SomeTypes from the Fn trait constraint and the closure body C function is never declared. Workaround: use named-fn or inline `(fn(...) -> ...)` form for multi-arg callbacks.
+- `issues/fn-trait-param-multi-arg-call.md` — **Resolved.** All three forms now work: named-fn `fold(0, add)`, inline `(fn(...) -> ...)`, and the `=>` lambda form `fold(0, (acc, x) => (acc + x))`. Fixed by `substituteSomeTypesFromEnv` in `src/evaluator/values/anonymous-function.ts`, which substitutes forall SomeTypes from the callee env into the Fn trait callType before binding lambda parameter types.
 - ~~`issues/iter-zip-blanket-impl-not-resolved.md`~~ — **Fixed**. Root cause: where-constraint expression map keyed by `traitType.id` collided across specialized variants of the same trait. Now keyed by `(someType, kind, index)`.
 - Closure capture leak in `for_each(x => list.push(x))` — see ASan report; deferred.
 
@@ -174,7 +174,7 @@ impl(forall(I : Type), where(I <: Iterator), I, ...)
 
 with map/filter/take/skip/enumerate/zip/fold/for_each/count/any/all dispatched through the receiver `I`. End-to-end exercised by `tests/iterator_combinators.test.yo` (15 passing tests, including 2 zip tests).
 
-One narrow follow-up (not a blocker): see issue `fn-trait-param-multi-arg-call.md` (multi-arg Fn-trait param dispatch).
+All `iter.fold` lambda forms now work end-to-end (issue `fn-trait-param-multi-arg-call.md` resolved).
 
 ### 2.2 ✅ Verify `derive(Clone)` on Complex Types
 

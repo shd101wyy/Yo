@@ -28,6 +28,24 @@ import type {
 import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  isDynType,
+  isFunctionType,
+  isModuleType,
+  isPtrType,
+  isSliceType,
+  isArrayType,
+  isIsoType,
+  isSomeType,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
+  typeContainsSomeType,
+  typeToString,
+} from "../../types/utils";
+import {
+  createPtrType,
+  createSliceType,
+  createArrayType,
   createEffectsRowType,
   createFnTraitType,
   createSomeType,
@@ -43,17 +61,6 @@ import type {
   StructType,
   Type,
 } from "../../types/definitions";
-import {
-  isDynType,
-  isFunctionType,
-  isModuleType,
-  isSomeType,
-} from "../../types/guards";
-import {
-  convertComptimeTypeToRuntimeType,
-  typeContainsSomeType,
-  typeToString,
-} from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   createUnknownValue,
@@ -81,6 +88,102 @@ import {
   validateCaptureTraitRequirements,
 } from "../utils/closure";
 import { synthesizeTypes } from "../types/synthesizer";
+
+/**
+ * Substitute SomeTypes in `type` with concrete types looked up by name from `env`.
+ *
+ * When a lambda is passed to a function like
+ *   fold :: (forall(A, Acc, F), self, init: Acc, f: F, where(F <: Fn(acc: Acc, item: A) -> Acc)) -> Acc
+ * and called as `fold(0, (acc, x) => acc + x.*)`, the Fn trait's callType
+ * still references the unresolved forall SomeTypes `Acc` and `A`. By the time
+ * the lambda is being evaluated, these forall variables have been bound to
+ * concrete types in the callee's env (e.g., `Acc -> i32, A -> *(i32)`).
+ *
+ * This helper walks `type` and substitutes any SomeType whose `name` matches a
+ * comptime variable in `env` whose value is a TypeValue. This ensures that the
+ * lambda parameter bindings and downstream codegen see concrete types instead
+ * of unresolved forall SomeTypes.
+ *
+ * Recurses through wrapper types (Ptr, Slice, Array, Iso) and FunctionType.
+ * Does NOT recurse into nominal types (Struct/Enum/Module) — those are
+ * identity-keyed and substituting fields would create unrelated types.
+ */
+function substituteSomeTypesFromEnv(
+  type: Type,
+  env: Environment | undefined,
+  visited: Set<Type> = new Set()
+): Type {
+  if (!env) return type;
+  if (visited.has(type)) return type;
+  visited.add(type);
+
+  if (isSomeType(type)) {
+    // If already resolved to a concrete type, prefer that.
+    if (type.resolvedConcreteType) {
+      return substituteSomeTypesFromEnv(
+        type.resolvedConcreteType,
+        env,
+        visited
+      );
+    }
+    const found = getVariablesFromEnv(env, type.name);
+    for (let i = found.length - 1; i >= 0; i--) {
+      const v = found[i]!;
+      if (v.value && v.value[0] && isTypeValue(v.value[0])) {
+        const bound = v.value[0].value;
+        // Avoid trivial self-binding (variable bound to the same SomeType).
+        if (bound !== type) {
+          return substituteSomeTypesFromEnv(bound, env, visited);
+        }
+      }
+    }
+    return type;
+  }
+
+  if (isPtrType(type)) {
+    const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
+    if (childSub === type.childType) return type;
+    return createPtrType(childSub);
+  }
+
+  if (isSliceType(type)) {
+    const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
+    if (childSub === type.childType) return type;
+    return createSliceType(childSub);
+  }
+
+  if (isArrayType(type)) {
+    const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
+    if (childSub === type.childType) return type;
+    return createArrayType(childSub, type.length);
+  }
+
+  if (isIsoType(type)) {
+    // Iso construction needs an env; reuse the type's stored env.
+    return type;
+  }
+
+  if (isFunctionType(type)) {
+    let changed = false;
+    const newParams = type.parameters.map((p) => {
+      const sub = substituteSomeTypesFromEnv(p.type, env, visited);
+      if (sub === p.type) return p;
+      changed = true;
+      return { ...p, type: sub };
+    });
+    const retSub = substituteSomeTypesFromEnv(type.return.type, env, visited);
+    if (retSub !== type.return.type) changed = true;
+    if (!changed) return type;
+    const newFn: FunctionType = {
+      ...type,
+      parameters: newParams,
+      return: { ...type.return, type: retSub },
+    };
+    return newFn;
+  }
+
+  return type;
+}
 
 export function evaluateAnonymousFunctionImplementation({
   expr,
@@ -124,6 +227,18 @@ export function evaluateAnonymousFunctionImplementation({
       functionType = fnModuleFromWrapper.isFn.callType;
       isCreatingClosure = true;
       wrapperType = expectedType;
+      // Substitute forall SomeTypes (e.g., `Acc`, `A` from a generic
+      // function's where-clause `F <: Fn(acc: Acc, item: A) -> Acc`) with
+      // their concrete bindings from the callee's env. Without this, lambda
+      // parameters keep unresolved SomeType refs and the closure's C
+      // function is skipped by codegen (typeContainsSomeType gate).
+      const substituted = substituteSomeTypesFromEnv(
+        functionType,
+        expectedTypeEnv
+      );
+      if (substituted !== functionType && isFunctionType(substituted)) {
+        functionType = substituted;
+      }
     } else {
       throw formatErrorMessage({
         token: expr.token,

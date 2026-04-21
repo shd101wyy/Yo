@@ -30,16 +30,16 @@ to the "Function call is not implemented yet" throw at line ~2576.
 - `std/prelude.yo` — `Iterator.fold` (line ~6075)
 - Any user combinator with a 2-argument Fn callback through a generic param.
 
-## Status: PARTIALLY RESOLVED
+## Status: RESOLVED
 
-**Working:**
+**Working (all forms):**
 
 - Named-fn arguments: `fold(0, add)` where `add :: (fn(acc:i32, x:i32) -> i32)(...)`.
 - Inline named-fn arguments: `fold(0, (fn(acc : i32, x : i32) -> i32)((acc + x)))`.
-- Single-arg lambdas: `iter.filter(x => (x.* > i32(0)))`.
-- Single-arg lambdas via Fn(\*) trait param.
+- Single-arg `=>` lambdas: `iter.filter(x => (x.* > i32(0)))`.
+- **Multi-arg `=>` lambdas: `fold(0, (acc, x) => (acc + x))`** — now fixed.
 
-Fixed by:
+Fixed in three steps:
 
 1. **Evaluator** (`src/evaluator/calls/function.ts`): pass `env` to
    `extractFnTraitFromType` at lines 1218, 2091, 2094 so where-clause
@@ -53,26 +53,20 @@ Fixed by:
    type is a `FunctionType`, emit a direct C call `f(args...)` and use the
    parameter's `return.type` as the result type.
 
-**NOT yet working — multi-arg lambda form:**
+3. **Evaluator** (`src/evaluator/values/anonymous-function.ts`): when a
+   lambda is being type-checked against an `Impl(Fn(...))` expected type,
+   the Fn trait's `callType` may still reference unresolved forall SomeTypes
+   from a generic where-clause (e.g., `Fn(acc: Acc, item: A) -> Acc` from
+   `fold`'s `where(F <: Fn(...))`). The new `substituteSomeTypesFromEnv`
+   helper walks the FunctionType (recursing through `Ptr`, `Slice`, `Array`,
+   nested `FunctionType`) and substitutes each SomeType with the concrete
+   type bound to a same-named comptime variable in the callee's env. This
+   ensures lambda parameter bindings, the closure's `closureFunctionValue.type`,
+   and downstream codegen all see the concrete runtime types so the closure's
+   C function is properly emitted (no longer skipped by the
+   `typeContainsSomeType` gate in `declarations.ts`).
 
-```rust
-fold(i32(0), (acc, x) => (acc + x))   // FAILS C compile
-```
+Regression tests in `tests/iterator_combinators.test.yo`:
 
-Root cause (codegen): the lambda's `closureFunctionValue.type.parameters[i].type`
-is set to the unresolved forall SomeType (`Acc`) from the outer call's Fn
-trait constraint. `Acc.resolvedConcreteType` is never populated because
-fold's specialization binds `Acc → i32` via the env's comptime variable
-binding, not by mutating the SomeType wrapper. As a result:
-
-- `declarations.ts` skips emitting the closure C function (it has SomeType
-  params, looks "generic").
-- The call site `closure_xxx(&f, acc, item)` references an undeclared
-  function → C compile error.
-
-**Workaround:** use `(fn(acc : i32, x : i32) -> i32)(...)` instead of the
-`=>` lambda form for multi-arg callbacks until the substitution issue is
-fixed at evaluator level (substitute SomeTypes through env when assigning
-expected param types to lambda parameters in `anonymous-function.ts`).
-
-Verified-working forms in `tests/iterator_combinators.test.yo`.
+- `iter.fold with multi-arg => lambda`
+- `iter.fold over ArrayList iter with multi-arg => lambda`
