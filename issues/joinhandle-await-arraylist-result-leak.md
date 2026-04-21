@@ -55,3 +55,40 @@ RC-typed `T`.
 Use `io.await(...)` directly on the future for tasks whose result type is
 RC-typed (no `io.spawn` + `JoinHandle.await`). This is what
 `std/process/command.yo` `output()` currently does.
+
+## Investigation update
+
+Tried to reproduce the leak with simpler patterns (under ASan, default
+test-runner sanitizer):
+
+1. `io.spawn` + `JoinHandle.await` returning `ArrayList(i32)` — **no leak**
+2. `io.spawn` + `JoinHandle.await` returning `ArrayList(u8)` — **no leak**
+3. `io.spawn` + `JoinHandle.await` returning `String` (template literal) — **no leak**
+4. Two parallel `io.spawn` of futures returning `ArrayList(u8)` — **no leak**
+5. The exact pattern with `using(io, exn)` and `Exception` handler installed
+   via `given(exn)`, two parallel spawns returning `ArrayList(u8)` — **no leak**
+
+Looking at codegen:
+
+- `generateJoinHandleAwait` (`src/codegen/exprs/await.ts:438-448`) DOES dup
+  the result when it contains RC types.
+- `disposeFunctionName` (`src/codegen/exprs/async.ts:1585-1589`) for
+  sync_fut_t DOES drop the result field on `state == -1`.
+- Full SM dispose (`src/codegen/exprs/async.ts:826-840`) ALSO drops the
+  result field on `state == -1`.
+
+The previously reported leak in `std/process/command.yo` `output()` may
+have been caused by a different bug (likely related to
+`dyn(IOError.from_errno(...))` interacting with closure captures — see
+`issues/box-forall-V-bound-to-iorerror-after-impl-IOError-Error.md`).
+The workaround using `io.await` directly is still in place.
+
+## Status: not currently reproducible
+
+Cannot reproduce with simple test cases under ASan. May have been fixed
+incidentally by other RC/codegen changes, OR may only manifest with the
+real `_drain_fd` scenario (involving `dyn(IOError.from_errno(...))` which
+has its own pending issue).
+
+If the workaround in `output()` is removed and the leak reappears, this
+issue should be reopened with a fresh investigation.

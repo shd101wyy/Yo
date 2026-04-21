@@ -1,6 +1,27 @@
 # `box(closure)` fails with `V=IOError` after importing std/sys/errors
 
-## Symptom
+**Status:** ✅ Fixed (see commit message for details).
+
+## Root cause
+
+`evaluateComptimeFunctionCall` cache-equality check in
+`src/evaluator/calls/comptime-fn.ts` failed to distinguish a bare `SomeType`
+argument from a concrete type when the SomeType resolved to `Impl(Fn(...))`
+or `Impl(Future(...))`. `typeContainsSomeType` deliberately returns `false`
+for these (because codegen lowers them to concrete forms), causing the
+cache-equality function to skip the SomeType-id check and fall through to
+`areTypesCompatible`, which returned `true` for `Box(IOError)` vs
+`Box(someType_for_Impl(Fn))`. The cached `Box(IOError)` body was then
+returned, leading to V being bound to `IOError`.
+
+## Fix
+
+In the comptime-call cache equality check, treat `isSomeType(...)` (bare
+SomeType, regardless of `typeContainsSomeType`'s codegen view) as requiring
+exact id equality. If only one side is a bare SomeType, the cache entry is
+not a match.
+
+## Symptom (historical)
 
 After `import "std/sys/errors"` (or any module that transitively imports it,
 such as `std/env`, `std/process`, `std/process/command`), any later call to
