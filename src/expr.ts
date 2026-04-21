@@ -1645,8 +1645,22 @@ export function attachTempVariableToExpr(
     throw new Error(`Expected expression to be evaluated, but it is not:
 ${exprToString(expr)}`);
   }
-  const { env, type, value, originType } = expr.$;
+  const { env, value, originType } = expr.$;
   const modulePath = env.modulePath;
+
+  // For closure expressions, the surface `expr.$.type` is the closure's Fn
+  // trait type (e.g. Impl(Fn(...))) which contains no RC-tracked fields. The
+  // RC-owning thing the temp variable actually backs is the closure's
+  // capture struct (which holds dup'd references to outer RC variables).
+  // If we don't substitute the type here, the temp gets `isOwningTheRcValue:
+  // false` and is never dropped at scope end -- leaking every captured RC
+  // variable. Use the capture struct as the variable's type so drop codegen
+  // dispatches to the capture struct's `___drop` (which decr_rc's each
+  // captured field).
+  const captureType = expr.$.captureType;
+  const useCaptureType =
+    !!captureType && typeContainsRcType(captureType) && isOwningTheRcValue;
+  const type = useCaptureType ? captureType! : expr.$.type;
 
   // NOTE: For now let's make all the isOwningTheRcValue variable runtime-only
   // so the `object` value can only be used in runtime.

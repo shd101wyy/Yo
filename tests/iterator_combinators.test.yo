@@ -167,9 +167,27 @@ test "iter.fold over ArrayList iter with multi-arg => lambda", {
 };
 
 // --- for_each --------------------------------------------------------------
-// NOTE: for_each with a closure that captures an ArrayList currently leaks
-// (ASan reports indirect leaks in push). This appears to be a real RC bug in
-// closure capture handling; tracked separately. Skipping for now.
+
+test "iter.for_each with closure that captures ArrayList", {
+  out := array_list(i32(0));
+  out.clear();
+  src := array_list(i32(1), i32(2), i32(3), i32(4));
+  src.iter().for_each((x) => { out.push(x.*); });
+  assert((out.len() == usize(4)), "out has 4 elements");
+  assert((out(usize(0)) == i32(1)), "first element is 1");
+  assert((out(usize(3)) == i32(4)), "last element is 4");
+};
+
+test "iter.for_each accumulates side effects", {
+  total := array_list(i32(0));
+  total.clear();
+  total.push(i32(0));
+  my_range(i32(1), i32(5)).for_each((x) => {
+    cur := total(usize(0));
+    total(usize(0)) = (cur + x);
+  });
+  assert((total(usize(0)) == i32(10)), "1+2+3+4=10");
+};
 
 // --- count -----------------------------------------------------------------
 

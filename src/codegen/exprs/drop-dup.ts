@@ -1,4 +1,9 @@
-import { BuiltinFunctions, type Expr, exprIsFunctionCall } from "../../expr";
+import {
+  BuiltinFunctions,
+  type Expr,
+  exprIsAtom,
+  exprIsFunctionCall,
+} from "../../expr";
 import type { Type } from "../../types/definitions";
 import {
   isArrayType,
@@ -21,6 +26,43 @@ import {
   getTypeString,
 } from "../utils";
 import { generateExpr } from "./expr";
+
+/**
+ * If `valueArg` is an atom referring to a function parameter whose static type is an
+ * unresolved SomeType (forall-typed), look up the concrete parameter type from
+ * `currentFunctionType.parameters` so drop/dup codegen can find the right RC handler.
+ *
+ * This fixes a leak where forall-typed parameters (e.g., `f : F where F <: Fn(...)`)
+ * were silently skipped by drop/dup codegen because their AST `$.type` remains a
+ * SomeType without `resolvedConcreteType`, even though the specialized C signature
+ * uses the concrete type.
+ */
+export function resolveSomeTypeParamType(
+  valueArg: Expr,
+  valueType: Type,
+  context: CodeGenContext
+): Type {
+  if (!isSomeType(valueType) || valueType.resolvedConcreteType) {
+    return valueType;
+  }
+  if (!exprIsAtom(valueArg)) {
+    return valueType;
+  }
+  const fnCtx = context as FunctionGenerationContext;
+  const fnType = fnCtx.currentFunctionType;
+  if (!fnType) {
+    return valueType;
+  }
+  const varName = valueArg.token.value;
+  const param = fnType.parameters.find((p) => p.label === varName);
+  if (param && !isSomeType(param.type)) {
+    return param.type;
+  }
+  if (param && isSomeType(param.type) && param.type.resolvedConcreteType) {
+    return param.type.resolvedConcreteType;
+  }
+  return valueType;
+}
 
 /**
  * Helper function to generate drop code for a value of any type.

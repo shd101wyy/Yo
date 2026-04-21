@@ -82,7 +82,7 @@ Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering sing
 
 - `issues/fn-trait-param-multi-arg-call.md` — **Resolved.** All three forms now work: named-fn `fold(0, add)`, inline `(fn(...) -> ...)`, and the `=>` lambda form `fold(0, (acc, x) => (acc + x))`. Fixed by `substituteSomeTypesFromEnv` in `src/evaluator/values/anonymous-function.ts`, which substitutes forall SomeTypes from the callee env into the Fn trait callType before binding lambda parameter types.
 - ~~`issues/iter-zip-blanket-impl-not-resolved.md`~~ — **Fixed**. Root cause: where-constraint expression map keyed by `traitType.id` collided across specialized variants of the same trait. Now keyed by `(someType, kind, index)`.
-- Closure capture leak in `for_each(x => list.push(x))` — see ASan report; deferred.
+- Closure capture leak in `for_each(x => list.push(x))` — **Fixed.** Root cause: `attachTempVariableToExpr` (in `src/expr.ts`) used `expr.$.type` (the closure's `Impl(Fn(...))` trait type, which contains no RC fields) for the RC ownership check. The closure temp was therefore marked `isOwningTheRcValue: false` and never dropped at scope end, leaking every captured RC variable. Fixed by detecting `expr.$.captureType` (the underlying capture struct) and using it for both the RC check and the temp variable's type so drop codegen dispatches to the capture struct's `___drop`. Regression coverage: `tests/closure_capture_rc_leak.test.yo` (7 tests).
 
 **Pre-fixes shipped while testing**:
 

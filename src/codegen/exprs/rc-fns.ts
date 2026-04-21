@@ -15,6 +15,7 @@ import {
   generateDupCodeForValue,
   getDropFunctionForType,
   getDupFunctionForType,
+  resolveSomeTypeParamType,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 
@@ -346,12 +347,13 @@ export function generateDup(
   }
 
   const valueCode = generateExpr(valueArg, indent, context);
-  const valueType = valueArg.$?.type ?? expr.$?.type;
+  let valueType = valueArg.$?.type ?? expr.$?.type;
   if (!valueType) {
     // Best-effort: preserve the expression.
     return valueCode;
   }
 
+  valueType = resolveSomeTypeParamType(valueArg, valueType, context);
   return generateDupCodeForValue(valueCode, valueType, context);
 }
 
@@ -371,11 +373,12 @@ export function generateDrop(
   }
 
   const valueCode = generateExpr(valueArg, indent, context);
-  const valueType = valueArg.$?.type ?? expr.$?.type;
+  let valueType = valueArg.$?.type ?? expr.$?.type;
   if (!valueType) {
     return ``;
   }
 
+  valueType = resolveSomeTypeParamType(valueArg, valueType, context);
   return generateDropCodeForValue(valueCode, valueType, context);
 }
 
