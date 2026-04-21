@@ -434,6 +434,8 @@ export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
 
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
+    !!functionType.variadicParameter?.isCompileTimeOnly ||
+    !!functionType.variadicParameter?.isQuote ||
     functionType.forallParameters.length > 0 ||
     functionType.implicitParameters.length > 0;
 
@@ -467,6 +469,8 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
 
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
+    !!functionType.variadicParameter?.isCompileTimeOnly ||
+    !!functionType.variadicParameter?.isQuote ||
     functionType.forallParameters.length > 0;
 
   const hasSomeTypeParams = functionType.parameters.some(

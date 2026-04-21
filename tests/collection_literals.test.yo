@@ -114,3 +114,36 @@ test "hash_set deduplicates equal elements", {
   assert(s.len() == usize(1), "len after dedup");
   assert(s.contains(i32(5)), "contains 5");
 };
+
+// ---------------------------------------------------------------------------
+// Element type inference via typeof — must produce ArrayList(i32),
+// not ArrayList(comptime_int), even when callers pass typed runtime values.
+// The .push call below would fail to type-check if the element type were
+// inferred as comptime_int, so this acts as a structural assertion.
+// ---------------------------------------------------------------------------
+
+test "array_list infers concrete element type from cast literals", {
+  xs := array_list(i32(1), i32(2));
+  xs.push(i32(99));
+  assert(xs.len() == usize(3), "push must succeed at runtime i32 element type");
+};
+
+test "array_list infers concrete element type from default integer literals", {
+  xs := array_list(1, 2, 3);
+  xs.push(i32(4));
+  assert(xs.len() == usize(4), "default integer literal lowers to i32");
+};
+
+// ---------------------------------------------------------------------------
+// Regression: importing collection-literal macros without using them must
+// not cause C codegen to emit invalid bodies for the variadic-quote macros.
+// (Bug fix: variadic comptime/quote params + comptime return now properly
+// skipped during runtime function emission.)
+// ---------------------------------------------------------------------------
+
+test "import-only collection literal macros do not break codegen", {
+  // The mere `open import` above pulls array_list/hash_map/hash_set into the
+  // exported symbol table. Before the fix this triggered a C compile error
+  // because the macros were emitted as runtime functions with stub bodies.
+  assert(true, "import-only must compile");
+};
