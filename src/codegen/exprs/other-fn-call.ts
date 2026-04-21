@@ -943,10 +943,48 @@ export function generateOtherFunctionCall(
           // Use the call expression's resolved type when available (handles forall monomorphization)
           const resolvedReturnType = expr.$?.type ?? functionType.return.type;
           const returnTypeStr = getTypeString(resolvedReturnType, context);
-          const paramTypeStrs = functionType.parameters
-            .filter((p) => !p.isCompileTimeOnly)
-            .map((p) => getTypeString(p.type, context));
+          const runtimeParams = functionType.parameters.filter(
+            (p) => !p.isCompileTimeOnly
+          );
+          const paramTypeStrs = runtimeParams.map((p) =>
+            getTypeString(p.type, context)
+          );
           const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
+
+          // Cast each runtime arg to its corresponding parameter type. This
+          // avoids -Wincompatible-pointer-types errors from strict C compilers
+          // (e.g., wasm/clang) when the function pointer cast's parameter
+          // types don't match the actual call-site argument types — common
+          // for generic Clone impls where the declared param is SomeType
+          // (typed as `void*`/`void**` in C) but the call site passes a
+          // concrete struct pointer.
+          const splitArgsList = (s: string): string[] => {
+            const out: string[] = [];
+            let depth = 0;
+            let cur = "";
+            for (let i = 0; i < s.length; i++) {
+              const ch = s[i]!;
+              if (ch === "(" || ch === "[" || ch === "{") depth++;
+              else if (ch === ")" || ch === "]" || ch === "}") depth--;
+              if (ch === "," && depth === 0) {
+                out.push(cur.trim());
+                cur = "";
+              } else {
+                cur += ch;
+              }
+            }
+            if (cur.trim().length > 0) out.push(cur.trim());
+            return out;
+          };
+          let castedArgsList = argsList;
+          if (argsList && paramTypeStrs.length > 0) {
+            const parts = splitArgsList(argsList);
+            if (parts.length === paramTypeStrs.length) {
+              castedArgsList = parts
+                .map((part, i) => `(${paramTypeStrs[i]})(${part})`)
+                .join(", ");
+            }
+          }
 
           // Detect module effect member calls in async SM context
           // (e.g., sm->__capture.throw(arg) — handler may escape)
@@ -964,7 +1002,9 @@ export function generateOtherFunctionCall(
             isUnitType(resolvedReturnType)
           ) {
             // If the function returns unit, just call it without assignment
-            context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
+            context.emitter.emitLine(
+              `${indent}${fnPtrCast}(${castedArgsList});`
+            );
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -1031,7 +1071,7 @@ export function generateOtherFunctionCall(
               if (!funcCtx2.declaredTempVars.has(tempVar)) {
                 funcCtx2.declaredTempVars.add(tempVar);
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${argsList});`
+                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
                 );
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
