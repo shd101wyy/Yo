@@ -681,15 +681,24 @@ export function generateOtherFunctionCall(
           const namedRuntimeParams = namedCalleeType.parameters.filter(
             (p) => !p.isCompileTimeOnly
           );
-          const namedParamTypeStrs = namedRuntimeParams.map((p) =>
-            getTypeString(p.type, context)
-          );
+          // Resolve param C type strings defensively. If any param's type is
+          // not yet registered (e.g., an unspecialized generic enum referenced
+          // by a fallback `functionValue.type`), skip the cast entirely
+          // rather than crashing — the original argsList is already valid C.
+          let namedParamTypeStrs: string[] | undefined;
+          try {
+            namedParamTypeStrs = namedRuntimeParams.map((p) =>
+              getTypeString(p.type, context)
+            );
+          } catch {
+            namedParamTypeStrs = undefined;
+          }
           let namedCastedArgsList = argsList;
-          if (argsList && namedParamTypeStrs.length > 0) {
+          if (argsList && namedParamTypeStrs && namedParamTypeStrs.length > 0) {
             const parts = splitTopLevelArgsList(argsList);
             if (parts.length === namedParamTypeStrs.length) {
               namedCastedArgsList = parts
-                .map((part, i) => `(${namedParamTypeStrs[i]})(${part})`)
+                .map((part, i) => `(${namedParamTypeStrs![i]})(${part})`)
                 .join(", ");
             }
           }
