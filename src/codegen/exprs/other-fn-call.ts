@@ -676,9 +676,18 @@ export function generateOtherFunctionCall(
           // the parameter's struct C type id even though they refer to the
           // same logical Yo type. Native clang only warns. The cast is a safe
           // no-op when types already match.
-          const namedCalleeType =
-            functionValue.specializedType ?? functionValue.type;
-          const namedRuntimeParams = namedCalleeType.parameters.filter(
+          // Use the SAME FunctionValue that was used to emit the C declaration
+          // (stored in context.functions[funcId].value). The call-site
+          // `functionValue` may diverge from that — e.g., when duplicate
+          // specialization produces a different FunctionValue object whose
+          // nested generic types resolve to different C struct ids than the
+          // declaration's. Pulling from the registered entry ensures the cast
+          // types match the declaration.
+          const registeredValue =
+            context.functions[functionValue.funcId]?.value ?? functionValue;
+          const registeredType =
+            registeredValue.specializedType ?? registeredValue.type;
+          const namedRuntimeParams = registeredType.parameters.filter(
             (p) => !p.isCompileTimeOnly
           );
           // Resolve param C type strings defensively. If any param's type is
