@@ -159,6 +159,29 @@ function storeTempVarToStateMachineIfNeeded(
 }
 
 /**
+ * Split a comma-separated C arg list at top-level commas, respecting
+ * (), [], {} nesting. Used to apply per-argument type casts.
+ */
+function splitTopLevelArgsList(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim().length > 0) out.push(cur.trim());
+  return out;
+}
+
+/**
  * Other function call
  */
 export function generateOtherFunctionCall(
@@ -646,6 +669,30 @@ export function generateOtherFunctionCall(
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
         if (cFuncName) {
+          // Cast each runtime arg to the named callee's declared parameter
+          // type. Strict C compilers (wasm/clang) treat
+          // -Wincompatible-pointer-types as an error; this happens for generic
+          // specialized callees where the arg's struct C type id differs from
+          // the parameter's struct C type id even though they refer to the
+          // same logical Yo type. Native clang only warns. The cast is a safe
+          // no-op when types already match.
+          const namedCalleeType =
+            functionValue.specializedType ?? functionValue.type;
+          const namedRuntimeParams = namedCalleeType.parameters.filter(
+            (p) => !p.isCompileTimeOnly
+          );
+          const namedParamTypeStrs = namedRuntimeParams.map((p) =>
+            getTypeString(p.type, context)
+          );
+          let namedCastedArgsList = argsList;
+          if (argsList && namedParamTypeStrs.length > 0) {
+            const parts = splitTopLevelArgsList(argsList);
+            if (parts.length === namedParamTypeStrs.length) {
+              namedCastedArgsList = parts
+                .map((part, i) => `(${namedParamTypeStrs[i]})(${part})`)
+                .join(", ");
+            }
+          }
           // Evidence passing call site: callee has module-type implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
@@ -770,7 +817,9 @@ export function generateOtherFunctionCall(
           // Generate function call
           if (isUnitType(functionValueType.return.type)) {
             // If the function returns unit, just call it without assignment
-            context.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
+            context.emitter.emitLine(
+              `${indent}${cFuncName}(${namedCastedArgsList});`
+            );
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -865,7 +914,7 @@ export function generateOtherFunctionCall(
               if (!funcCtx.declaredTempVars.has(tempVar)) {
                 funcCtx.declaredTempVars.add(tempVar);
                 context.emitter.emitLine(
-                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
+                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${namedCastedArgsList});`
                 );
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
@@ -958,27 +1007,9 @@ export function generateOtherFunctionCall(
           // for generic Clone impls where the declared param is SomeType
           // (typed as `void*`/`void**` in C) but the call site passes a
           // concrete struct pointer.
-          const splitArgsList = (s: string): string[] => {
-            const out: string[] = [];
-            let depth = 0;
-            let cur = "";
-            for (let i = 0; i < s.length; i++) {
-              const ch = s[i]!;
-              if (ch === "(" || ch === "[" || ch === "{") depth++;
-              else if (ch === ")" || ch === "]" || ch === "}") depth--;
-              if (ch === "," && depth === 0) {
-                out.push(cur.trim());
-                cur = "";
-              } else {
-                cur += ch;
-              }
-            }
-            if (cur.trim().length > 0) out.push(cur.trim());
-            return out;
-          };
           let castedArgsList = argsList;
           if (argsList && paramTypeStrs.length > 0) {
-            const parts = splitArgsList(argsList);
+            const parts = splitTopLevelArgsList(argsList);
             if (parts.length === paramTypeStrs.length) {
               castedArgsList = parts
                 .map((part, i) => `(${paramTypeStrs[i]})(${part})`)
