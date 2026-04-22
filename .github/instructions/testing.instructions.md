@@ -28,6 +28,16 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Currently 86+ tests
 - These are TypeScript unit tests, not `.yo` integration tests
 
+## Bootstrap (yo-self) tests
+
+- Run all: `./yo-cli test ./yo-self/tests/ --parallel 1`
+- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1`
+- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1`
+- Currently 69 tests (33 lexer + 36 parser), ~53 seconds.
+- These are integration tests for `yo-self/` — the self-hosted compiler components.
+- Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
+- Run these whenever modifying `yo-self/lexer/`, `yo-self/parser/`, or their tests.
+
 ## Important constraints
 
 - You **cannot** `./yo-cli compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export main;` at the end.
