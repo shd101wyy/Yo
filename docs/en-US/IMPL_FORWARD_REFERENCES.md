@@ -50,15 +50,16 @@ Forward references currently work for:
   standard library.
 - **Both anonymous-trait impls and named-trait impls.** Methods inside
   `impl(T, SomeTrait( ... ))` can also call each other in any order.
-- **Calls via `self.method(...)`.** Use method-call syntax to dispatch
-  through the trait, not bare-name reference.
+- **Calls via `self.method(...)` and `Self.method(...)`.** Both
+  instance-style (`self.X`) and type-style (`Self.X`) dispatch resolve
+  forward references. Use bare-name reference is not supported (see below).
 
 They do **not** apply to:
 
 - **Bare-name references** to sibling methods (e.g. `callee()` instead of
-  `self.callee()`). Bare names are not forward-bound — use `self.X` instead.
-  This avoids accidentally shadowing local variables in sibling method
-  bodies.
+  `self.callee()` or `Self.callee()`). Bare names are not forward-bound —
+  use `self.X` or `Self.X` instead. This avoids accidentally shadowing
+  local variables in sibling method bodies.
 - **Cross-impl-block forward references.** Two separate `impl(P, ...)`
   blocks cannot forward-reference each other. Merge them into one block.
 - **Top-level `name :: value` definitions.** No forward references between
@@ -76,10 +77,10 @@ They do **not** apply to:
    the unevaluated body attached and a stable `funcId`. Register the shell
    in the receiver type's trait so that `self.method(...)` lookups resolve.
 2. **Main pass** — evaluate each method body. When the body refers to a
-   sibling method via `self.X`, the lookup hits the pre-pass shell. After
-   evaluation, fill the shell **in place** (preserving its `funcId`,
-   `funcName`, and any specializations already created during sibling body
-   evaluation).
+   sibling method via `self.X` or `Self.X`, the lookup hits the pre-pass
+   shell. After evaluation, fill the shell **in place** (preserving its
+   `funcId`, `funcName`, and any specializations already created during
+   sibling body evaluation).
 
 Because the pre-pass produces real shells with real types and the original
 body attached, specialization triggered by sibling body evaluation works
@@ -109,5 +110,30 @@ impl(MyType,
 ```
 
 To avoid this footgun, sibling method references go through the receiver
-trait via `self.method(...)`. This also makes dispatch explicit and
-matches the code shape used everywhere else in the standard library.
+trait via `self.method(...)` or `Self.method(...)`. This also makes
+dispatch explicit and matches the code shape used everywhere else in the
+standard library.
+
+## Example: `Self.method` (type-style dispatch)
+
+```rust
+N :: struct(value : i32);
+
+impl(N,
+  is_even : (fn(n : i32) -> bool)(
+    cond(
+      (n == i32(0)) => true,
+      true => Self.is_odd((n - i32(1)))
+    )
+  ),
+  is_odd : (fn(n : i32) -> bool)(
+    cond(
+      (n == i32(0)) => false,
+      true => Self.is_even((n - i32(1)))
+    )
+  )
+);
+
+// Call site uses the type name:
+N.is_even(i32(10)) // true
+```

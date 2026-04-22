@@ -48,14 +48,15 @@ impl(N,
   —— 标准库中所有 `impl` 都使用这种形式。
 - **匿名 trait impl 与命名 trait impl 都支持**。`impl(T, SomeTrait( ... ))`
   内部的方法也可以以任意顺序互相调用。
-- **通过 `self.method(...)` 调用**。请使用方法调用语法，让分派经由 trait 完成，
-  而不要直接以裸名称引用。
+- **`self.method(...)` 与 `Self.method(...)` 两种调用都支持**。无论是实例风格
+  （`self.X`）还是类型风格（`Self.X`），都能解析前向引用。裸名称引用不支持
+  （见下文）。
 
 不适用的情形：
 
-- **以裸名称引用兄弟方法**（例如直接写 `callee()` 而不是 `self.callee()`）。
-  裸名称不会被前向绑定 —— 请使用 `self.X`。这样可以避免与兄弟方法体内的局部变量
-  发生命名冲突。
+- **以裸名称引用兄弟方法**（例如直接写 `callee()` 而不是 `self.callee()` 或
+  `Self.callee()`）。裸名称不会被前向绑定 —— 请使用 `self.X` 或 `Self.X`。
+  这样可以避免与兄弟方法体内的局部变量发生命名冲突。
 - **跨 `impl` 块的前向引用**。两个独立的 `impl(P, ...)` 块之间不能互相前向引用。
   请合并到同一个 `impl` 块。
 - **顶层 `name :: value` 定义**。顶层自由绑定之间暂不支持前向引用。
@@ -70,9 +71,10 @@ impl(N,
    完整的 `FunctionType`（含 `using`/effect 参数）。然后分配一个真正的
    `FunctionValue` "壳"，附带未求值的 body 和稳定的 `funcId`，并把这个壳注册到
    receiver 类型的 trait 中，使 `self.method(...)` 查询能够命中。
-2. **主遍**——对每个方法的 body 求值。当 body 通过 `self.X` 引用兄弟方法时，
-   查询会命中预处理产生的壳。求值完成后，**就地** 填充该壳（保留它的 `funcId`、
-   `funcName`，以及兄弟方法 body 求值过程中已经创建的所有特化结果）。
+2. **主遍**——对每个方法的 body 求值。当 body 通过 `self.X` 或 `Self.X` 引用
+   兄弟方法时，查询会命中预处理产生的壳。求值完成后，**就地** 填充该壳（保留它
+   的 `funcId`、`funcName`，以及兄弟方法 body 求值过程中已经创建的所有特化结
+   果）。
 
 由于预处理遍生成的是带有真实类型与原始 body 的真壳，兄弟方法 body 求值过程中
 触发的特化能够正常工作 —— 壳里已经包含了克隆和特化所需的全部信息。
@@ -101,4 +103,29 @@ impl(MyType,
 ```
 
 为了避免这种隐患，兄弟方法之间的引用必须通过 receiver trait，使用
-`self.method(...)`。这也让分派显式化，并与标准库中所有代码的写法保持一致。
+`self.method(...)` 或 `Self.method(...)`。这也让分派显式化，并与标准库中所有
+代码的写法保持一致。
+
+## 示例：`Self.method`（类型风格分派）
+
+```rust
+N :: struct(value : i32);
+
+impl(N,
+  is_even : (fn(n : i32) -> bool)(
+    cond(
+      (n == i32(0)) => true,
+      true => Self.is_odd((n - i32(1)))
+    )
+  ),
+  is_odd : (fn(n : i32) -> bool)(
+    cond(
+      (n == i32(0)) => false,
+      true => Self.is_even((n - i32(1)))
+    )
+  )
+);
+
+// 调用点使用类型名：
+N.is_even(i32(10)) // true
+```
