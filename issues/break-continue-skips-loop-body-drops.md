@@ -15,33 +15,41 @@ loop that used `break` inside `match(...)` arms.
 
 ## Reproducer
 
-`/tmp/drop_debug.yo` (minimal):
+Minimal Pattern 2 (`break` inside a `match` arm in `while runtime(true)`,
+with an RC-typed binding declared after the break) — see
+`tests/escape_cleanup_uninit_vars.test.yo`:
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+open import "std/string";
+open import "std/error";
+open import "std/fmt";
+
+ParseError :: object(message : String);
+impl(ParseError, ToString(to_string : ((self) -> `parse error`)));
+impl(ParseError, Error());
 
 Token :: object(name : String);
-Pair :: object(left : Token, op : Token);
+ParseResult :: object(label : String, index : usize);
 
-collect_one :: (fn(toks : ArrayList(Token)) -> Pair) {
-  i := usize(0);
-  next : ?Token = .None;
+get_opt_token :: (fn(present : bool) -> Option(Token))(
+  cond(present => .Some(Token(name: `tok`)), true => .None)
+);
+
+collect_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
+  (final_label : String) = `default`;
   while runtime(true), {
-    if (i >= toks.len(), break);
-    match(toks(i),
-      .Some(p) => {
-        next_tok := p.*;
-        if (next_tok.name.eq(`stop`), break);
-        // ... bind chain_pr, _temp_… (RC values) ...
-        chain_pr := Pair(left: next_tok, op: next_tok);
-        if (something, break);
-      },
-      .None => break,
+    match(get_opt_token(present),
+      .None    => { break; },
+      .Some(next_tok) => {
+        if((next_tok.name == `stop`), { break; });
+        chain_pr := ParseResult(label: next_tok.name, index: usize(1));
+        final_label = chain_pr.label;
+        break;
+      }
     );
-    i = (i + usize(1));
   };
-  Pair(left: ..., op: ...)
-};
+  ParseResult(label: final_label, index: usize(0))
+});
 ```
 
 Compiled with `--sanitize address`, ASan reported leaks for the `Option(Token)`

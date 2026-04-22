@@ -12,14 +12,38 @@ twice (once inline, once by the escape cleanup tail).
 
 ## Reproducer
 
-Covered by Pattern 1 of `tests/escape_cleanup_uninit_vars.test.yo`:
+Pattern 1 of `tests/escape_cleanup_uninit_vars.test.yo` — the escape arm of
+a `match` whose result initializes a new variable:
 
 ```rust
-escape (var : T) = match initializer
+open import "std/string";
+open import "std/error";
+
+ParseError :: object(message : String);
+impl(ParseError, ToString(to_string : ((self) -> `parse error`)));
+impl(ParseError, Error());
+
+Token :: object(name : String);
+ParseResult :: object(label : String, index : usize);
+
+get_opt_token :: (fn(present : bool) -> Option(Token))(
+  cond(present => .Some(Token(name: `tok`)), true => .None)
+);
+
+parse_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
+  (tok : Token) = match(get_opt_token(present),
+    .None    => exn.throw(dyn ParseError(message: `eof`)),
+    .Some(t) => t
+  );
+  ParseResult(label: tok.name, index: usize(0))
+});
 ```
 
-When the `match` initializer was itself an effectful expression that
-materialized RC temporaries, the escape cleanup would re-drop them.
+When `present == false` the `.None` arm escapes via `exn.throw`. The escape
+codegen path used to emit drops for ALL pending deferred drops, including
+`tok` — which was _not yet initialized_ at that point — and to re-drop the
+intermediate `Option(Token)` discriminant temp that the `match` had already
+consumed.
 
 ## Root cause
 
