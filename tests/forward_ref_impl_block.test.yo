@@ -102,3 +102,37 @@ test "mutual recursion with effect params (specialization-cycle)", {
   assert(s.s_odd(i32(11), using(exn)),  "11 is odd");
   assert(!(s.s_even(i32(7), using(exn))), "7 is not even");
 };
+
+// ---------- Test 5: shell merge does not emit duplicate orphan FunctionValue
+//
+// Regression: forward-ref pre-pass creates a real FunctionValue shell with a
+// stable funcId; the main pass then evaluates the body and produces a SECOND
+// FunctionValue with a different funcId, sharing the body AST. Before the
+// fix, codegen collected BOTH (the orphan reached context.functions through
+// AST walks of the impl's value expressions). The orphan's emission re-used
+// temp variable names that the shell's emission had already declared,
+// producing C with undeclared identifiers and a build failure.
+//
+// Reproduces with multiple methods in one impl, an RC-typed return, and
+// multiple call sites (so the orphan and shell are both reachable from the
+// codegen walk).
+QQ :: object(data : Box(i32));
+impl(QQ,
+  new : (fn(val : i32) -> Self)(
+    Self(data : box(val))
+  ),
+  get_implicit : (fn(self : Self) -> Box(i32))(
+    self.data
+  ),
+  get_explicit : (fn(self : Self) -> Box(i32))({
+    return self.data;
+  })
+);
+
+test "no duplicate function emission for shell + orphan", {
+  q := QQ.new(i32(42));
+  d1 := q.get_implicit();
+  assert((d1.* == i32(42)), "d1 == 42");
+  d2 := q.get_explicit();
+  assert((d2.* == i32(42)), "d2 == 42");
+};

@@ -675,6 +675,16 @@ function evaluateImplFieldList({
         shell.funcName = stableFuncName ?? label;
         shell.specializedFunctionCaches = preservedSpecs;
         shell.calledComptimeFunctionCaches = preservedComptimeCaches;
+        // Redirect the orphan FunctionValue (the one created by
+        // evaluateExpression on the inner valueExpr) to the shell's funcId
+        // and funcName. AST nodes inside the body that were evaluated against
+        // the orphan (e.g. `recur`, or `valueExpr.$.value` itself referenced
+        // by codegen's findFunctionCallsInExpr walk) will then collapse into
+        // the shell's codegen entry instead of being emitted as a duplicate
+        // function definition that re-uses temp-variable names without
+        // declaring them.
+        fieldValue.funcId = stableFuncId;
+        fieldValue.funcName = stableFuncName ?? label;
         fieldValue = shell;
       } else if (isFunctionValue(fieldValue) && !fieldValue.funcName) {
         fieldValue.funcName = label;
