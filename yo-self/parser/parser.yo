@@ -16,8 +16,6 @@ open import "std/error";
 } :: import "../expr/expr.yo";
 
 
-/// Module-level holder for the parse function, set after the impl to avoid forward reference.
-(_parse_prog_holder : Option((fn(input_string: String, module_path: String, using(exn: Exception)) -> ArrayList(AstExpr)))) = .None;
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
   expr  : AstExpr,
@@ -54,11 +52,6 @@ Parser :: struct(
   program             : ArrayList(AstExpr),
   has_template_string : bool
 );
-
-// Module-level holders for mutually recursive impl methods.
-(_parse_expression_holder : Option((fn(self: *(Parser), index: usize, using(exn: Exception)) -> ParseResult))) = .None;
-(_parse_primary_end_holder : Option((fn(self: *(Parser), primary_expr: AstExpr, index: usize, using(exn: Exception)) -> ParseResult))) = .None;
-
 
 impl(Parser,
   new : (fn(
@@ -209,9 +202,7 @@ impl(Parser,
     };
     result
   })
-);
-
-impl(Parser,
+,
   is_parenthesized_expr : (fn(self : *(Self), start : usize, end : usize) -> bool)({
     s := self.skip_ws_fwd(start);
     e := self.skip_ws_bwd(end);
@@ -225,15 +216,11 @@ impl(Parser,
     );
     (match_idx == e)
   })
-);
-
-impl(Parser,
+,
   range_after_op_has_newline : (fn(self : *(Self), op_idx : usize, rhs_start : usize) -> bool)(
     self.range_has_newline((op_idx + usize(1)), rhs_start)
   )
-);
-
-impl(Parser,
+,
   is_op_alone_on_line : (fn(self : *(Self), op_idx : usize, rhs_start : usize) -> bool)({
     if((self.is_op_at_line_start(op_idx) == false), { return false; });
     nl_str := String.from("\n");
@@ -242,9 +229,7 @@ impl(Parser,
       .Some(t) => ((t.kind == TokenKind.Whitespace) && t.value.contains(nl_str))
     )
   })
-);
-
-impl(Parser,
+,
   parse_template_string : (fn(self : *(Self), tok : Token, index : usize, using(exn : Exception)) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
@@ -358,10 +343,7 @@ impl(Parser,
         is_expr => {
           // Parse the interpolated expression via the module-level holder
           // (avoids forward reference: parse_template_string → get_program cycle)
-          (inner_prog : ArrayList(AstExpr)) = match(_parse_prog_holder,
-            .None => { return ParseResult(expr: make_err_expr(), index: (index + usize(1))); },
-            .Some(f) => f(content, self.module_path, using(exn))
-          );
+          (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, using(exn)).get_program(using(exn));
           if((inner_prog.len() == usize(0)), {
             exn.throw(dyn ParseError(
               message: `empty expression in template string interpolation`,
@@ -415,9 +397,7 @@ impl(Parser,
 
     ParseResult(expr: final_expr, index: (index + usize(1)))
   })
-);
-
-impl(Parser,
+,
   parse_fn_args : (fn(
     self           : *(Self),
     index          : usize,
@@ -436,7 +416,7 @@ impl(Parser,
     });
 
     while runtime(true), {
-      arg_pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, idx, using(exn)), .None => ParseResult(expr: make_err_expr(), index: (idx + usize(1))));
+      arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
 
@@ -474,9 +454,7 @@ impl(Parser,
 
     FnArgsResult(args: args, index: idx)
   })
-);
-
-impl(Parser,
+,
   parse_fn_call : (fn(
     self           : *(Self),
     func           : AstExpr,
@@ -491,9 +469,7 @@ impl(Parser,
       index: fa.index
     )
   })
-);
-
-impl(Parser,
+,
   parse_paren_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
       .None => exn.throw(dyn ParseError(
@@ -530,7 +506,7 @@ impl(Parser,
       );
     });
 
-    pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, (index + usize(1)), using(exn)), .None => ParseResult(expr: make_err_expr(), index: (index + usize(2))));
+    pr := self.parse_expression((index + usize(1)), using(exn));
     (expr : AstExpr) = pr.expr;
     idx := pr.index;
 
@@ -606,7 +582,7 @@ impl(Parser,
       );
       if((curr2.kind == TokenKind.RParen), { break; });
 
-      arg_pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, idx, using(exn)), .None => ParseResult(expr: make_err_expr(), index: (idx + usize(1))));
+      arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     };
@@ -632,9 +608,7 @@ impl(Parser,
       index: (idx + usize(1))
     )
   })
-);
-
-impl(Parser,
+,
   parse_array_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
       .None => exn.throw(dyn ParseError(
@@ -707,7 +681,7 @@ impl(Parser,
       );
       if((curr2.kind == TokenKind.RBracket), { break; });
 
-      arg_pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, idx, using(exn)), .None => ParseResult(expr: make_err_expr(), index: (idx + usize(1))));
+      arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     };
@@ -747,9 +721,7 @@ impl(Parser,
       index: (idx + usize(1))
     )
   })
-);
-
-impl(Parser,
+,
   parse_curly_bracket_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
       .None => exn.throw(dyn ParseError(
@@ -850,7 +822,7 @@ impl(Parser,
         break;
       });
 
-      arg_pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, idx, using(exn)), .None => ParseResult(expr: make_err_expr(), index: (idx + usize(1))));
+      arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     };
@@ -923,9 +895,7 @@ impl(Parser,
       }
     )
   })
-);
-
-impl(Parser,
+,
   parse_left_assoc_op : (fn(
     self     : *(Self),
     primary  : AstExpr,
@@ -998,17 +968,15 @@ impl(Parser,
       new_args.push(right_operand);
       (new_primary : AstExpr) = .FnCall(box(.Atom(rhs_func_tok)), new_args, true, rhs_func_tok);
 
-      match(_parse_primary_end_holder, .Some(__ppe_fn) => __ppe_fn(self, new_primary, index, using(exn)), .None => ParseResult(expr: make_err_expr(), index: index))
+      self.parse_primary_end(new_primary, index, using(exn))
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
       simple_args.push(rhs);
-      match(_parse_primary_end_holder, .Some(__ppe_fn) => __ppe_fn(self, .FnCall(box(.Atom(op_tok)), simple_args, true, op_tok), index, using(exn)), .None => ParseResult(expr: make_err_expr(), index: index))
+      self.parse_primary_end(.FnCall(box(.Atom(op_tok)), simple_args, true, op_tok), index, using(exn))
     })
   })
-);
-
-impl(Parser,
+,
   parse_primary : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(self.tokens.get(idx),
@@ -1043,9 +1011,7 @@ impl(Parser,
       ))
     )
   })
-);
-
-impl(Parser,
+,
   parse_primary_end : (fn(
     self         : *(Self),
     primary_expr : AstExpr,
@@ -1160,7 +1126,7 @@ impl(Parser,
         (next_tok_kind != TokenKind.LParen)
       }) => {
         rhs_start := self.skip_ws_fwd((idx + usize(1)));
-        rhs_pr := match(_parse_expression_holder, .Some(__pe_fn) => __pe_fn(self, rhs_start, using(exn)), .None => ParseResult(expr: make_err_expr(), index: (rhs_start + usize(1))));
+        rhs_pr := self.parse_expression(rhs_start, using(exn));
         rhs := rhs_pr.expr;
         rhs_end := rhs_pr.index;
 
@@ -1244,21 +1210,13 @@ impl(Parser,
       }
     )
   })
-);
-
-_parse_primary_end_holder = .Some(Parser.parse_primary_end);
-
-impl(Parser,
+,
   parse_expression : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, using(exn));
     self.parse_primary_end(pr.expr, pr.index, using(exn))
   })
-);
-
-_parse_expression_holder = .Some(Parser.parse_expression);
-
-impl(Parser,
+,
   do_parse : (fn(self : *(Self), using(exn : Exception)) -> unit)({
     idx := usize(0);
     n := self.tokens.len();
@@ -1311,9 +1269,7 @@ impl(Parser,
 
     self.program = exprs;
   })
-);
-
-impl(Parser,
+,
   get_program : (fn(self : *(Self), using(exn : Exception)) -> ArrayList(AstExpr))({
     self.do_parse(using(exn));
 
@@ -1374,8 +1330,5 @@ parse :: (fn(
   p.get_program(using(exn))
 });
 
-// Register parse function to enable template string interpolation within the parser itself.
-_parse_prog_holder = .Some(parse);
-// Register parse_expression and parse_primary_end for mutual recursion in impl blocks.
 
 export ParseResult, FnArgsResult, ParseError, Parser, parse;

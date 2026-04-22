@@ -2244,15 +2244,28 @@ Please use explicit using() to disambiguate.`,
   let specializedFunctionValue: FunctionValue | undefined;
 
   // Check if we're recursively calling the function we're currently specializing
-  // to avoid infinite recursion during specialization
+  // to avoid infinite recursion during specialization.
+  //
+  // Two cases:
+  //   1. Direct self-recursion — caller-being-evaluated funcId == callee funcId.
+  //   2. Mutual recursion — callee funcId appears anywhere in the
+  //      currently-specializing stack (e.g., A specializing → calls B → B
+  //      specializes → calls A; we must short-circuit the call back to A).
   const isRecursiveCallDuringSpecialization =
-    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
-    context.isEvaluatingFunctionBodyOrAsyncBlock.value &&
-    isFunctionValue(context.isEvaluatingFunctionBodyOrAsyncBlock.value) &&
-    functionValue &&
-    isFunctionValue(functionValue) &&
-    context.isEvaluatingFunctionBodyOrAsyncBlock.value.funcId ===
-      functionValue.funcId;
+    (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+      context.isEvaluatingFunctionBodyOrAsyncBlock.value &&
+      isFunctionValue(context.isEvaluatingFunctionBodyOrAsyncBlock.value) &&
+      functionValue &&
+      isFunctionValue(functionValue) &&
+      context.isEvaluatingFunctionBodyOrAsyncBlock.value.funcId ===
+        functionValue.funcId) ||
+    !!(
+      functionValue &&
+      isFunctionValue(functionValue) &&
+      context.currentlySpecializingFunctionStack?.some(
+        (s) => s.originalFuncId === functionValue.funcId
+      )
+    );
 
   // Skip specialization during the "checking phase" where we try function calls
   // with cloned expressions to see if parameters match. This avoids polluting
@@ -2433,7 +2446,13 @@ Please use explicit using() to disambiguate.`,
     functionValue &&
     isFunctionValue(functionValue)
   ) {
-    const specInfo = context.currentlySpecializingFunction;
+    // For mutual recursion, the matching specialization is somewhere in the
+    // stack — not necessarily the top. Find the entry whose originalFuncId
+    // matches the callee.
+    const specInfo =
+      context.currentlySpecializingFunctionStack?.find(
+        (s) => s.originalFuncId === functionValue.funcId
+      ) ?? context.currentlySpecializingFunction;
     // Create a forward-reference function value pointing to the specialized version
     specializedFunctionValue = {
       ...functionValue,
@@ -2843,13 +2862,26 @@ function createSpecializedFunctionInline({
   // When the body contains a recursive call to this same function with the same
   // compile-time args, tryToCallFunctionWithArguments can create a forward-reference
   // FunctionValue with the correct specializedFuncId and specializedReturnType.
+  //
+  // We track BOTH the top-of-stack (`currentlySpecializingFunction`, used by the
+  // existing direct-self-recursion path) and the FULL stack
+  // (`currentlySpecializingFunctionStack`) so that *mutual* recursion between
+  // sibling methods (e.g., even/odd in an impl block) can short-circuit too —
+  // without the stack lookup, mutual recursion infinitely re-specializes.
   const previousSpecializingFunction = context.currentlySpecializingFunction;
-  context.currentlySpecializingFunction = {
+  const previousSpecializingFunctionStack =
+    context.currentlySpecializingFunctionStack;
+  const newSpecInfo = {
     originalFuncId: originalFunction.funcId,
     specializedFuncId: earlySpecializedFuncId,
     specializedReturnType,
     originalFunction,
   };
+  context.currentlySpecializingFunction = newSpecInfo;
+  context.currentlySpecializingFunctionStack = [
+    ...(previousSpecializingFunctionStack ?? []),
+    newSpecInfo,
+  ];
 
   const specializedBody = evaluateBeginExpression({
     expr: clonedBody,
@@ -2885,6 +2917,8 @@ function createSpecializedFunctionInline({
   });
   // Restore previous specializing function context
   context.currentlySpecializingFunction = previousSpecializingFunction;
+  context.currentlySpecializingFunctionStack =
+    previousSpecializingFunctionStack;
 
   if (!specializedBody.$) {
     throw formatErrorMessage({
