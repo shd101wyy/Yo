@@ -51,6 +51,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `std/`                               | Yo standard library (`.yo` source)                                     |
 | `tests/`                             | Integration test files (`*.test.yo`)                                   |
 | `yo-self/`                           | Bootstrap: self-hosted Yo compiler written in Yo (Phase 1 in progress) |
+| `yo-self/README.md`                  | Bootstrap status, layout, and test instructions                        |
 | `yo-self/lexer/`                     | Self-hosted lexer (ported from `src/lexer.ts`)                         |
 | `yo-self/parser/`                    | Self-hosted parser (ported from `src/parser.ts`)                       |
 | `yo-self/tests/`                     | Integration tests for the self-hosted components (69 tests)            |
@@ -73,6 +74,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                         |
 | `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)     |
 | `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                              |
+| `plans/BOOTSTRAPPING.md`             | Bootstrapping roadmap — phases, install scripts, risk assessment       |
 
 ### Algebraic effects model
 

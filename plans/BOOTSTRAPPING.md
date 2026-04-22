@@ -6,7 +6,7 @@ Rewrite the Yo compiler in Yo itself, achieving full self-hosting. The TypeScrip
 
 1. **Pre-built binaries** — per-platform native executables on GitHub Releases.
 2. **Single-file C source** — an amalgamated `yo.c` that any C11 compiler can build, enabling bootstrapping on any platform without pre-built binaries.
-3. **Simple install scripts** — `install.sh` (Linux/macOS) and `install.ps1` (Windows) that download the correct binary into `~/.local/Yo` (or `%LOCALAPPDATA%\Yo` on Windows) and add it to `PATH`.
+3. **Simple install scripts** — `install.sh` (Linux/macOS) and `install.ps1` (Windows) that download the correct binary into `~/.cache/yo` (or `%LOCALAPPDATA%\yo` on Windows) and add it to `PATH`. This is consistent with where `yo cache path` already stores deps and cached versions.
 
 Along the way, enrich the Yo standard library and fix any bugs discovered.
 
@@ -351,7 +351,7 @@ The amalgamation process:
 ```bash
 #!/bin/sh
 set -e
-YO_HOME="${YO_HOME:-$HOME/.local/Yo}"
+YO_HOME="${YO_HOME:-$HOME/.cache/yo}"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -378,7 +378,7 @@ echo "Restart your shell or run: export PATH=\"$YO_HOME/bin:\$PATH\""
 **`install.ps1`** (Windows):
 
 ```powershell
-$YoHome = "$env:LOCALAPPDATA\Yo"
+$YoHome = "$env:LOCALAPPDATA\yo"
 # ... similar logic with Invoke-WebRequest and .zip extraction
 # Add to user PATH via [Environment]::SetEnvironmentVariable
 ```
@@ -386,7 +386,7 @@ $YoHome = "$env:LOCALAPPDATA\Yo"
 ### Installation directory layout
 
 ```
-~/.local/Yo/
+~/.cache/yo/
 ├── bin/
 │   └── yo                    # Main compiler binary
 ├── lib/
@@ -394,8 +394,7 @@ $YoHome = "$env:LOCALAPPDATA\Yo"
 ├── versions/                 # Cached compiler versions (for yo version)
 │   ├── 0.2.0/
 │   └── 0.2.1/
-└── cache/
-    └── deps/                 # Dependency cache
+└── deps/                     # Dependency cache (already used by yo cache path)
 ```
 
 ---
