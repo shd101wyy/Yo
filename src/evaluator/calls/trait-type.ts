@@ -29,7 +29,7 @@ import type {
   TraitTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../trait-checking";
+import { typeImplementsTraitBool } from "../trait-checking";
 
 /**
  * Specialize a trait type by binding associated types via `:=` arguments.
@@ -175,12 +175,30 @@ impl Point, Id(Point)(
   const receiverTypeOriginalTrait: TraitType | undefined = receiverType.trait;
 
   // Extend the receiverType trait
+  // For function-typed fields, substitute SelfType with receiverType so that
+  // recursive lookups (e.g. recursive types like TreeNode containing Box(Self)
+  // where Box(T).clone calls T.clone) find a properly-Self-bound method.
+  // Without this, the abstract trait method's SelfType (a SomeType representing
+  // an unbound Self) leaks into the recursive call, causing type mismatches
+  // like "Expected: *(Self), Got: *(TreeNode)".
+  const fieldsForReceiverTrait = workingTraitType.fields.map((f) => {
+    if (isFunctionType(f.type)) {
+      return {
+        ...f,
+        type: { ...f.type, SelfType: receiverType } as FunctionType,
+      };
+    }
+    return f;
+  });
   if (!receiverType.trait) {
-    receiverType.trait = workingTraitType;
+    receiverType.trait = {
+      ...workingTraitType,
+      fields: fieldsForReceiverTrait,
+    };
   } else {
     receiverType.trait = {
       ...receiverType.trait,
-      fields: [...workingTraitType.fields, ...receiverType.trait.fields],
+      fields: [...fieldsForReceiverTrait, ...receiverType.trait.fields],
     };
   }
 
@@ -528,7 +546,7 @@ Got:   ${typeToString(argType)}`,
         };
       }
 
-      const result = typeImplementsTrait({
+      const result = typeImplementsTraitBool({
         targetType: concreteType,
         traitType: resolvedRequiredTrait,
         env: callerEnv,

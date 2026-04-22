@@ -1,0 +1,215 @@
+// Tests for derive(Clone) on complex types — bootstrapping prerequisite verification
+open import "std/string";
+open import "std/collections/array_list";
+open import "std/collections/hash_map";
+
+// ===== 1. Struct with primitive fields =====
+PrimStruct :: struct(x: i32, y: bool, z: usize);
+derive(PrimStruct, Clone);
+
+test "derive Clone for struct with primitive fields", {
+  orig := PrimStruct(i32(1), true, usize(42));
+  c := orig.clone();
+  assert((c.x == i32(1)), "x cloned");
+  assert(c.y, "y cloned");
+  assert((c.z == usize(42)), "z cloned");
+};
+
+// ===== 2. Struct with String field =====
+Named :: struct(name: String, value: i32);
+derive(Named, Clone, Eq(Named));
+
+test "derive Clone for struct with String field", {
+  orig := Named(name: `hello`, value: i32(7));
+  c := orig.clone();
+  assert((c.name == `hello`), "name cloned");
+  assert((c.value == i32(7)), "value cloned");
+  // Mutation of clone doesn't affect original
+  assert((orig == c), "clone equals original");
+};
+
+// ===== 3. Struct with ArrayList(T) field =====
+WithList :: struct(items: ArrayList(i32), tag: i32);
+derive(WithList, Clone);
+
+test "derive Clone for struct with ArrayList field", {
+  lst := ArrayList(i32).new();
+  lst.push(i32(10));
+  lst.push(i32(20));
+  lst.push(i32(30));
+  orig := WithList(items: lst, tag: i32(99));
+  c := orig.clone();
+  assert((c.tag == i32(99)), "tag cloned");
+  assert((c.items.len() == usize(3)), "list length cloned");
+  first := c.items.get(usize(0));
+  match(first, .Some(v) => assert((v == i32(10)), "first item"), .None => assert(false, "missing item"));
+};
+
+// ===== 4. Struct with Option(T) field =====
+WithOption :: struct(maybe: Option(i32), required: bool);
+derive(WithOption, Clone);
+
+test "derive Clone for struct with Option field (Some)", {
+  orig := WithOption(maybe: .Some(i32(42)), required: true);
+  c := orig.clone();
+  match(c.maybe, .Some(v) => assert((v == i32(42)), "Some cloned"), .None => assert(false, "None"));
+  assert(c.required, "bool cloned");
+};
+
+test "derive Clone for struct with Option field (None)", {
+  orig := WithOption(maybe: .None, required: false);
+  c := orig.clone();
+  match(c.maybe, .Some(_) => assert(false, "should be None"), .None => ());
+  assert(!(c.required), "bool cloned");
+};
+
+// ===== 5. Struct with Box(T) field =====
+Boxed :: struct(inner: Box(i32), label: String);
+derive(Boxed, Clone);
+
+test "derive Clone for struct with Box field", {
+  orig := Boxed(inner: box(i32(55)), label: `boxed`);
+  c := orig.clone();
+  assert((c.inner.* == i32(55)), "box content cloned");
+  assert((c.label == `boxed`), "label cloned");
+};
+
+// ===== 6. Struct with HashMap field =====
+WithMap :: struct(data: HashMap(String, i32));
+derive(WithMap, Clone);
+
+test "derive Clone for struct with HashMap field", {
+  m := HashMap(String, i32).new();
+  m.set(`key`, i32(100));
+  orig := WithMap(data: m);
+  c := orig.clone();
+  got := c.data.get(`key`);
+  match(got, .Some(v) => assert((v == i32(100)), "map entry cloned"), .None => assert(false, "missing"));
+};
+
+// ===== 7. Enum with data variants =====
+MaybeInt :: enum(Nothing, Just(n: i32));
+derive(MaybeInt, Clone);
+
+test "derive Clone for enum with data variants (Just)", {
+  orig := MaybeInt.Just(i32(77));
+  c := orig.clone();
+  match(c, .Just(n) => assert((n == i32(77)), "Just cloned"), .Nothing => assert(false, "wrong variant"));
+};
+
+test "derive Clone for enum with data variants (Nothing)", {
+  orig := MaybeInt.Nothing;
+  c := orig.clone();
+  match(c, .Nothing => (), .Just(_) => assert(false, "wrong variant"));
+};
+
+// ===== 8. Enum with Box/String/ArrayList variant fields =====
+RichVariant :: enum(
+  Empty,
+  WithString(s: String),
+  WithBox(b: Box(i32)),
+  WithList(items: ArrayList(String))
+);
+derive(RichVariant, Clone);
+
+test "derive Clone for enum with String variant", {
+  orig := RichVariant.WithString(`hello world`);
+  c := orig.clone();
+  match(c,
+    .WithString(s) => assert((s == `hello world`), "string cloned"),
+    _ => assert(false, "wrong variant")
+  );
+};
+
+test "derive Clone for enum with Box variant", {
+  orig := RichVariant.WithBox(box(i32(42)));
+  c := orig.clone();
+  match(c,
+    .WithBox(b) => assert((b.* == i32(42)), "box cloned"),
+    _ => assert(false, "wrong variant")
+  );
+};
+
+test "derive Clone for enum with ArrayList variant", {
+  lst := ArrayList(String).new();
+  lst.push(`x`);
+  lst.push(`y`);
+  orig := RichVariant.WithList(lst);
+  c := orig.clone();
+  match(c,
+    .WithList(items) => {
+      assert((items.len() == usize(2)), "list len");
+      first := items.get(usize(0));
+      match(first, .Some(v) => assert((v == `x`), "first"), .None => assert(false, "missing"));
+    },
+    _ => assert(false, "wrong variant")
+  );
+};
+
+// ===== 9. Recursive type: Expr containing Box(Self) =====
+TreeNode :: enum(
+  Leaf(value: i32),
+  Branch(left: Box(Self), right: Box(Self))
+);
+derive(TreeNode, Clone);
+
+test "derive Clone for recursive enum with Box(Self)", {
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  branch := TreeNode.Branch(left: box(leaf_a), right: box(leaf_b));
+  c := branch.clone();
+  match(c,
+    .Branch(left, right) => {
+      match(left.*,
+        .Leaf(v) => assert((v == i32(1)), "left leaf"),
+        .Branch(_, _) => assert(false, "unexpected branch")
+      );
+      match(right.*,
+        .Leaf(v) => assert((v == i32(2)), "right leaf"),
+        .Branch(_, _) => assert(false, "unexpected branch")
+      );
+    },
+    .Leaf(_) => assert(false, "expected branch")
+  );
+};
+
+// ===== 10. Large enum with 20+ variants =====
+BigEnum :: enum(
+  V00(a: i32), V01(a: i32), V02(a: i32), V03(a: i32), V04(a: i32),
+  V05(a: i32), V06(a: i32), V07(a: i32), V08(a: i32), V09(a: i32),
+  V10(a: i32), V11(a: i32), V12(a: i32), V13(a: i32), V14(a: i32),
+  V15(a: i32), V16(a: i32), V17(a: i32), V18(a: i32), V19(a: i32),
+  V20(a: i32), V21(a: String), V22(b: bool)
+);
+derive(BigEnum, Clone);
+
+test "derive Clone for large enum (23 variants)", {
+  orig_mid := BigEnum.V10(i32(100));
+  c1 := orig_mid.clone();
+  match(c1, .V10(a) => assert((a == i32(100)), "V10"), _ => assert(false, "V10 wrong"));
+
+  orig_str := BigEnum.V21(`big enum str`);
+  c2 := orig_str.clone();
+  match(c2, .V21(a) => assert((a == `big enum str`), "V21"), _ => assert(false, "V21 wrong"));
+
+  orig_bool := BigEnum.V22(true);
+  c3 := orig_bool.clone();
+  match(c3, .V22(b) => assert(b, "V22"), _ => assert(false, "V22 wrong"));
+};
+
+// ===== 11. Struct with multiple RC fields (String + ArrayList) =====
+CompoundRC :: struct(name: String, tags: ArrayList(String), count: usize);
+derive(CompoundRC, Clone);
+
+test "derive Clone for struct with multiple RC fields", {
+  tags := ArrayList(String).new();
+  tags.push(`alpha`);
+  tags.push(`beta`);
+  orig := CompoundRC(name: `compound`, tags: tags, count: usize(2));
+  c := orig.clone();
+  assert((c.name == `compound`), "name");
+  assert((c.count == usize(2)), "count");
+  assert((c.tags.len() == usize(2)), "tags len");
+  t0 := c.tags.get(usize(0));
+  match(t0, .Some(v) => assert((v == `alpha`), "first tag"), .None => assert(false, "missing tag"));
+};

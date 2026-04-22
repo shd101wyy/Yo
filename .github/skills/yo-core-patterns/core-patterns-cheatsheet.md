@@ -179,6 +179,8 @@ impl(forall(T), where(T <: ToString), Box(T),
 ```
 
 - Use `Self` inside impl method signatures
+- Use `Self` inside `struct(...)`, `object(...)`, `enum(...)` definitions for recursive type references (the type name is not yet available during its own definition)
+- `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when the type arguments differ from the current instantiation.
 - `forall(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 

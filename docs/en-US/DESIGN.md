@@ -37,6 +37,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
+  - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
   - [recur](#recur)

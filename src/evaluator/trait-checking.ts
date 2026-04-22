@@ -9,6 +9,7 @@
  * generic impl registry, which is in the evaluator layer.
  */
 
+import { synthesizeTypes } from "./types/synthesizer";
 import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { formatErrorMessage } from "../error";
 import type { Token } from "../token";
@@ -28,6 +29,7 @@ import {
 import {
   isDynType,
   isFnTraitType,
+  isFunctionType,
   isFutureTraitType,
   isPtrType,
   isSomeType,
@@ -41,6 +43,7 @@ import type { EvaluatorContext } from "./context";
 import {
   findAssociatedTypeFromGenericImpls,
   findMatchingGenericImpl,
+  isConcreteImplBeingRegistered,
 } from "./values/impl";
 
 /**
@@ -51,6 +54,31 @@ import {
  * if SomeType implements Runtime, which could loop indefinitely.
  */
 const traitCheckRecursionGuard = new Set<string>();
+
+/**
+ * Tracks concrete impls currently being registered.
+ * Used to handle recursive types (e.g., TreeNode: Clone where TreeNode contains Box(TreeNode)).
+ * When `impl(TreeNode, Clone(...))` is being processed, its function bodies are validated
+ * before the impl is formally registered. This set lets `typeImplementsTrait` return `true`
+ * for `TreeNode: Clone` during that window.
+ *
+ * Key format: `${typeId}:${traitTypeId}`
+ */
+const currentlyRegisteringConcreteImpls = new Set<string>();
+
+export function markConcreteImplBeingRegistered(
+  typeId: string,
+  traitId: string
+): void {
+  currentlyRegisteringConcreteImpls.add(`${typeId}:${traitId}`);
+}
+
+export function unmarkConcreteImplBeingRegistered(
+  typeId: string,
+  traitId: string
+): void {
+  currentlyRegisteringConcreteImpls.delete(`${typeId}:${traitId}`);
+}
 
 function typeImplementsComptimeBuiltin(
   type: Type | undefined
@@ -191,18 +219,21 @@ function typeImplementsRuntimeBuiltin(
 /**
  * Check if a concrete type satisfies associated type constraints on a specialized trait.
  * e.g., for Iterator(Item := i32), verify that targetType's Iterator.Item resolves to i32.
- * Returns true if there are no constraints, or all constraints are satisfied.
+ *
+ * Returns `{ satisfied, env }` where `env` includes any SomeType bindings produced by
+ * matching constraint types against resolved associated types (e.g., `Item := A` against
+ * `Item = i32` produces `A = i32` via synthesizeTypes).
  */
 function checkAssociatedTypeConstraints(
   targetType: Type,
   traitType: TraitType,
   env: Environment
-): boolean {
+): { satisfied: boolean; env: Environment } {
   if (
     !traitType.associatedTypeConstraints ||
     traitType.associatedTypeConstraints.length === 0
   ) {
-    return true;
+    return { satisfied: true, env };
   }
 
   for (const constraint of traitType.associatedTypeConstraints) {
@@ -254,7 +285,7 @@ function checkAssociatedTypeConstraints(
     }
 
     if (!resolvedType) {
-      return false;
+      return { satisfied: false, env };
     }
 
     // Check if the resolved type matches the constraint
@@ -264,17 +295,31 @@ function checkAssociatedTypeConstraints(
         { type: resolvedType, env }
       )
     ) {
-      return false;
+      return { satisfied: false, env };
     }
+
+    // Propagate SomeType bindings from constraint matching.
+    // e.g., constraint `Item := SomeType_A` resolved to `i32` → binds A=i32.
+    const { expectedEnv } = synthesizeTypes(
+      { type: constraint.constraintType, env },
+      { type: resolvedType, env }
+    );
+    env = expectedEnv;
   }
 
-  return true;
+  return { satisfied: true, env };
 }
 
 /**
  * Check if a type implements a specific trait.
- * This is the core implementation that handles both direct trait fields
- * and generic impls.
+ *
+ * Returns both an `implemented` boolean and the updated `env` with any
+ * type bindings inferred during trait matching propagated back. When a
+ * where-clause constraint such as `where(Self <: Iterator(Item := A))`
+ * is checked against a target type whose impl provides `Iterator(Item := i32)`,
+ * the SomeType `A` gets bound to `i32` in the returned env via synthesizeTypes.
+ *
+ * Use `typeImplementsTraitBool` when only the boolean result is needed.
  */
 export function typeImplementsTrait({
   targetType,
@@ -284,92 +329,110 @@ export function typeImplementsTrait({
   targetType: Type;
   traitType: TraitType;
   env: Environment;
-}): boolean {
+}): { implemented: boolean; env: Environment } {
+  // 1. Comptime builtin check
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (comptimeTraitType && traitType.id === comptimeTraitType.id) {
     const builtin = typeImplementsComptimeBuiltin(targetType);
     if (builtin !== undefined) {
-      return builtin;
+      return { implemented: builtin, env };
     }
   }
 
+  // 2. Runtime builtin check
   const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
   if (runtimeTraitType && traitType.id === runtimeTraitType.id) {
     const builtin = typeImplementsRuntimeBuiltin(targetType);
     if (builtin !== undefined) {
-      return builtin;
+      return { implemented: builtin, env };
     }
   }
 
-  const expectedTraitWithReceiver: TraitType = {
-    ...traitType,
-    receiverType: targetType,
-  };
+  // 3. Fn-trait satisfaction with binding propagation: synth the trait's call
+  // type against the target function type so SomeTypes in parameter/return
+  // positions (e.g. `Fn(a:A) -> B` against `fn(x:i32) -> i32`) get bound.
+  // This mirrors Rust's rule that `fn` items implement `Fn`/`FnMut`/`FnOnce`.
+  if (isFnTraitType(traitType) && isFunctionType(targetType)) {
+    if (
+      !areTypesCompatible(
+        { type: traitType.isFn.callType, env },
+        { type: targetType, env }
+      )
+    ) {
+      return { implemented: false, env };
+    }
+    const { expectedEnv } = synthesizeTypes(
+      { type: traitType.isFn.callType, env },
+      { type: targetType, env }
+    );
+    return { implemented: true, env: expectedEnv };
+  }
 
-  const targetTrait = targetType.trait;
-  if (targetTrait) {
-    for (const field of targetTrait.fields) {
+  // 4. Direct trait field match with associated-type binding propagation.
+  // SomeTypes in the constraint trait (e.g. `Item := A`) get bound to the
+  // impl's concrete values (e.g. `Item := i32`).
+  if (targetType.trait) {
+    const expectedTraitWithReceiver: TraitType = {
+      ...traitType,
+      receiverType: targetType,
+    };
+    for (const field of targetType.trait.fields) {
       if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
         continue;
       }
-
-      const fieldTraitValue = field.assignedValue as TraitValue;
-      const fieldTraitType = fieldTraitValue.type;
-
+      const fieldTraitType = (field.assignedValue as TraitValue).type;
       if (
-        areTypesCompatible(
+        !areTypesCompatible(
           { type: expectedTraitWithReceiver, env },
           { type: fieldTraitType, env }
         )
       ) {
-        // Also check associated type constraints if any
-        if (checkAssociatedTypeConstraints(targetType, traitType, env)) {
-          return true;
-        }
+        continue;
       }
+      const assocResult = checkAssociatedTypeConstraints(
+        targetType,
+        traitType,
+        env
+      );
+      if (!assocResult.satisfied) {
+        continue;
+      }
+      const { expectedEnv } = synthesizeTypes(
+        { type: expectedTraitWithReceiver, env: assocResult.env },
+        { type: fieldTraitType, env: assocResult.env }
+      );
+      return { implemented: true, env: expectedEnv };
     }
   }
 
-  // Check required traits and their selfConstraints for DynType
-  // If Dyn(TraitA) and TraitA has where(Self <: TraitB), then Dyn(TraitA) implements TraitB
+  // 5. DynType: check required traits and their selfConstraints.
+  // If Dyn(TraitA) and TraitA has where(Self <: TraitB), then Dyn(TraitA) implements TraitB.
   if (isDynType(targetType)) {
     for (const { traitType: requiredTrait } of targetType.requiredTraits) {
       if (requiredTrait.id === traitType.id) {
-        return true;
+        return { implemented: true, env };
       }
-      // Check selfConstraints (supertraits) of required traits
       if (requiredTrait.selfConstraints) {
         for (const constraint of requiredTrait.selfConstraints) {
           if (constraint.id === traitType.id) {
-            return true;
+            return { implemented: true, env };
           }
         }
       }
     }
-    // Check negative traits
     for (const { traitType: negativeTrait } of targetType.negativeTraits) {
       if (negativeTrait.id === traitType.id) {
-        return false;
+        return { implemented: false, env };
       }
     }
   }
 
-  // Check where clause constraints for SomeType
-  // Constraints are stored in the current env frames (not on SomeType)
+  // 6. SomeType where-clause check.
+  // Constraints are stored in the current env frames (not on SomeType itself).
   if (isSomeType(targetType)) {
-    // QUESTION: Should we check this?
-    // if (targetType.resolvedConcreteType) {
-    //   // If resolvedConcreteType is set, check that type instead
-    //   return typeImplementsTrait({
-    //     targetType: targetType.resolvedConcreteType,
-    //     traitType,
-    //     env,
-    //   });
-    // }
-
     let foundRequiredTraitInConstraints = false;
     let foundNegativeTraitInConstraints = false;
-    // Check if the trait is in requiredTraits (SomeType-level + where-clause constraints)
+
     for (const requiredTraitEntry of targetType.requiredTraits) {
       if (requiredTraitEntry.traitType.id === traitType.id) {
         foundRequiredTraitInConstraints = true;
@@ -393,7 +456,6 @@ export function typeImplementsTrait({
       }
     }
 
-    // Check if the trait is in negativeTraits (SomeType-level)
     if (targetType.negativeTraits) {
       for (const negativeTraitEntry of targetType.negativeTraits) {
         if (negativeTraitEntry.traitType.id === traitType.id) {
@@ -403,32 +465,46 @@ export function typeImplementsTrait({
     }
 
     if (foundRequiredTraitInConstraints) {
-      if (foundNegativeTraitInConstraints) {
-        return false;
-      } else {
-        return true;
-      }
+      return { implemented: !foundNegativeTraitInConstraints, env };
     } else if (foundNegativeTraitInConstraints) {
-      return false;
+      return { implemented: false, env };
     }
   }
 
-  // Check generic impl registry for matching patterns
-  // Guard against unresolved SomeTypes
+  // 7. Resolve SomeType to its concrete type before checking generic impls.
   if (isSomeType(targetType)) {
     const resolvedType = getValueOfSomeTypeFromEnv(env, targetType);
     if (isSomeType(resolvedType)) {
-      return false;
+      return { implemented: false, env };
     }
     targetType = resolvedType;
   }
 
-  // Use recursion guard to prevent infinite loops when checking impls with where clauses
-  // Example: impl(forall(T : Type), where(T <: Runtime), *(T), Runtime()) would cause
-  // infinite recursion when checking if *(SomeType) implements Runtime
+  // 7.5. Check if this concrete impl is currently being registered.
+  // This handles recursive types: when `impl(TreeNode, Clone(...))` is being
+  // evaluated, its function bodies see `Box(TreeNode): Clone` which requires
+  // `TreeNode: Clone` — but that impl is in progress. Return true to unblock.
+  if (
+    currentlyRegisteringConcreteImpls.has(`${targetType.id}:${traitType.id}`)
+  ) {
+    return { implemented: true, env };
+  }
+
+  // 7.5. Check if a non-generic concrete impl for this type+trait is currently
+  // being registered (handles recursive types like TreeNode containing Box(Self)
+  // with derive(TreeNode, Clone)). The impl hasn't been added to the registry yet
+  // but is guaranteed to exist once registration completes.
+  if (isConcreteImplBeingRegistered(targetType.id, traitType.typeName ?? "")) {
+    return { implemented: true, env };
+  }
+
+  // 8. Generic impl registry.
+  // Use a recursion guard to prevent infinite loops when checking impls with
+  // where clauses — e.g. `impl(forall(T), where(T <: Runtime), *(T), Runtime())`
+  // would recurse when checking if *(SomeType) implements Runtime.
   const guardKey = `${targetType.id}:${traitType.id}`;
   if (traitCheckRecursionGuard.has(guardKey)) {
-    return false;
+    return { implemented: false, env };
   }
   traitCheckRecursionGuard.add(guardKey);
   try {
@@ -438,13 +514,36 @@ export function typeImplementsTrait({
       env,
     });
     if (result === undefined) {
-      return false;
+      return { implemented: false, env };
     }
-    // Also check associated type constraints if any
-    return checkAssociatedTypeConstraints(targetType, traitType, env);
+    const assocResult = checkAssociatedTypeConstraints(
+      targetType,
+      traitType,
+      env
+    );
+    return {
+      implemented: assocResult.satisfied,
+      env: assocResult.env,
+    };
   } finally {
     traitCheckRecursionGuard.delete(guardKey);
   }
+}
+
+/**
+ * Boolean wrapper around typeImplementsTrait for callers that only need
+ * a yes/no answer and do not require associated-type binding propagation.
+ */
+export function typeImplementsTraitBool({
+  targetType,
+  traitType,
+  env,
+}: {
+  targetType: Type;
+  traitType: TraitType;
+  env: Environment;
+}): boolean {
+  return typeImplementsTrait({ targetType, traitType, env }).implemented;
 }
 
 /**
@@ -467,7 +566,11 @@ export function checkTypeImplementsSelfConstraints({
   if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
     for (const constraintTrait of traitType.selfConstraints) {
       if (
-        !typeImplementsTrait({ targetType, traitType: constraintTrait, env })
+        !typeImplementsTraitBool({
+          targetType,
+          traitType: constraintTrait,
+          env,
+        })
       ) {
         throw formatErrorMessage({
           token: errorToken,
@@ -484,7 +587,7 @@ export function checkTypeImplementsSelfConstraints({
   ) {
     for (const constraintTrait of traitType.negativeSelfConstraints) {
       if (
-        typeImplementsTrait({ targetType, traitType: constraintTrait, env })
+        typeImplementsTraitBool({ targetType, traitType: constraintTrait, env })
       ) {
         throw formatErrorMessage({
           token: errorToken,
@@ -513,7 +616,7 @@ export function typeImplementsComptime(type: Type, env: Environment): boolean {
     return false;
   }
 
-  return typeImplementsTrait({
+  return typeImplementsTraitBool({
     targetType: type,
     traitType: comptimeTraitType,
     env,
@@ -608,7 +711,7 @@ export function typeImplementsRuntime(type: Type, env: Environment): boolean {
     return false;
   }
 
-  return typeImplementsTrait({
+  return typeImplementsTraitBool({
     targetType: type,
     traitType: runtimeTraitType,
     env,
@@ -662,7 +765,7 @@ export function typeImplementsSend(
     return false;
   }
 
-  return typeImplementsTrait({
+  return typeImplementsTraitBool({
     targetType: type,
     traitType: sendTraitType,
     env,
@@ -685,7 +788,7 @@ export function typeImplementsDispose(
     return false;
   }
 
-  return typeImplementsTrait({
+  return typeImplementsTraitBool({
     targetType: type,
     traitType: disposeTraitType,
     env,
@@ -712,7 +815,7 @@ export function typeImplementsAcyclic(
     return false;
   }
 
-  return typeImplementsTrait({
+  return typeImplementsTraitBool({
     targetType: type,
     traitType: acyclicTraitType,
     env,
@@ -750,6 +853,13 @@ export function typeImplementsFn(
         return true;
       }
     }
+    // Look through resolvedConcreteType chain - a forall SomeType may have its
+    // Fn trait constraint stored on a wrapper Impl(Fn(...)) SomeType assigned as
+    // resolvedConcreteType (see anonymous-function.ts where wrapperType has its
+    // resolvedConcreteType set to an implFnWrapper).
+    if (isSomeType(type) && type.resolvedConcreteType) {
+      return typeImplementsFn(type.resolvedConcreteType);
+    }
   }
 
   return false;
@@ -759,7 +869,10 @@ export function typeImplementsFn(
  * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
  * Returns the FnTraitType if found, otherwise undefined.
  */
-export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
+export function extractFnTraitFromType(
+  type: Type,
+  env?: Environment
+): FnTraitType | undefined {
   // If the type is already a FnTraitType, return it directly
   if (isFnTraitType(type)) {
     return type;
@@ -770,6 +883,28 @@ export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
     for (const { traitType } of type.requiredTraits) {
       if (isFnTraitType(traitType)) {
         return traitType;
+      }
+    }
+    // Look through resolvedConcreteType chain (see typeImplementsFn for context).
+    if (isSomeType(type) && type.resolvedConcreteType) {
+      const fromConcrete = extractFnTraitFromType(
+        type.resolvedConcreteType,
+        env
+      );
+      if (fromConcrete) return fromConcrete;
+    }
+  }
+  // A forall parameter `F : Type` constrained as `where(F <: (Fn(...) -> ...))`
+  // stores the Fn trait constraint in env.whereClauseConstraints, NOT in
+  // F.requiredTraits. Without checking here, lambda type-resolution at call
+  // sites that pass `f : F` would fail with "Expected a function type".
+  if (env && isSomeType(type)) {
+    const constraints = getWhereClauseConstraintsForSomeType(env, type);
+    if (constraints) {
+      for (const traitType of constraints.requiredTraits) {
+        if (isFnTraitType(traitType)) {
+          return traitType;
+        }
       }
     }
   }

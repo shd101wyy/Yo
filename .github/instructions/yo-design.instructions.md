@@ -12,6 +12,50 @@ description: "Use when making design decisions about the Yo language, writing st
 - Use `object(...)` for reference-counted types
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 
+## `Self` in type definitions
+
+Always use `Self` to refer to the type being defined inside `struct(...)`, `object(...)`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:
+
+```rust
+// CORRECT — Self for recursive references:
+TypeValue :: enum(
+  IntType(bits : u8),
+  PointerType(pointee : Box(Self)),
+  ArrayType(element : Box(Self), length : usize)
+);
+
+// WRONG — TypeValue not available inside its own enum:
+TypeValue :: enum(
+  IntType(bits : u8),
+  PointerType(pointee : Box(TypeValue)),
+  ArrayType(element : Box(TypeValue), length : usize)
+);
+```
+
+This applies equally to `impl` method signatures (use `Self` for parameter and return types).
+
+`Self` also works inside **generic type constructor functions** — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
+
+```rust
+// CORRECT — Self refers to Tree(T):
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Self, right : Self)
+  )
+);
+
+// WRONG — Tree is not available inside its own function body:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Tree(T), right : Tree(T))
+  )
+);
+```
+
+Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
+
 ## Unicode: `rune` not `Char`
 
 - `char` is the C character type (8-bit)

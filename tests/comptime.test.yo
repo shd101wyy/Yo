@@ -3889,3 +3889,15 @@ test "Comptime SomeType constraint validation", {
     )
   );
 };
+test "comptime_assert validates argument type even in function body", {
+  // `==` between Type values is NOT defined (no Eq impl for Type).
+  // Use Type.eq / Type.is_compatible_with instead. This must be rejected
+  // even when comptime_assert is inside a function body (not actually executed).
+  comptime_expect_error(comptime_assert((i32 == i32), "should be rejected"));
+  comptime_expect_error(comptime_assert((bool == bool), "should be rejected"));
+  // Non-bool argument is also rejected.
+  comptime_expect_error(comptime_assert(i32(1), "not a bool"));
+  // Valid forms still work:
+  comptime_assert(Type.eq(i32, i32), "Type.eq works");
+  comptime_assert(true, "literal true works");
+};

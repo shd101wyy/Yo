@@ -679,10 +679,12 @@ export function generateSpecializedFunctionDeclarations(
       continue; // Skip non-generic functions
     }
 
-    // Skip if the specialized type still has unresolved type parameters
-    // This can happen when type substitution is incomplete or when collecting
-    // methods from generic modules that weren't properly specialized
-    if (isFunctionTypeGeneric(specializedFunctionType)) {
+    // Skip if the specialized type still has unresolved type parameters.
+    // Use the "hard generic" check, which excludes SomeType params with
+    // resolvedConcreteType (e.g., closure-typed params like `f : F` where
+    // F = Impl(Fn(...)) resolves to the closure's capture struct). Such
+    // params are concrete at codegen time.
+    if (isFunctionTypeHardGeneric(specializedFunctionType)) {
       continue;
     }
 

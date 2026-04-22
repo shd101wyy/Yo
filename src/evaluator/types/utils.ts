@@ -1732,9 +1732,125 @@ export function autoDeriveTraitsAndAddRcFunctionsForEnumType({
     context,
   });
 
+  // Fix recursive Box(Self) / object((*) : Self) etc.: when a struct (typically
+  // Box) was instantiated with `Self` mid-enum-body, its ___dispose was
+  // generated against a partial enum (some variants missing) and may have
+  // ended up with an empty body, causing leaks.  Walk all variant field
+  // types, find StructTypes that transitively reference this enumType, and
+  // regenerate their RC functions now that the enum is complete.
+  env = regenerateRcFunctionsForRecursiveStructs({
+    enumType,
+    env,
+    context,
+  });
+
   validateTypeAvailability(enumType, env, errorToken, context);
 
   return env;
+}
+
+/**
+ * After an enum is fully built, find all StructTypes reachable from its
+ * variant fields whose own field types reference the enumType (directly or
+ * transitively), and regenerate their RC (___dispose, ___drop, ___dup)
+ * functions.
+ *
+ * This fixes a bug where `Box(Self)` (or any struct containing `Self`)
+ * generated dispose code while the enum was still partially built — at that
+ * point `typeContainsRcType(Self)` returned false because only some variants
+ * existed, producing an empty dispose body that leaks owned children.
+ */
+function regenerateRcFunctionsForRecursiveStructs({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  const visited = new Set<string>();
+  const structsToRegenerate: StructType[] = [];
+
+  function walk(type: Type | undefined): void {
+    if (!type) return;
+    if (visited.has(type.id)) return;
+    visited.add(type.id);
+
+    if (isStructType(type)) {
+      // If this struct has any field whose type contains the enum, its RC
+      // code may have been generated against a partial enum.
+      const referencesEnum = type.fields.some((f) =>
+        typeReferencesType(f.type, enumType, new Set())
+      );
+      if (referencesEnum && !typeIsComptimeOnly(type, env)) {
+        structsToRegenerate.push(type);
+      }
+      for (const f of type.fields) walk(f.type);
+      return;
+    }
+
+    if (isTupleType(type)) {
+      for (const f of type.fields) walk(f.type);
+      return;
+    }
+
+    if (isEnumType(type)) {
+      // Don't recurse into the enum being built (avoid cycles); but do
+      // recurse into other enums encountered via fields.
+      if (type === enumType) return;
+      for (const v of type.variants) {
+        for (const f of v.fields ?? []) walk(f.type);
+      }
+      return;
+    }
+
+    if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+      walk(type.childType);
+      return;
+    }
+  }
+
+  for (const variant of enumType.variants) {
+    for (const field of variant.fields ?? []) {
+      walk(field.type);
+    }
+  }
+
+  for (const structType of structsToRegenerate) {
+    env = addRcFunctionsToStructType({ structType, env, context });
+  }
+
+  return env;
+}
+
+/**
+ * Returns true if `type` contains `target` (by reference) anywhere in its
+ * structure, walking through structs, tuples, enums, arrays, slices, and
+ * pointers.
+ */
+function typeReferencesType(
+  type: Type | undefined,
+  target: Type,
+  seen: Set<string>
+): boolean {
+  if (!type) return false;
+  if (type === target) return true;
+  if (seen.has(type.id)) return false;
+  seen.add(type.id);
+
+  if (isStructType(type) || isTupleType(type)) {
+    return type.fields.some((f) => typeReferencesType(f.type, target, seen));
+  }
+  if (isEnumType(type)) {
+    return type.variants.some((v) =>
+      (v.fields ?? []).some((f) => typeReferencesType(f.type, target, seen))
+    );
+  }
+  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    return typeReferencesType(type.childType, target, seen);
+  }
+  return false;
 }
 
 /**

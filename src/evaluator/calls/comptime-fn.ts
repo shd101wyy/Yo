@@ -123,6 +123,23 @@ export function evaluateComptimeFunctionCall({
                 return argValue.value.id === givenArgValue.value.id;
               }
 
+              // If either side is a bare SomeType (even Impl(Fn/Future) ones
+              // which typeContainsSomeType ignores for codegen purposes),
+              // require exact id match. Two SomeTypes with different ids
+              // represent different type parameters and must NOT share cache.
+              if (
+                isSomeType(argValue.value) ||
+                isSomeType(givenArgValue.value)
+              ) {
+                if (
+                  !isSomeType(argValue.value) ||
+                  !isSomeType(givenArgValue.value)
+                ) {
+                  return false;
+                }
+                return argValue.value.id === givenArgValue.value.id;
+              }
+
               // If either side contains SomeType anywhere inside, require exact type identity.
               // This prevents cache reuse across different type parameters that happen to be
               // structurally compatible (e.g., Option(*(T)) vs Option(*(U))).

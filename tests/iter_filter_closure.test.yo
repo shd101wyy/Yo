@@ -1,0 +1,62 @@
+//! Tests for `iter.filter(closure)` end-to-end through the blanket Iterator
+//! impl on `IterFilter(I, F)`.
+//!
+//! Regression test for two related bugs:
+//!
+//! 1. Specialized impl methods whose runtime parameter type is a closure
+//!    SomeType (with `resolvedConcreteType` set to its capture struct) were
+//!    being skipped by both the main and specialized codegen paths,
+//!    producing implicit-declaration / linker errors at the call site.
+//!
+//! 2. Closure-call dispatch through `implClosureCallMap` keyed registration
+//!    on an intermediate SomeType while lookup used the underlying capture
+//!    struct id. Both sides must walk the SomeType→concrete chain to its
+//!    end so the same key is used in setter and lookup.
+
+open import "std/collections/array_list";
+
+CountIter :: struct(_count : i32, _max : i32);
+
+impl(CountIter, Iterator(
+  Item : i32,
+  next : (fn(self : *(Self)) -> Option(i32))(
+    cond(
+      (self._count >= self._max) => .None,
+      true => {
+        val := self._count;
+        self._count = (self._count + i32(1));
+        .Some(val)
+      }
+    )
+  )
+));
+
+test "iter.filter(closure).next() dispatches through blanket impl", {
+  iter := CountIter(i32(0), i32(5));
+  filtered := iter.filter(x => (x.* > i32(2)));
+  result := filtered.next();
+  match(result,
+    .Some(v) => assert((v == i32(3)), "first filtered value should be 3"),
+    .None => assert(false, "expected Some(3), got None")
+  );
+};
+
+test "iter.filter(closure) keeps all when predicate is always true", {
+  iter := CountIter(i32(7), i32(8));
+  filtered := iter.filter(x => true);
+  result := filtered.next();
+  match(result,
+    .Some(v) => assert((v == i32(7)), "first kept value should be 7"),
+    .None => assert(false, "expected Some(7)")
+  );
+};
+
+test "iter.filter(closure) skips all when predicate is always false", {
+  iter := CountIter(i32(0), i32(3));
+  filtered := iter.filter(x => false);
+  result := filtered.next();
+  match(result,
+    .Some(_) => assert(false, "expected None"),
+    .None => assert(true, "all filtered out")
+  );
+};

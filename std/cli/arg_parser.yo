@@ -49,7 +49,11 @@ ParsedArgs :: object(
   _option_names : ArrayList(String),
   _option_values : ArrayList(String),
   _positionals : ArrayList(String),
-  _positional_names : ArrayList(String)
+  _positional_names : ArrayList(String),
+  /// Name of the chosen subcommand (`.None` if none was used).
+  _subcommand : Option(String),
+  /// Parsed arguments for the chosen subcommand (`.None` if no subcommand).
+  _subcommand_args : Option(Self)
 );
 
 /// Command-line argument parser.
@@ -59,7 +63,13 @@ ArgParser :: object(
   /// Application description shown in help text.
   _description : String,
   /// Registered argument definitions.
-  _args : ArrayList(ArgDef)
+  _args : ArrayList(ArgDef),
+  /// Subcommand names (parallel to `_subcommand_parsers`).
+  _subcommand_names : ArrayList(String),
+  /// Subcommand descriptions (parallel to `_subcommand_parsers`).
+  _subcommand_descriptions : ArrayList(String),
+  /// Subcommand parsers (parallel to `_subcommand_names`).
+  _subcommand_parsers : ArrayList(Self)
 );
 
 impl(ParsedArgs,
@@ -69,9 +79,17 @@ impl(ParsedArgs,
       _option_names: ArrayList(String).new(),
       _option_values: ArrayList(String).new(),
       _positionals: ArrayList(String).new(),
-      _positional_names: ArrayList(String).new()
+      _positional_names: ArrayList(String).new(),
+      _subcommand: .None,
+      _subcommand_args: .None
     )
   ),
+
+  /// Returns the name of the chosen subcommand, if any.
+  get_subcommand : (fn(self: Self) -> Option(String))(self._subcommand),
+
+  /// Returns the parsed arguments of the chosen subcommand, if any.
+  get_subcommand_args : (fn(self: Self) -> Option(Self))(self._subcommand_args),
 
   get_flag : (fn(self: Self, name: String) -> bool)(
     self._set_flags.contains(name)
@@ -116,9 +134,42 @@ impl(ArgParser,
     Self(
       _name: name,
       _description: description,
-      _args: ArrayList(ArgDef).new()
+      _args: ArrayList(ArgDef).new(),
+      _subcommand_names: ArrayList(String).new(),
+      _subcommand_descriptions: ArrayList(String).new(),
+      _subcommand_parsers: ArrayList(Self).new()
     )
   ),
+
+  /// Registers a subcommand with the given name and description.
+  /// Returns the new sub-parser, which can be configured with its own
+  /// flags, options, positionals, and nested subcommands.
+  add_subcommand : (fn(self: Self, name: String, description: String) -> Self)({
+    sub := Self.new(name, description);
+    self._subcommand_names.push(name);
+    self._subcommand_descriptions.push(description);
+    self._subcommand_parsers.push(sub);
+    return sub;
+  }),
+
+  /// Looks up a subcommand parser by name.
+  _find_subcommand : (fn(self: Self, name: String) -> Option(usize))({
+    i := usize(0);
+    len := self._subcommand_names.len();
+    (result : Option(usize)) = .None;
+    while ((i < len) && result.is_none()), (i = (i + usize(1))), {
+      match(self._subcommand_names.get(i),
+        .Some(n) => {
+          cond(
+            (n == name) => { result = .Some(i); },
+            true => ()
+          );
+        },
+        .None => ()
+      );
+    };
+    return result;
+  }),
 
   add_flag : (fn(self: Self, long_name: String, short_name: String, description: String) -> unit)({
     self._args.push(ArgDef(
@@ -265,6 +316,31 @@ impl(ArgParser,
     );
 
     text = text.concat(`  --help, -h\tShow this help message\n`);
+
+    sub_count := self._subcommand_names.len();
+    cond(
+      (sub_count > usize(0)) => {
+        text = text.concat(`\nSubcommands:\n`);
+        s := usize(0);
+        while (s < sub_count), (s = (s + usize(1))), {
+          match(self._subcommand_names.get(s),
+            .Some(sn) => {
+              match(self._subcommand_descriptions.get(s),
+                .Some(sd) => {
+                  text = text.concat(`  ${sn}\t${sd}\n`);
+                },
+                .None => {
+                  text = text.concat(`  ${sn}\n`);
+                }
+              );
+            },
+            .None => ()
+          );
+        };
+      },
+      true => ()
+    );
+
     return text;
   })
 );
@@ -326,30 +402,78 @@ impl(ArgParser,
               );
             },
             true => {
-              parsed._positionals.push(current_arg);
-              p_idx := usize(0);
-              p_count := usize(0);
-              while (p_idx < arg_defs_len), (p_idx = (p_idx + usize(1))), {
-                match(self._args.get(p_idx),
-                  .Some(p_def) => {
-                    match(p_def._kind,
-                      .Positional => {
-                        cond(
-                          (p_count == positional_idx) => {
-                            parsed._positional_names.push(p_def._long_name);
+              // Check if this is a subcommand (first non-flag positional only).
+              is_subcmd := false;
+              cond(
+                (self._subcommand_names.len() > usize(0)) => {
+                  match(self._find_subcommand(current_arg),
+                    .Some(sub_idx) => {
+                      match(self._subcommand_parsers.get(sub_idx),
+                        .Some(sub_parser) => {
+                          // Build new args list: [program_name, ...remaining args after subcommand name].
+                          sub_args := ArrayList(String).new();
+                          match(args.get(usize(0)),
+                            .Some(prog) => { sub_args.push(prog); },
+                            .None => { sub_args.push(self._name); }
+                          );
+                          j := (idx + usize(1));
+                          while (j < args_len), (j = (j + usize(1))), {
+                            match(args.get(j),
+                              .Some(a) => { sub_args.push(a); },
+                              .None => ()
+                            );
+                          };
+                          // Recursively parse the subcommand.
+                          match(recur(sub_parser, sub_args),
+                            .Ok(sub_parsed) => {
+                              parsed._subcommand = .Some(current_arg);
+                              parsed._subcommand_args = .Some(sub_parsed);
+                              idx = args_len;
+                              is_subcmd = true;
+                            },
+                            .Err(sub_err) => {
+                              err_msg = .Some(sub_err);
+                              is_subcmd = true;
+                            }
+                          );
+                        },
+                        .None => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                },
+                true => ()
+              );
+              cond(
+                (!is_subcmd) => {
+                  parsed._positionals.push(current_arg);
+                  p_idx := usize(0);
+                  p_count := usize(0);
+                  while (p_idx < arg_defs_len), (p_idx = (p_idx + usize(1))), {
+                    match(self._args.get(p_idx),
+                      .Some(p_def) => {
+                        match(p_def._kind,
+                          .Positional => {
+                            cond(
+                              (p_count == positional_idx) => {
+                                parsed._positional_names.push(p_def._long_name);
+                              },
+                              true => ()
+                            );
+                            p_count = (p_count + usize(1));
                           },
-                          true => ()
+                          .Flag => (),
+                          .Opt => ()
                         );
-                        p_count = (p_count + usize(1));
                       },
-                      .Flag => (),
-                      .Opt => ()
+                      .None => ()
                     );
-                  },
-                  .None => ()
-                );
-              };
-              positional_idx = (positional_idx + usize(1));
+                  };
+                  positional_idx = (positional_idx + usize(1));
+                },
+                true => ()
+              );
             }
           );
         },

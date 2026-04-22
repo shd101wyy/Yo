@@ -20,6 +20,7 @@ import type {
   ArrayType,
   FunctionType,
   SomeType,
+  Type,
 } from "../../types/definitions";
 import {
   isArrayType,
@@ -35,6 +36,7 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
   isModuleValue,
@@ -154,6 +156,29 @@ function storeTempVarToStateMachineIfNeeded(
       `${indent}sm->${smFieldName} = ${sanitizedTempVar};`
     );
   }
+}
+
+/**
+ * Split a comma-separated C arg list at top-level commas, respecting
+ * (), [], {} nesting. Used to apply per-argument type casts.
+ */
+function splitTopLevelArgsList(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim().length > 0) out.push(cur.trim());
+  return out;
 }
 
 /**
@@ -644,6 +669,48 @@ export function generateOtherFunctionCall(
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
         if (cFuncName) {
+          // Cast each runtime arg to the named callee's declared parameter
+          // type. Strict C compilers (wasm/clang) treat
+          // -Wincompatible-pointer-types as an error; this happens for generic
+          // specialized callees where the arg's struct C type id differs from
+          // the parameter's struct C type id even though they refer to the
+          // same logical Yo type. Native clang only warns. The cast is a safe
+          // no-op when types already match.
+          // Use the SAME FunctionValue that was used to emit the C declaration
+          // (stored in context.functions[funcId].value). The call-site
+          // `functionValue` may diverge from that — e.g., when duplicate
+          // specialization produces a different FunctionValue object whose
+          // nested generic types resolve to different C struct ids than the
+          // declaration's. Pulling from the registered entry ensures the cast
+          // types match the declaration.
+          const registeredValue =
+            context.functions[functionValue.funcId]?.value ?? functionValue;
+          const registeredType =
+            registeredValue.specializedType ?? registeredValue.type;
+          const namedRuntimeParams = registeredType.parameters.filter(
+            (p) => !p.isCompileTimeOnly
+          );
+          // Resolve param C type strings defensively. If any param's type is
+          // not yet registered (e.g., an unspecialized generic enum referenced
+          // by a fallback `functionValue.type`), skip the cast entirely
+          // rather than crashing — the original argsList is already valid C.
+          let namedParamTypeStrs: string[] | undefined;
+          try {
+            namedParamTypeStrs = namedRuntimeParams.map((p) =>
+              getTypeString(p.type, context)
+            );
+          } catch {
+            namedParamTypeStrs = undefined;
+          }
+          let namedCastedArgsList = argsList;
+          if (argsList && namedParamTypeStrs && namedParamTypeStrs.length > 0) {
+            const parts = splitTopLevelArgsList(argsList);
+            if (parts.length === namedParamTypeStrs.length) {
+              namedCastedArgsList = parts
+                .map((part, i) => `(${namedParamTypeStrs![i]})(${part})`)
+                .join(", ");
+            }
+          }
           // Evidence passing call site: callee has module-type implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
@@ -768,7 +835,9 @@ export function generateOtherFunctionCall(
           // Generate function call
           if (isUnitType(functionValueType.return.type)) {
             // If the function returns unit, just call it without assignment
-            context.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
+            context.emitter.emitLine(
+              `${indent}${cFuncName}(${namedCastedArgsList});`
+            );
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -863,7 +932,7 @@ export function generateOtherFunctionCall(
               if (!funcCtx.declaredTempVars.has(tempVar)) {
                 funcCtx.declaredTempVars.add(tempVar);
                 context.emitter.emitLine(
-                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
+                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${namedCastedArgsList});`
                 );
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
@@ -941,10 +1010,30 @@ export function generateOtherFunctionCall(
           // Use the call expression's resolved type when available (handles forall monomorphization)
           const resolvedReturnType = expr.$?.type ?? functionType.return.type;
           const returnTypeStr = getTypeString(resolvedReturnType, context);
-          const paramTypeStrs = functionType.parameters
-            .filter((p) => !p.isCompileTimeOnly)
-            .map((p) => getTypeString(p.type, context));
+          const runtimeParams = functionType.parameters.filter(
+            (p) => !p.isCompileTimeOnly
+          );
+          const paramTypeStrs = runtimeParams.map((p) =>
+            getTypeString(p.type, context)
+          );
           const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
+
+          // Cast each runtime arg to its corresponding parameter type. This
+          // avoids -Wincompatible-pointer-types errors from strict C compilers
+          // (e.g., wasm/clang) when the function pointer cast's parameter
+          // types don't match the actual call-site argument types — common
+          // for generic Clone impls where the declared param is SomeType
+          // (typed as `void*`/`void**` in C) but the call site passes a
+          // concrete struct pointer.
+          let castedArgsList = argsList;
+          if (argsList && paramTypeStrs.length > 0) {
+            const parts = splitTopLevelArgsList(argsList);
+            if (parts.length === paramTypeStrs.length) {
+              castedArgsList = parts
+                .map((part, i) => `(${paramTypeStrs[i]})(${part})`)
+                .join(", ");
+            }
+          }
 
           // Detect module effect member calls in async SM context
           // (e.g., sm->__capture.throw(arg) — handler may escape)
@@ -962,7 +1051,9 @@ export function generateOtherFunctionCall(
             isUnitType(resolvedReturnType)
           ) {
             // If the function returns unit, just call it without assignment
-            context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
+            context.emitter.emitLine(
+              `${indent}${fnPtrCast}(${castedArgsList});`
+            );
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -1029,7 +1120,7 @@ export function generateOtherFunctionCall(
               if (!funcCtx2.declaredTempVars.has(tempVar)) {
                 funcCtx2.declaredTempVars.add(tempVar);
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${argsList});`
+                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
                 );
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
@@ -1086,9 +1177,16 @@ export function generateOtherFunctionCall(
         }
       }
     }
-  } else if (functionType && typeImplementsFn(functionType)) {
+  } else if (
+    functionType &&
+    (typeImplementsFn(functionType) ||
+      extractFnTraitFromType(functionType, expr.func.$?.env))
+  ) {
     const closureValueType = functionType;
-    const fnModule = extractFnTraitFromType(closureValueType)!;
+    const fnModule = extractFnTraitFromType(
+      closureValueType,
+      expr.func.$?.env
+    )!;
     // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
     const isDynClosure = isDynType(closureValueType);
     {
@@ -1234,8 +1332,32 @@ export function generateOtherFunctionCall(
         // Dispatch:
         // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
         // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)
+        // - Function pointer parameter: direct call f(args...)
+        //   (when the parameter is a forall F constrained by where(F <: Fn(...)),
+        //    specialization replaces F with a concrete FunctionType, and the C
+        //    parameter is declared as a function pointer in declarations.ts.)
         let closureCall: string;
-        if (isDynClosure) {
+        let isFunctionPointerParam = false;
+        let functionPointerReturnType: Type | undefined;
+        if (
+          exprIsAtom(expr.func) &&
+          (context as FunctionGenerationContext).currentFunctionType
+        ) {
+          const funcVarName = expr.func.token.value;
+          const curFnType = (context as FunctionGenerationContext)
+            .currentFunctionType!;
+          const matchedParam = curFnType.parameters.find(
+            (p) => p.label === funcVarName
+          );
+          if (matchedParam && isFunctionType(matchedParam.type)) {
+            isFunctionPointerParam = true;
+            functionPointerReturnType = (matchedParam.type as FunctionType)
+              .return.type;
+          }
+        }
+        if (isFunctionPointerParam) {
+          closureCall = `${closureCode}(${args.join(", ")})`;
+        } else if (isDynClosure) {
           const allArgs = [`(${closureCode}).data`, ...args];
           closureCall = `(${closureCode}).vtable->call(${allArgs.join(", ")})`;
         } else {
@@ -1245,7 +1367,14 @@ export function generateOtherFunctionCall(
           if (isSomeType(closureValueType)) {
             const someType = closureValueType as SomeType;
             if (someType.resolvedConcreteType) {
-              concreteTypeId = someType.resolvedConcreteType.id;
+              let cur: Type = someType;
+              while (cur.tag === TypeTag.SomeType) {
+                const s = cur as SomeType;
+                if (!s.resolvedConcreteType) break;
+                if (s.resolvedConcreteType === s) break;
+                cur = s.resolvedConcreteType;
+              }
+              concreteTypeId = cur.id;
             }
           }
 
@@ -1288,7 +1417,8 @@ export function generateOtherFunctionCall(
         }
 
         // Get return type from the closure's function signature
-        const returnType = callSig.return.type;
+        // (or from the specialized function-pointer parameter when applicable)
+        const returnType = functionPointerReturnType ?? callSig.return.type;
 
         if (isUnitType(returnType)) {
           // If the closure returns unit, just call it without assignment

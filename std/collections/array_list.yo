@@ -696,9 +696,86 @@ impl(forall(T : Type), where(T <: Ord(T)), ArrayList(T),
   })
 );
 
+/// Clone implementation for ArrayList — deep-clones each element.
+impl(forall(T : Type), where(T <: Clone), ArrayList(T), Clone(
+  clone : (fn(self: *(Self)) -> Self)(
+    {
+      n := self.*.len();
+      result := Self.with_capacity(n);
+      i := usize(0);
+      while (i < n), {
+        item_opt := self.*.get(i);
+        match(item_opt,
+          .Some(item) => { result.push((&item).clone()); },
+          .None => ()
+        );
+        i = (i + usize(1));
+      };
+      result
+    }
+  )
+));
+
 export
   ArrayList,
   ArrayListError,
   ArrayListIter,
   ArrayListIterPtr
 ;
+
+// =============================================================================
+// array_list! literal macro
+// =============================================================================
+
+/// Internal helper: build a list of `tmp.push(elem)` statements from `elems`.
+__array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
+  cond(
+    (elems.len() == usize(0)) => ExprList(),
+    true => {
+      first :: elems.car();
+      rest :: elems.cdr();
+      stmt :: quote((unquote(tmp).push(unquote(first))));
+      stmt.cons(recur(tmp, rest))
+    }
+  )
+);
+
+/// `array_list` macro — construct an `ArrayList(T)` literal.
+///
+/// The element type `T` is inferred from the first element via `typeof`, so
+/// at least one element is required.
+///
+/// # Example
+/// ```rust
+/// xs := array_list(i32(1), i32(2), i32(3));
+/// names := array_list(`alice`, `bob`);
+/// ```
+///
+/// Expands to:
+/// ```rust
+/// {
+///   __first := <first elem>;
+///   __tmp := ArrayList(typeof(__first)).new();
+///   __tmp.push(__first);
+///   __tmp.push(<elem 2>);
+///   ...
+///   __tmp
+/// }
+/// ```
+array_list :: (fn(...(quote(elems))) -> unquote(Expr)) {
+  __ :: comptime_assert((elems.len() > usize(0)),
+    "array_list requires at least one element to infer the element type");
+  first :: elems.car();
+  rest :: elems.cdr();
+  tmp :: gensym("array_list");
+  first_tmp :: gensym("array_list_first");
+  rest_pushes :: __array_list_build_pushes(tmp, rest);
+  quote {
+    unquote(first_tmp) := unquote(first);
+    unquote(tmp) := ArrayList(typeof(unquote(first_tmp))).new();
+    unquote(tmp).push(unquote(first_tmp));
+    unquote_splicing(rest_pushes);
+    unquote(tmp)
+  }
+};
+export array_list;

@@ -86,7 +86,33 @@ Use `cond` when there are more than two branches or when the branches are large.
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
 - No space between `(fn() -> ReturnType)` and `({ body; })`
 - Method definitions in struct use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
-- Use `Self` instead of the type name in method signatures
+- Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
+
+## Anonymous function (`=>`) parameters cannot have type annotations
+
+The `=>` arrow form is for anonymous functions whose parameter types are inferred from the expected `Fn(...)` signature at the call site. **You cannot annotate `=>` parameters with `: Type`** — parameter types come from the expected `Fn` signature.
+
+```rust
+// CORRECT — types inferred from expected Fn signature:
+filtered := iter.filter((x) => (x.* > i32(2)));
+
+// CORRECT — single parameter, parens optional:
+filtered := iter.filter(x => (x.* > i32(2)));
+
+// WRONG — `=>` parameters cannot have type annotations:
+filtered := iter.filter((x : *(i32)) => (x.* > i32(2)));
+```
+
+If you need to specify parameter types explicitly, use the full `fn(...)` form or `Impl(Fn(...))(...)`:
+
+```rust
+// Use fn(...) form when types must be explicit:
+pred :: (fn(x : *(i32)) -> bool)(x.* > i32(2));
+filtered := iter.filter(pred);
+
+// Or inline:
+filtered := iter.filter((fn(x : *(i32)) -> bool)(x.* > i32(2)));
+```
 
 ## Return value rules
 
@@ -95,9 +121,23 @@ Use `cond` when there are more than two branches or when the branches are large.
 
 ## Enum definition syntax
 
-Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values:
+Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values.
+
+**Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Box(Self)`, `ArrayList(Self)`, etc.:
 
 ```rust
+// CORRECT — use Self for recursive references:
+Expr :: enum(
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), token : Token)
+);
+
+// WRONG — type name not available inside its own definition:
+Expr :: enum(
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Box(Expr), args : ArrayList(Expr), token : Token)
+);
+
 // CORRECT — no dots in definition:
 Color :: enum(Red, Green, Blue);
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -236,6 +276,30 @@ impl(Tree,
 ```
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
+
+### `Self` in generic type constructors
+
+`Self` works inside generic type constructor functions too — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
+
+```rust
+// CORRECT — Self refers to Tree(T):
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(Self), right : Box(Self))
+  )
+);
+
+// WRONG — Tree is not available inside its own body:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Leaf(value : T),
+    Node(left : Box(Tree(T)), right : Box(Tree(T)))
+  )
+);
+```
+
+Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
 
 ## Module imports
 

@@ -1,5 +1,5 @@
 import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
-import { typeImplementsTrait } from "../evaluator/trait-checking";
+import { typeImplementsTraitBool } from "../evaluator/trait-checking";
 import {
   canAssignTypeHierarchy,
   synthesizeTypes,
@@ -886,7 +886,7 @@ export function areTypesCompatible(
         // Check that given implements all required modules
         for (const requiredTrait of requiredTraitTypes) {
           if (
-            !typeImplementsTrait({
+            !typeImplementsTraitBool({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,
@@ -906,7 +906,7 @@ export function areTypesCompatible(
         if (negativeTraitTypes.length > 0) {
           for (const negativeTrait of negativeTraitTypes) {
             if (
-              typeImplementsTrait({
+              typeImplementsTraitBool({
                 targetType: given.type,
                 traitType: negativeTrait,
                 env: expected.env,
@@ -921,7 +921,7 @@ export function areTypesCompatible(
         let allModulesImplemented = true;
         for (const requiredTrait of requiredTraitTypes) {
           if (
-            !typeImplementsTrait({
+            !typeImplementsTraitBool({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,

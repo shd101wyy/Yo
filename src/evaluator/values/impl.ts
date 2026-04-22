@@ -37,6 +37,7 @@ import type {
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
+  isFnTraitType,
   isFunctionType,
   isSliceType,
   isSomeType,
@@ -45,6 +46,7 @@ import {
   isType0,
 } from "../../types/guards";
 import { typeContainsUnknownValue, typeToString } from "../../types/utils";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
   createTraitValue,
   createTypeValue,
@@ -64,6 +66,7 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
   typeImplementsTrait,
+  typeImplementsTraitBool,
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
@@ -603,6 +606,28 @@ function evaluateImplFieldList({
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
+ * Set of "receiverTypeId:traitTypeId" pairs that are currently mid-registration
+ * in evaluateModuleValue (non-generic impls only). Used to handle recursive types
+ * such as `TreeNode :: enum(Branch(left: Box(Self), ...))` with `derive(TreeNode, Clone)`:
+ * when the clone body validates `Box(TreeNode) <: Clone`, it checks `TreeNode <: Clone`,
+ * which would fail because the impl hasn't been registered yet.
+ */
+const currentlyRegisteringConcreteImpls: Set<string> = new Set();
+
+/**
+ * Check if a concrete impl (receiverTypeId : traitTypeId) is currently being
+ * registered. Called from typeImplementsTrait to handle recursive trait impls.
+ */
+export function isConcreteImplBeingRegistered(
+  receiverTypeId: string,
+  traitTypeId: string
+): boolean {
+  return currentlyRegisteringConcreteImpls.has(
+    `${receiverTypeId}:${traitTypeId}`
+  );
+}
+
+/**
  * Version counter for the generic impl registry. Incremented whenever a new
  * generic impl is registered or the registry is mutated. Used to invalidate
  * the method lookup cache.
@@ -994,8 +1019,13 @@ export function findMethodsFromGenericImpls({
           // When any forall type parameter is bound to a SomeType (e.g., T→U
           // inside a forall(U) method), we can't fully specialize the body.
           // The type-only specialization path handles this correctly.
+          // EXCEPTION: SomeTypes with resolvedConcreteType (e.g., closure
+          // wrappers `__impl_fn` carrying their concrete struct type) are
+          // effectively resolved — treat them as concrete here so the body
+          // can be specialized.
           const hasUnresolvedTypeParams = [...match.substitutions].some(
-            ([key, type]) => key !== "Self" && isSomeType(type)
+            ([key, type]) =>
+              key !== "Self" && isSomeType(type) && !type.resolvedConcreteType
           );
 
           // When any forall type parameter is NOT in substitutions, the concrete
@@ -1006,13 +1036,33 @@ export function findMethodsFromGenericImpls({
             (p) => p.kind === "type" && !match.substitutions.has(p.name)
           );
 
+          // When the method itself has its own forall parameters (inner
+          // forall, e.g., `map :: fn(forall(A, B), ...)` inside a blanket
+          // `impl(forall(I), I, map: ...)`), those A/B params are NOT in
+          // `match.substitutions` — they are resolved at the call site from
+          // argument types. We must NOT pre-evaluate the body here, because
+          // doing so would leave A/B as unresolved SomeTypes baked into any
+          // returned struct/enum types (e.g., `IterMap(Self, A, B)` would
+          // contain `SomeType(A)`, `SomeType(B)` forever).
+          //
+          // Instead, do the type-only specialization (re-evaluate the
+          // function type so Self/I are concrete) and let the call site's
+          // `createSpecializedFunctionInline` evaluate the body once A/B are
+          // bound from argument types.
+          const methodHasUnresolvedInnerForall =
+            isFunctionType(method.type) &&
+            method.type.forallParameters.some(
+              (fp) => !match.substitutions.has(fp.label)
+            );
+
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
             (match.valueSubstitutions.size > 0 ||
               match.substitutions.size > 0) &&
             !hasUnknownTypes &&
             !hasUnresolvedTypeParams &&
-            !hasMissingForallParams;
+            !hasMissingForallParams &&
+            !methodHasUnresolvedInnerForall;
 
           // When forall type parameters are missing from substitutions, the
           // concrete type is the impl's own unspecialized template (e.g.,
@@ -1172,10 +1222,21 @@ export function findMethodsFromGenericImpls({
               value: specializedFunctionValue,
             });
             methodIsInherent.push(isInherentImpl);
-          } else if (hasUnknownTypes || hasUnresolvedTypeParams) {
-            // We have unknown types (like unknown array length), or unresolved type
-            // parameters (like T→U inside a forall(U) method). We can't fully
-            // specialize the function body.
+          } else if (
+            hasUnknownTypes ||
+            hasUnresolvedTypeParams ||
+            methodHasUnresolvedInnerForall
+          ) {
+            // We have unknown types (like unknown array length), unresolved type
+            // parameters (like T→U inside a forall(U) method), or the method
+            // has its own inner forall params not yet bound by the impl's
+            // substitutions. We can't fully specialize the function body here.
+            //
+            // For the inner-forall case, we still produce a FunctionValue
+            // (carrying the original body and the partially specialized type)
+            // so that the call site's `createSpecializedFunctionInline` can
+            // finish specialization once argument-driven inference resolves
+            // the inner forall params (e.g., A, B in `IterMap(Self, A, B)`).
 
             // Use the environment where the impl was originally defined
             const baseEnv = impl.definitionEnv;
@@ -1226,7 +1287,24 @@ export function findMethodsFromGenericImpls({
               specializedEnv,
               SelfType: match.substitutions.get("Self"),
             });
-            methods.push({ type: specializedType, value: undefined });
+
+            // For the inner-forall case, attach the original FunctionValue
+            // (with original body) so the call site can re-specialize via
+            // createSpecializedFunctionInline once inner forall params are
+            // bound from arguments. Without a FunctionValue, the call site
+            // has no body to evaluate.
+            let typeOnlyValue: FunctionValue | undefined = undefined;
+            if (
+              methodHasUnresolvedInnerForall &&
+              isFunctionValue(originalValue)
+            ) {
+              typeOnlyValue = {
+                ...originalValue,
+                specializedType,
+              };
+            }
+
+            methods.push({ type: specializedType, value: typeOnlyValue });
             methodIsInherent.push(isInherentImpl);
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
@@ -1974,7 +2052,7 @@ function tryMatchGenericImpl({
 
         // For concrete types, verify they do NOT implement the trait
         if (
-          typeImplementsTrait({
+          typeImplementsTraitBool({
             targetType: boundType,
             traitType: actualConstraintTrait,
             env,
@@ -1995,16 +2073,23 @@ function tryMatchGenericImpl({
         continue;
       }
 
-      // Check if the bound type implements the required trait
-      if (
-        !typeImplementsTrait({
-          targetType: boundType,
-          traitType: actualConstraintTrait,
-          env: expectedEnv,
-        })
-      ) {
+      // Check if the bound type implements the required trait.
+      // Use the full typeImplementsTrait (not Bool) so that bindings produced
+      // during trait satisfaction (e.g. synthesizing `A=i32` from
+      // `F <: Fn(item:A)->B` against `fn(item:i32)->i32`) are propagated back
+      // into expectedEnv.  This is necessary for forall params that are only
+      // constrained through where-clauses (not struct fields) to appear in the
+      // final substitutions map and avoid a false hasMissingForallParams skip.
+      const { implemented, env: afterConstraintEnv } = typeImplementsTrait({
+        targetType: boundType,
+        traitType: actualConstraintTrait,
+        env: expectedEnv,
+      });
+      if (!implemented) {
         return noMatch;
       }
+      // Propagate new bindings (e.g. A=i32) into expectedEnv.
+      expectedEnv = afterConstraintEnv;
     }
 
     // Extract type substitutions from the unified environment
@@ -2063,21 +2148,83 @@ function someTypeHasTraitConstraint(
   env: Environment
 ): boolean {
   const traitName = requiredTrait.typeName;
-  if (!traitName) {
-    return false;
-  }
+  // For anonymous traits without a typeName (e.g., Fn(...) trait values produced
+  // by the `Fn` comptime function), each evaluation creates a fresh TraitType
+  // with a new id. We must compare structurally instead of by id/name.
+  const useStructuralCompare = !traitName && isFnTraitType(requiredTrait);
 
   // Check in requiredTraits (SomeType-level constraints)
   for (const requiredTraitEntry of someType.requiredTraits) {
     if (requiredTraitEntry.traitType.id === requiredTrait.id) {
       return true;
     }
+    if (
+      useStructuralCompare &&
+      areTypesCompatible(
+        { type: requiredTrait, env },
+        { type: requiredTraitEntry.traitType, env }
+      )
+    ) {
+      return true;
+    }
+  }
+
+  // If this SomeType has been resolved to another SomeType (e.g., a wrapper
+  // Impl(Fn(...))) carrying the trait constraint, follow the resolution chain.
+  // This is critical when a forall SomeType `F` is bound to a closure whose
+  // value-type is `Impl(Fn(...))`-wrapped — the Fn constraint sits on the
+  // wrapper, not on F itself.
+  if (
+    someType.resolvedConcreteType &&
+    isSomeType(someType.resolvedConcreteType)
+  ) {
+    if (
+      someTypeHasTraitConstraint(
+        someType.resolvedConcreteType,
+        requiredTrait,
+        env
+      )
+    ) {
+      return true;
+    }
+  }
+
+  // If this SomeType has been resolved to a concrete type (closure struct,
+  // function type, struct/enum that impls Fn, etc.), delegate to the full
+  // trait check on the concrete type. This handles closures whose captures
+  // are wrapped in a struct that has the Fn trait impl'd structurally.
+  if (
+    someType.resolvedConcreteType &&
+    !isSomeType(someType.resolvedConcreteType)
+  ) {
+    if (
+      typeImplementsTraitBool({
+        targetType: someType.resolvedConcreteType,
+        traitType: requiredTrait,
+        env,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  if (!traitName && !useStructuralCompare) {
+    return false;
   }
 
   const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
   if (whereConstraints) {
     for (const requiredTraitType of whereConstraints.requiredTraits) {
       if (requiredTraitType.id === requiredTrait.id) {
+        return true;
+      }
+      if (
+        useStructuralCompare &&
+        areTypesCompatible(
+          { type: requiredTrait, env },
+          { type: requiredTraitType, env }
+        )
+      ) {
         return true;
       }
     }
@@ -2087,6 +2234,15 @@ function someTypeHasTraitConstraint(
   for (const field of someType.trait.fields) {
     if (isTraitValue(field.assignedValue)) {
       if (field.assignedValue.type.id === requiredTrait.id) {
+        return true;
+      }
+      if (
+        useStructuralCompare &&
+        areTypesCompatible(
+          { type: requiredTrait, env },
+          { type: field.assignedValue.type, env }
+        )
+      ) {
         return true;
       }
     }
@@ -2162,9 +2318,9 @@ function checkGenericImplSelfConstraints({
   if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
     for (const constraintTrait of traitType.selfConstraints) {
       // Check if the receiver type pattern implements the constraint
-      // This uses typeImplementsTrait which will check generic impls
+      // This uses typeImplementsTraitBool which will check generic impls
       if (
-        typeImplementsTrait({
+        typeImplementsTraitBool({
           targetType: receiverTypePattern,
           traitType: constraintTrait,
           env,
@@ -2187,7 +2343,7 @@ function checkGenericImplSelfConstraints({
       }
 
       // Check if receiver type pattern relies on SomeTypes that have the required constraint
-      // For now, we just fail - the typeImplementsTrait check should handle this
+      // For now, we just fail - the typeImplementsTraitBool check should handle this
       // via findMatchingGenericImpl which checks someTypeHasTraitConstraint
 
       throw formatErrorMessage({
@@ -2206,7 +2362,7 @@ Consider adding "where(T <: ${constraintTrait.typeName ?? typeToString(constrain
     for (const constraintTrait of traitType.negativeSelfConstraints) {
       // If the receiver type pattern directly implements the forbidden trait, it's an error
       if (
-        typeImplementsTrait({
+        typeImplementsTraitBool({
           targetType: receiverTypePattern,
           traitType: constraintTrait,
           env,
@@ -2548,12 +2704,42 @@ export function evaluateModuleValue({
     const isStructuralType =
       isSliceType(receiverType) || isArrayType(receiverType);
 
-    const { env: nextEnv, traitEntries } = evaluateImplFieldList({
-      fieldExprs,
-      env,
-      context: { ...context },
-      receiverType,
-    });
+    // Pre-register concrete trait impls being evaluated so that recursive types
+    // (e.g. TreeNode containing Box(TreeNode)) can find their own Clone impl
+    // while the function body is being validated.
+    const preRegisteredKeys: string[] = [];
+    for (const fExpr of fieldExprs) {
+      // Skip named-field assignments (label : value) — not trait names
+      if (exprIsFunctionCall(fExpr) && exprIsFunctionCallOf(fExpr, ":", 2)) {
+        continue;
+      }
+      // Trait name is either the atom value (bare trait like `Hash`) or the
+      // head token of a call expr (parameterized trait like `Clone(...)` or
+      // `Eq(Point)(...)`). All trait names start with uppercase.
+      const traitName = fExpr.token.value;
+      if (traitName && /^[A-Z]/.test(traitName)) {
+        const key = `${receiverType.id}:${traitName}`;
+        currentlyRegisteringConcreteImpls.add(key);
+        preRegisteredKeys.push(key);
+      }
+    }
+
+    let nextEnv: Environment;
+    let traitEntries: ImplTraitEntry[];
+    try {
+      const result = evaluateImplFieldList({
+        fieldExprs,
+        env,
+        context: { ...context },
+        receiverType,
+      });
+      nextEnv = result.env;
+      traitEntries = result.traitEntries;
+    } finally {
+      for (const key of preRegisteredKeys) {
+        currentlyRegisteringConcreteImpls.delete(key);
+      }
+    }
     env = nextEnv;
 
     if (traitEntries.length === 0) {
@@ -2730,23 +2916,10 @@ export function evaluateModuleValue({
         });
       }
 
-      // Evaluate with isInsideWhereClause context
-      // This will attach the trait constraint to the SomeType's trait fields
-      const evaluated = evaluateExpression({
-        expr: constraintExpr,
-        env,
-        context: {
-          ...context,
-          isInsideWhereClause: true,
-        },
-      });
-      if (evaluated.$?.env) {
-        env = evaluated.$.env;
-      }
-
       const lhsExpr = constraintExpr.args[0]!;
       const rhsExpr = constraintExpr.args[1]!;
 
+      // Evaluate LHS first to get the SomeType (side-effect-free variable lookup)
       const evaluatedLhs = evaluateExpression({
         expr: lhsExpr,
         env,
@@ -2766,8 +2939,32 @@ export function evaluateModuleValue({
           errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
         });
       }
-      env = evaluatedLhs.$.env;
+      const lhsSomeType = evaluatedLhs.$.value.value;
 
+      // Snapshot constraint counts BEFORE the <: evaluation.
+      // addWhereClauseConstraintToEnv mutates in-place, so we capture lengths.
+      const constraintsBefore = getWhereClauseConstraintsForSomeType(
+        env,
+        lhsSomeType
+      );
+      const prevRequiredCount = constraintsBefore?.requiredTraits.length ?? 0;
+      const prevNegativeCount = constraintsBefore?.negativeTraits.length ?? 0;
+
+      // Evaluate with isInsideWhereClause context
+      // This will attach the trait constraint to the SomeType via addWhereClauseConstraintToEnv
+      const evaluated = evaluateExpression({
+        expr: constraintExpr,
+        env,
+        context: {
+          ...context,
+          isInsideWhereClause: true,
+        },
+      });
+      if (evaluated.$?.env) {
+        env = evaluated.$.env;
+      }
+
+      // Parse RHS trait expressions to collect the source ASTs
       const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
       if (
         exprIsFunctionCall(rhsExpr) &&
@@ -2794,29 +2991,41 @@ export function evaluateModuleValue({
         traitExprs.push({ expr: rhsExpr, isNegated: false });
       }
 
-      for (const { expr: traitExpr } of traitExprs) {
-        const evaluatedRhs = evaluateExpression({
-          expr: traitExpr,
-          env,
-          context: {
-            ...context,
-          },
-        });
+      // Get the ACTUAL constraint trait types that were added by the <: evaluation.
+      // These are the same TraitType objects stored in the env's whereClauseConstraints,
+      // which will be retrieved later in tryMatchGenericImpl. Using their IDs ensures
+      // the expression map keys match the constraint lookup keys.
+      // (Previously, re-evaluating the RHS created NEW TraitType objects with different
+      // IDs, causing Fn-trait expressions to be unfindable.)
+      const constraintsAfter = getWhereClauseConstraintsForSomeType(
+        env,
+        lhsSomeType
+      );
+      const newRequired =
+        constraintsAfter?.requiredTraits.slice(prevRequiredCount) ?? [];
+      const newNegative =
+        constraintsAfter?.negativeTraits.slice(prevNegativeCount) ?? [];
 
-        if (
-          !evaluatedRhs.$ ||
-          !evaluatedRhs.$.value ||
-          !isTypeValue(evaluatedRhs.$.value) ||
-          !isTraitType(evaluatedRhs.$.value.value)
-        ) {
-          throw formatErrorMessage({
-            token: traitExpr.token,
-            errorMessage: `Expected trait type for right-hand side expression.`,
-          });
+      // Key by (someType.id, req|neg, absolute index in the someType's constraint
+      // array). Trait IDs alone are not unique: two specialized variants of the
+      // same trait (e.g., `Iterator(Item := A)` and `Iterator(Item := B)`) share
+      // the base trait's id, so keying by id would collide and overwrite.
+      let reqIdx = 0;
+      let negIdx = 0;
+      for (const { expr: traitExpr, isNegated } of traitExprs) {
+        if (isNegated) {
+          if (negIdx < newNegative.length) {
+            const key = `${lhsSomeType.id}:neg:${prevNegativeCount + negIdx}`;
+            whereConstraintTraitExprById.set(key, cloneExpr(traitExpr));
+            negIdx++;
+          }
+        } else {
+          if (reqIdx < newRequired.length) {
+            const key = `${lhsSomeType.id}:req:${prevRequiredCount + reqIdx}`;
+            whereConstraintTraitExprById.set(key, cloneExpr(traitExpr));
+            reqIdx++;
+          }
         }
-        env = evaluatedRhs.$.env;
-        const traitType = evaluatedRhs.$.value.value;
-        whereConstraintTraitExprById.set(traitType.id, cloneExpr(traitExpr));
       }
     }
   }
@@ -2835,14 +3044,16 @@ export function evaluateModuleValue({
     if (!constraints) {
       continue;
     }
-    for (const requiredTraitType of constraints.requiredTraits) {
+    for (let i = 0; i < constraints.requiredTraits.length; i++) {
+      const requiredTraitType = constraints.requiredTraits[i]!;
       whereConstraints.push({
         someType,
         traitType: requiredTraitType,
-        traitExpr: whereConstraintTraitExprById.get(requiredTraitType.id),
+        traitExpr: whereConstraintTraitExprById.get(`${someType.id}:req:${i}`),
       });
     }
-    for (const negativeTraitType of constraints.negativeTraits) {
+    for (let i = 0; i < constraints.negativeTraits.length; i++) {
+      const negativeTraitType = constraints.negativeTraits[i]!;
       const negatedTrait: TraitType = {
         ...negativeTraitType,
         isNegatedConstraint: true,
@@ -2850,7 +3061,7 @@ export function evaluateModuleValue({
       whereConstraints.push({
         someType,
         traitType: negatedTrait,
-        traitExpr: whereConstraintTraitExprById.get(negativeTraitType.id),
+        traitExpr: whereConstraintTraitExprById.get(`${someType.id}:neg:${i}`),
       });
     }
   }

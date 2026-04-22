@@ -34,7 +34,12 @@ import {
   createUsizeType,
   createVoidType,
 } from "../../types/creators";
-import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
+import {
+  isFunctionType,
+  isSomeType,
+  isTypeHierarchyType,
+} from "../../types/guards";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import { TypeTag } from "../../types/tags";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 import { type EvaluatorContext, trackVariableUsage } from "../context";
@@ -438,9 +443,21 @@ export function evaluateIdentifierAndOperator({
   }
   // Self - check context.SelfType BEFORE looking up variables
   // This ensures that Self from the type context takes precedence over
-  // any variable named "Self" in the environment
+  // any variable named "Self" in the environment.
+  // EXCEPTION: If context.SelfType is a SomeType that has been bound in the env
+  // (e.g. via type synthesis during a method dispatch like
+  // `*(Self)` matched against `*(TreeNode)`), use the bound concrete type.
+  // This is essential for evaluateFunctionParameterTypeAgain to resolve `Self`
+  // to the synthesized argument type instead of the abstract trait Self placeholder.
   else if (identifier === "Self" && context.SelfType) {
-    const typeValue = createTypeValue(context.SelfType);
+    let resolvedSelfType = context.SelfType;
+    if (isSomeType(resolvedSelfType)) {
+      const bound = getValueOfSomeTypeFromEnv(env, resolvedSelfType);
+      if (!isSomeType(bound)) {
+        resolvedSelfType = bound;
+      }
+    }
+    const typeValue = createTypeValue(resolvedSelfType);
 
     expr.$ = {
       env,

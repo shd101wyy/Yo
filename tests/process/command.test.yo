@@ -1,0 +1,78 @@
+// @skip_wasm32-emscripten — no process model in WASM
+// @skip_wasm32-wasi — no process model in WASM
+{ Command, ExitStatus, Output } :: import "std/process/command";
+{ Exception, AnyError } :: import "std/error";
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ platform, Platform } :: import "std/process";
+
+test "Command.new + status (echo exits 0)", {
+  given(exn) := Exception(throw : ((err) -> { escape (); }));
+
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`echo`);
+      c.arg(`hi`);
+      c
+    },
+    true => {
+      c := Command.new(`echo`);
+      c.arg(`hi`);
+      c
+    }
+  );
+
+  st := io.await(cmd.status());
+  assert(st.success(), "echo should succeed");
+  assert((st.code() == i32(0)), "echo exit code 0");
+};
+
+test "Command.output captures stdout", {
+  given(exn) := Exception(throw : ((err) -> { escape (); }));
+
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`echo`);
+      c.arg(`yo_out_test`);
+      c
+    },
+    true => {
+      c := Command.new(`echo`);
+      c.arg(`yo_out_test`);
+      c
+    }
+  );
+
+  out := io.await(cmd.output());
+  assert(out.status.success(), "status success");
+  assert((out.stdout.len() >= usize(11)), "stdout has at least 11 bytes");
+  assert((out.stdout.get(usize(0)).unwrap() == u8(121)), "y");
+  assert((out.stdout.get(usize(1)).unwrap() == u8(111)), "o");
+  assert((out.stdout.get(usize(2)).unwrap() == u8(95)), "_");
+  assert((out.stdout.get(usize(10)).unwrap() == u8(116)), "t");
+};
+
+test "Command.status non-zero exit", {
+  given(exn) := Exception(throw : ((err) -> { escape (); }));
+
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`exit`);
+      c.arg(`1`);
+      c
+    },
+    true => {
+      Command.new(`false`)
+    }
+  );
+
+  st := io.await(cmd.status());
+  assert(!(st.success()), "should not be success");
+  assert((st.code() == i32(1)), "exit code 1");
+};

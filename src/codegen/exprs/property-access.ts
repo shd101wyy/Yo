@@ -14,6 +14,7 @@ import {
 import {
   isFunctionValue,
   isModuleValue,
+  isTraitValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
@@ -74,6 +75,86 @@ export function generateFieldAccess(
       const cFunctionName =
         context.functions[functionValue.funcId]?.cName || functionValue.funcId;
       return cFunctionName;
+    }
+
+    // Late dispatch resolution: when the evaluator left expr.$.value unresolved
+    // (e.g., in a generic impl body that was specialized after the body was
+    // type-checked, like recursive `derive(T, Clone)` triggering Box(T).clone
+    // → T.clone before T.clone was registered), look up the method on the
+    // concrete object type's trait at codegen emit time and emit the direct
+    // C function call instead of treating the field as a struct member.
+    //
+    // We resolve through the object type's trait fields. We skip ___drop/
+    // ___dup/___dispose here because they are handled by the dedicated Rc
+    // fallback below (which uses a slightly different lookup path).
+    if (
+      objectType &&
+      !BuiltinFunctions.___dispose.includes(fieldName) &&
+      !BuiltinFunctions.___drop.includes(fieldName) &&
+      !BuiltinFunctions.___dup.includes(fieldName)
+    ) {
+      let typeTrait: TraitType | null = null;
+      let underlyingType: Type = objectType;
+      // Strip pointer layers to find the underlying value type.
+      while (isPtrType(underlyingType)) {
+        underlyingType = underlyingType.childType;
+      }
+      if (isStructType(underlyingType) || isEnumType(underlyingType)) {
+        typeTrait = underlyingType.trait;
+      } else if (isObjectType(underlyingType)) {
+        typeTrait = (underlyingType as { trait?: TraitType }).trait ?? null;
+      }
+      if (typeTrait) {
+        // Skip if the type has a real data field with this name — then it's
+        // a genuine field access, not a method call.
+        const hasDataField =
+          (isStructType(underlyingType) &&
+            underlyingType.fields.some((f) => f.label === fieldName)) ||
+          (isObjectType(underlyingType) &&
+            (underlyingType as { fields?: { label: string }[] }).fields?.some(
+              (f) => f.label === fieldName
+            ));
+        if (!hasDataField) {
+          // 1) Check direct top-level trait fields (e.g., methods declared
+          //    on the type's primary trait, or ___drop/___dup/___dispose).
+          const direct = typeTrait.fields.find(
+            (field) =>
+              field.label === fieldName &&
+              field.assignedValue &&
+              isFunctionValue(field.assignedValue)
+          );
+          if (direct && isFunctionValue(direct.assignedValue)) {
+            const fv = direct.assignedValue;
+            const cFunctionName =
+              context.functions[fv.funcId]?.cName || fv.funcId;
+            return cFunctionName;
+          }
+          // 2) Check nested trait impls (e.g., derive(T, Clone) adds an
+          //    unlabeled trait field whose value is a TraitValue containing
+          //    `clone`). This is the late-dispatch case for recursive impls.
+          for (const traitField of typeTrait.fields) {
+            if (
+              traitField.label === "" &&
+              traitField.assignedValue &&
+              isTraitValue(traitField.assignedValue)
+            ) {
+              const implTraitValue = traitField.assignedValue;
+              const methodIdx = implTraitValue.type.fields.findIndex(
+                (f) => f.label === fieldName
+              );
+              if (methodIdx >= 0) {
+                const methodValue = implTraitValue.fields[methodIdx];
+                if (methodValue && isFunctionValue(methodValue)) {
+                  const cFunctionName =
+                    context.functions[methodValue.funcId]?.cName ||
+                    methodValue.funcId;
+                  return cFunctionName;
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)

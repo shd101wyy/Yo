@@ -1,0 +1,244 @@
+//! Insertion-ordered map.
+//!
+//! `OrderedMap(K, V)` preserves the order in which keys were first inserted,
+//! similar to JavaScript's `Map` or Python's `dict` (≥ 3.7). Backed by a
+//! `HashMap` for O(1) average-time lookup and an `ArrayList` of keys for
+//! deterministic iteration order.
+//!
+//! # Complexity
+//!
+//! - `set` (new key): O(1) amortized
+//! - `set` (existing key): O(1) — value updated in place, order unchanged
+//! - `get` / `contains_key`: O(1) average
+//! - `remove`: O(n) — must rebuild the key order list to skip the removed key
+//! - `iter` / `keys` / `values`: O(n), in insertion order
+//!
+//! # Example
+//!
+//! ```rust
+//! { OrderedMap } :: import "std/collections/ordered_map";
+//!
+//! m := OrderedMap(String, i32).new();
+//! m.set(`alpha`, i32(1));
+//! m.set(`beta`,  i32(2));
+//! m.set(`gamma`, i32(3));
+//!
+//! // Iteration yields keys in insertion order.
+//! it := m.keys();
+//! while true, {
+//!   match(it.next(),
+//!     .Some(k) => println(k),
+//!     .None => break
+//!   );
+//! };
+//! ```
+
+open import "./array_list";
+open import "./hash_map";
+
+/// Ordered map preserving insertion order of keys.
+/// Keys must implement `Eq` and `Hash`.
+OrderedMap :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Hash))
+) -> comptime(Type))
+  object(
+    _map : HashMap(K, V),
+    _order : ArrayList(K)
+  )
+;
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), OrderedMap(K, V),
+  /// Create an empty `OrderedMap`.
+  new : (fn() -> Self)(
+    Self(
+      _map: HashMap(K, V).new(),
+      _order: ArrayList(K).new()
+    )
+  ),
+
+  /// Number of entries.
+  len : (fn(self : Self) -> usize)(self._map.len()),
+
+  /// Whether the map is empty.
+  is_empty : (fn(self : Self) -> bool)(self._map.is_empty()),
+
+  /// Returns `true` if `key` is present.
+  contains_key : (fn(self : Self, key : K) -> bool)(self._map.contains_key(key)),
+
+  /// Returns the value for `key`, or `.None`.
+  get : (fn(self : Self, key : K) -> Option(V))(self._map.get(key)),
+
+  /// Insert or update `key -> value`.
+  ///
+  /// - For a new key, appends `key` to the insertion order.
+  /// - For an existing key, only updates the value; order is preserved.
+  ///
+  /// Returns `Ok(.Some(old_value))` if key already existed, `Ok(.None)` for
+  /// a new key, or `.Err(_)` on allocation failure.
+  set : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+    is_new := !(self._map.contains_key(key));
+    result := self._map.set(key, value);
+    cond(
+      is_new => match(result,
+        .Ok(_) => { self._order.push(key); },
+        .Err(_) => ()
+      ),
+      true => ()
+    );
+    return result;
+  }),
+
+  /// Remove `key`. Returns the removed value or `.None`.
+  /// O(n) — rebuilds the key order list to drop the removed key.
+  remove : (fn(self : Self, key : K) -> Option(V))({
+    removed := self._map.remove(key);
+    match(removed,
+      .Some(_) => {
+        new_order := ArrayList(K).new();
+        i := usize(0);
+        n := self._order.len();
+        while (i < n), (i = (i + usize(1))), {
+          match(self._order.get(i),
+            .Some(k) => {
+              cond(
+                (k == key) => (),
+                true => { new_order.push(k); }
+              );
+            },
+            .None => ()
+          );
+        };
+        self._order = new_order;
+      },
+      .None => ()
+    );
+    return removed;
+  }),
+
+  /// Remove all entries.
+  clear : (fn(self : Self) -> unit)({
+    self._map.clear();
+    self._order = ArrayList(K).new();
+  })
+);
+
+/// Iterator over the keys of an `OrderedMap` in insertion order.
+OrderedMapKeys :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Hash))
+) -> comptime(Type))
+  object(
+    _map : OrderedMap(K, V),
+    _index : usize
+  )
+;
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), OrderedMapKeys(K, V),
+  next : (fn(self : *(Self)) -> Option(K))({
+    cond(
+      (self._index >= self._map._order.len()) => { return .None; },
+      true => ()
+    );
+    k := self._map._order.get(self._index);
+    self._index = (self._index + usize(1));
+    return k;
+  })
+);
+
+/// Iterator over the values of an `OrderedMap` in insertion order.
+OrderedMapValues :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Hash))
+) -> comptime(Type))
+  object(
+    _map : OrderedMap(K, V),
+    _index : usize
+  )
+;
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), OrderedMapValues(K, V),
+  next : (fn(self : *(Self)) -> Option(V))({
+    cond(
+      (self._index >= self._map._order.len()) => { return .None; },
+      true => ()
+    );
+    match(self._map._order.get(self._index),
+      .Some(k) => {
+        self._index = (self._index + usize(1));
+        return self._map._map.get(k);
+      },
+      .None => { return .None; }
+    );
+  })
+);
+
+/// Key-value pair yielded by `OrderedMapIter`.
+OrderedMapEntry :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type
+) -> comptime(Type))
+  struct(
+    key : K,
+    value : V
+  )
+;
+
+/// Iterator over `(key, value)` pairs of an `OrderedMap` in insertion order.
+OrderedMapIter :: (fn(
+  comptime(K) : Type,
+  comptime(V) : Type,
+  where(K <: (Eq(K), Hash))
+) -> comptime(Type))
+  object(
+    _map : OrderedMap(K, V),
+    _index : usize
+  )
+;
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), OrderedMapIter(K, V),
+  next : (fn(self : *(Self)) -> Option(OrderedMapEntry(K, V)))({
+    cond(
+      (self._index >= self._map._order.len()) => { return .None; },
+      true => ()
+    );
+    match(self._map._order.get(self._index),
+      .Some(k) => {
+        self._index = (self._index + usize(1));
+        match(self._map._map.get(k),
+          .Some(v) => { return .Some(OrderedMapEntry(K, V)(key: k, value: v)); },
+          .None => { return .None; }
+        );
+      },
+      .None => { return .None; }
+    );
+  })
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), OrderedMap(K, V),
+  /// Iterator over keys in insertion order.
+  keys : (fn(self : Self) -> OrderedMapKeys(K, V))(
+    OrderedMapKeys(K, V)(_map: self, _index: usize(0))
+  ),
+
+  /// Iterator over values in insertion order.
+  values : (fn(self : Self) -> OrderedMapValues(K, V))(
+    OrderedMapValues(K, V)(_map: self, _index: usize(0))
+  ),
+
+  /// Iterator over `(key, value)` pairs in insertion order.
+  iter : (fn(self : Self) -> OrderedMapIter(K, V))(
+    OrderedMapIter(K, V)(_map: self, _index: usize(0))
+  )
+);
+
+export
+  OrderedMap,
+  OrderedMapEntry,
+  OrderedMapKeys,
+  OrderedMapValues,
+  OrderedMapIter
+;

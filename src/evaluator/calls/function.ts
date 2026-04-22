@@ -783,7 +783,7 @@ export function evaluateFunctionCall({
     functions.length === 1 &&
     (isFunctionType(functions[0]!.type) ||
       ((isSomeType(functions[0]!.type) || isDynType(functions[0]!.type)) &&
-        !!extractFnTraitFromType(functions[0]!.type)));
+        !!extractFnTraitFromType(functions[0]!.type, env)));
 
   const canSkipCheckingPhase = hasSingleFunctionLikeCandidate;
 
@@ -857,10 +857,13 @@ export function evaluateFunctionCall({
           }
         } else if (
           (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-          extractFnTraitFromType(functionToCall.type)
+          extractFnTraitFromType(functionToCall.type, env)
         ) {
           // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-          const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+          const fnModuleType = extractFnTraitFromType(
+            functionToCall.type,
+            env
+          )!;
           try {
             // NOTE: We need to pass the cloneExpr expr and argExprs here because
             // we might modify the expressions during the tryToCallFunctionWithArguments
@@ -1212,7 +1215,7 @@ export function evaluateFunctionCall({
             (isSomeType(value.value) || isDynType(value.value))
           ) {
             const wrapperType = value.value;
-            const fnModuleType = extractFnTraitFromType(wrapperType);
+            const fnModuleType = extractFnTraitFromType(wrapperType, env);
             if (fnModuleType) {
               try {
                 tryToImplementClosureByFnModuleType({
@@ -1833,7 +1836,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         functionCalleeExpr: func,
         argExprs: functionToCall.args ?? args,
         callerEnv: env,
-        context,
+        context: {
+          ...context,
+          // Macro expansion must fully evaluate the body to produce the
+          // expanded code. Clear validation flags so recursive comptime
+          // helpers (recur) and CTFE actually execute instead of short-
+          // circuiting to UnknownValue.
+          isValidatingFunctionDefinition: false,
+          isAnalyzingCtfeCapability: false,
+          isExecuting: true,
+        },
         isMethodCall: Boolean(methodExpr),
       });
 
@@ -1866,6 +1878,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
 
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
+    const isMacroCall = functionType.return.isUnquote;
 
     {
       // It's
@@ -1890,7 +1903,18 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         functionCalleeExpr: func,
         argExprs: functionToCall.args ?? args,
         callerEnv: env,
-        context,
+        context: isMacroCall
+          ? {
+              ...context,
+              // Macro expansion must fully evaluate the body to produce the
+              // expanded code. Clear validation flags so recursive comptime
+              // helpers (recur) and CTFE actually execute instead of short-
+              // circuiting to UnknownValue.
+              isValidatingFunctionDefinition: false,
+              isAnalyzingCtfeCapability: false,
+              isExecuting: true,
+            }
+          : context,
         isMethodCall: Boolean(methodExpr),
       });
 
@@ -2085,10 +2109,10 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
   } else if (
     // Check if it's a closure call
     (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-    extractFnTraitFromType(functionToCall.type)
+    extractFnTraitFromType(functionToCall.type, env)
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-    const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+    const fnModuleType = extractFnTraitFromType(functionToCall.type, env)!;
 
     // Re-call tryToCallFunctionWithArguments with the ORIGINAL args (not clones).
     // The checking phase used cloned args (which get $ annotations but are discarded),
@@ -2168,10 +2192,27 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     // Preserve runtimeArgExprsInOrder and deferredDropExpressions if func was
     // a pre-evaluated function call (chained call pattern like `opt.unwrap()(args)`).
     const isChainedCallCallee = exprIsFunctionCall(func);
+    // If the resolved value is a plain top-level FunctionValue (not a closure
+    // value), expose its concrete FunctionType on `func.$.type` so codegen takes
+    // the direct-call path instead of the closure-call (`.call(.data)`) path.
+    // This handles `(f)(args)` where f : F with where(F <: Fn(...)) is bound
+    // to a top-level named function.
+    const resolvedFuncValue = specializedFunctionValue || functionToCall.value;
+    let funcExprType: Type = functionToCall.type;
+    if (
+      isSomeType(functionToCall.type) &&
+      isFunctionValue(resolvedFuncValue) &&
+      isFunctionType(
+        resolvedFuncValue.specializedType ?? resolvedFuncValue.type
+      )
+    ) {
+      funcExprType =
+        resolvedFuncValue.specializedType ?? resolvedFuncValue.type;
+    }
     func.$ = {
       env,
-      type: functionToCall.type,
-      value: specializedFunctionValue || functionToCall.value,
+      type: funcExprType,
+      value: resolvedFuncValue,
       pathCollection: [],
       runtimeArgExprsInOrder: func.$?.runtimeArgExprsInOrder,
       deferredDropExpressions: func.$?.deferredDropExpressions,
@@ -2180,8 +2221,8 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     if (methodExpr) {
       methodExpr.$ = {
         env,
-        type: functionToCall.type,
-        value: specializedFunctionValue || functionToCall.value,
+        type: funcExprType,
+        value: resolvedFuncValue,
         pathCollection: [],
       };
     }
