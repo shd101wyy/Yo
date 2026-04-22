@@ -9,9 +9,6 @@ codegen does not emit a forward declaration of the method, producing
 
 ## Reproducer (excerpt from `yo-self/parser/parser.yo`)
 
-The `...` in the signatures below are **textual ellipsis** marking omitted
-parameters — Yo has no variadic parameters. Reproduced shape:
-
 ```rust
 // Top of file
 (_parse_primary_end_holder : Option(
@@ -45,40 +42,43 @@ _parse_primary_end_holder = (__yo_enum_..._SOME)(
 //             ^^^ undeclared
 ```
 
-## Important: bug is specific to effect-parameterized methods
+The forward decls that **do** exist all carry per-call-site specialization
+suffixes:
 
-The same holder pattern works correctly when the method has **no** effect
-parameters (no `using(...)` and no `forall(...)`). Verified with this minimal
-program — it compiles and runs (`42`):
-
-```rust
-open import "std/fmt";
-P :: struct(x : i32);
-
-(_method_holder : Option((fn(self: *(P)) -> i32))) = .None;
-
-impl(P,
-  method : (fn(self : *(Self)) -> i32)(self.x)
-);
-
-_method_holder = .Some(P.method);
-
-main :: (fn() -> unit)({
-  p := P(x: i32(42));
-  match(_method_holder,
-    .Some(f) => println(`${f(&(p))}`),
-    .None    => println(`none`)
-  );
-  ();
-});
-export main;
+```c
+fn_yode3c21e6_id_400_parse_primary_end_Exception_u40_throw...rtparam0__u42__u40_Parser..._rtparam1_AstExpr...
 ```
 
-So the failure mode is **not** "module-level holders never work". It is
-specifically: holders that capture a method whose type carries `using(...)`
-effect parameters (or `forall(...)` implicit parameters) emit the
-unspecialized `funcId` at the assignment site, and that funcId has no
-corresponding C symbol because the function is specialized per call site.
+The holder assignment instead emits the bare unspecialized `funcId` —
+which has no corresponding C symbol because the method is specialized per
+call site.
+
+## Why this is hard to reproduce in isolation
+
+A minimal program with the same shape (module-level `Option(fn(...))`
+holder + impl method that takes `using(exn : Exception)` + an explicit
+`f(self, using(exn))` call site through the holder) compiles and runs.
+The reason: that explicit call site forces emission of one specialization
+that happens to match the unspecialized name, or codegen falls back to
+emitting an unspecialized definition.
+
+The parser triggers the failure because:
+
+1. The mutually recursive cluster (`parse_expression`, `parse_primary_end`,
+   `parse`) is invoked **only through holders** from many sibling methods.
+2. Each call site uses a different effect-row context (different surrounding
+   `using(...)` args, different `Self` types), producing distinct
+   specializations like `..._throw_ctl_ArrayList_u40_Token_u41_`,
+   `..._throw_ctl_AstExpr_`, etc.
+3. No call site references the bare unspecialized funcId, so codegen never
+   emits it as a definition.
+4. The holder assignment at the bottom of the file still uses the bare
+   unspecialized funcId.
+
+Building a minimal repro requires multiple call-site contexts that each
+force a distinct specialization while leaving the holder as the sole
+"raw" reference. Easier to fix the underlying language limitation
+(forward refs inside `impl` blocks) so the parser doesn't need holders.
 
 ## Deeper root cause
 
