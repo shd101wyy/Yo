@@ -32,22 +32,47 @@ _parse_primary_end_holder = (__yo_enum_..._SOME)(... .value = fn_yode3c21e6_id_4
 //                                                              ^^^ undeclared
 ```
 
-The function `fn_yode3c21e6_id_400_parse_primary_end` is defined later in the
-same translation unit but no forward declaration is emitted for it where the
-holder initialization runs.
+## Deeper root cause
+
+This is **not** a simple "missing forward declaration" bug. The targeted
+function (`parse_primary_end` etc.) has effect parameters
+(`using(exn: Exception)`) and is _specialized at every call site_ — debug
+output shows `specCaches=36` for `parse`. There is **no single concrete C
+function** corresponding to the unspecialized `Parser.parse_primary_end`
+funcId; the C codegen only emits the specialized variants.
+
+So storing `Parser.parse_primary_end` in an `Option(fn(...))` holder is
+semantically broken under the current effect-passing model: which
+specialization should the holder carry? The user's code expects a single
+runtime function pointer; codegen has multiple specialized symbols, none of
+which matches the unspecialized funcId emitted at the holder assignment site.
 
 ## Workaround for parser bootstrap
 
-Restructure the parser to avoid module-level function-pointer holders. Instead,
-pass the recursive entry-points explicitly as parameters, OR move all mutually
-recursive functions into a single `impl(Parser, ...)` block and rely on
-`recur` / direct method calls.
+Restructure the parser to avoid module-level function-pointer holders. Three
+viable options:
 
-## Fix needed
+1. Pass mutually recursive entry-points explicitly as arguments
+   (`parse_expression(self, parse_primary_end, ...)`).
+2. Keep all mutually recursive functions inside one `impl(Parser, ...)` block
+   and use direct method calls / `recur` — `impl` blocks do allow forward
+   references between fields.
+3. Use a module value (compile-time) holding the function references rather
+   than a runtime mutable variable.
 
-The codegen `collection.ts` / `declarations.ts` should ensure that any
-function referenced as a value (not called) in a top-level initializer has a
-C forward declaration emitted before the initializer.
+## Possible long-term fix
+
+Two complementary changes would make module-level function-pointer holders
+work:
+
+1. When a function-value reference appears at the top level (or anywhere it
+   is captured as a non-called value), the evaluator must specialize it so
+   one concrete `funcId` exists. This requires the holder's value type to
+   already pin all effect/implicit params (i.e., `Option(fn(... using(...)) -> T)`
+   would need a concrete `Exception` handler binding at the reference site).
+2. Codegen `findFunctionCallsInExpr` (collection.ts) must register that
+   specialized funcId so a forward declaration is emitted before the
+   module-level initializer.
 
 ## Severity
 
