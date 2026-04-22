@@ -1,0 +1,76 @@
+// Regression tests for: recur(...) result not hoisted into a temp when used
+// as an argument, causing RC-typed return values to leak.
+// Tracking issue: issues/recur-call-result-not-hoisted-as-arg.md
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+// ---------- Test 1: recur returning RC type as argument ----------
+//
+// Without the fix, each recursive `recur(...)` call leaks one String per
+// call because String.concat would inline the recur result without a drop.
+
+Token :: object(name : String);
+
+to_str :: (fn(toks : ArrayList(Token), i : usize) -> String)({
+  n := toks.len();
+  cond(
+    (i >= n) => `done`,
+    true => match(toks.get(i),
+      .Some(p) => String.concat(p.name, recur(toks, (i + usize(1)))),
+      .None    => `none`
+    )
+  )
+});
+
+test "recur returning RC type as argument does not leak", {
+  toks := ArrayList(Token).new();
+  toks.push(Token(name: `a`));
+  toks.push(Token(name: `b`));
+  toks.push(Token(name: `c`));
+  s := to_str(toks, usize(0));
+  assert((s == `abcdone`), "concatenated string");
+};
+
+// ---------- Test 2: recur returning non-RC value (sanity check) ----------
+
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * recur((n - i32(1))))
+  )
+);
+
+test "recur with non-RC return type still works", {
+  assert((factorial(i32(5)) == i32(120)), "5! = 120");
+};
+
+// ---------- Test 3: multi-arg recur ----------
+
+sum_range :: (fn(lo : i32, hi : i32, acc : i32) -> i32)(
+  cond(
+    (lo > hi) => acc,
+    true => recur((lo + i32(1)), hi, (acc + lo))
+  )
+);
+
+test "multi-arg recur", {
+  assert((sum_range(i32(1), i32(5), i32(0)) == i32(15)), "1+2+3+4+5 = 15");
+};
+
+// ---------- Test 4: recur returning RC type assigned to local ----------
+
+build_tag :: (fn(n : i32) -> String)(
+  cond(
+    (n <= i32(0)) => `end`,
+    true => {
+      tail := recur((n - i32(1)));
+      String.concat(`x`, tail)
+    }
+  )
+);
+
+test "recur returning RC type bound to local", {
+  s := build_tag(i32(3));
+  assert((s == `xxxend`), "should be xxxend");
+};
