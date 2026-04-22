@@ -1,6 +1,7 @@
 //! Mutable UTF-8 string builder for efficient incremental construction.
 
 { ArrayList } :: import "../collections/array_list.yo";
+{ rune } :: import "./rune.yo";
 { String } :: import "./string.yo";
 
 /**
@@ -91,6 +92,40 @@ impl(StringBuilder,
    */
   write_byte : (fn(self: *(Self), b: u8) -> unit)({
     self._buf.push(b);
+  }),
+
+  /**
+   * Append a single Unicode code point, encoded as UTF-8.
+   *
+   * ## Example
+   * ```rust
+   * sb := StringBuilder.new();
+   * sb.write_rune(rune(0x1F600));  // 😀
+   * sb.write_rune(rune(0x41));     // 'A'
+   * ```
+   */
+  write_rune : (fn(self: *(Self), r: rune) -> unit)({
+    cp := r.char;
+    cond(
+      (cp < u32(0x80)) => {
+        self._buf.push(u8(cp));
+      },
+      (cp < u32(0x800)) => {
+        self._buf.push(u8((u32(0xC0) | (cp >> u32(6)))));
+        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+      },
+      (cp < u32(0x10000)) => {
+        self._buf.push(u8((u32(0xE0) | (cp >> u32(12)))));
+        self._buf.push(u8((u32(0x80) | ((cp >> u32(6)) & u32(0x3F)))));
+        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+      },
+      true => {
+        self._buf.push(u8((u32(0xF0) | (cp >> u32(18)))));
+        self._buf.push(u8((u32(0x80) | ((cp >> u32(12)) & u32(0x3F)))));
+        self._buf.push(u8((u32(0x80) | ((cp >> u32(6)) & u32(0x3F)))));
+        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+      }
+    );
   }),
 
   /**
