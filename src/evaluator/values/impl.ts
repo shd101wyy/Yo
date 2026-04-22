@@ -70,8 +70,6 @@ import {
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
-import { randomId } from "../../utils";
-import { ValueTag } from "../../value-tag";
 import { evaluateAnonymousModuleBeginExprs } from "./anonymous-module";
 
 /**
@@ -404,125 +402,6 @@ function extractTraitTypeArgsFromImplExpr({
   return {};
 }
 
-/**
- * Pre-pass helper: try to forward-declare a function-typed impl field as a
- * shell so that sibling fields in the same impl block can reference it
- * (mutual recursion). Returns null for non-function-shaped fields, leaving
- * them to the main pass.
- *
- * The shell is a real FunctionValue with the unevaluated body attached. The
- * main pass evaluates the body and mutates the same shell in place, keeping
- * funcId / identity stable for siblings that already resolved this name.
- */
-function tryCreateForwardShell({
-  fieldExpr,
-  env,
-  context,
-  receiverType,
-}: {
-  fieldExpr: Expr;
-  env: Environment;
-  context: EvaluatorContext;
-  receiverType: Type;
-}): { shell: FunctionValue; env: Environment } | null {
-  // Must be `name : value`
-  if (
-    !exprIsFunctionCall(fieldExpr) ||
-    !exprIsFunctionCallOf(fieldExpr, ":", 2)
-  ) {
-    return null;
-  }
-  const labelExpr = fieldExpr.args[0]!;
-  const valueExpr = fieldExpr.args[1]!;
-  if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
-    return null;
-  }
-
-  // value must be `(fn(...) -> R)(body)` — i.e. a call whose func is `->`
-  // applied to (fn(...), R). Other shapes (lambdas, Impl(Fn(...))(...) etc.)
-  // are not currently forward-declarable; fall through to the main pass.
-  if (!exprIsFunctionCall(valueExpr)) return null;
-  if (valueExpr.args.length !== 1) return null;
-  const fnTypeExpr = valueExpr.func;
-  if (
-    !exprIsFunctionCall(fnTypeExpr) ||
-    !exprIsFunctionCallOf(fnTypeExpr, "->", 2)
-  ) {
-    return null;
-  }
-  const fnHeadExpr = fnTypeExpr.args[0]!;
-  if (
-    !exprIsFunctionCall(fnHeadExpr) ||
-    !(
-      exprIsFunctionCallOf(fnHeadExpr, BuiltinKeywords.fn) ||
-      exprIsFunctionCallOf(fnHeadExpr, BuiltinKeywords.unsafe_fn)
-    )
-  ) {
-    return null;
-  }
-
-  const label = labelExpr.token.value;
-
-  // Evaluate the function-type head only (best-effort). If the signature
-  // depends on something not yet defined, fall through and let the main pass
-  // produce a proper error.
-  let typeResult: Expr;
-  try {
-    typeResult = evaluateExpression({
-      expr: cloneExpr(fnTypeExpr),
-      env,
-      context: {
-        ...context,
-        expectedType: undefined,
-        SelfType: receiverType,
-      },
-    });
-  } catch {
-    return null;
-  }
-
-  const typeValue = typeResult.$?.value;
-  if (
-    !typeValue ||
-    !isTypeValue(typeValue) ||
-    !isFunctionType(typeValue.value)
-  ) {
-    return null;
-  }
-  const fnType = typeValue.value;
-  const bodyExpr = valueExpr.args[0]!;
-
-  const shell: FunctionValue = {
-    tag: ValueTag.Function,
-    type: fnType,
-    body: bodyExpr,
-    frameLevel: env.frames.length - 1,
-    funcName: label,
-    funcId: `fn_${randomId(env.modulePath)}_${label}`,
-    calledComptimeFunctionCaches: [],
-    specializedFunctionCaches: [],
-  };
-
-  // Add to receiver trait so Self.method dispatch (`self.X(...)`) can
-  // resolve forward references. We deliberately do NOT bind the shell as a
-  // local variable in the impl env: doing so would shadow names inside the
-  // method bodies (e.g. a method body declaring `let len := ...` would
-  // collide with a sibling field also named `len`). Forward refs via bare
-  // names are not supported in v1; use `self.X` instead.
-  if (receiverType?.trait) {
-    receiverType.trait.fields.push({
-      label,
-      type: fnType,
-      assignedValue: shell,
-      defaultValue: undefined,
-      exprs: { expr: fieldExpr },
-      docComment: undefined,
-    });
-  }
-
-  return { shell, env: typeResult.$!.env };
-}
-
 function evaluateImplFieldList({
   fieldExprs,
   env,
@@ -552,33 +431,7 @@ function evaluateImplFieldList({
   // Push new frame to the env so impl fields don't leak
   env = pushEnvFrame(env);
 
-  // ============================================================
-  // Pre-pass: forward-declare function-typed fields as shells.
-  //
-  // For each field of the form `name : (fn(<sig>) -> R)(<body>)`, we
-  // evaluate just the `fn(...) -> R` head to get the FunctionType, allocate
-  // a real FunctionValue shell with the unevaluated body attached, and bind
-  // the name in the local env. Subsequent fields can then forward-reference
-  // these shells (mutual recursion). The main pass below evaluates the body
-  // and mutates the same shell IN PLACE, preserving funcId / identity for
-  // any sibling references already resolved.
-  // ============================================================
-  const fieldShells = new Map<number, FunctionValue>();
-  for (let fieldIndex = 0; fieldIndex < fieldExprs.length; fieldIndex++) {
-    const fieldExpr = fieldExprs[fieldIndex]!;
-    const shellResult = tryCreateForwardShell({
-      fieldExpr,
-      env,
-      context,
-      receiverType,
-    });
-    if (!shellResult) continue;
-    fieldShells.set(fieldIndex, shellResult.shell);
-    env = shellResult.env;
-  }
-
-  for (let fieldIndex = 0; fieldIndex < fieldExprs.length; fieldIndex++) {
-    const expr = fieldExprs[fieldIndex]!;
+  for (const expr of fieldExprs) {
     // Disallow begin blocks in new impl field syntax
     if (
       exprIsFunctionCall(expr) &&
@@ -636,7 +489,7 @@ function evaluateImplFieldList({
 
       env = evaluatedValueExpr.$.env;
       const fieldType = evaluatedValueExpr.$.type;
-      let fieldValue = evaluatedValueExpr.$.value;
+      const fieldValue = evaluatedValueExpr.$.value;
 
       if (!fieldValue) {
         throw formatErrorMessage({
@@ -645,51 +498,12 @@ function evaluateImplFieldList({
         });
       }
 
-      // If a forward-decl shell was created in the pre-pass for this field,
-      // mutate the shell IN PLACE with the analyzed FunctionValue's fields,
-      // preserving the shell's funcId so any sibling references already
-      // resolved to the shell remain valid. Then use the shell as the
-      // canonical FunctionValue for this field.
-      const shell = fieldShells.get(fieldIndex);
-      if (shell && isFunctionValue(fieldValue) && fieldValue !== shell) {
-        const stableFuncId = shell.funcId;
-        const stableFuncName = shell.funcName;
-        const preservedSpecs = shell.specializedFunctionCaches;
-        const preservedComptimeCaches = shell.calledComptimeFunctionCaches;
-        // Copy analyzed metadata onto the shell.
-        shell.type = fieldValue.type;
-        shell.body = fieldValue.body;
-        shell.specializedType = fieldValue.specializedType;
-        shell.cpsTransformedBody = fieldValue.cpsTransformedBody;
-        shell.isControlFunction = fieldValue.isControlFunction;
-        shell.definitionSiteEnclosingFunctionType =
-          fieldValue.definitionSiteEnclosingFunctionType;
-        shell.closureInfo = fieldValue.closureInfo;
-        shell.isModuleEffectMember = fieldValue.isModuleEffectMember;
-        shell.isIoAsyncStateMachineClosure =
-          fieldValue.isIoAsyncStateMachineClosure;
-        shell.deriveRule = fieldValue.deriveRule;
-        // Preserve funcId, funcName, and any specializations already created
-        // through forward references during sibling body evaluation.
-        shell.funcId = stableFuncId;
-        shell.funcName = stableFuncName ?? label;
-        shell.specializedFunctionCaches = preservedSpecs;
-        shell.calledComptimeFunctionCaches = preservedComptimeCaches;
-        fieldValue = shell;
-      } else if (isFunctionValue(fieldValue) && !fieldValue.funcName) {
+      if (isFunctionValue(fieldValue) && !fieldValue.funcName) {
         fieldValue.funcName = label;
         fieldValue.funcId += `_${label}`;
       }
 
-      const fieldDocComment = context.docCommentLookup?.get(
-        getDocCommentLookupKey(labelExpr.token)
-      );
-
-      // Add to env for subsequent fields to reference. We bind even when a
-      // shell exists in the pre-pass (the pre-pass deliberately did NOT
-      // bind, see tryCreateForwardShell — to avoid shadowing local vars in
-      // sibling method bodies). The binding here only takes effect for
-      // fields evaluated AFTER this one, matching pre-shell semantics.
+      // Add to env for subsequent fields to reference
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
@@ -705,6 +519,10 @@ function evaluateImplFieldList({
       });
       env = nextEnv;
 
+      const fieldDocComment = context.docCommentLookup?.get(
+        getDocCommentLookupKey(labelExpr.token)
+      );
+
       // Add to anonymous trait fields
       traitType.fields.push({
         label,
@@ -717,11 +535,8 @@ function evaluateImplFieldList({
       traitElementValues.push(fieldValue);
       hasAnonymousFields = true;
 
-      // Also add to receiver trait for Self.method resolution within this
-      // impl list. Skip when a shell already added an entry in the pre-pass
-      // (the shell entry's assignedValue refers to the same object we just
-      // mutated, so it already reflects the analyzed body).
-      if (receiverType?.trait && !shell) {
+      // Also add to receiver trait for Self.method resolution within this impl list
+      if (receiverType?.trait) {
         receiverType.trait.fields.push({
           label,
           type: fieldType,
@@ -730,15 +545,6 @@ function evaluateImplFieldList({
           exprs: { expr },
           docComment: fieldDocComment,
         });
-      } else if (receiverType?.trait && shell) {
-        // Update doc comment on the pre-pass entry (we didn't have it then).
-        const existingField = receiverType.trait.fields.find(
-          (f) => f.label === label && f.assignedValue === shell
-        );
-        if (existingField) {
-          existingField.docComment = fieldDocComment;
-          existingField.type = fieldType;
-        }
       }
 
       continue;
