@@ -13,11 +13,13 @@ import { areTypesCompatible } from "../../types/compatibility";
 import type { Type, TypeField } from "../../types/definitions";
 import {
   isModuleType,
+  isSomeType,
   isStructType,
   isTraitType,
   isTupleType,
 } from "../../types/guards";
 import { prohibitVoidType, typeToString } from "../../types/utils";
+import { typeImplementsFn } from "../trait-checking";
 import { VUnit } from "../../unit-value";
 import { isTypeValue, type Value } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -403,6 +405,35 @@ Given type: ${typeToString(defaultValueType)}`,
 
   // Prohibit void type
   prohibitVoidType(fieldType, expr.token);
+
+  // Prohibit Impl(Fn(...)) in struct/object/newtype/union/enum field types.
+  // The runtime size of `Impl(Fn(...))` depends on the concrete capture struct
+  // of whichever closure value is assigned, so it cannot live in a fixed-size
+  // field. This matches Rust, which rejects `impl Trait` in field positions.
+  // Use `Dyn(Fn(...))` (boxed closure) for a fixed-size erased closure, or
+  // make the type generic over a type parameter `F` constrained to `Fn(...)`.
+  if (
+    (forType === "struct" || forType === "enum" || forType === "union") &&
+    isSomeType(fieldType) &&
+    typeImplementsFn(fieldType) &&
+    // Only reject syntactically-written `Impl(...)` field types. Generic
+    // substitution (e.g., `Box(V)` instantiated with `V = Impl(Fn(...))`)
+    // is allowed — the user wrote a bare type variable, not `Impl(...)`.
+    typeExpr !== undefined &&
+    exprIsFunctionCallOf(typeExpr, BuiltinKeywords.Impl)
+  ) {
+    throw formatErrorMessage({
+      token: typeExpr?.token ?? expr.token,
+      errorMessage:
+        `Cannot use Impl(Fn(...)) as a field type:\n  ${typeToString(fieldType)}\n\n` +
+        `Each closure has a unique anonymous type with a capture-dependent size, ` +
+        `so an Impl(Fn(...)) field has no fixed runtime size.\n\n` +
+        `Options:\n` +
+        `  - Use Dyn(Fn(...)) for a heap-allocated, type-erased closure (and wrap the value with dyn(...)).\n` +
+        `  - Make the containing type generic over a closure type parameter, e.g.\n` +
+        `      MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`,
+    });
+  }
 
   const field: TypeField = {
     label: label ?? `${tupleFieldIndex}`,
