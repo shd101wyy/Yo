@@ -110,8 +110,8 @@ bun test src/tests/build-system.test.ts --timeout 10000
 ./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
 ./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
 
-# All integration tests — NEVER run this. It takes over an hour. Always run targeted test files instead.
-# ./yo-cli test
+# Full integration test suite (~30 min on Mac Mini M4, safe to run locally)
+./yo-cli test --bail
 
 # Emit C only (inspect generated code)
 ./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
@@ -188,7 +188,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).
 - Always put the issues or bugs you found in `issues/` directory.
 - Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.
-- Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
+- The full test suite (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. For faster iteration, run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.

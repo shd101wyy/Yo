@@ -15,7 +15,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 - Run specific test: `./yo-cli test ./tests/XXX.test.yo --parallel 1` (add `-v` for verbose)
 - **Always use `--parallel 1`** when running a single test file — this shows results sequentially and avoids hangs with large test files.
-- **Never run the full test suite** (`./yo-cli test` without a file). Always run targeted test files instead.
+- The **full test suite** (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
 - `--test-name-pattern "Test XXX"` — run specific test by name
@@ -99,12 +99,12 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 
 ## Slow test files
 
-Some test files contain hundreds of tests and take a very long time to compile and run:
+Some test files contain hundreds of tests and take a long time on their own:
 
 - `tests/string/string.test.yo` — 246 tests, ~8 minutes
 - Other large test files may take several minutes
 
-When running these, use longer timeouts and expect extended wait times. For quick iteration, use `--test-name-pattern` to run individual tests instead of the entire file.
+When running a single large file, use `--test-name-pattern` to target individual tests for faster iteration. The full suite (`./yo-cli test --bail`) runs these in parallel and finishes in ~30 minutes total on a Mac Mini M4.
 
 ## WASM testing
 
