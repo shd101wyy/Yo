@@ -485,6 +485,20 @@ Only create `index.yo` when the directory contains a **single public module file
 
 Modules that follow this pattern: `std/url`, `std/regex`, `std/glob`, `std/log`.
 
+### Flat `.yo` file for truly single-file modules
+
+If a module has **only one file and no planned submodules**, keep it as a flat `.yo` file in its parent directory — do **not** create a subdirectory just to house an `index.yo`:
+
+```
+// CORRECT — single-file module as a flat file:
+std/env.yo        ← import "std/env"
+
+// WRONG — unnecessary directory with a single index.yo:
+std/env/index.yo  ← same import path, but adds a directory for no reason
+```
+
+Use a directory with `index.yo` only when the module already has or plans to have companion files (helpers, platform-specific splits, sub-APIs).
+
 ### When NOT to use `index.yo`
 
 Do **not** create `index.yo` re-export files for directories with multiple distinct submodules. Users should import each submodule explicitly:

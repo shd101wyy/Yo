@@ -1,0 +1,198 @@
+//! AST (Abstract Syntax Tree) node types for the Yo parser.
+//! The Yo AST uses only two node kinds: Atom and FnCall.
+//!
+//! Note: Named `AstExpr` (not `Expr`) to avoid conflict with the prelude's builtin `Expr` type.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ TokenKind, Token } :: import "../lexer/token.yo";
+
+/// The Yo builtin keyword strings used by the parser.
+BK_TUPLE       :: "tuple";
+BK_TUPLE_TYPE  :: "Tuple";
+BK_ARRAY       :: "Array";
+BK_SLICE       :: "Slice";
+BK_ARRAY_VAL   :: "array";
+BK_BEGIN       :: "begin";
+BK_IMPORT      :: "import";
+BK_ANON_STRUCT :: "_";
+
+/// An AST expression node. There are exactly two kinds:
+///  - Atom: a single token (identifier, literal, operator, dot, …)
+///  - FnCall: a function call with a func expression, args list, infix flag, and token
+AstExpr :: enum(
+  Atom(token : Token),
+  FnCall(func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
+);
+
+derive(AstExpr, Clone);
+
+/// Build a placeholder Atom expression used as a fallback in error paths.
+make_err_expr :: (fn() -> AstExpr)(
+  .Atom(Token(
+    kind: TokenKind.Identifier,
+    value: String.from("?"),
+    row: usize(0),
+    column: usize(0),
+    character: usize(0),
+    module_path: String.from(""),
+    input: String.from("")
+  ))
+);
+
+/// Return the representative token of an expression (used for error reporting).
+ast_expr_token :: (fn(e : AstExpr) -> Token)(
+  match(e,
+    .Atom(tok) => tok,
+    .FnCall(_, _, _, tok) => tok
+  )
+);
+
+/// True if `e` is an Atom.
+ast_expr_is_atom :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_) => true,
+    .FnCall(_, _, _, _) => false
+  )
+);
+
+/// True if `e` is a FnCall.
+ast_expr_is_fn_call :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_) => false,
+    .FnCall(_, _, _, _) => true
+  )
+);
+
+/// True if `e` is an Atom whose token is an Operator.
+ast_expr_is_atom_and_operator :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(tok) => (tok.kind == TokenKind.Operator),
+    .FnCall(_, _, _, _) => false
+  )
+);
+
+/// True if `e` is an infix FnCall with an Operator func and exactly 2 args.
+ast_expr_is_infix_op_fn_call :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_) => false,
+    .FnCall(func_box, args, is_infix, _) => cond(
+      (is_infix == false) => false,
+      (args.len() != usize(2)) => false,
+      true => match(func_box.*,
+        .Atom(ftok) => (ftok.kind == TokenKind.Operator),
+        .FnCall(_, _, _, _) => false
+      )
+    )
+  )
+);
+
+/// Convert an expression to a compact string representation (for debugging/error messages).
+ast_expr_to_string :: (fn(e : AstExpr) -> String)(
+  match(e,
+    .Atom(tok) => tok.value,
+    .FnCall(func_box, args, is_infix, _) => {
+      n := args.len();
+      func_is_op_or_dot := match(func_box.*,
+        .Atom(ftok) => ((ftok.kind == TokenKind.Operator) || (ftok.kind == TokenKind.Dot)),
+        .FnCall(_, _, _, _) => false
+      );
+      func_is_tuple_kw := match(func_box.*,
+        .Atom(ftok) => (ftok.value.as_str() == BK_TUPLE),
+        .FnCall(_, _, _, _) => false
+      );
+      cond(
+        func_is_op_or_dot => {
+          func_tok_val := match(func_box.*,
+            .Atom(ftok) => ftok.value,
+            .FnCall(_, _, _, _) => String.from("?")
+          );
+          cond(
+            (n == usize(1)) => {
+              arg0_str := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+              is_fc := ast_expr_is_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+              cond(
+                (func_tok_val.as_str() == ".") => cond(
+                  is_fc => `${func_tok_val}(${arg0_str})`,
+                  true => `${func_tok_val}${arg0_str}`
+                ),
+                true => `${func_tok_val}(${arg0_str})`
+              )
+            },
+            ((n == usize(2)) && is_infix) => {
+              lhs0 := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+              rhs0 := recur(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+              lhs := cond(
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))
+                  || ast_expr_is_atom_and_operator(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))) => `(${lhs0})`,
+                true => lhs0
+              );
+              rhs := cond(
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))
+                  || ast_expr_is_atom_and_operator(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))) => `(${rhs0})`,
+                true => rhs0
+              );
+              cond(
+                (func_tok_val.as_str() == ".") => {
+                  rhs_final := cond(
+                    ast_expr_is_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr())) => `(${rhs})`,
+                    true => rhs
+                  );
+                  `(${lhs}.${rhs_final})`
+                },
+                true => `${lhs} ${func_tok_val} ${rhs}`
+              )
+            },
+            true => {
+              func_str := recur(func_box.*);
+              sb := StringBuilder.new();
+              i := usize(0);
+              while runtime((i < n)), {
+                if((i > usize(0)), { sb.write_str(", "); });
+                arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+                sb.write_string(recur(arg));
+                i = (i + usize(1));
+              };
+              `${func_str}(${sb.to_string()})`
+            }
+          )
+        },
+        func_is_tuple_kw => {
+          sb := StringBuilder.new();
+          i := usize(0);
+          while runtime((i < n)), {
+            if((i > usize(0)), { sb.write_str(", "); });
+            arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+            sb.write_string(recur(arg));
+            i = (i + usize(1));
+          };
+          args_str := sb.to_string();
+          cond(
+            (n == usize(1)) => `(${args_str},)`,
+            true => `(${args_str})`
+          )
+        },
+        true => {
+          // General function call
+          func_str0 := recur(func_box.*);
+          func_str := cond(
+            (ast_expr_is_infix_op_fn_call(func_box.*) || ast_expr_is_atom_and_operator(func_box.*)) => `(${func_str0})`,
+            true => func_str0
+          );
+          sb := StringBuilder.new();
+          i := usize(0);
+          while runtime((i < n)), {
+            if((i > usize(0)), { sb.write_str(", "); });
+            arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+            sb.write_string(recur(arg));
+            i = (i + usize(1));
+          };
+          `${func_str}(${sb.to_string()})`
+        }
+      )
+    }
+  )
+);
+
+export AstExpr, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT;
+export make_err_expr, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string;

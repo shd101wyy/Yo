@@ -40,6 +40,7 @@ import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
+  getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
@@ -582,7 +583,52 @@ function generateEscape(
     }
     return `return`;
   }
+  // Snapshot drop list lengths BEFORE arg evaluation. Drops added during
+  // arg evaluation belong to the value being escaped — that value is
+  // transferred to the handler installation site via __yo_effect_escape_value,
+  // so its ownership escapes with it and we must not emit drops for it here.
+  const consumedDropsBaselineForEscapeArg =
+    functionContext.consumedVarPendingDrops?.length ?? 0;
+  const pendingDropsBaselineForEscapeArg =
+    functionContext.pendingDeferredDrops?.length ?? 0;
   const argCode = generateExpr(arg, indent, context);
+  if (
+    functionContext.consumedVarPendingDrops &&
+    functionContext.consumedVarPendingDrops.length >
+      consumedDropsBaselineForEscapeArg
+  ) {
+    functionContext.consumedVarPendingDrops.length =
+      consumedDropsBaselineForEscapeArg;
+  }
+  if (
+    functionContext.pendingDeferredDrops &&
+    functionContext.pendingDeferredDrops.length >
+      pendingDropsBaselineForEscapeArg
+  ) {
+    functionContext.pendingDeferredDrops.length =
+      pendingDropsBaselineForEscapeArg;
+  }
+  // Also remove any pre-existing drop whose target variable IS the escape
+  // argument's resulting C expression (e.g., a temp var holding the freshly
+  // allocated escape value, scheduled by the enclosing begin block as a
+  // "consumed-by-return-value" drop). The value's ownership escapes via
+  // __yo_effect_escape_value, so dropping it here would cause a use-after-free
+  // at the handler installation site.
+  const argCodeTrimmed = (argCode ?? "").trim();
+  if (argCodeTrimmed && functionContext.consumedVarPendingDrops) {
+    functionContext.consumedVarPendingDrops =
+      functionContext.consumedVarPendingDrops.filter((dropExpr) => {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        return varName !== argCodeTrimmed;
+      });
+  }
+  if (argCodeTrimmed && functionContext.pendingDeferredDrops) {
+    functionContext.pendingDeferredDrops =
+      functionContext.pendingDeferredDrops.filter((dropExpr) => {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        return varName !== argCodeTrimmed;
+      });
+  }
   // Emit handler param drops before returning
   if (functionContext.effectHandlerParamDrops) {
     for (const dropCode of functionContext.effectHandlerParamDrops) {

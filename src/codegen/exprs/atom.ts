@@ -1,11 +1,12 @@
 import { getVariablesFromEnv } from "../../env";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
-import type { AtomExpr } from "../../expr";
+import type { AtomExpr, Expr } from "../../expr";
 import { isFunctionType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
+  getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
   sanitizeForCIdentifier,
@@ -18,7 +19,8 @@ import { generateExpr } from "./expr";
 function emitLoopBodyDropsBeforeExit(
   functionContext: FunctionGenerationContext,
   indent: string,
-  context: CodeGenContext
+  context: CodeGenContext,
+  expr?: Expr
 ): void {
   if (
     functionContext.pendingDeferredDrops &&
@@ -30,7 +32,42 @@ function emitLoopBodyDropsBeforeExit(
       0,
       totalCount - baselineCount
     );
+    const exitToken = expr?.token;
     for (const dropExpr of dropsToEmit) {
+      // Skip drops whose target variable is declared LATER in source order
+      // than the current break/continue. The enclosing begin block populates
+      // pendingDeferredDrops with all of its drops up-front, but the
+      // corresponding C declarations are emitted statement-by-statement.
+      // Emitting a drop for a not-yet-declared variable produces a
+      // "use of undeclared identifier" C error.
+      //
+      // We look up the target variable in the drop expression's own
+      // environment to find its `initializedAtToken` — that token marks
+      // where the C declaration is emitted. Comparing positions tells us
+      // whether the variable is live at the exit point.
+      //
+      // NOTE: don't use `consumedAtToken` — the deferred drop synthesis
+      // itself marks variables as consumed when generating ___drop()
+      // expressions. The consumed token is a sentinel, not a reliable
+      // liveness signal.
+      if (exitToken && exitToken.modulePath) {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        const dropEnv = dropExpr.$?.env;
+        if (varName && dropEnv) {
+          const variables = getVariablesFromEnv(dropEnv, varName);
+          if (variables.length > 0) {
+            const latestVar = variables[variables.length - 1]!;
+            const initTok = latestVar.initializedAtToken;
+            if (!initTok) continue;
+            if (
+              initTok.modulePath === exitToken.modulePath &&
+              initTok.position.character > exitToken.position.character
+            ) {
+              continue;
+            }
+          }
+        }
+      }
       const dropCode = generateExpr(dropExpr, indent, context);
       if (dropCode) {
         context.emitter.emitLine(`${indent}${dropCode};`);
@@ -57,11 +94,11 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular continue behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentContinueLabel) {
-      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context, expr);
       return `goto ${functionContext.currentContinueLabel}`;
     }
     if (functionContext.currentLoopLabel) {
-      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context, expr);
       return "continue";
     }
 
@@ -102,7 +139,7 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular break behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentLoopLabel) {
-      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context, expr);
       if (functionContext.insideMatch) {
         return `goto ${functionContext.currentLoopLabel}`;
       }

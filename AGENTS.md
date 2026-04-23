@@ -33,42 +33,48 @@ Yo source → Lexer → Parser → AST (expr.ts)
 
 ### Key directories
 
-| Path                                 | Role                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| `src/lexer.ts`                       | Tokenizes Yo source into tokens                                       |
-| `src/parser.ts`                      | Parses tokens → AST                                                   |
-| `src/expr.ts`                        | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …) |
-| `src/evaluator/`                     | Compile-time evaluator — type checking, CTFE, trait resolution        |
-| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)     |
-| `src/evaluator/calls/`               | Function call specialization and dispatch                             |
-| `src/evaluator/effects/`             | Algebraic effects analysis                                            |
-| `src/codegen/`                       | C11 code generation                                                   |
-| `src/codegen/exprs/`                 | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)      |
-| `src/codegen/effects/`               | Effect state machine C emitter                                        |
-| `src/codegen/functions/`             | Function-level C emitters                                             |
-| `src/types/`                         | Type value definitions and compatibility helpers                      |
-| `src/yo-cli.ts`                      | CLI entry point for `yo` / `yo-cli`                                   |
-| `std/`                               | Yo standard library (`.yo` source)                                    |
-| `tests/`                             | Integration test files (`*.test.yo`)                                  |
-| `std/build.yo`                       | Build system API (Project, Step, Executable, etc.)                    |
-| `src/build-runner.ts`                | Build execution engine — DAG scheduler, artifact compilation          |
-| `src/install-command.ts`             | `yo install` — add git/path dependencies                              |
-| `src/fetch.ts`                       | Git dependency fetching, lock file pruning                            |
-| `src/fetch-command.ts`               | `yo fetch` CLI command                                                |
-| `src/lock-file.ts`                   | `yo.lock` parse/write                                                 |
-| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers |
-| `src/init.ts`                        | `yo init` — project scaffolding                                       |
-| `src/version.ts`                     | `.yo-version` discovery, parsing, validation                          |
-| `src/version-cache.ts`               | Version download from npm, cache management, runtime detection        |
-| `src/doc-command.ts`                 | `yo doc` CLI — documentation generation                               |
-| `src/doc/`                           | Doc pipeline: extractor, builder, model, renderers                    |
-| `src/pkg-config.ts`                  | pkg-config integration for system libraries                           |
-| `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                 |
-| `plans/BUILD_SYSTEM.md`              | Build system design document                                          |
-| `plans/DEPENDENCY_MANAGEMENT.md`     | Dependency management design                                          |
-| `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                        |
-| `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)    |
-| `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                             |
+| Path                                 | Role                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `src/lexer.ts`                       | Tokenizes Yo source into tokens                                        |
+| `src/parser.ts`                      | Parses tokens → AST                                                    |
+| `src/expr.ts`                        | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …)  |
+| `src/evaluator/`                     | Compile-time evaluator — type checking, CTFE, trait resolution         |
+| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)      |
+| `src/evaluator/calls/`               | Function call specialization and dispatch                              |
+| `src/evaluator/effects/`             | Algebraic effects analysis                                             |
+| `src/codegen/`                       | C11 code generation                                                    |
+| `src/codegen/exprs/`                 | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)       |
+| `src/codegen/effects/`               | Effect state machine C emitter                                         |
+| `src/codegen/functions/`             | Function-level C emitters                                              |
+| `src/types/`                         | Type value definitions and compatibility helpers                       |
+| `src/yo-cli.ts`                      | CLI entry point for `yo` / `yo-cli`                                    |
+| `std/`                               | Yo standard library (`.yo` source)                                     |
+| `tests/`                             | Integration test files (`*.test.yo`)                                   |
+| `yo-self/`                           | Bootstrap: self-hosted Yo compiler written in Yo (Phase 1 in progress) |
+| `yo-self/README.md`                  | Bootstrap status, layout, and test instructions                        |
+| `yo-self/lexer/`                     | Self-hosted lexer (ported from `src/lexer.ts`)                         |
+| `yo-self/parser/`                    | Self-hosted parser (ported from `src/parser.ts`)                       |
+| `yo-self/tests/`                     | Integration tests for the self-hosted components (69 tests)            |
+| `std/build.yo`                       | Build system API (Project, Step, Executable, etc.)                     |
+| `src/build-runner.ts`                | Build execution engine — DAG scheduler, artifact compilation           |
+| `src/install-command.ts`             | `yo install` — add git/path dependencies                               |
+| `src/fetch.ts`                       | Git dependency fetching, lock file pruning                             |
+| `src/fetch-command.ts`               | `yo fetch` CLI command                                                 |
+| `src/lock-file.ts`                   | `yo.lock` parse/write                                                  |
+| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers  |
+| `src/init.ts`                        | `yo init` — project scaffolding                                        |
+| `src/version.ts`                     | `.yo-version` discovery, parsing, validation                           |
+| `src/version-cache.ts`               | Version download from npm, cache management, runtime detection         |
+| `src/doc-command.ts`                 | `yo doc` CLI — documentation generation                                |
+| `src/doc/`                           | Doc pipeline: extractor, builder, model, renderers                     |
+| `src/pkg-config.ts`                  | pkg-config integration for system libraries                            |
+| `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                  |
+| `plans/BUILD_SYSTEM.md`              | Build system design document                                           |
+| `plans/DEPENDENCY_MANAGEMENT.md`     | Dependency management design                                           |
+| `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                         |
+| `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)     |
+| `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                              |
+| `plans/BOOTSTRAPPING.md`             | Bootstrapping roadmap — phases, install scripts, risk assessment       |
 
 ### Algebraic effects model
 
@@ -101,8 +107,13 @@ bun test src/tests/build-system.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape" --parallel 1
 
-# All integration tests — NEVER run this. It takes over an hour. Always run targeted test files instead.
-# ./yo-cli test
+# Bootstrap (yo-self) tests — run when modifying yo-self/ components
+./yo-cli test ./yo-self/tests/ --parallel 1
+./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
+./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
+
+# Full integration test suite (~30 min on Mac Mini M4, safe to run locally)
+./yo-cli test --bail
 
 # Emit C only (inspect generated code)
 ./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
@@ -179,7 +190,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).
 - Always put the issues or bugs you found in `issues/` directory.
 - Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.
-- Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
+- The full test suite (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. For faster iteration, run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.

@@ -179,6 +179,13 @@ export function generatePendingDeferredDrops(
             // in the current path — the value is no longer owned by this variable.
             const latestVar = variables[variables.length - 1]!;
             if (latestVar.consumedAtToken) return false;
+            // Skip drops for variables that are declared but not yet
+            // initialized — they exist in the env (e.g., the LHS of the
+            // currently-evaluating assignment was added by `evaluateBinding`
+            // before the RHS ran), but their C declaration appears after the
+            // RHS evaluation. Emitting a drop here would reference an
+            // undeclared C identifier.
+            if (!latestVar.initializedAtToken) return false;
             return true;
           })
         : context.pendingDeferredDrops.filter((dropExpr) => {

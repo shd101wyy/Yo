@@ -125,6 +125,7 @@ impl(Counter,
 - Use `Self` in method signatures and in type definitions for recursive references (the type name is not available during its own definition)
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when type arguments differ from the current instantiation.
 - Wrap `fn` types in parentheses when they appear after `:`
+- **Forward references between methods in the same `impl` block are supported.** A method defined later in the block can be called by a method defined earlier. Both `self.method()` and `Self.method(...)` dispatch work. Only the canonical `name : (fn(...) -> R)(body)` method shape participates; bare lambdas do not get forward-ref shells.
 
 ### Named arguments and default values
 

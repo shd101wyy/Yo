@@ -6,7 +6,7 @@ Rewrite the Yo compiler in Yo itself, achieving full self-hosting. The TypeScrip
 
 1. **Pre-built binaries** — per-platform native executables on GitHub Releases.
 2. **Single-file C source** — an amalgamated `yo.c` that any C11 compiler can build, enabling bootstrapping on any platform without pre-built binaries.
-3. **Simple install scripts** — `install.sh` (Linux/macOS) and `install.ps1` (Windows) that download the correct binary into `~/.local/Yo` (or `%LOCALAPPDATA%\Yo` on Windows) and add it to `PATH`.
+3. **Simple install scripts** — `install.sh` (Linux/macOS) and `install.ps1` (Windows) that download the correct binary into `~/.cache/yo` (or `%LOCALAPPDATA%\yo` on Windows) and add it to `PATH`. This is consistent with where `yo cache path` already stores deps and cached versions.
 
 Along the way, enrich the Yo standard library and fix any bugs discovered.
 
@@ -37,27 +37,27 @@ Along the way, enrich the Yo standard library and fix any bugs discovered.
 
 ### Language readiness
 
-| Requirement           | Status       | Notes                                                             |
-| --------------------- | ------------ | ----------------------------------------------------------------- |
-| String manipulation   | ✅ Excellent | `String`, `str`, template strings, split/find/replace/trim        |
-| Collections           | ✅ Excellent | HashMap, ArrayList, BTreeMap, HashSet, LinkedList, Deque          |
-| Immutable collections | ✅ Excellent | imm/Map (HAMT), imm/Vec, imm/List, imm/SortedMap                  |
-| File I/O              | ✅ Excellent | Async file/dir ops, metadata, temp files                          |
-| Pattern matching      | ✅ Excellent | Exhaustive match on enums, GADTs                                  |
-| Generics + HKT        | ✅ Excellent | Full parametric generics, where clauses, HKT                      |
-| Traits + dyn dispatch | ✅ Excellent | Trait objects via `Dyn(T)`, dyn dispatch                          |
-| Error handling        | ✅ Excellent | Result/Option with combinators, algebraic effects                 |
-| Closures              | ✅ Good      | First-class, but handlers are standalone (no closure capture)     |
-| Metaprogramming       | ✅ Good      | quote/unquote, type reflection, derive                            |
-| JSON                  | ✅ Good      | Parse/stringify available                                         |
-| Regex                 | ✅ Good      | Full NFA engine in std                                            |
-| CLI argument parsing  | ✅ Good      | `std/cli/arg_parser` exists (may need subcommand support)         |
-| Process spawning      | ✅ Good      | `std/sys/process.yo` (low-level); need high-level Command wrapper |
-| Buffered I/O          | ✅ Good      | `std/sys/bufio/buf_writer.yo`, `buf_reader.yo` exist              |
-| Writer/Reader traits  | ✅ Good      | `std/io/writer.yo`, `std/io/reader.yo` exist                      |
-| Environment variables | ✅ Good      | `std/process.yo` has `env.get/set`, `cwd`, `platform`             |
-| StringBuilder (sync)  | ⚠️ Needed    | Sync in-memory string builder for C code emission                 |
-| Iterator combinators  | ⚠️ Needed    | Iterator trait has only `next()` — no map/filter/fold/collect     |
+| Requirement           | Status       | Notes                                                                                                 |
+| --------------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
+| String manipulation   | ✅ Excellent | `String`, `str`, template strings, split/find/replace/trim                                            |
+| Collections           | ✅ Excellent | HashMap, ArrayList, BTreeMap, HashSet, LinkedList, Deque                                              |
+| Immutable collections | ✅ Excellent | imm/Map (HAMT), imm/Vec, imm/List, imm/SortedMap                                                      |
+| File I/O              | ✅ Excellent | Async file/dir ops, metadata, temp files                                                              |
+| Pattern matching      | ✅ Excellent | Exhaustive match on enums, GADTs                                                                      |
+| Generics + HKT        | ✅ Excellent | Full parametric generics, where clauses, HKT                                                          |
+| Traits + dyn dispatch | ✅ Excellent | Trait objects via `Dyn(T)`, dyn dispatch                                                              |
+| Error handling        | ✅ Excellent | Result/Option with combinators, algebraic effects                                                     |
+| Closures              | ✅ Good      | First-class, but handlers are standalone (no closure capture)                                         |
+| Metaprogramming       | ✅ Good      | quote/unquote, type reflection, derive                                                                |
+| JSON                  | ✅ Good      | Parse/stringify available                                                                             |
+| Regex                 | ✅ Good      | Full NFA engine in std                                                                                |
+| CLI argument parsing  | ✅ Good      | `std/cli/arg_parser` exists (may need subcommand support)                                             |
+| Process spawning      | ✅ Good      | `std/sys/process.yo` (low-level); need high-level Command wrapper                                     |
+| Buffered I/O          | ✅ Good      | `std/sys/bufio/buf_writer.yo`, `buf_reader.yo` exist                                                  |
+| Writer/Reader traits  | ✅ Good      | `std/io/writer.yo`, `std/io/reader.yo` exist                                                          |
+| Environment variables | ✅ Good      | `std/process.yo` has `env.get/set`, `cwd`, `platform`                                                 |
+| StringBuilder (sync)  | ✅ Done      | `std/string/string_builder.yo` — 21 tests pass                                                        |
+| Iterator combinators  | ✅ Done      | Blanket `impl` in prelude: `map`, `filter`, `fold`, `take`, `skip`, `enumerate`, etc. — 19 tests pass |
 
 ### Translation challenges
 
@@ -65,7 +65,7 @@ Along the way, enrich the Yo standard library and fix any bugs discovered.
 | ------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
 | **Mutation pattern** (`expr.$ = {...}`)                                   | High     | Redesign: return new AST nodes with attached data, or use mutable struct fields      |
 | **Discriminated unions** (TypeScript tagged unions with optional fields)  | High     | Map to Yo enum with per-variant data structs                                         |
-| **Map/Set/Array functional methods** (.map, .filter, .reduce — ~845 uses) | High     | Implement Iterator combinators; ArrayList already has basics                         |
+| **Map/Set/Array functional methods** (.map, .filter, .reduce — ~845 uses) | High     | ✅ Iterator combinators implemented; ArrayList has full blanket impl support         |
 | **Named parameter destructuring**                                         | Medium   | Use explicit struct types or positional params                                       |
 | **Class-based Parser**                                                    | Medium   | Convert to struct + impl block with mutable `*(Self)` methods                        |
 | **Closures capturing outer scope**                                        | Medium   | Pass captured variables explicitly; Yo closures do capture but effect handlers don't |
@@ -199,38 +199,38 @@ This is efficient (contiguous buffer) and straightforward to implement.
 
 Before porting any compiler code, fill the remaining gaps in the standard library. Many modules already exist (see BOOTSTRAPPING_PREREQUISITES.md for full inventory):
 
-- **Iterator combinators** (🔴 Critical) — The Iterator trait only has `next()`. Add `map`, `filter`, `fold`, `find`, `any`, `all`, `collect`, `enumerate`, `join`. Needed in 155+ places.
-- **Verify blanket impl** (🔴 Critical) — Confirm `impl(forall(I), where(I <: Iterator), I, map: ..., ...)` works. If not, this is the #1 language feature to add.
+- **Iterator combinators** (✅ Done) — Blanket `impl` in prelude.yo: `map`, `filter`, `fold`, `find`, `any`, `all`, `collect`, `enumerate`, `take`, `skip`, `zip`, `flat_map` — 19 tests pass.
+- **Verify blanket impl** (✅ Done) — Confirmed working.
 - **`std/process/command`** — High-level `Command` wrapper around the existing `std/sys/process.yo` low-level spawn. For invoking `cc`, `clang`, `zig`.
-- **`StringBuilder`** — Sync in-memory string builder for C code emission (wraps `ArrayList(u8)`).
+- **`StringBuilder`** (✅ Done) — `std/string/string_builder.yo` — 21 tests pass.
 - **`std/collections/ordered_map`** — Insertion-ordered map (evaluator uses Map iteration order).
 - **String additions** — `repeat(n)`, `join(separator, items)`, `lines()` iterator.
 - Verify `derive(Clone)` on complex types (recursive enums, Box fields, ArrayList fields).
 - Verify large enum codegen performance (20+ variant enums with derive).
 
-### Phase 1 — Frontend (Lexer + AST + Parser)
+### Phase 1 — Frontend (Lexer + AST + Parser) ✅ Done
 
 Port the frontend first because it's the smallest (~4.8K lines), has no dependencies on the evaluator/codegen, and provides immediate validation that Yo can express compiler data structures.
 
-**1a. Token types and AST** (~2,564 lines → ~2,000–3,000 Yo lines)
+**1a. Token types and AST** (~2,564 lines → ~2,000–3,000 Yo lines) ✅ Done
 
 - Define `Token`, `TokenKind`, `SourceLocation` types
 - Define `Expr` enum and all variant data types
 - Define `ExprId` and `ExprInfoTable`
 
-**1b. Lexer** (~733 lines → ~600–900 Yo lines)
+**1b. Lexer** (~733 lines → ~600–900 Yo lines) ✅ Done — 33 tests
 
 - Tokenize Yo source into `ArrayList(Token)`
 - Handle string literals, template strings, comments, operators
 - Track source locations
 
-**1c. Parser** (~1,536 lines → ~1,500–2,000 Yo lines)
+**1c. Parser** (~1,536 lines → ~1,500–2,000 Yo lines) ✅ Done — 36 tests
 
 - Recursive descent parser producing `Expr` tree
 - Convert class-based design to struct + `*(Self)` methods
 - Error recovery with `raise` effect
 
-**Validation milestone**: Parse a simple Yo program and pretty-print the AST.
+**Validation milestone**: Parse a simple Yo program and pretty-print the AST. ✅ Done (69 tests total)
 
 ### Phase 2 — Type System + Environment
 
@@ -351,7 +351,7 @@ The amalgamation process:
 ```bash
 #!/bin/sh
 set -e
-YO_HOME="${YO_HOME:-$HOME/.local/Yo}"
+YO_HOME="${YO_HOME:-$HOME/.cache/yo}"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -378,7 +378,7 @@ echo "Restart your shell or run: export PATH=\"$YO_HOME/bin:\$PATH\""
 **`install.ps1`** (Windows):
 
 ```powershell
-$YoHome = "$env:LOCALAPPDATA\Yo"
+$YoHome = "$env:LOCALAPPDATA\yo"
 # ... similar logic with Invoke-WebRequest and .zip extraction
 # Add to user PATH via [Environment]::SetEnvironmentVariable
 ```
@@ -386,7 +386,7 @@ $YoHome = "$env:LOCALAPPDATA\Yo"
 ### Installation directory layout
 
 ```
-~/.local/Yo/
+~/.cache/yo/
 ├── bin/
 │   └── yo                    # Main compiler binary
 ├── lib/
@@ -394,8 +394,7 @@ $YoHome = "$env:LOCALAPPDATA\Yo"
 ├── versions/                 # Cached compiler versions (for yo version)
 │   ├── 0.2.0/
 │   └── 0.2.1/
-└── cache/
-    └── deps/                 # Dependency cache
+└── deps/                     # Dependency cache (already used by yo cache path)
 ```
 
 ---
@@ -404,15 +403,15 @@ $YoHome = "$env:LOCALAPPDATA\Yo"
 
 Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the complete inventory. Below lists only what's **still missing or needs enhancement**:
 
-| Module / Feature                    | Status     | What's needed                                                                                       |
-| ----------------------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| Iterator trait combinators          | 🆕 New     | `map`, `filter`, `fold`, `find`, `any`, `all`, `collect`, `enumerate`, `join` on all Iterator types |
-| `std/process/command`               | 🆕 New     | High-level `Command.new("cc").arg("-o").arg("out").output()` wrapping existing low-level spawn      |
-| `StringBuilder`                     | 🆕 New     | Sync in-memory string builder (wraps `ArrayList(u8)`) for C codegen                                 |
-| `std/collections/ordered_map`       | 🆕 New     | Insertion-ordered HashMap (like JS Map)                                                             |
-| `std/string` (enrich)               | 🔧 Enhance | `repeat(n)`, `lines()` iterator, `pad_start`/`pad_end`                                              |
-| `std/cli/arg_parser` (enrich)       | 🔧 Verify  | May need subcommand support for `yo compile`, `yo test`, `yo build`, etc.                           |
-| `std/collections/hash_map` (enrich) | 🔧 Enhance | `.entry()` API for insert-or-update pattern                                                         |
+| Module / Feature                    | Status     | What's needed                                                                                                                                  |
+| ----------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Iterator trait combinators          | ✅ Done    | Blanket `impl` in prelude: `map`, `filter`, `fold`, `find`, `any`, `all`, `enumerate`, `take`, `skip`, `zip`, `flat_map`, `collect` — 19 tests |
+| `std/process/command`               | 🆕 New     | High-level `Command.new("cc").arg("-o").arg("out").output()` wrapping existing low-level spawn                                                 |
+| `StringBuilder`                     | ✅ Done    | `std/string/string_builder.yo` — wraps `ArrayList(u8)`, 21 tests pass                                                                          |
+| `std/collections/ordered_map`       | 🆕 New     | Insertion-ordered HashMap (like JS Map)                                                                                                        |
+| `std/string` (enrich)               | 🔧 Enhance | `repeat(n)`, `lines()` iterator, `pad_start`/`pad_end`                                                                                         |
+| `std/cli/arg_parser` (enrich)       | 🔧 Verify  | May need subcommand support for `yo compile`, `yo test`, `yo build`, etc.                                                                      |
+| `std/collections/hash_map` (enrich) | 🔧 Enhance | `.entry()` API for insert-or-update pattern                                                                                                    |
 
 ---
 

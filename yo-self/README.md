@@ -6,31 +6,42 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 
 ## Status
 
-🚧 **Pre-Phase-1.** The directory exists; no source has been ported yet. All
-prerequisites in [`../plans/BOOTSTRAPPING_PREREQUISITES.md`](../plans/BOOTSTRAPPING_PREREQUISITES.md)
-are complete or have documented workarounds.
+🔨 **Phase 1 in progress.** Lexer and parser are ported and tested.
 
-## Layout (planned, mirrors `src/`)
+- **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
+- **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
+- **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
+- **Total: 69 tests passing** under `yo-self/tests/`
+
+Run tests:
+
+```bash
+./yo-cli test ./yo-self/tests/ --parallel 1
+```
+
+All prerequisites from [`../plans/BOOTSTRAPPING_PREREQUISITES.md`](../plans/BOOTSTRAPPING_PREREQUISITES.md)
+are complete. See [`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md) for the overall plan.
+
+## Layout (mirrors `src/`)
 
 ```
 yo-self/
   build.yo            -- top-level build script (registers steps)
   main.yo             -- CLI entry point  (mirrors src/yo-cli.ts)
-  lexer/
-    lexer.yo
-    token.yo
-  parser/
-    parser.yo
-  ast/
+  expr/
     expr.yo           -- core AST node types (mirrors src/expr.ts)
-  evaluator/
+  lexer/
+    lexer.yo          -- tokeniser (mirrors src/lexer.ts)
+    token.yo          -- Token type and helpers
+  parser/
+    parser.yo         -- recursive-descent parser (mirrors src/parser.ts)
+  evaluator/          -- (Phase 2+)
     ...
-  codegen/
+  codegen/            -- (Phase 4+)
     ...
   tests/
-    lexer.test.yo
-    parser.test.yo
-    ...
+    lexer.test.yo     -- 33 lexer tests
+    parser.test.yo    -- 36 parser tests
 ```
 
 ## Phases
@@ -38,15 +49,14 @@ yo-self/
 Each phase ends with a working binary that passes a target subset of the existing
 `tests/` suite when invoked through the new compiler.
 
-| Phase | Scope                                           | TS source size    |
-| ----- | ----------------------------------------------- | ----------------- |
-| 1     | Lexer + Token types                             | ~733 lines        |
-| 2     | AST (`expr.yo`) + Parser                        | ~4 100 lines      |
-| 3     | Evaluator core (begin/cond/match, types)        | partial of ~50 k  |
-| 4     | Evaluator: traits, impls, generics, effects     | rest of evaluator |
-| 5     | C Codegen                                       | ~46 k lines       |
-| 6     | CLI, build runner, dependency management        | smaller modules   |
-| 7     | Self-hosting bootstrap: `yo-self` builds itself |                   |
+| Phase | Scope                                           | TS source size    | Status     |
+| ----- | ----------------------------------------------- | ----------------- | ---------- |
+| 1     | Lexer + Token types + Parser + AST node types   | ~4 800 lines      | ✅ Done    |
+| 2     | Evaluator core (begin/cond/match, types)        | partial of ~50 k  | 🔲 Planned |
+| 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | 🔲 Planned |
+| 4     | C Codegen                                       | ~46 k lines       | 🔲 Planned |
+| 5     | CLI, build runner, dependency management        | smaller modules   | 🔲 Planned |
+| 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned |
 
 (The 50 k / 46 k figures are TS line counts under `src/evaluator` and
 `src/codegen` respectively. The Yo port is expected to be smaller per file due
@@ -69,7 +79,18 @@ to fewer ceremony lines, but comparable in total LOC.)
 - Keep the TS source as the reference until Phase 7 lands. After self-hosting,
   the TS tree is removed.
 
-## Running (once Phase 1 lands)
+## Running
+
+```bash
+# Run all yo-self tests
+./yo-cli test ./yo-self/tests/ --parallel 1
+
+# Run individual test files
+./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
+./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
+```
+
+Once Phase 4+ lands and a full compiler binary exists:
 
 ```bash
 yo build              # build yo-self via the current TS yo

@@ -41,7 +41,22 @@ export function generateRecur(
         return argCode;
       })
       .join(", ");
-    return `${context.currentFunctionName}(${argsList})`;
+    // Append evidence parameters (using() / algebraic effect function pointers).
+    // Since recur is a self-call, the callee's evidence params are the same as
+    // the current function's — they must be forwarded to the recursive call.
+    const evidenceArgs: string[] = [];
+    if (functionContext.currentEvidenceParams?.size) {
+      for (const ep of functionContext.currentEvidenceParams.values()) {
+        evidenceArgs.push(ep.cParamName);
+      }
+    }
+
+    const fullArgs =
+      argsList && evidenceArgs.length > 0
+        ? `${argsList}, ${evidenceArgs.join(", ")}`
+        : argsList || evidenceArgs.join(", ");
+
+    return `${context.currentFunctionName}(${fullArgs})`;
   } else {
     return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
   }

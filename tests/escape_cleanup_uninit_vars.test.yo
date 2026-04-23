@@ -1,0 +1,87 @@
+open import "std/string";
+open import "std/error";
+open import "std/fmt";
+
+// Regression for issues/escape-cleanup-references-uninitialized-vars.md
+//
+// 1. (var : T) = match(opt, .None => exn.throw(...), .Some(v) => v)
+//    The .None arm escapes via exn.throw — its cleanup must NOT
+//    try to drop `var` (declared from the match's result and not
+//    yet initialized at that point).
+//
+// 2. while runtime(true), match(opt,
+//      .Some(v) => { if(_, { break; }); X := ... ; ... }
+//    )
+//    The `break` inside the .Some arm must NOT try to drop `X`
+//    which is declared after the break in source order.
+
+ParseError :: object(message : String);
+impl(ParseError, ToString(
+  to_string : ((self) -> `parse error`)
+));
+impl(ParseError, Error());
+
+Token :: object(name : String);
+ParseResult :: object(label : String, index : usize);
+
+get_opt_token :: (fn(present : bool) -> Option(Token))(
+  cond(present => .Some(Token(name: `tok`)), true => .None)
+);
+
+// Pattern 1 — escape inside (var : T) = match(...) initializer.
+parse_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
+  (tok : Token) = match(get_opt_token(present),
+    .None    => exn.throw(dyn ParseError(message: `eof`)),
+    .Some(t) => t
+  );
+  ParseResult(label: tok.name, index: usize(0))
+});
+
+// Pattern 2 — break inside a match arm in `while runtime(true)`,
+// with an RC-typed binding declared after the break.
+collect_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
+  (final_label : String) = `default`;
+  while runtime(true), {
+    match(get_opt_token(present),
+      .None    => { break; },
+      .Some(next_tok) => {
+        if((next_tok.name == `stop`), { break; });
+        chain_pr := ParseResult(label: next_tok.name, index: usize(1));
+        final_label = chain_pr.label;
+        break;
+      }
+    );
+  };
+  ParseResult(label: final_label, index: usize(0))
+});
+
+// Helpers (so escape value type matches enclosing fn return type).
+run_parse_one :: (fn(present : bool) -> ParseResult)({
+  given(exn) := Exception(throw : ((err) -> {
+    escape ParseResult(label: `caught`, index: usize(7))
+  }));
+  parse_one(present, using(exn))
+});
+
+run_collect_one :: (fn(present : bool) -> ParseResult)({
+  given(exn) := Exception(throw : ((err) -> {
+    escape ParseResult(label: `err`, index: usize(99))
+  }));
+  collect_one(present, using(exn))
+});
+
+test "Pattern 1: escape from (var : T) = match initializer compiles and runs", {
+  ok_result := run_parse_one(true);
+  assert((ok_result.index == usize(0)), "ok index");
+
+  err_result := run_parse_one(false);
+  assert((err_result.index == usize(7)), "escape index");
+};
+
+test "Pattern 2: break inside match arm before later RC binding compiles and runs", {
+  ok_result := run_collect_one(true);
+  assert((ok_result.index == usize(0)), "loop completed");
+
+  none_result := run_collect_one(false);
+  assert((none_result.index == usize(0)), "loop none branch");
+};

@@ -272,6 +272,9 @@ export interface EvaluatorContext {
    * When inside createSpecializedFunctionInline body evaluation, this stores
    * the specialized funcId and return type so that recursive calls can create
    * a forward-reference to the specialized function being built.
+   *
+   * Top-of-stack — equals the innermost specialization in progress. Kept in
+   * sync with `currentlySpecializingFunctionStack`.
    */
   currentlySpecializingFunction?: {
     originalFuncId: string;
@@ -279,6 +282,22 @@ export interface EvaluatorContext {
     specializedReturnType: Type;
     originalFunction: FunctionValue;
   };
+
+  /**
+   * Full stack of in-progress specializations. Needed to detect *mutual*
+   * recursion between sibling functions (e.g., two methods inside the same
+   * `impl(...)` block calling each other). Without this, only direct
+   * self-recursion is short-circuited and mutual recursion blows the stack
+   * via infinite re-specialization.
+   *
+   * See `issues/mutual-recursion-impl-method-specialization-overflow.md`.
+   */
+  currentlySpecializingFunctionStack?: Array<{
+    originalFuncId: string;
+    specializedFuncId: string;
+    specializedReturnType: Type;
+    originalFunction: FunctionValue;
+  }>;
 
   /**
    * Lookup map from declaration token location to doc comment content.

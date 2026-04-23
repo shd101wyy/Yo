@@ -1,0 +1,138 @@
+// Tests for forward references between methods in a single impl block.
+// Tracking issue: forward-fn-ref-in-toplevel-holder.md
+// Bootstrapping prerequisite: parser needs mutually recursive methods.
+
+open import "std/string";
+open import "std/error";
+open import "std/fmt";
+
+P :: struct(x : i32, y : i32);
+
+// ---------- Test 1: forward call within a single impl block ----------
+//
+// `caller` references `callee` which is defined later in the same impl.
+impl(P,
+  caller : (fn(self : *(Self)) -> i32)(
+    self.callee()
+  ),
+  callee : (fn(self : *(Self)) -> i32)(
+    self.x
+  )
+);
+
+test "forward call within single impl", {
+  p := P(x: i32(7), y: i32(0));
+  assert((p.caller() == i32(7)), "forward call should return 7");
+};
+
+// ---------- Test 2: mutual recursion between two impl methods ----------
+//
+// `is_even` and `is_odd` call each other. Counts down from a positive int.
+
+Q :: struct(n : i32);
+impl(Q,
+  is_even : (fn(self : *(Self)) -> bool)(
+    cond((self.n == i32(0)) => true,
+         true                => Q(n: (self.n - i32(1))).is_odd())
+  ),
+  is_odd : (fn(self : *(Self)) -> bool)(
+    cond((self.n == i32(0)) => false,
+         true                => Q(n: (self.n - i32(1))).is_even())
+  )
+);
+
+test "mutual recursion in single impl", {
+  assert(Q(n: i32(4)).is_even(), "4 is even");
+  assert(Q(n: i32(5)).is_odd(),  "5 is odd");
+  assert(!(Q(n: i32(7)).is_even()), "7 is not even");
+};
+
+// ---------- Test 3: forward call with effect parameters ----------
+//
+// The parser case: methods carry `using(exn : Exception)` and forward-call
+// each other.
+
+MyErr :: object(msg : String);
+impl(MyErr, ToString(to_string : ((self) -> `my err`)));
+impl(MyErr, Error());
+
+R :: struct(v : i32);
+impl(R,
+  outer : (fn(self : *(Self), using(exn : Exception)) -> i32)(
+    self.inner(using(exn))
+  ),
+  inner : (fn(self : *(Self), using(exn : Exception)) -> i32)(
+    cond((self.v < i32(0)) => exn.throw(dyn MyErr(msg: `neg`)),
+         true              => self.v)
+  )
+);
+
+test "forward call with effect params", {
+  r := R(v: i32(99));
+  given(exn) := Exception(throw : (e -> { escape (); }));
+  result := r.outer(using(exn));
+  assert((result == i32(99)), "outer should return 99");
+};
+
+// ---------- Test 4: mutual recursion with effect parameters ----------
+//
+// This is the case that originally caused
+// "Maximum call stack size exceeded" during specialization. The fix is in
+// helper.ts: currentlySpecializingFunctionStack now lets the recursive call
+// from `odd` back to `even` short-circuit instead of re-specializing
+// infinitely.
+// See issues/mutual-recursion-impl-method-specialization-overflow.md.
+
+S :: object(tag : i32);
+impl(S,
+  s_even : (fn(self : *(Self), i : i32, using(exn : Exception)) -> bool)(
+    cond((i == i32(0)) => true,
+         true          => self.s_odd((i - i32(1)), using(exn)))
+  ),
+  s_odd : (fn(self : *(Self), i : i32, using(exn : Exception)) -> bool)(
+    cond((i == i32(0)) => false,
+         true          => self.s_even((i - i32(1)), using(exn)))
+  )
+);
+
+test "mutual recursion with effect params (specialization-cycle)", {
+  s := S(tag: i32(0));
+  given(exn) := Exception(throw : (e -> { escape (); }));
+  assert(s.s_even(i32(10), using(exn)), "10 is even");
+  assert(s.s_odd(i32(11), using(exn)),  "11 is odd");
+  assert(!(s.s_even(i32(7), using(exn))), "7 is not even");
+};
+
+// ---------- Test 5: shell merge does not emit duplicate orphan FunctionValue
+//
+// Regression: forward-ref pre-pass creates a real FunctionValue shell with a
+// stable funcId; the main pass then evaluates the body and produces a SECOND
+// FunctionValue with a different funcId, sharing the body AST. Before the
+// fix, codegen collected BOTH (the orphan reached context.functions through
+// AST walks of the impl's value expressions). The orphan's emission re-used
+// temp variable names that the shell's emission had already declared,
+// producing C with undeclared identifiers and a build failure.
+//
+// Reproduces with multiple methods in one impl, an RC-typed return, and
+// multiple call sites (so the orphan and shell are both reachable from the
+// codegen walk).
+QQ :: object(data : Box(i32));
+impl(QQ,
+  new : (fn(val : i32) -> Self)(
+    Self(data : box(val))
+  ),
+  get_implicit : (fn(self : Self) -> Box(i32))(
+    self.data
+  ),
+  get_explicit : (fn(self : Self) -> Box(i32))({
+    return self.data;
+  })
+);
+
+test "no duplicate function emission for shell + orphan", {
+  q := QQ.new(i32(42));
+  d1 := q.get_implicit();
+  assert((d1.* == i32(42)), "d1 == 42");
+  d2 := q.get_explicit();
+  assert((d2.* == i32(42)), "d2 == 42");
+};
