@@ -6,17 +6,20 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 
 ## Status
 
-🔨 **Phase 1 in progress.** Lexer and parser are ported and tested.
+✅ **Phase 1 complete.** Lexer and parser are ported and tested.
+🔨 **Phase 2a complete.** Type system and environment are ported and tested.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
-- **Total: 69 tests passing** under `yo-self/tests/`
+- **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue`, `type_to_string`, `are_types_compatible`; 6 tests passing
+- **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
+- **Total: 84 tests passing** under `yo-self/tests/`
 
 Run tests:
 
 ```bash
-./yo-cli test ./yo-self/tests/ --parallel 1
+./yo-cli test ./yo-self/tests/
 ```
 
 All prerequisites from [`../plans/BOOTSTRAPPING_PREREQUISITES.md`](../plans/BOOTSTRAPPING_PREREQUISITES.md)
@@ -35,13 +38,22 @@ yo-self/
     token.yo          -- Token type and helpers
   parser/
     parser.yo         -- recursive-descent parser (mirrors src/parser.ts)
-  evaluator/          -- (Phase 2+)
+  types/
+    tags.yo           -- TypeTag enum (mirrors src/types/tags.ts)
+    type.yo           -- TypeValue enum + constructors (mirrors src/types/*.ts)
+    string.yo         -- type_to_string (mirrors src/types/strings.ts)
+    compatibility.yo  -- are_types_compatible (mirrors src/types/compatibility.ts)
+  env/
+    env.yo            -- Variable, Frame, Environment (mirrors src/env.ts)
+  evaluator/          -- (Phase 2b+)
     ...
   codegen/            -- (Phase 4+)
     ...
   tests/
     lexer.test.yo     -- 33 lexer tests
     parser.test.yo    -- 36 parser tests
+    types_string_compat.test.yo  -- 6 type system tests
+    env.test.yo       -- 3 environment tests
 ```
 
 ## Phases
@@ -49,14 +61,14 @@ yo-self/
 Each phase ends with a working binary that passes a target subset of the existing
 `tests/` suite when invoked through the new compiler.
 
-| Phase | Scope                                           | TS source size    | Status     |
-| ----- | ----------------------------------------------- | ----------------- | ---------- |
-| 1     | Lexer + Token types + Parser + AST node types   | ~4 800 lines      | ✅ Done    |
-| 2     | Evaluator core (begin/cond/match, types)        | partial of ~50 k  | 🔲 Planned |
-| 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | 🔲 Planned |
-| 4     | C Codegen                                       | ~46 k lines       | 🔲 Planned |
-| 5     | CLI, build runner, dependency management        | smaller modules   | 🔲 Planned |
-| 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned |
+| Phase | Scope                                           | TS source size    | Status         |
+| ----- | ----------------------------------------------- | ----------------- | -------------- |
+| 1     | Lexer + Token types + Parser + AST node types   | ~4 800 lines      | ✅ Done        |
+| 2     | Evaluator core (begin/cond/match, types, env)   | partial of ~50 k  | 🔨 In progress |
+| 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | 🔲 Planned     |
+| 4     | C Codegen                                       | ~46 k lines       | 🔲 Planned     |
+| 5     | CLI, build runner, dependency management        | smaller modules   | 🔲 Planned     |
+| 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned     |
 
 (The 50 k / 46 k figures are TS line counts under `src/evaluator` and
 `src/codegen` respectively. The Yo port is expected to be smaller per file due
@@ -83,11 +95,12 @@ to fewer ceremony lines, but comparable in total LOC.)
 
 ```bash
 # Run all yo-self tests
-./yo-cli test ./yo-self/tests/ --parallel 1
+./yo-cli test ./yo-self/tests/
 
 # Run individual test files
-./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
-./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
+./yo-cli test ./yo-self/tests/lexer.test.yo
+./yo-cli test ./yo-self/tests/parser.test.yo
+./yo-cli test ./yo-self/tests/env.test.yo
 ```
 
 Once Phase 4+ lands and a full compiler binary exists:

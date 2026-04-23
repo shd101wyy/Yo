@@ -481,3 +481,98 @@ This is necessary when:
 - A type implements multiple traits with the same method name
 - You want to be explicit about which trait's method is called
 - The `self` parameter type doesn't uniquely determine the trait
+
+## `impl(...)` requires a trailing semicolon
+
+`impl(...)` is a statement and requires a trailing `;` at the top level:
+
+```rust
+// WRONG — missing semicolon causes "Invalid function call on type":
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+)
+
+// CORRECT:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+);
+```
+
+## Reserved keywords cannot be used as variable or field names
+
+The word `type` is a reserved keyword in Yo. Never use it as a parameter name, field name, or variable name:
+
+```rust
+// WRONG — `type` is reserved:
+Variable :: object(name : String, type : TypeValue);
+define :: (fn(ty : TypeValue) -> unit)(...)  // CORRECT, use `ty`
+
+// CORRECT — rename to `ty`:
+Variable :: object(name : String, ty : TypeValue);
+```
+
+Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `object`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `escape`, `recur`, `export`, `import`, `using`, `given`, `forall`, `where`.
+
+## `___` (discard) cannot be used twice in the same scope
+
+Yo does not allow redeclaring `___` twice in the same begin-block scope. Each use is a fresh variable binding and shadowing is not allowed:
+
+```rust
+// WRONG — second `___` shadows the first, causing a compile error:
+___ := foo();
+___ := bar();
+
+// CORRECT — use unique names, or call without binding:
+_a := foo();
+_b := bar();
+
+// ALSO CORRECT — if you don't need the results:
+foo();
+bar();
+```
+
+## ArrayList indexing via `arr(index)`
+
+`ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
+
+```rust
+{ ArrayList } :: import "std/collections/array_list";
+
+list := ArrayList(i32).new();
+list.push(i32(10));
+list.push(i32(20));
+
+val := list(usize(0));       // → i32  (value copy)
+list(usize(0)) = i32(99);   // mutate in place directly (preferred)
+
+// When you need the pointer explicitly:
+ptr := &(list(usize(0)));    // → *(i32)
+ptr.* = i32(100);            // also works
+```
+
+- `list(i)` returns the value `T` directly (not a pointer)
+- `list(i) = val` mutates in place directly — preferred form
+- `&(list(i))` returns `*(T)` for in-place mutation via pointer (explicit form)
+- `list.get(i)` returns `Option(T)` for safe bounds-checked access
+- Out-of-bounds access via `list(i)` panics at runtime
+
+## Named constructor arguments are required for `struct`/`object` types
+
+When constructing a `struct(...)` or `object(...)` value, always use named field syntax:
+
+```rust
+Point :: struct(x : i32, y : i32);
+
+// CORRECT — named fields:
+p := Point(x: i32(1), y: i32(2));
+
+// WRONG — positional construction for struct/object is not supported:
+p := Point(i32(1), i32(2));
+```
+
+`enum` variant construction is positional (fields are matched by order):
+
+```rust
+// CORRECT — enum variants use positional args:
+(v : Option(i32)) = .Some(i32(42));
+```

@@ -192,6 +192,33 @@ export function generateAddressOf(
 
   const argCode = generateExpr(arg, indent, context);
 
+  // If `arg` is an rvalue function-call expression (not a property access,
+  // not a bare atom), C does not allow taking its address. Spill it into a
+  // named temp first. Without this, code like `recur(...).to_string()` --
+  // where the implicit `&self` argument wraps the recur call -- generates
+  // `(&fn_recur(...))` which clang rejects with
+  //   "cannot take the address of an rvalue".
+  // See issues/template-string-rvalue-rc-interpolation.md.
+  if (
+    exprIsFunctionCall(arg) &&
+    !exprIsAtom(arg) &&
+    !exprIsFunctionCallOf(arg, ".") &&
+    arg.$?.type
+  ) {
+    const isAlreadyVariable =
+      arg.$?.variableName &&
+      argCode === getVariableNameForCodegen(arg.$.variableName, arg.$.env);
+    if (!isAlreadyVariable) {
+      const argTypeStr = getTypeString(arg.$.type, context);
+      const tempName =
+        arg.$?.variableName ?? `__yo_addrof_tmp_${ptrFnsIndexTempCounter++}`;
+      context.emitter.emitLine(
+        `${indent}${argTypeStr} ${tempName} = ${argCode};`
+      );
+      return `(&${tempName})`;
+    }
+  }
+
   // For pointer/reference creation, we need to be careful about constness
   // Simply use the address-of operator without an explicit cast to avoid const issues
   return `(&${argCode})`;

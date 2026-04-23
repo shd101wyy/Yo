@@ -234,17 +234,20 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 
 ### Phase 2 — Type System + Environment
 
-**2a. Type representation** (~6,297 lines → ~5,000–7,000 Yo lines)
+**2a. Type representation + Environment** ✅ Done — 9 tests
 
-- Define `TypeValue` enum with all type variants
-- Type compatibility checking (`areTypesCompatible`)
-- Type utilities (`typeToString`, substitution, normalization)
+- Defined `TypeTag` enum (`yo-self/types/tags.yo`)
+- Defined `TypeValue` enum with primitive, pointer, slice, array, and tuple variants (`yo-self/types/type.yo`)
+- `type_to_string` stringification (`yo-self/types/string.yo`)
+- `are_types_compatible` with comptime widening rules (`yo-self/types/compatibility.yo`)
+- `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame` (`yo-self/env/env.yo`)
+- **Total: 84 tests passing** (69 Phase 1 + 9 Phase 2a + 6 carry-over type tests)
 
-**2b. Environment** (~2,232 lines → ~2,000–2,500 Yo lines)
+**2b. Remaining type variants** (function types, struct types, enum types, trait types, SomeType, effects) — 🔲 Planned
 
-- Frame-based variable scoping
-- Module/namespace management
-- Variable lookup with frame-level tracking
+- Extend `TypeValue` with all remaining variants from `src/types/*.ts`
+- Full `areTypesCompatible` covering function signatures, trait constraints, generics
+- Type substitution and normalization utilities
 
 **Validation milestone**: Resolve types for simple Yo programs (literal types, function types, struct types).
 

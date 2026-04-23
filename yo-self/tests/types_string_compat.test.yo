@@ -1,0 +1,79 @@
+//! Tests for type_to_string and are_types_compatible.
+
+open import "std/string";
+open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list";
+{
+  TypeValue,
+  t_unit, t_bool, t_i32, t_i64, t_u8, t_f32, t_f64, t_usize,
+  t_comptime_int, t_comptime_float, t_comptime_string,
+  t_ptr, t_slice, t_array
+} :: import "../types/type.yo";
+{ type_to_string } :: import "../types/string.yo";
+{ are_types_compatible } :: import "../types/compatibility.yo";
+
+assert_str_eq :: (fn(actual : String, expected : String, msg : str) -> unit)(
+  if((actual == expected), (), {
+    println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
+    assert(false, msg);
+  })
+);
+
+// ─── type_to_string ──────────────────────────────────────────────────────────
+
+test "type_to_string primitives", {
+  assert_str_eq(type_to_string(t_unit()),  `unit`,  "unit");
+  assert_str_eq(type_to_string(t_bool()),  `bool`,  "bool");
+  assert_str_eq(type_to_string(t_i32()),   `i32`,   "i32");
+  assert_str_eq(type_to_string(t_u8()),    `u8`,    "u8");
+  assert_str_eq(type_to_string(t_f64()),   `f64`,   "f64");
+  assert_str_eq(type_to_string(t_usize()), `usize`, "usize");
+  assert_str_eq(type_to_string(t_comptime_int()),    `comptime_int`,    "comptime_int");
+  assert_str_eq(type_to_string(t_comptime_float()),  `comptime_float`,  "comptime_float");
+  assert_str_eq(type_to_string(t_comptime_string()), `comptime_string`, "comptime_string");
+};
+
+test "type_to_string compound", {
+  assert_str_eq(type_to_string(t_ptr(t_i32())),       `*(i32)`,         "*(i32)");
+  assert_str_eq(type_to_string(t_slice(t_u8())),      `Slice(u8)`,      "Slice(u8)");
+  assert_str_eq(type_to_string(t_ptr(t_ptr(t_i64()))),`*(*(i64))`,      "**(i64)");
+  // Array length is rendered as its usize literal
+  assert_str_eq(type_to_string(t_array(t_i32(), usize(8))), `Array(i32, 8)`, "Array(i32,8)");
+};
+
+// ─── are_types_compatible ────────────────────────────────────────────────────
+
+test "compatibility — same primitives", {
+  assert(are_types_compatible(t_i32(), t_i32()),  "i32 ~ i32");
+  assert(are_types_compatible(t_unit(), t_unit()),"unit ~ unit");
+  assert(!(are_types_compatible(t_i32(), t_i64())),"i32 !~ i64");
+  assert(!(are_types_compatible(t_i32(), t_u8())), "i32 !~ u8 (sign)");
+  assert(!(are_types_compatible(t_f32(), t_f64())),"f32 !~ f64");
+};
+
+test "compatibility — comptime widening", {
+  assert(are_types_compatible(t_comptime_int(), t_i32()),   "ci ~ i32");
+  assert(are_types_compatible(t_comptime_int(), t_u8()),    "ci ~ u8");
+  assert(are_types_compatible(t_comptime_int(), t_usize()), "ci ~ usize");
+  assert(are_types_compatible(t_comptime_int(), t_f32()),   "ci ~ f32 (int → float widen)");
+  assert(are_types_compatible(t_comptime_float(), t_f64()), "cf ~ f64");
+  // Reverse direction does not widen
+  assert(!(are_types_compatible(t_i32(), t_comptime_int())), "i32 !~ ci");
+  assert(!(are_types_compatible(t_f32(), t_comptime_float())), "f32 !~ cf");
+};
+
+test "compatibility — pointers and slices recurse", {
+  assert(are_types_compatible(t_ptr(t_i32()), t_ptr(t_i32())),    "*(i32) ~ *(i32)");
+  assert(!(are_types_compatible(t_ptr(t_i32()), t_ptr(t_i64()))), "*(i32) !~ *(i64)");
+  assert(are_types_compatible(t_slice(t_u8()), t_slice(t_u8())),  "Slice(u8) ~ Slice(u8)");
+  assert(are_types_compatible(
+    t_ptr(t_ptr(t_i32())),
+    t_ptr(t_ptr(t_i32()))
+  ), "**(i32) ~ **(i32)");
+};
+
+test "compatibility — arrays require equal length", {
+  assert(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i32(), usize(4))), "len match");
+  assert(!(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i32(), usize(5)))), "len mismatch");
+  assert(!(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i64(), usize(4)))), "elem mismatch");
+};

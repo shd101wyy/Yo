@@ -1,0 +1,100 @@
+//! type_to_string — render a TypeValue as a human-readable Yo type expression.
+//!
+//! Mirrors `typeToString` in `src/types/utils.ts` but only handles the
+//! variants currently representable in `yo-self/types/type.yo`.
+
+open import "std/string";
+open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeValue } :: import "./type.yo";
+
+/// Render a TypeValue as a string. Recursive over Pointer/Slice/Array/Tuple/Func/Struct/EnumT/Union.
+type_to_string :: (fn(t : TypeValue) -> String)(
+  match(t,
+    .Unit            => `unit`,
+    .BoolT           => `bool`,
+    .Void            => `void`,
+    .Int(bits, signed) => cond(
+      signed => cond(
+        (bits == u8(8))  => `i8`,
+        (bits == u8(16)) => `i16`,
+        (bits == u8(32)) => `i32`,
+        true             => `i64`
+      ),
+      true => cond(
+        (bits == u8(8))  => `u8`,
+        (bits == u8(16)) => `u16`,
+        (bits == u8(32)) => `u32`,
+        true             => `u64`
+      )
+    ),
+    .Float(bits) => cond(
+      (bits == u8(32)) => `f32`,
+      true             => `f64`
+    ),
+    .Usize           => `usize`,
+    .Isize           => `isize`,
+    .ComptimeInt     => `comptime_int`,
+    .ComptimeFloat   => `comptime_float`,
+    .ComptimeString  => `comptime_string`,
+    .CChar           => `char`,
+    .CShort          => `short`,
+    .CUShort         => `ushort`,
+    .CInt            => `int`,
+    .CUInt           => `uint`,
+    .CLong           => `long`,
+    .CULong          => `ulong`,
+    .CLongLong       => `longlong`,
+    .CULongLong      => `ulonglong`,
+    .CLongDouble     => `longdouble`,
+    .TypeUni(level)  => cond(
+      (level == usize(0)) => `Type`,
+      true                => `Type(${level})`
+    ),
+    .Pointer(inner)  => `*(${recur(inner.*)})`,
+    .Slice(inner)    => `Slice(${recur(inner.*)})`,
+    .Array(inner, n) => `Array(${recur(inner.*)}, ${n})`,
+    .Tuple(labels, types) => {
+      body := String.from("");
+      n    := types.len();
+      i    := usize(0);
+      while runtime((i < n)), {
+        if((i > usize(0)), { body = `${body}, `; });
+        label := match(labels.get(i), .Some(s) => s, .None => `""`);
+        ts    := match(types.get(i), .Some(t2) => recur(t2), .None => `?`);
+        if((label.len() > usize(0)), {
+          body = `${body}${label} : ${ts}`;
+        }, {
+          body = `${body}${ts}`;
+        });
+        i = (i + usize(1));
+      };
+      `Tuple(${body})`
+    },
+    .Func(plabels, ptypes, ret) => {
+      body := String.from("");
+      n    := ptypes.len();
+      i    := usize(0);
+      while runtime((i < n)), {
+        if((i > usize(0)), { body = `${body}, `; });
+        label := match(plabels.get(i), .Some(s) => s, .None => `""`);
+        ts    := match(ptypes.get(i), .Some(t2) => recur(t2), .None => `?`);
+        if((label.len() > usize(0)), {
+          body = `${body}${label} : ${ts}`;
+        }, {
+          body = `${body}${ts}`;
+        });
+        i = (i + usize(1));
+      };
+      `fn(${body}) -> ${recur(ret.*)}`
+    },
+    .Struct(name, _, _)   => name,
+    .EnumT(name, _, _)    => name,
+    .Union(name, _, _)    => name,
+    .TraitT(name)         => name,
+    .ModuleT(name)        => name,
+    .SomeT(name, _)       => name
+  )
+);
+
+export type_to_string;

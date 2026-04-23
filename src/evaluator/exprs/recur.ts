@@ -9,7 +9,11 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { randomId } from "../../utils";
-import { createUnknownValue, isFunctionValue } from "../../value";
+import {
+  createUnknownValue,
+  isFunctionValue,
+  isUnknownValue,
+} from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { tryToCallFunctionWithArguments } from "../calls/helper";
 import type { EvaluatorContext } from "../context";
@@ -83,13 +87,28 @@ export function evaluateRecur({
 
     env = popEnvFrame(callerEnv);
 
+    // If the function being recurred is a runtime function (i.e., its return
+    // type is not `comptime(...)`), mark the unknown result as
+    // `isRuntimeOnly`. Otherwise overload resolution at the call site of
+    // `recur(...)` may incorrectly prefer a comptime overload (e.g.
+    // `comptime_not` over runtime `not` for `!recur(...)`), producing
+    // malformed C with a 0-arg comptime function call.
+    // See issues/recur-runtime-result-not-marked-runtime-only.md.
+    const recurUnknown = createUnknownValue(returnType, {
+      variableName: "recur_result_" + randomId(env.modulePath),
+      env,
+      context,
+    });
+    if (
+      !isEvaluatingFunctionBodyOfType.return.isCompileTimeOnly &&
+      isUnknownValue(recurUnknown)
+    ) {
+      recurUnknown.isRuntimeOnly = true;
+    }
+
     expr.$ = {
       type: returnType,
-      value: createUnknownValue(returnType, {
-        variableName: "recur_result_" + randomId(env.modulePath),
-        env,
-        context,
-      }),
+      value: recurUnknown,
       env,
       pathCollection: [],
       runtimeArgExprsInOrder,

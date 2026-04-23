@@ -88,6 +88,22 @@ numbers := ArrayList(i32).new();
 numbers.push(i32(1));
 numbers.push(i32(2));
 
+// Index via call syntax (Index trait) — returns the value directly:
+first := numbers(usize(0));  // → i32  (value)
+
+// Mutate in place — direct assignment syntax:
+numbers(usize(0)) = i32(99);
+
+// When you need the pointer explicitly:
+ptr := &(numbers(usize(0)));  // → *(i32)
+ptr.* = i32(100);
+
+// Safe access:
+match(numbers.get(usize(0)),
+  .Some(v) => println(`${v}`),
+  .None => ()
+);
+
 counts := HashMap(String, i32).new();
 counts.set(`yo`, i32(1));
 ```

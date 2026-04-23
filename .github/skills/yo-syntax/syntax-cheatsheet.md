@@ -381,6 +381,86 @@ test "Async test", {
 - `comptime_assert(condition)` — compile-time assertion
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
+## Common pitfalls
+
+### `impl(...)` requires a trailing semicolon
+
+```rust
+// WRONG — "Invalid function call on type" at runtime:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+)
+
+// CORRECT:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+);
+```
+
+### `___` discard variable cannot appear twice in the same scope
+
+```rust
+// WRONG — shadowing of ___ is not allowed:
+___ := foo();
+___ := bar();
+
+// CORRECT — use unique names or bare calls:
+_a := foo();
+_b := bar();
+// or simply:
+foo();
+bar();
+```
+
+### `type` is a reserved keyword — avoid as field/param name
+
+```rust
+// WRONG:
+Variable :: object(name : String, type : TypeValue);
+
+// CORRECT:
+Variable :: object(name : String, ty : TypeValue);
+```
+
+### ArrayList indexing uses call syntax
+
+```rust
+list := ArrayList(i32).new();
+list.push(i32(42));
+
+val := list(usize(0));         // → i32  (value copy via Index trait)
+list(usize(0)) = i32(99);     // mutate in place directly
+
+// When you need the pointer explicitly:
+ptr := &(list(usize(0)));     // → *(i32)
+ptr.* = i32(99);              // also works
+
+// Safe access (returns Option(T)):
+match(list.get(usize(0)),
+  .Some(v) => println(`${v}`),
+  .None => ()
+);
+```
+
+- `list(i)` returns the value `T` (not a pointer)
+- `list(i) = val` mutates in place directly (preferred)
+- `&(list(i))` returns `*(T)` if you need the pointer explicitly
+- `list.get(i)` returns `Option(T)` for safe bounds-checked access
+
+### Named fields required for `struct`/`object` constructors
+
+```rust
+Point :: struct(x : i32, y : i32);
+
+// CORRECT:
+p := Point(x: i32(1), y: i32(2));
+
+// WRONG — positional not supported for struct/object:
+p := Point(i32(1), i32(2));
+```
+
+Enum variant construction is positional (no field names needed).
+
 ## Advanced features (reference)
 
 These features are powerful but less commonly used. Consult the linked docs for full details.

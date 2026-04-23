@@ -1,0 +1,287 @@
+//! TypeValue — the central representation of types in the Yo type system.
+//!
+//! Mirrors `src/types/definitions.ts` but uses a Yo `enum` with per-variant
+//! data instead of the TS fat-node interface. See `plans/BOOTSTRAPPING.md`
+//! § "Architecture Decisions / 2. Type representation".
+//!
+//! Notes:
+//!   * Fixed-width integers are encoded as `Int(bits, signed)`. Pointer-sized
+//!     integers (`usize`/`isize`) and C-compatible types (whose width is
+//!     platform-dependent) get their own variants.
+//!   * Compound variants store children via `Box(Self)` to allow recursion.
+//!   * Tuple/Struct field types are stored as parallel `ArrayList`s so we
+//!     don't need a separate mutually-recursive struct (which would require
+//!     a forward-reference dance during evaluation).
+//!   * Generic / unresolved type information (`SomeType`, `TypeApplication`,
+//!     `EffectsRow`, traits with associated types, …) is intentionally kept
+//!     minimal in this iteration — Phase 2b will fill in the details.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeTag } :: import "./tags.yo";
+
+/// The Yo type universe.
+TypeValue :: enum(
+  // Primitive value types ---------------------------------------------------
+  Unit,
+  BoolT,
+  Void,
+
+  /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
+  /// `iN` vs `uN`.
+  Int(bits : u8, signed : bool),
+
+  /// Floating-point. `bits` ∈ {32, 64}.
+  Float(bits : u8),
+
+  /// Pointer-sized unsigned integer.
+  Usize,
+  /// Pointer-sized signed integer.
+  Isize,
+
+  // Compile-time numeric / string types -------------------------------------
+  ComptimeInt,
+  ComptimeFloat,
+  ComptimeString,
+
+  // C-compatible types (platform-dependent width) ---------------------------
+  CChar,
+  CShort, CUShort,
+  CInt,   CUInt,
+  CLong,  CULong,
+  CLongLong, CULongLong,
+  CLongDouble,
+
+  // Type universes ---------------------------------------------------------
+  /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
+  TypeUni(level : usize),
+
+  // Compound types ---------------------------------------------------------
+  Pointer(pointee : Box(Self)),
+  Slice(element : Box(Self)),
+  Array(element : Box(Self), length : usize),
+
+  /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
+  /// field (empty `String` means positional). `field_types(i)` is the type.
+  Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
+
+  /// Function type. Parameters carry labels and types; `result` is the
+  /// return type. (Effects, where-clauses, forall vars are not modelled
+  /// in Phase 2a — they go into the FunctionType extension in Phase 2b.)
+  Func(
+    param_labels : ArrayList(String),
+    param_types  : ArrayList(Self),
+    result       : Box(Self)
+  ),
+
+  // Named user-defined types ------------------------------------------------
+  Struct(
+    name         : String,
+    field_labels : ArrayList(String),
+    field_types  : ArrayList(Self)
+  ),
+
+  /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
+  /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+  EnumT(
+    name           : String,
+    variant_names  : ArrayList(String),
+    variant_fields : ArrayList(ArrayList(Self))
+  ),
+
+  Union(
+    name         : String,
+    field_labels : ArrayList(String),
+    field_types  : ArrayList(Self)
+  ),
+
+  // Traits / modules (placeholders — payload fleshed out in Phase 2b) -------
+  TraitT(name : String),
+  ModuleT(name : String),
+
+  // Generic / unresolved ----------------------------------------------------
+  /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic
+  /// parameter. `frame_level` is the env frame at which it was introduced —
+  /// used to resolve bindings without leaking across shadowed scopes.
+  SomeT(name : String, frame_level : usize)
+);
+
+derive(TypeValue, Clone);
+
+// ---------------------------------------------------------------------------
+// Convenience constructors for primitive and pointer-sized types
+// ---------------------------------------------------------------------------
+
+t_unit            :: (fn() -> TypeValue)(.Unit);
+t_bool            :: (fn() -> TypeValue)(.BoolT);
+t_void            :: (fn() -> TypeValue)(.Void);
+
+t_i8              :: (fn() -> TypeValue)(.Int(u8(8),  true));
+t_i16             :: (fn() -> TypeValue)(.Int(u8(16), true));
+t_i32             :: (fn() -> TypeValue)(.Int(u8(32), true));
+t_i64             :: (fn() -> TypeValue)(.Int(u8(64), true));
+t_u8              :: (fn() -> TypeValue)(.Int(u8(8),  false));
+t_u16             :: (fn() -> TypeValue)(.Int(u8(16), false));
+t_u32             :: (fn() -> TypeValue)(.Int(u8(32), false));
+t_u64             :: (fn() -> TypeValue)(.Int(u8(64), false));
+
+t_f32             :: (fn() -> TypeValue)(.Float(u8(32)));
+t_f64             :: (fn() -> TypeValue)(.Float(u8(64)));
+
+t_usize           :: (fn() -> TypeValue)(.Usize);
+t_isize           :: (fn() -> TypeValue)(.Isize);
+
+t_comptime_int    :: (fn() -> TypeValue)(.ComptimeInt);
+t_comptime_float  :: (fn() -> TypeValue)(.ComptimeFloat);
+t_comptime_string :: (fn() -> TypeValue)(.ComptimeString);
+
+t_type            :: (fn() -> TypeValue)(.TypeUni(usize(0)));
+
+t_ptr             :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
+t_slice           :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
+t_array           :: (fn(element : TypeValue, length : usize) -> TypeValue)(
+  .Array(box(element), length)
+);
+
+// ---------------------------------------------------------------------------
+// Tag accessor — useful for fast dispatch and equality short-circuits.
+// ---------------------------------------------------------------------------
+
+type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
+  match(t,
+    .Unit                 => TypeTag.TUnit,
+    .BoolT                => TypeTag.TBool,
+    .Void                 => TypeTag.TVoid,
+    .Int(bits, signed)    => cond(
+      signed => cond(
+        (bits == u8(8))  => TypeTag.TI8,
+        (bits == u8(16)) => TypeTag.TI16,
+        (bits == u8(32)) => TypeTag.TI32,
+        true             => TypeTag.TI64
+      ),
+      true => cond(
+        (bits == u8(8))  => TypeTag.TU8,
+        (bits == u8(16)) => TypeTag.TU16,
+        (bits == u8(32)) => TypeTag.TU32,
+        true             => TypeTag.TU64
+      )
+    ),
+    .Float(bits)          => cond(
+      (bits == u8(32)) => TypeTag.TF32,
+      true             => TypeTag.TF64
+    ),
+    .Usize                => TypeTag.TUsize,
+    .Isize                => TypeTag.TIsize,
+    .ComptimeInt          => TypeTag.TComptimeInt,
+    .ComptimeFloat        => TypeTag.TComptimeFloat,
+    .ComptimeString       => TypeTag.TComptimeString,
+    .CChar                => TypeTag.TCChar,
+    .CShort               => TypeTag.TCShort,
+    .CUShort              => TypeTag.TCUShort,
+    .CInt                 => TypeTag.TCInt,
+    .CUInt                => TypeTag.TCUInt,
+    .CLong                => TypeTag.TCLong,
+    .CULong               => TypeTag.TCULong,
+    .CLongLong            => TypeTag.TCLongLong,
+    .CULongLong           => TypeTag.TCULongLong,
+    .CLongDouble          => TypeTag.TCLongDouble,
+    .TypeUni(_)           => TypeTag.TType,
+    .Pointer(_)           => TypeTag.TPtr,
+    .Slice(_)             => TypeTag.TSlice,
+    .Array(_, _)          => TypeTag.TArray,
+    .Tuple(_, _)          => TypeTag.TTuple,
+    .Func(_, _, _)        => TypeTag.TFunction,
+    .Struct(_, _, _)      => TypeTag.TStruct,
+    .EnumT(_, _, _)       => TypeTag.TEnum,
+    .Union(_, _, _)       => TypeTag.TUnion,
+    .TraitT(_)            => TypeTag.TTrait,
+    .ModuleT(_)           => TypeTag.TModule,
+    .SomeT(_, _)          => TypeTag.TSomeType
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Predicates — replace TS `isXxxType` guards.
+// ---------------------------------------------------------------------------
+
+is_int_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Int(_, _) => true, _ => false)
+);
+
+is_float_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Float(_) => true, _ => false)
+);
+
+is_signed_int_type :: (fn(t : TypeValue) -> bool)(
+  match(t,
+    .Int(_, signed) => signed,
+    .Isize          => true,
+    _               => false
+  )
+);
+
+is_numeric_type :: (fn(t : TypeValue) -> bool)(
+  cond(
+    is_int_type(t)   => true,
+    is_float_type(t) => true,
+    true => match(t,
+      .Usize         => true,
+      .Isize         => true,
+      .ComptimeInt   => true,
+      .ComptimeFloat => true,
+      _              => false
+    )
+  )
+);
+
+is_pointer_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Pointer(_) => true, _ => false)
+);
+
+is_slice_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Slice(_) => true, _ => false)
+);
+
+is_array_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Array(_, _) => true, _ => false)
+);
+
+is_function_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Func(_, _, _) => true, _ => false)
+);
+
+is_some_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .SomeT(_, _) => true, _ => false)
+);
+
+is_struct_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Struct(_, _, _) => true, _ => false)
+);
+
+is_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .EnumT(_, _, _) => true, _ => false)
+);
+
+is_unit_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Unit => true, _ => false)
+);
+
+is_bool_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .BoolT => true, _ => false)
+);
+
+export
+  TypeValue,
+  type_value_tag,
+  t_unit, t_bool, t_void,
+  t_i8, t_i16, t_i32, t_i64,
+  t_u8, t_u16, t_u32, t_u64,
+  t_f32, t_f64,
+  t_usize, t_isize,
+  t_comptime_int, t_comptime_float, t_comptime_string,
+  t_type,
+  t_ptr, t_slice, t_array,
+  is_int_type, is_float_type, is_signed_int_type, is_numeric_type,
+  is_pointer_type, is_slice_type, is_array_type, is_function_type,
+  is_some_type, is_struct_type, is_enum_type,
+  is_unit_type, is_bool_type;

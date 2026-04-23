@@ -13,8 +13,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## C codegen tests
 
-- Run specific test: `./yo-cli test ./tests/XXX.test.yo --parallel 1` (add `-v` for verbose)
-- **Always use `--parallel 1`** when running a single test file — this shows results sequentially and avoids hangs with large test files.
+- Run specific test: `./yo-cli test ./tests/XXX.test.yo` (add `-v` for verbose)
 - The **full test suite** (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
@@ -30,13 +29,13 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## Bootstrap (yo-self) tests
 
-- Run all: `./yo-cli test ./yo-self/tests/ --parallel 1`
-- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1`
-- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1`
-- Currently 69 tests (33 lexer + 36 parser), ~53 seconds.
+- Run all: `./yo-cli test ./yo-self/tests/`
+- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
+- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
+- Currently 84 tests (33 lexer + 36 parser + 15 types/env), ~7 minutes.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
-- Run these whenever modifying `yo-self/lexer/`, `yo-self/parser/`, or their tests.
+- Run these whenever modifying `yo-self/` source or tests.
 
 ## Important constraints
 
