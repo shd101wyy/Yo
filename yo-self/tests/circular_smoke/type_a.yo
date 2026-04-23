@@ -1,0 +1,32 @@
+//! Smoke test fixture: simulates the Phase-3 evaluator shape where the
+//! type universe and the value universe reference each other.
+//!
+//! `TypeShape` is exported FIRST so that when `value_b.yo` imports it back,
+//! the field is already in the partial module.
+
+open import "std/string";
+
+TypeShape :: enum(
+  IntT,
+  BoolT,
+  /// A function type carries its single result type by name (kept simple
+  /// for the smoke test).
+  FuncT(result_name : String)
+);
+
+export TypeShape;
+
+// Now pull in Value, which imports us back. Anything ValueB needs from us
+// must already be exported above this line.
+{ ValueB } :: import "./value_b.yo";
+
+/// A helper that uses both directions of the cycle.
+type_for_value :: (fn(v : ValueB) -> TypeShape)(
+  match(v,
+    .IntV(_) => .IntT,
+    .BoolV(_) => .BoolT,
+    .FnV(declared) => declared
+  )
+);
+
+export type_for_value;
