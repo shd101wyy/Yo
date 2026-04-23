@@ -223,6 +223,20 @@ text := match(value,
 - Construction and match branches use the leading `.`
 - Nested destructuring is not supported; match one layer at a time
 
+Three destructuring shapes for arms (mix freely across arms):
+
+```rust
+Shape :: enum(Circle(radius : i32), Rectangle(width : i32, height : i32));
+
+match(s,
+  .Circle(r)                       => (r * r),         // positional
+  .Rectangle(width: w, height: h)  => (w * h),         // labeled
+  .Rectangle({width, height: h})   => (width * h)      // curly shorthand
+)
+```
+
+Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
+
 ## Generics and compile-time
 
 ```rust

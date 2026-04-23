@@ -446,6 +446,41 @@ match(result,
 )
 ```
 
+## Match destructuring forms
+
+Match arms support three destructuring shapes for enum variants. All three coexist (different arms can use different forms within the same `match`):
+
+```rust
+Shape :: enum(
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32)
+);
+
+match(s,
+  // 1. Positional — order matches field declaration. Must list all fields.
+  .Rectangle(w, h) => (w * h),
+
+  // 2. Labeled — `(label: var)` pairs. Order-free, supports partial matches.
+  .Circle(radius: r) => (r * r),
+
+  // 3. Curly shorthand — `{a, b: c}` is sugar for `(a: a, b: c)`.
+  //    Bare atoms become `name: name`. Order-free, supports partial matches.
+  .Rectangle({width, height: h}) => (width * h)
+)
+```
+
+Curly destructuring rules:
+
+- `{a}` binds field `a` to a variable named `a` (label = name shortcut).
+- `{a: x}` binds field `a` to a variable named `x` (rename).
+- `{a: _}` asserts field `a` exists but ignores its value.
+- Partial matches are allowed: `{width}` on `Rectangle(width, height)` skips `height`.
+- Empty `{}` is rejected — use `.Variant` (no parens) for fieldless variants.
+- Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
+- Nested curly `.Foo({a: {b}})` is rejected — destructure in the body instead.
+
+The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
+
 ## String literal types
 
 - Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.
