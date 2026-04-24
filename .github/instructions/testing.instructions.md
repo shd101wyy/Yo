@@ -32,10 +32,26 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run all: `./yo-cli test ./yo-self/tests/`
 - Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
 - Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
-- Currently 84 tests (33 lexer + 36 parser + 15 types/env), ~7 minutes.
+- Run evaluator only: `./yo-cli test ./yo-self/tests/eval.test.yo`
+- Currently 180 tests (33 lexer + 36 parser + 15 types/env + 51 evaluator + 45 other), ~7 minutes.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
+
+### ASAN stack depth limit for yo-self evaluator tests
+
+The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~693 local variables.
+ASAN disables stack frame reuse and adds redzones around every variable, inflating
+each `evaluate()` call from ~7.5KB to **~566KB** per call on ARM64 macOS.
+
+With macOS's 8MB hard stack limit, this means:
+
+- Safe: ≤ 12 simultaneously live `evaluate()` frames (~6.8MB)
+- Unsafe: fib(5) needs ~22 frames × 566KB = 12.5MB → **STACK OVERFLOW**
+- Safe: fib(3) needs ~11 frames × 566KB = 6.2MB → ✓
+
+When writing recursive evaluator tests, use small inputs (e.g. fib(3), countdown(3)).
+Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
 
 ## Important constraints
 
