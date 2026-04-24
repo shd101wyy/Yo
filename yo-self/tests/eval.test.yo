@@ -1036,3 +1036,90 @@ test "evaluate: fn call arity mismatch returns None", {
   result := evaluate(make_call("add", call_args), &env);
   check_none(result, "arity mismatch");
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3f — recur (recursive calls) and :: (constant declarations)
+// ---------------------------------------------------------------------------
+
+test "evaluate: recur simple countdown", {
+  // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(3) → 0
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("n"));
+  // cond(n > 0 => recur(n-1), true => n)
+  recur_args := ArrayList(AstExpr).new();
+  recur_args.push(make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1")));
+  recur_call := make_call("recur", recur_args);
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0")), recur_call));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_ident("n")));
+  body := make_cond(arms);
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix(":=", make_ident("count"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  result := evaluate(make_call("count", call_args), &env);
+  check_some(result, "countdown");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "count(3)=0"),
+    .None => ()
+  );
+};
+
+test "evaluate: recur factorial", {
+  // fact := (fn(n) -> unit)(cond(n <= 1 => 1, true => n * recur(n-1))); fact(5) → 120
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("n"));
+  recur_args := ArrayList(AstExpr).new();
+  recur_args.push(make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1")));
+  mul_recur := make_infix("*", make_ident("n"), make_call("recur", recur_args));
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_infix("<=", make_ident("n"), make_atom(TokenKind.Integer, "1")), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), mul_recur));
+  body := make_cond(arms);
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix(":=", make_ident("fact"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  result := evaluate(make_call("fact", call_args), &env);
+  check_some(result, "fact(3)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("6"))), "3! = 6"),
+    .None => ()
+  );
+};
+
+test "evaluate: :: constant declaration", {
+  // PI :: 314  (simulated constant binding)
+  env := empty_env();
+  define_e := make_infix("::", make_ident("PI"), make_atom(TokenKind.Integer, "314"));
+  result := evaluate(define_e, &env);
+  check_some(result, ":: define");
+  pi_res := evaluate(make_ident("PI"), &env);
+  check_some(pi_res, "PI lookup");
+  match(pi_res,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("314"))), "PI=314"),
+    .None => ()
+  );
+};
+
+test "evaluate: :: fn constant", {
+  // double :: (fn(x) -> unit)(x + x)
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  body := make_infix("+", make_ident("x"), make_ident("x"));
+  fn_def := make_fn_def(params, body);
+  define_e := make_infix("::", make_ident("double"), fn_def);
+  result := evaluate(define_e, &env);
+  check_some(result, ":: fn define");
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "7"));
+  call_result := evaluate(make_call("double", call_args), &env);
+  check_some(call_result, "double(7)");
+  match(call_result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("14"))), "double(7)=14"),
+    .None => ()
+  );
+};

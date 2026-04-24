@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f (partial).
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -7,7 +7,7 @@
 //!   - Unit expression `()`
 //!   - Begin blocks `{ stmts… }`
 //!   - `cond(cond1 => body1, …)` conditional expressions
-//!   - Variable define `name := expr`
+//!   - Variable define `name := expr` and constant define `name :: expr`
 //!   - Variable assign  `name = expr`
 //!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int only)
 //!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -19,6 +19,7 @@
 //!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal
 //!   - Function calls `name(args…)` where `name` is bound to a FuncVal
 //!   - `return expr` — emits a ReturnVal signal propagated to the call boundary
+//!   - `recur(args…)` — recursive call to the currently-executing function
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
 //! This avoids mutual-recursion ordering issues: helpers that recurse back into
@@ -26,10 +27,13 @@
 //!
 //! All other expression forms return `None`; they are covered by later phases.
 //!
-//! NOTE (Phase 3e): Function bodies run in the CURRENT env frame stack at
-//! call time (dynamic scoping). Proper lexical closure capture will be added
-//! in a later phase. Functions that only access their own parameters and
-//! module-level bindings behave correctly without closure capture.
+//! NOTE: Function bodies run in the CURRENT env frame stack at call time
+//! (dynamic scoping). Proper lexical closure capture will be added in a later
+//! phase. Functions that only access their own parameters and module-level
+//! bindings behave correctly without closure capture.
+//!
+//! NOTE: `recur` binds `__recur_fn` in each call frame so nested recursive
+//! calls work correctly.
 
 open import "std/string";
 open import "std/fmt";
@@ -940,6 +944,131 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             },
 
             // -----------------------------------------------------------------
+            // recur — tail/recursive call to the currently-executing FuncVal.
+            // Looks up __recur_fn bound when the current function frame was opened.
+            // -----------------------------------------------------------------
+            (fval == "recur") => {
+              match(env.*.lookup(String.from("__recur_fn")),
+                .None => Option(EvalResult).None,
+                .Some(rfv) =>
+                  match(rfv.value,
+                    .None => Option(EvalResult).None,
+                    .Some(func_val) =>
+                      match(func_val,
+                        .FuncVal(params, body) => {
+                          n_params := params.len();
+                          n_call_args := args.len();
+                          cond(
+                            (n_params != n_call_args) => Option(EvalResult).None,
+                            true => {
+                              evaled := ArrayList(EvalValue).new();
+                              (i : usize) = usize(0);
+                              (ok : bool) = true;
+                              while runtime(((i < n_call_args) && ok)), {
+                                match(args.get(i),
+                                  .Some(arg_expr) =>
+                                    match(recur(arg_expr, env),
+                                      .Some(r) => { evaled.push(r.value); },
+                                      .None    => { ok = false; }
+                                    ),
+                                  .None => { ok = false; }
+                                );
+                                i = (i + usize(1));
+                              };
+                              cond(
+                                (!(ok)) => Option(EvalResult).None,
+                                true => {
+                                  _frame := env.push_frame(true);
+                                  // Re-bind __recur_fn in new frame for nested recursion
+                                  match(env.*.lookup(String.from("__recur_fn")),
+                                    .Some(rv2) =>
+                                      match(rv2.value,
+                                        .Some(rv2_val) => {
+                                          _rr := env.define_val(
+                                            String.from("__recur_fn"),
+                                            t_unit(), true, .Some(rv2_val)
+                                          );
+                                        },
+                                        .None => ()
+                                      ),
+                                    .None => ()
+                                  );
+                                  (j : usize) = usize(0);
+                                  while runtime((j < n_params)), {
+                                    match(params.get(j),
+                                      .Some(pname) =>
+                                        match(evaled.get(j),
+                                          .Some(pval) => {
+                                            _d := env.define_val(
+                                              pname,
+                                              type_of_eval_value(pval),
+                                              value_is_comptime(pval),
+                                              .Some(pval)
+                                            );
+                                          },
+                                          .None => ()
+                                        ),
+                                      .None => ()
+                                    );
+                                    j = (j + usize(1));
+                                  };
+                                  body_res := recur(body.*, env);
+                                  env.pop_frame();
+                                  match(body_res,
+                                    .None => Option(EvalResult).None,
+                                    .Some(br) =>
+                                      match(br.value,
+                                        .ReturnVal(ret_val, ret_ty) =>
+                                          .Some(eval_result(ret_val.*, ret_ty)),
+                                        _ => .Some(br)
+                                      )
+                                  )
+                                }
+                              )
+                            }
+                          )
+                        },
+                        _ => Option(EvalResult).None
+                      )
+                  )
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // :: constant declaration — same semantics as := for now.
+            // name :: expr defines a compile-time constant binding.
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "::")) =>
+              cond(
+                (args.len() < usize(2)) => Option(EvalResult).None,
+                true =>
+                  match(args.get(usize(0)),
+                    .Some(lhs) =>
+                      match(args.get(usize(1)),
+                        .Some(rhs) =>
+                          match(lhs,
+                            .Atom(name_tok) =>
+                              match(recur(rhs, env),
+                                .Some(rhs_res) => {
+                                  _idx := env.define_val(
+                                    name_tok.value,
+                                    rhs_res.ty,
+                                    true,  // :: is always comptime
+                                    .Some(rhs_res.value)
+                                  );
+                                  .Some(eval_result(.UnitVal, t_unit()))
+                                },
+                                .None => Option(EvalResult).None
+                              ),
+                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                          ),
+                        .None => Option(EvalResult).None
+                      ),
+                    .None => Option(EvalResult).None
+                  )
+              ),
+
+            // -----------------------------------------------------------------
             // General identifier: call a user-defined FuncVal.
             // Arity mismatch or unbound identifier → None.
             // NOTE: No closure capture; body runs in the current env frame stack
@@ -977,6 +1106,22 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 (!(ok)) => Option(EvalResult).None,
                                 true => {
                                   _frame := env.push_frame(true);
+                                  // Bind __recur_fn so the `recur` keyword works
+                                  // inside the body. Re-look up fval after pushing
+                                  // the frame so define_val targets the new frame.
+                                  match(env.*.lookup(String.from(fval)),
+                                    .Some(rv2) =>
+                                      match(rv2.value,
+                                        .Some(rv2_val) => {
+                                          _rr := env.define_val(
+                                            String.from("__recur_fn"),
+                                            t_unit(), true, .Some(rv2_val)
+                                          );
+                                        },
+                                        .None => ()
+                                      ),
+                                    .None => ()
+                                  );
                                   (j : usize) = usize(0);
                                   while runtime((j < n_params)), {
                                     match(params.get(j),
