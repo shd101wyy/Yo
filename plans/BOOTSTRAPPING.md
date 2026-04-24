@@ -253,7 +253,11 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 - Validated circular-import mechanism via `yo-self/tests/circular_smoke.test.yo` (3 tests)
 - **Total: 116 tests passing** (84 Phase 2a + 29 compound/substitution + 3 circular smoke)
 
-**Validation milestone**: Resolve types for simple Yo programs (literal types, function types, struct types).
+**2c — Integration** ✅ Done — 128 tests total
+
+- `type_of_literal` — literal type-of pass: maps `AstExpr` literal tokens to `TypeValue` (`yo-self/evaluator/type_of.yo`)
+- Covers: Bool → BoolT, Integer → ComptimeInt, Float → ComptimeFloat, StringLit/TemplateString → ComptimeString, CharLit → u32 (rune), all others → None
+- **Total: 128 tests passing** (116 Phase 2b + 12 Phase 2c)
 
 ### Phase 3 — Evaluator
 
