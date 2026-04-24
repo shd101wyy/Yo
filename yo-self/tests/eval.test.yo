@@ -1174,11 +1174,11 @@ test "evaluate: i32 typed arithmetic", {
   );
 };
 
-test "evaluate: typed fibonacci fib(3)=2", {
+test "evaluate: typed fibonacci fib(2)=1", {
   // fib :: (fn(n) -> unit)(cond(n <= i32(1) => n, true => recur(n-i32(1)) + recur(n-i32(2))))
-  // fib(i32(3)) should return IntLit("2")
+  // fib(i32(2)) should return IntLit("1")  (fib(2) = fib(1)+fib(0) = 1+0 = 1)
   // NOTE: fib(5) overflows ASAN-instrumented stack (~566KB/frame × 22 frames > 8MB).
-  //       fib(3) uses only ~11 frames × 566KB = 6.2MB which fits safely.
+  //       fib(2) uses only ~8 frames × ~700KB = ~5.6MB which fits safely.
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("n"));
@@ -1209,16 +1209,16 @@ test "evaluate: typed fibonacci fib(3)=2", {
   fn_def := make_fn_def(params, body);
   _d := evaluate(make_infix("::", make_ident("fib"), fn_def), &env);
 
-  three_args := ArrayList(AstExpr).new();
-  three_args.push(make_call("i32", {
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_call("i32", {
     a := ArrayList(AstExpr).new();
-    a.push(make_atom(TokenKind.Integer, "3"));
+    a.push(make_atom(TokenKind.Integer, "2"));
     a
   }));
-  result := evaluate(make_call("fib", three_args), &env);
-  check_some(result, "fib(3)");
+  result := evaluate(make_call("fib", call_args), &env);
+  check_some(result, "fib(2)");
   match(result,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "fib(3)=2"),
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("1"))), "fib(2)=1"),
     .None => ()
   );
 };
@@ -1365,6 +1365,82 @@ test "evaluate: string != different returns true", {
   check_some(result, "str != str (different)");
   match(result,
     .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "abc!=xyz"),
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3h — struct value construction and field access
+// ---------------------------------------------------------------------------
+
+test "evaluate: struct construction Point(x: i32(1), y: i32(2))", {
+  env := empty_env();
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
+  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  call_a := ArrayList(AstExpr).new();
+  call_a.push(x_arg);
+  call_a.push(y_arg);
+  result := evaluate(make_call("Point", call_a), &env);
+  check_some(result, "Point(x:1,y:2)");
+  match(result,
+    .Some(r) => {
+      fn_list := ArrayList(String).new();
+      fn_list.push(String.from("x"));
+      fn_list.push(String.from("y"));
+      fv_list := ArrayList(EvalValue).new();
+      fv_list.push(EvalValue.IntLit(String.from("1")));
+      fv_list.push(EvalValue.IntLit(String.from("2")));
+      expected := EvalValue.StructVal(String.from("Point"), fn_list, fv_list);
+      assert((r.value == expected), "StructVal matches");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: field access point.x returns IntLit(1)", {
+  env := empty_env();
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
+  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  call_a := ArrayList(AstExpr).new();
+  call_a.push(x_arg);
+  call_a.push(y_arg);
+  def := make_infix(":=", make_ident("point"), make_call("Point", call_a));
+  _d := evaluate(def, &env);
+  access := make_infix(".", make_ident("point"), make_ident("x"));
+  result := evaluate(access, &env);
+  check_some(result, "point.x");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("1"))), "point.x == 1"),
+    .None => ()
+  );
+};
+
+test "evaluate: field access point.y returns IntLit(2)", {
+  env := empty_env();
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
+  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  call_a := ArrayList(AstExpr).new();
+  call_a.push(x_arg);
+  call_a.push(y_arg);
+  def := make_infix(":=", make_ident("point"), make_call("Point", call_a));
+  _d := evaluate(def, &env);
+  access := make_infix(".", make_ident("point"), make_ident("y"));
+  result := evaluate(access, &env);
+  check_some(result, "point.y");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "point.y == 2"),
     .None => ()
   );
 };

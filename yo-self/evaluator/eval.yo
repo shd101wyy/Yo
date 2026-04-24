@@ -125,7 +125,8 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .VarRef(_)     => false,
     .EnumVal(_, _) => true,
     .FuncVal(_, _) => true,
-    .ReturnVal(_, _) => true
+    .ReturnVal(_, _) => true,
+    .StructVal(_, _, _) => true
   )
 );
 
@@ -195,7 +196,8 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .VarRef(_)       => t_unit(),
     .EnumVal(_, _)   => t_unit(),
     .FuncVal(_, _)   => t_unit(),
-    .ReturnVal(_, _) => t_unit()
+    .ReturnVal(_, _) => t_unit(),
+    .StructVal(_, _, _) => t_unit()
   )
 );
 
@@ -902,21 +904,116 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             },
 
             // ---------------------------------------------------------------
-            // Fieldless enum variant construction: `.None`, `.Ok`, …
-            // Parsed as FnCall(Atom(Dot), [Atom("Name")], is_infix=true)
-            // fval == "."  (the dot atom is the func, args[0] has the name)
+            // Dot operator: field access, method calls, and enum variant
+            // construction (both TS-parser and self-hosted-parser AST forms).
+            //
+            // Field access / method call (is_infix=true, 2 args):
+            //   FnCall(Atom(Dot), [receiver_expr, field_or_method_expr], true)
+            //
+            // Fieldless variant — TS format (is_infix=true, 1 Atom arg):
+            //   FnCall(Atom(Dot), [Atom("None")], true)
+            //
+            // Variant with fields — self-hosted format (is_infix=false, 1 FnCall arg):
+            //   FnCall(Atom(Dot), [FnCall(Atom("Some"), [arg1, …], false)], false)
             // ---------------------------------------------------------------
             (fval == ".") => {
-              vname := match(args.get(usize(0)),
-                .Some(vne) => match(vne,
-                  .Atom(vntok) => vntok.value.as_str(),
-                  .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
-                ),
-                .None => { return Option(EvalResult).None; }
-              );
-              variant_str := `.${ String.from(vname) }`;
-              fields := ArrayList(EvalValue).new();
-              .Some(eval_result(.EnumVal(variant_str, fields), t_unit()))
+              cond(
+                // --- Field access or method call: is_infix=true, 2 args ---
+                ((is_infix) && (args.len() == usize(2))) => {
+                  recv_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  rhs := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  recv_res := match(recur(recv_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  match(recv_res.value,
+                    .StructVal(_, fnames, fvals) =>
+                      match(rhs,
+                        // Field access: receiver.field_name
+                        .Atom(field_tok) => {
+                          field_name := field_tok.value.as_str();
+                          n_f := fnames.len();
+                          (fi : usize) = usize(0);
+                          (found_v : Option(EvalValue)) = Option(EvalValue).None;
+                          (found_done : bool) = false;
+                          while runtime(((fi < n_f) && (!(found_done)))), {
+                            match(fnames.get(fi),
+                              .Some(fn_s) => {
+                                cond(
+                                  (fn_s.as_str() == field_name) => {
+                                    match(fvals.get(fi),
+                                      .Some(fv) => {
+                                        found_v = .Some(fv);
+                                        found_done = true;
+                                      },
+                                      .None => ()
+                                    );
+                                  },
+                                  true => ()
+                                );
+                              },
+                              .None => ()
+                            );
+                            fi = (fi + usize(1));
+                          };
+                          match(found_v,
+                            .Some(fv) => .Some(eval_result(fv, type_of_eval_value(fv))),
+                            .None => Option(EvalResult).None
+                          )
+                        },
+                        // Method call on struct: not yet implemented
+                        .FnCall(_, _, _, _) => Option(EvalResult).None,
+                        _ => Option(EvalResult).None
+                      ),
+                    _ => Option(EvalResult).None
+                  )
+                },
+
+                // --- Enum variant construction: 1 arg ---
+                // Fieldless (Atom arg): both TS and self-hosted formats
+                // With fields (FnCall arg): self-hosted format only
+                (args.len() == usize(1)) => {
+                  match(args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(vne) =>
+                      match(vne,
+                        // Fieldless: .None, .True, etc. — Atom arg
+                        .Atom(vntok) => {
+                          variant_str := `.${ vntok.value }`;
+                          ev_fields := ArrayList(EvalValue).new();
+                          .Some(eval_result(.EnumVal(variant_str, ev_fields), t_unit()))
+                        },
+                        // With fields — self-hosted format: .Some(42) etc.
+                        // FnCall(Atom(Dot), [FnCall(Atom("Some"), [Atom("42")], false)], false)
+                        .FnCall(vfunc, vargs, _, _) => {
+                          vname := match(vfunc.*,
+                            .Atom(vntok) => vntok.value.as_str(),
+                            .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                          );
+                          variant_str := `.${ String.from(vname) }`;
+                          ev_fields := ArrayList(EvalValue).new();
+                          n_vargs := vargs.len();
+                          (vi : usize) = usize(0);
+                          (vok : bool) = true;
+                          while runtime(((vi < n_vargs) && vok)), {
+                            match(vargs.get(vi),
+                              .Some(varg_expr) =>
+                                match(recur(varg_expr, env),
+                                  .Some(vr) => { ev_fields.push(vr.value); },
+                                  .None => { vok = false; }
+                                ),
+                              .None => { vok = false; }
+                            );
+                            vi = (vi + usize(1));
+                          };
+                          cond(
+                            (!(vok)) => Option(EvalResult).None,
+                            true => .Some(eval_result(.EnumVal(variant_str, ev_fields), t_unit()))
+                          )
+                        }
+                      )
+                  )
+                },
+
+                true => Option(EvalResult).None
+              )
             },
 
             // ---------------------------------------------------------------
@@ -1228,13 +1325,78 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               ),
 
             // -----------------------------------------------------------------
-            // General identifier: call a user-defined FuncVal.
+            // General identifier: struct construction or FuncVal call.
+            //
+            // Struct construction (all args are named `:` infix calls):
+            //   TypeName(field1: val1, field2: val2, …) → StructVal
+            //
+            // FuncVal call: look up identifier, check arity, run body.
             // Arity mismatch or unbound identifier → None.
             // NOTE: No closure capture; body runs in the current env frame stack
             // (dynamic scoping for Phase 3e — lexical capture in a later phase).
             // -----------------------------------------------------------------
             true => {
-              match(env.*.lookup(String.from(fval)),
+              // Detect struct construction: first arg is a `:` infix call (named field)
+              is_struct_ctor := match(args.get(usize(0)),
+                .Some(a0) =>
+                  match(a0,
+                    .FnCall(a0f, _, a0infix, _) =>
+                      cond(
+                        a0infix =>
+                          match(a0f.*,
+                            .Atom(a0tok) => (a0tok.value.as_str() == ":"),
+                            .FnCall(_, _, _, _) => false
+                          ),
+                        true => false
+                      ),
+                    .Atom(_) => false
+                  ),
+                .None => false
+              );
+              cond(
+                is_struct_ctor => {
+                  fn_list := ArrayList(String).new();
+                  fv_list := ArrayList(EvalValue).new();
+                  n_named := args.len();
+                  (si : usize) = usize(0);
+                  (sok : bool) = true;
+                  while runtime(((si < n_named) && sok)), {
+                    match(args.get(si),
+                      .Some(arg_e) =>
+                        match(arg_e,
+                          .FnCall(_, na, _, _) =>
+                            match(na.get(usize(0)),
+                              .Some(ne) =>
+                                match(ne,
+                                  .Atom(ntok) =>
+                                    match(na.get(usize(1)),
+                                      .Some(ve) =>
+                                        match(recur(ve, env),
+                                          .Some(vr) => {
+                                            fn_list.push(ntok.value);
+                                            fv_list.push(vr.value);
+                                          },
+                                          .None => { sok = false; }
+                                        ),
+                                      .None => { sok = false; }
+                                    ),
+                                  .FnCall(_, _, _, _) => { sok = false; }
+                                ),
+                              .None => { sok = false; }
+                            ),
+                          .Atom(_) => { sok = false; }
+                        ),
+                      .None => { sok = false; }
+                    );
+                    si = (si + usize(1));
+                  };
+                  cond(
+                    (!(sok)) => Option(EvalResult).None,
+                    true => .Some(eval_result(.StructVal(String.from(fval), fn_list, fv_list), t_unit()))
+                  )
+                },
+                true => {
+                  match(env.*.lookup(String.from(fval)),
                 .None => Option(EvalResult).None,
                 .Some(var) =>
                   match(var.value,
@@ -1319,6 +1481,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                         _ => Option(EvalResult).None
                       )
                   )
+              )
+                }
               )
             }
           )

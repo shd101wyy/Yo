@@ -59,7 +59,13 @@ EvalValue :: enum(
   ///
   /// Propagated upward through begin blocks and while loops until it reaches
   /// the function call boundary, where it is unwrapped into the return value.
-  ReturnVal(val : Box(Self), ty : TypeValue)
+  ReturnVal(val : Box(Self), ty : TypeValue),
+
+  /// A compile-time known struct/object value with named fields.
+  ///
+  /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
+  /// `field_names` and `field_values` are parallel arrays in field-declaration order.
+  StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self))
 );
 
 /// Element-wise equality for `EvalValue`.
@@ -112,7 +118,52 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         _ => false
       ),
     .FuncVal(_, _) => false,
-    .ReturnVal(_, _) => false
+    .ReturnVal(_, _) => false,
+    .StructVal(atn, anames, avals) =>
+      match(b,
+        .StructVal(btn, bnames, bvals) =>
+          cond(
+            (!(atn.as_str() == btn.as_str())) => false,
+            (anames.len() != bnames.len()) => false,
+            (avals.len() != bvals.len()) => false,
+            true => {
+              n_sf := anames.len();
+              (sf_i : usize) = usize(0);
+              (sf_ok : bool) = true;
+              while runtime(((sf_i < n_sf) && sf_ok)), {
+                match(anames.get(sf_i),
+                  .Some(an_s) =>
+                    match(bnames.get(sf_i),
+                      .Some(bn_s) => {
+                        cond(
+                          (!(an_s.as_str() == bn_s.as_str())) => { sf_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { sf_ok = false; }
+                    ),
+                  .None => { sf_ok = false; }
+                );
+                match(avals.get(sf_i),
+                  .Some(av) =>
+                    match(bvals.get(sf_i),
+                      .Some(bv) => {
+                        cond(
+                          (!(recur(av, bv))) => { sf_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { sf_ok = false; }
+                    ),
+                  .None => { sf_ok = false; }
+                );
+                sf_i = (sf_i + usize(1));
+              };
+              sf_ok
+            }
+          ),
+        _ => false
+      )
   )
 );
 
