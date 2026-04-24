@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -7,10 +7,10 @@
 //!   - Unit expression `()`
 //!   - Begin blocks `{ stmts… }`
 //!   - `cond(cond1 => body1, …)` conditional expressions
-//!   - Variable define `name := expr` and constant define `name :: expr`
-//!   - Variable assign  `name = expr`
+//!   - Variable define `name := expr`, typed `(name : T) := expr`, constant `name :: expr`
+//!   - Variable assign `name = expr` and typed declaration `(name : T) = expr`
 //!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int only)
-//!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=`
+//!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=` (int, bool, str)
 //!   - Boolean operators `&&`, `||` (short-circuit), unary `!`
 //!   - Unary negation `-`
 //!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
@@ -126,6 +126,16 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .EnumVal(_, _) => true,
     .FuncVal(_, _) => true,
     .ReturnVal(_, _) => true
+  )
+);
+
+/// Extract a `TypeValue` from a simple type-annotation expression.
+/// Recognises the same primitive names as `type_from_name` (`i32`, `bool`,
+/// `usize`, `str`, etc.). Returns `t_unit()` for complex types like `Option(T)`.
+eval_type_annotation_expr :: (fn(type_expr : AstExpr) -> TypeValue)(
+  match(type_expr,
+    .Atom(tok) => type_from_name(tok.value.as_str()),
+    .FnCall(_, _, _, _) => t_unit()
   )
 );
 
@@ -610,7 +620,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             },
 
             // -----------------------------------------------------------------
-            // Variable define: name := expr
+            // Variable define: name := expr  or  (name : T) := expr
             // -----------------------------------------------------------------
             (is_infix && (fval == ":=")) =>
               cond(
@@ -621,6 +631,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       match(args.get(usize(1)),
                         .Some(rhs) =>
                           match(lhs,
+                            // bare name: x := rhs  (type inferred from rhs)
                             .Atom(name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
@@ -635,7 +646,36 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 },
                                 .None => Option(EvalResult).None
                               ),
-                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                            // typed: (x : T) := rhs  — declare with explicit type
+                            .FnCall(colon_box_a, colon_args_a, _, _) =>
+                              match(colon_box_a.*,
+                                .Atom(colon_tok_a) =>
+                                  cond(
+                                    (colon_tok_a.value.as_str() == ":") =>
+                                      match(colon_args_a.get(usize(0)),
+                                        .Some(name_expr_a) =>
+                                          match(name_expr_a,
+                                            .Atom(name_tok_a) =>
+                                              match(recur(rhs, env),
+                                                .Some(rhs_res) => {
+                                                  decl_ty := match(colon_args_a.get(usize(1)),
+                                                    .Some(te) => eval_type_annotation_expr(te),
+                                                    .None     => rhs_res.ty
+                                                  );
+                                                  is_ct := value_is_comptime(rhs_res.value);
+                                                  _idx := env.define_val(name_tok_a.value, decl_ty, is_ct, .Some(rhs_res.value));
+                                                  .Some(eval_result(.UnitVal, t_unit()))
+                                                },
+                                                .None => Option(EvalResult).None
+                                              ),
+                                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                                          ),
+                                        .None => Option(EvalResult).None
+                                      ),
+                                    true => Option(EvalResult).None
+                                  ),
+                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                              )
                           ),
                         .None => Option(EvalResult).None
                       ),
@@ -644,7 +684,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               ),
 
             // -----------------------------------------------------------------
-            // Variable assign: name = expr
+            // Variable assign: name = expr  or  (name : T) = expr (declaration)
             // -----------------------------------------------------------------
             (is_infix && (fval == "=")) =>
               cond(
@@ -655,6 +695,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       match(args.get(usize(1)),
                         .Some(rhs) =>
                           match(lhs,
+                            // bare name: x = rhs  (mutation of existing binding)
                             .Atom(name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
@@ -666,7 +707,36 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 },
                                 .None => Option(EvalResult).None
                               ),
-                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                            // typed: (x : T) = rhs  — typed variable declaration
+                            .FnCall(colon_box_b, colon_args_b, _, _) =>
+                              match(colon_box_b.*,
+                                .Atom(colon_tok_b) =>
+                                  cond(
+                                    (colon_tok_b.value.as_str() == ":") =>
+                                      match(colon_args_b.get(usize(0)),
+                                        .Some(name_expr_b) =>
+                                          match(name_expr_b,
+                                            .Atom(name_tok_b) =>
+                                              match(recur(rhs, env),
+                                                .Some(rhs_res) => {
+                                                  decl_ty := match(colon_args_b.get(usize(1)),
+                                                    .Some(te) => eval_type_annotation_expr(te),
+                                                    .None     => rhs_res.ty
+                                                  );
+                                                  is_ct := value_is_comptime(rhs_res.value);
+                                                  _idx := env.define_val(name_tok_b.value, decl_ty, is_ct, .Some(rhs_res.value));
+                                                  .Some(eval_result(.UnitVal, t_unit()))
+                                                },
+                                                .None => Option(EvalResult).None
+                                              ),
+                                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                                          ),
+                                        .None => Option(EvalResult).None
+                                      ),
+                                    true => Option(EvalResult).None
+                                  ),
+                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                              )
                           ),
                         .None => Option(EvalResult).None
                       ),
@@ -739,6 +809,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                   la := match(lv.value, .BoolVal(b) => b, _ => { return Option(EvalResult).None; });
                   rb := match(rv.value, .BoolVal(b) => b, _ => { return Option(EvalResult).None; });
                   res := cond((fval == "==") => (la == rb), true => (!(la == rb)));
+                  .Some(eval_result(.BoolVal(res), t_bool()))
+                },
+                // str × str (== and != only)
+                (((type_value_tag(lv.ty) == TypeTag.TComptimeString) && (type_value_tag(rv.ty) == TypeTag.TComptimeString)) && ((fval == "==") || (fval == "!="))) => {
+                  la_str := match(lv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
+                  rb_str := match(rv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
+                  res := cond((fval == "==") => (la_str.as_str() == rb_str.as_str()), true => (!(la_str.as_str() == rb_str.as_str())));
                   .Some(eval_result(.BoolVal(res), t_bool()))
                 },
                 true => Option(EvalResult).None
@@ -1060,7 +1137,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                               cond(
                                 (!(ok)) => Option(EvalResult).None,
                                 true => {
-                                  _frame := env.push_frame(true);
+                                  _frame := env.push_frame(false);
                                   // Re-bind __recur_fn in new frame for nested recursion
                                   match(env.*.lookup(String.from("__recur_fn")),
                                     .Some(rv2) =>
@@ -1187,7 +1264,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                               cond(
                                 (!(ok)) => Option(EvalResult).None,
                                 true => {
-                                  _frame := env.push_frame(true);
+                                  _frame := env.push_frame(false);
                                   // Bind __recur_fn so the `recur` keyword works
                                   // inside the body. Re-look up fval after pushing
                                   // the frame so define_val targets the new frame.

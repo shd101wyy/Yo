@@ -1222,3 +1222,149 @@ test "evaluate: typed fibonacci fib(3)=2", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3g helpers — typed declarations and string literals
+// ---------------------------------------------------------------------------
+
+/// Build a string-literal atom with the given raw value.
+make_str :: (fn(s : str) -> AstExpr)(
+  make_atom(TokenKind.StringLit, s)
+);
+
+/// Build `(name : type_name) = rhs` — typed variable declaration.
+/// e.g. `(x : i32) = i32(5)` → declares x of type i32 with value 5.
+make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
+  colon_args := ArrayList(AstExpr).new();
+  colon_args.push(make_ident(name));
+  colon_args.push(make_ident(type_name));
+  (lhs : AstExpr) = .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, ":"))),
+    colon_args,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_infix("=", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3g — typed variable declarations
+// ---------------------------------------------------------------------------
+
+test "evaluate: (x : bool) = false declares typed bool", {
+  env := empty_env();
+  expr := make_typed_decl("found", "bool", make_atom(TokenKind.Bool, "false"));
+  result := evaluate(expr, &env);
+  check_some(result, "(found:bool)=false");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "declaration returns unit"),
+    .None => ()
+  );
+  found_r := evaluate(make_ident("found"), &env);
+  check_some(found_r, "found lookup");
+  match(found_r,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(false)), "found=false"),
+    .None => ()
+  );
+};
+
+test "evaluate: (i : usize) = usize(0) declares typed int", {
+  env := empty_env();
+  zero_args := ArrayList(AstExpr).new();
+  zero_args.push(make_atom(TokenKind.Integer, "0"));
+  zero := make_call("usize", zero_args);
+  expr := make_typed_decl("i", "usize", zero);
+  result := evaluate(expr, &env);
+  check_some(result, "(i:usize)=usize(0)");
+  i_r := evaluate(make_ident("i"), &env);
+  check_some(i_r, "i lookup");
+  match(i_r,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "i=0"),
+    .None => ()
+  );
+};
+
+test "evaluate: typed decl then mutate then read", {
+  env := empty_env();
+  // { (n : i32) = i32(5); n = (n + i32(3)); n }  → IntLit("8")
+  five_args := ArrayList(AstExpr).new();
+  five_args.push(make_atom(TokenKind.Integer, "5"));
+  five := make_call("i32", five_args);
+  three_args := ArrayList(AstExpr).new();
+  three_args.push(make_atom(TokenKind.Integer, "3"));
+  three := make_call("i32", three_args);
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_typed_decl("n", "i32", five));
+  stmts.push(make_infix("=", make_ident("n"), make_infix("+", make_ident("n"), three)));
+  stmts.push(make_ident("n"));
+  result := evaluate(make_begin(stmts), &env);
+  check_some(result, "typed decl then mutate");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("8"))), "5+3=8"),
+    .None => ()
+  );
+};
+
+test "evaluate: typed decl counter with while loop", {
+  env := Environment.new(`test`);
+  // (i : usize) = usize(0); while runtime(i < usize(3)), { i = (i + usize(1)) }
+  i_init_args := ArrayList(AstExpr).new();
+  i_init_args.push(make_atom(TokenKind.Integer, "0"));
+  i_init := make_call("usize", i_init_args);
+  three_a := ArrayList(AstExpr).new();
+  three_a.push(make_atom(TokenKind.Integer, "3"));
+  limit := make_call("usize", three_a);
+  one_a := ArrayList(AstExpr).new();
+  one_a.push(make_atom(TokenKind.Integer, "1"));
+  step := make_call("usize", one_a);
+  cond_e := make_infix("<", make_ident("i"), limit);
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(make_infix("=", make_ident("i"), make_infix("+", make_ident("i"), step)));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_typed_decl("i", "usize", i_init));
+  stmts.push(make_while(make_runtime(cond_e), make_begin(body_stmts)));
+  stmts.push(make_ident("i"));
+  result := evaluate(make_begin(stmts), &env);
+  check_some(result, "typed counter while");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("3"))), "i should be 3"),
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3g — string comparison
+// ---------------------------------------------------------------------------
+
+test "evaluate: string == equal returns true", {
+  env := empty_env();
+  expr := make_infix("==", make_str("hello"), make_str("hello"));
+  result := evaluate(expr, &env);
+  check_some(result, "str == str (equal)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "hello==hello"),
+    .None => ()
+  );
+};
+
+test "evaluate: string == different returns false", {
+  env := empty_env();
+  expr := make_infix("==", make_str("hello"), make_str("world"));
+  result := evaluate(expr, &env);
+  check_some(result, "str == str (different)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(false)), "hello!=world"),
+    .None => ()
+  );
+};
+
+test "evaluate: string != different returns true", {
+  env := empty_env();
+  expr := make_infix("!=", make_str("abc"), make_str("xyz"));
+  result := evaluate(expr, &env);
+  check_some(result, "str != str (different)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "abc!=xyz"),
+    .None => ()
+  );
+};
