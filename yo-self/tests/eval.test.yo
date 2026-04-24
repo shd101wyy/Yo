@@ -1492,3 +1492,97 @@ test "evaluate: closure captures outer variable (make_adder)", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3j — method dispatch on StructVal and impl block registration
+// ---------------------------------------------------------------------------
+
+test "evaluate: method dispatch on StructVal (manual registration)", {
+  // Manually register Point.get_x := (fn(self) -> i32)(self.x) in env,
+  // then call point.get_x() and expect IntLit("1").
+  env := empty_env();
+
+  // Register Point.get_x in env
+  self_param := ArrayList(String).new();
+  self_param.push(String.from("self"));
+  get_x_body := make_infix(".", make_ident("self"), make_ident("x"));
+  get_x_fn := make_fn_def(self_param, get_x_body);
+  match(evaluate(get_x_fn, &env),
+    .Some(fres) => {
+      _dm := env.define_val(
+        String.from("Point.get_x"),
+        fres.ty, true, .Some(fres.value)
+      );
+    },
+    .None => assert(false, "get_x fn def failed")
+  );
+
+  // point := Point(x: i32(1), y: i32(2))
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
+  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  call_a := ArrayList(AstExpr).new();
+  call_a.push(x_arg);
+  call_a.push(y_arg);
+  _dp := evaluate(make_infix(":=", make_ident("point"), make_call("Point", call_a)), &env);
+
+  // point.get_x()
+  empty_args := ArrayList(AstExpr).new();
+  method_call := make_infix(".", make_ident("point"), make_call("get_x", empty_args));
+  result := evaluate(method_call, &env);
+
+  check_some(result, "point.get_x()");
+  match(result,
+    .Some(r) => assert(
+      (r.value == EvalValue.IntLit(String.from("1"))),
+      "point.get_x() == 1"
+    ),
+    .None => ()
+  );
+};
+
+test "evaluate: impl block registers methods", {
+  // impl(Point, get_y: (fn(self)(self.y))) then point.get_y() == 2
+  env := empty_env();
+
+  // point := Point(x: i32(1), y: i32(2))
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
+  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  point_args := ArrayList(AstExpr).new();
+  point_args.push(x_arg);
+  point_args.push(y_arg);
+  _dp := evaluate(make_infix(":=", make_ident("point"), make_call("Point", point_args)), &env);
+
+  // Build impl(Point, get_y: (fn(self)(self.y)))
+  self_p := ArrayList(String).new();
+  self_p.push(String.from("self"));
+  get_y_body := make_infix(".", make_ident("self"), make_ident("y"));
+  get_y_fn := make_fn_def(self_p, get_y_body);
+  impl_method := make_infix(":", make_ident("get_y"), get_y_fn);
+  impl_args := ArrayList(AstExpr).new();
+  impl_args.push(make_ident("Point"));
+  impl_args.push(impl_method);
+  impl_expr := make_call("impl", impl_args);
+  _di := evaluate(impl_expr, &env);
+
+  // point.get_y()
+  empty_a := ArrayList(AstExpr).new();
+  method_call := make_infix(".", make_ident("point"), make_call("get_y", empty_a));
+  result := evaluate(method_call, &env);
+
+  check_some(result, "point.get_y() via impl");
+  match(result,
+    .Some(r) => assert(
+      (r.value == EvalValue.IntLit(String.from("2"))),
+      "point.get_y() == 2"
+    ),
+    .None => ()
+  );
+};

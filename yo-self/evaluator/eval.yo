@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -16,22 +16,29 @@
 //!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
 //!   - `match(scrutinee, arm1, …)` pattern matching on compile-time enum values
 //!   - `while condition, body` compile-time while loops (condition must fold to bool)
-//!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal
+//!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal with closure capture
 //!   - Function calls `name(args…)` where `name` is bound to a FuncVal
 //!   - `return expr` — emits a ReturnVal signal propagated to the call boundary
 //!   - `recur(args…)` — recursive call to the currently-executing function
 //!   - `name :: expr` — compile-time constant declaration
 //!   - Type casts: `i32(x)`, `u64(x)`, `usize(x)`, `f64(x)`, `bool(x)`, etc.
+//!   - Struct construction `TypeName(field: val, …)` → StructVal
+//!   - Field access `struct_val.field_name` → field value
+//!   - Method dispatch `struct_val.method(args…)` via `TypeName.method` lookup
+//!   - `impl(TypeName, method: fn_def, …)` — registers methods in the environment
+//!
+//! Phase 3j adds `impl(...)` support and struct method dispatch. To keep
+//! evaluate's C stack frame small (avoiding stack overflows during deep
+//! recursion), heavy logic is factored into helper functions that use the
+//! `g_eval_fn` module-level pointer (initialized by `_eval_fn_init` after
+//! evaluate is defined) to call evaluate without a forward reference:
+//!   - `call_funcval_with_args` — handles FuncVal invocation with pre-evaled args
+//!   - `handle_method_dispatch` — resolves and calls a struct method
+//!   - `handle_impl_form` — registers impl method bindings in the environment
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
-//! This avoids mutual-recursion ordering issues: helpers that recurse back into
-//! the evaluator are inlined inside the single `evaluate` fn body.
 //!
 //! All other expression forms return `None`; they are covered by later phases.
-//!
-//! NOTE: Phase 3i adds lexical closure capture — function bodies execute in a
-//! fresh environment rebuilt from a snapshot of the bindings visible at the
-//! definition site.  `__recur_fn` is injected at call time and not captured.
 //!
 //! NOTE: `recur` binds `__recur_fn` in each call frame so nested recursive
 //! calls work correctly.
@@ -53,6 +60,13 @@ open import "std/fmt";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult, eval_result } :: import "./value.yo";
+
+// ---------------------------------------------------------------------------
+// Module-level function pointer slot for evaluate (Phase 3j)
+// Filled in by _eval_fn_init after evaluate is defined so call_funcval_with_args
+// can invoke evaluate without a forward reference.
+// ---------------------------------------------------------------------------
+(g_eval_fn : Option((fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult)))) = .None;
 
 // ---------------------------------------------------------------------------
 // Helpers (must precede evaluate — no back-references to evaluate)
@@ -391,6 +405,233 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
 // Main evaluator — Phase 3b/3c/3d forms are inlined so `recur` can be used for
 // recursive evaluation without forward-reference issues.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// FuncVal call helper — Phase 3j
+// Factored out of `evaluate` so method dispatch (and any future call sites)
+// can invoke it without bloating evaluate's C stack frame.
+// Uses g_eval_fn which is set to evaluate by _eval_fn_init after evaluate
+// is defined below.
+// ---------------------------------------------------------------------------
+call_funcval_with_args :: (fn(
+  fv             : EvalValue,
+  already_evaled : ArrayList(EvalValue)
+) -> Option(EvalResult))(
+  match(g_eval_fn,
+    .None => Option(EvalResult).None,
+    .Some(ef) =>
+      match(fv,
+        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
+          n_p := params.len();
+          n_a := already_evaled.len();
+          cond(
+            (n_p != n_a) => Option(EvalResult).None,
+            true => {
+              fresh_fn_env := Environment.new(String.from(""));
+              n_cap_h := cap_names.len();
+              (chi : usize) = usize(0);
+              while runtime((chi < n_cap_h)), {
+                match(cap_names.get(chi),
+                  .Some(cn) =>
+                    match(cap_tys.get(chi),
+                      .Some(ct) =>
+                        match(cap_vals.get(chi),
+                          .Some(cv) => {
+                            _dch := cond(
+                              (!(value_is_comptime(cv))) =>
+                                (&fresh_fn_env).define_val(cn, ct, false, Option(EvalValue).None),
+                              true =>
+                                (&fresh_fn_env).define_val(cn, ct, true, .Some(cv))
+                            );
+                          },
+                          .None => ()
+                        ),
+                      .None => ()
+                    ),
+                  .None => ()
+                );
+                chi = (chi + usize(1));
+              };
+              _ffr := (&fresh_fn_env).push_frame(false);
+              _frr := (&fresh_fn_env).define_val(
+                String.from("__recur_fn"), t_unit(), true, .Some(fv)
+              );
+              (pi : usize) = usize(0);
+              while runtime((pi < n_p)), {
+                match(params.get(pi),
+                  .Some(pname) =>
+                    match(already_evaled.get(pi),
+                      .Some(pval) => {
+                        _dph := (&fresh_fn_env).define_val(
+                          pname, type_of_eval_value(pval), value_is_comptime(pval), .Some(pval)
+                        );
+                      },
+                      .None => ()
+                    ),
+                  .None => ()
+                );
+                pi = (pi + usize(1));
+              };
+              body_rh := ef(body.*, &fresh_fn_env);
+              match(body_rh,
+                .None => Option(EvalResult).None,
+                .Some(br) =>
+                  match(br.value,
+                    .ReturnVal(rv, rt) => .Some(eval_result(rv.*, rt)),
+                    _ => .Some(br)
+                  )
+              )
+            }
+          )
+        },
+        _ => Option(EvalResult).None
+      )
+  )
+);
+
+// ---------------------------------------------------------------------------
+// method dispatch helper — Phase 3j
+// Handles `recv.method(args)` dispatch. Factored out of evaluate to keep
+// evaluate's C stack frame small. Uses g_eval_fn to evaluate arg expressions.
+// ---------------------------------------------------------------------------
+handle_method_dispatch :: (fn(
+  recv_val         : EvalValue,
+  method_func_box  : Box(AstExpr),
+  method_call_args : ArrayList(AstExpr),
+  env              : *(Environment)
+) -> Option(EvalResult))(
+  match(method_func_box.*,
+    .FnCall(_, _, _, _) => Option(EvalResult).None,
+    .Atom(mtok) => {
+      mname := mtok.value.as_str();
+      ty_nm := match(recv_val,
+        .StructVal(tn, _, _) => tn.as_str(),
+        _ => ""
+      );
+      qn := `${String.from(ty_nm)}.${String.from(mname)}`;
+      maybe_mval := match(env.*.lookup(qn),
+        .Some(mv) => mv.value,
+        .None =>
+          match(env.*.lookup(String.from(mname)),
+            .Some(mv2) => mv2.value,
+            .None => Option(EvalValue).None
+          )
+      );
+      match(maybe_mval,
+        .None => Option(EvalResult).None,
+        .Some(mval) => {
+          evaled := ArrayList(EvalValue).new();
+          evaled.push(recv_val);
+          n_ca := method_call_args.len();
+          (cai : usize) = usize(0);
+          (caok : bool) = true;
+          while runtime(((cai < n_ca) && caok)), {
+            match(method_call_args.get(cai),
+              .Some(aexpr) =>
+                match(match(g_eval_fn,
+                  .Some(ef) => ef(aexpr, env),
+                  .None => Option(EvalResult).None
+                ),
+                  .Some(ar) => { evaled.push(ar.value); },
+                  .None => { caok = false; }
+                ),
+              .None => { caok = false; }
+            );
+            cai = (cai + usize(1));
+          };
+          cond(
+            (!(caok)) => Option(EvalResult).None,
+            true => call_funcval_with_args(mval, evaled)
+          )
+        }
+      )
+    }
+  )
+);
+
+// ---------------------------------------------------------------------------
+// impl handler helper — Phase 3j
+// Handles `impl(TypeName, method_name : fn_def, …)` forms.
+// Factored out of `evaluate` to reduce evaluate's C stack frame.
+// Uses g_eval_fn to evaluate method bodies.
+// ---------------------------------------------------------------------------
+handle_impl_form :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))(
+  match(args.get(usize(0)),
+    .None => Option(EvalResult).None,
+    .Some(ty_expr) =>
+      match(ty_expr,
+        .FnCall(_, _, _, _) => Option(EvalResult).None,
+        .Atom(ty_tok) => {
+          ty_nm := ty_tok.value.as_str();
+          n_margs := args.len();
+          (mi : usize) = usize(1);
+          (mok : bool) = true;
+          while runtime(((mi < n_margs) && mok)), {
+            match(args.get(mi),
+              .Some(meth_expr) =>
+                match(meth_expr,
+                  .FnCall(colon_func, colon_args, colon_infix, _) => {
+                    cond(
+                      (colon_infix) =>
+                        match(colon_func.*,
+                          .Atom(colon_tok) => {
+                            cond(
+                              (colon_tok.value.as_str() == ":") => {
+                                match(colon_args.get(usize(0)),
+                                  .Some(name_expr) =>
+                                    match(name_expr,
+                                      .Atom(name_tok) => {
+                                        match(colon_args.get(usize(1)),
+                                          .Some(fn_expr) => {
+                                            match(match(g_eval_fn,
+                                              .Some(ef) => ef(fn_expr, env),
+                                              .None => Option(EvalResult).None
+                                            ),
+                                              .Some(mres) => {
+                                                qn := `${String.from(ty_nm)}.${name_tok.value}`;
+                                                _dm := env.define_val(
+                                                  qn,
+                                                  type_of_eval_value(mres.value),
+                                                  value_is_comptime(mres.value),
+                                                  .Some(mres.value)
+                                                );
+                                              },
+                                              .None => { mok = false; }
+                                            );
+                                          },
+                                          .None => ()
+                                        );
+                                      },
+                                      .FnCall(_, _, _, _) => ()
+                                    ),
+                                  .None => ()
+                                );
+                              },
+                              true => ()
+                            );
+                          },
+                          .FnCall(_, _, _, _) => ()
+                        ),
+                      true => ()
+                    );
+                  },
+                  _ => ()
+                ),
+              .None => ()
+            );
+            mi = (mi + usize(1));
+          };
+          cond(
+            (!(mok)) => Option(EvalResult).None,
+            true => .Some(eval_result(.UnitVal, t_unit()))
+          )
+        }
+      )
+  )
+);
 
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
@@ -996,8 +1237,10 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                             .None => Option(EvalResult).None
                           )
                         },
-                        // Method call on struct: not yet implemented
-                        .FnCall(_, _, _, _) => Option(EvalResult).None,
+                        // Method call on struct: receiver.method(args)  — Phase 3j
+                        // Delegated to handle_method_dispatch to keep evaluate's frame small.
+                        .FnCall(method_func_box, method_call_args, _, _) =>
+                          handle_method_dispatch(recv_res.value, method_func_box, method_call_args, env),
                         _ => Option(EvalResult).None
                       ),
                     _ => Option(EvalResult).None
@@ -1387,9 +1630,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             //
             // FuncVal call: look up identifier, check arity, run body.
             // Arity mismatch or unbound identifier → None.
-            // NOTE: No closure capture; body runs in the current env frame stack
-            // (dynamic scoping for Phase 3e — lexical capture in a later phase).
             // -----------------------------------------------------------------
+
+            // -----------------------------------------------------------------
+            // impl(TypeName, method_name : fn_def, …) — Phase 3j
+            // Delegated to handle_impl_form to keep evaluate's frame small.
+            // -----------------------------------------------------------------
+            (fval == "impl") => handle_impl_form(args, env),
+
             true => {
               // Detect struct construction: first arg is a `:` infix call (named field)
               is_struct_ctor := match(args.get(usize(0)),
@@ -1560,6 +1808,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
       )
   )
 });
+
+// Initialize the g_eval_fn slot with the evaluate function (Phase 3j).
+// Must run after evaluate is defined so the reference is valid.
+// Returns bool to avoid 'void' C variable error from unit return type.
+_eval_fn_init := (fn() -> bool)({
+  g_eval_fn = .Some(evaluate);
+  true
+})();
 
 export evaluate, eval_atom, eval_identifier, parse_raw_int;
 
