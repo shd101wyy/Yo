@@ -13,15 +13,16 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 3e complete.** Function definitions and calls, `return` propagation, named constants (`::`) implemented and tested.
 ✅ **Phase 3f complete.** Type casts and typed arithmetic (`i32(x)`, `usize(x)`, etc.) implemented and tested.
 ✅ **Phase 3h complete.** Struct value construction (`TypeName(field: val…)`) and field access (`obj.field`) implemented and tested.
+✅ **Phase 3i complete.** Lexical closure capture — function bodies now execute in a fresh env rebuilt from a snapshot of the definition-time bindings.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/define/assign, arithmetic, comparison, boolean, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access) (Phases 3a–3h); 61 tests passing
+- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/define/assign, arithmetic, comparison, boolean, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture) (Phases 3a–3i); 62 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Total: 190 tests passing** under `yo-self/tests/`
+- **Total: 191 tests passing** under `yo-self/tests/`
 
 Run tests:
 

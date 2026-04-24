@@ -48,12 +48,22 @@ EvalValue :: enum(
   /// declaration order (positional).
   EnumVal(variant : String, fields : ArrayList(Self)),
 
-  /// A compiled function value: parameter names + unevaluated body expression.
+  /// A compiled function value: parameter names, unevaluated body expression,
+  /// and a snapshot of the definition-time environment for lexical scoping.
   ///
-  /// NOTE (Phase 3e): No closure capture is performed. Function bodies access
-  /// the calling environment at call time (dynamic scoping). Lexical capture
-  /// will be added in a later phase.
-  FuncVal(params : ArrayList(String), body : Box(AstExpr)),
+  /// Phase 3i: `cap_names`, `cap_tys`, and `cap_vals` hold a flat snapshot of
+  /// all variable bindings visible when the function was defined. At call time
+  /// a fresh `Environment` is rebuilt from these captures so the body sees the
+  /// correct lexical scope instead of the caller's dynamic env.
+  /// Runtime variables (no comptime value) are stored as `VarRef(name)` in
+  /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
+  FuncVal(
+    params    : ArrayList(String),
+    body      : Box(AstExpr),
+    cap_names : ArrayList(String),
+    cap_tys   : ArrayList(TypeValue),
+    cap_vals  : ArrayList(Self)
+  ),
 
   /// Control-flow signal emitted by a `return expr` statement.
   ///
@@ -117,7 +127,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal(_, _) => false,
+    .FuncVal(_, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .StructVal(atn, anames, avals) =>
       match(b,

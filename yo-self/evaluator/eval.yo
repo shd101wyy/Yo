@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -29,10 +29,9 @@
 //!
 //! All other expression forms return `None`; they are covered by later phases.
 //!
-//! NOTE: Function bodies run in the CURRENT env frame stack at call time
-//! (dynamic scoping). Proper lexical closure capture will be added in a later
-//! phase. Functions that only access their own parameters and module-level
-//! bindings behave correctly without closure capture.
+//! NOTE: Phase 3i adds lexical closure capture — function bodies execute in a
+//! fresh environment rebuilt from a snapshot of the bindings visible at the
+//! definition site.  `__recur_fn` is injected at call time and not captured.
 //!
 //! NOTE: `recur` binds `__recur_fn` in each call frame so nested recursive
 //! calls work correctly.
@@ -124,7 +123,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .StrLit(_)     => true,
     .VarRef(_)     => false,
     .EnumVal(_, _) => true,
-    .FuncVal(_, _) => true,
+    .FuncVal(_, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .StructVal(_, _, _) => true
   )
@@ -195,7 +194,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_)       => t_comptime_string(),
     .VarRef(_)       => t_unit(),
     .EnumVal(_, _)   => t_unit(),
-    .FuncVal(_, _)   => t_unit(),
+    .FuncVal(_, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .StructVal(_, _, _) => t_unit()
   )
@@ -512,8 +511,47 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                   match(args.get(usize(0)),
                                     .None => Option(EvalResult).None,
                                     // NOTE Phase 3f: replace t_unit() with actual fn type
-                                    .Some(body_expr) =>
-                                      .Some(eval_result(.FuncVal(params, box(body_expr)), t_unit()))
+                                    .Some(body_expr) => {
+                                      // Capture current env for lexical scoping (Phase 3i).
+                                      // __recur_fn is excluded — it is injected at call time.
+                                      cap_names_f := ArrayList(String).new();
+                                      cap_tys_f   := ArrayList(TypeValue).new();
+                                      cap_vals_f  := ArrayList(EvalValue).new();
+                                      n_cf := env.*.frames.len();
+                                      (cfi : usize) = usize(0);
+                                      while runtime((cfi < n_cf)), {
+                                        match(env.*.frames.get(cfi),
+                                          .Some(frame) => {
+                                            n_cv := frame.variables.len();
+                                            (cvi : usize) = usize(0);
+                                            while runtime((cvi < n_cv)), {
+                                              match(frame.variables.get(cvi),
+                                                .Some(v) => {
+                                                  cond(
+                                                    (!(v.name.as_str() == "__recur_fn")) => {
+                                                      cap_names_f.push(v.name);
+                                                      cap_tys_f.push(v.ty);
+                                                      cap_val_f := match(v.value,
+                                                        .Some(actual) => actual,
+                                                        .None => EvalValue.VarRef(v.name)
+                                                      );
+                                                      cap_vals_f.push(cap_val_f);
+                                                    },
+                                                    true => ()
+                                                  );
+                                                },
+                                                .None => ()
+                                              );
+                                              cvi = (cvi + usize(1));
+                                            };
+                                          },
+                                          .None => ()
+                                        );
+                                        cfi = (cfi + usize(1));
+                                      };
+                                      // NOTE Phase 3f: replace t_unit() with actual fn type
+                                      .Some(eval_result(.FuncVal(params, box(body_expr), cap_names_f, cap_tys_f, cap_vals_f), t_unit()))
+                                    }
                                   )
                               )
                             }
@@ -1211,7 +1249,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(params, body) => {
+                        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
                           n_params := params.len();
                           n_call_args := args.len();
                           cond(
@@ -1234,20 +1272,38 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                               cond(
                                 (!(ok)) => Option(EvalResult).None,
                                 true => {
-                                  _frame := env.push_frame(false);
-                                  // Re-bind __recur_fn in new frame for nested recursion
-                                  match(env.*.lookup(String.from("__recur_fn")),
-                                    .Some(rv2) =>
-                                      match(rv2.value,
-                                        .Some(rv2_val) => {
-                                          _rr := env.define_val(
-                                            String.from("__recur_fn"),
-                                            t_unit(), true, .Some(rv2_val)
-                                          );
-                                        },
-                                        .None => ()
-                                      ),
-                                    .None => ()
+                                  // Build fresh lexical env from captured bindings (Phase 3i)
+                                  fresh_recur_env := Environment.new(String.from(""));
+                                  n_rcap := cap_names.len();
+                                  (rci : usize) = usize(0);
+                                  while runtime((rci < n_rcap)), {
+                                    match(cap_names.get(rci),
+                                      .Some(rcname) =>
+                                        match(cap_tys.get(rci),
+                                          .Some(rcty) =>
+                                            match(cap_vals.get(rci),
+                                              .Some(rcval) => {
+                                                _rdc := cond(
+                                                  (!(value_is_comptime(rcval))) =>
+                                                    (&fresh_recur_env).define_val(rcname, rcty, false, Option(EvalValue).None),
+                                                  true =>
+                                                    (&fresh_recur_env).define_val(rcname, rcty, true, .Some(rcval))
+                                                );
+                                              },
+                                              .None => ()
+                                            ),
+                                          .None => ()
+                                        ),
+                                      .None => ()
+                                    );
+                                    rci = (rci + usize(1));
+                                  };
+                                  // Push param frame for __recur_fn + params
+                                  _rfr := (&fresh_recur_env).push_frame(false);
+                                  // Re-bind __recur_fn to this FuncVal for nested recursion
+                                  _rrr := (&fresh_recur_env).define_val(
+                                    String.from("__recur_fn"),
+                                    t_unit(), true, .Some(func_val)
                                   );
                                   (j : usize) = usize(0);
                                   while runtime((j < n_params)), {
@@ -1255,7 +1311,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                       .Some(pname) =>
                                         match(evaled.get(j),
                                           .Some(pval) => {
-                                            _d := env.define_val(
+                                            _d := (&fresh_recur_env).define_val(
                                               pname,
                                               type_of_eval_value(pval),
                                               value_is_comptime(pval),
@@ -1268,8 +1324,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                     );
                                     j = (j + usize(1));
                                   };
-                                  body_res := recur(body.*, env);
-                                  env.pop_frame();
+                                  body_res := recur(body.*, &fresh_recur_env);
                                   match(body_res,
                                     .None => Option(EvalResult).None,
                                     .Some(br) =>
@@ -1403,7 +1458,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(params, body) => {
+                        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
                           n_params := params.len();
                           n_call_args := args.len();
                           cond(
@@ -1426,22 +1481,38 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                               cond(
                                 (!(ok)) => Option(EvalResult).None,
                                 true => {
-                                  _frame := env.push_frame(false);
-                                  // Bind __recur_fn so the `recur` keyword works
-                                  // inside the body. Re-look up fval after pushing
-                                  // the frame so define_val targets the new frame.
-                                  match(env.*.lookup(String.from(fval)),
-                                    .Some(rv2) =>
-                                      match(rv2.value,
-                                        .Some(rv2_val) => {
-                                          _rr := env.define_val(
-                                            String.from("__recur_fn"),
-                                            t_unit(), true, .Some(rv2_val)
-                                          );
-                                        },
-                                        .None => ()
-                                      ),
-                                    .None => ()
+                                  // Build fresh lexical env from captured bindings (Phase 3i)
+                                  fresh_env := Environment.new(String.from(""));
+                                  n_cap := cap_names.len();
+                                  (ci : usize) = usize(0);
+                                  while runtime((ci < n_cap)), {
+                                    match(cap_names.get(ci),
+                                      .Some(cname) =>
+                                        match(cap_tys.get(ci),
+                                          .Some(cty) =>
+                                            match(cap_vals.get(ci),
+                                              .Some(cval) => {
+                                                _dc := cond(
+                                                  (!(value_is_comptime(cval))) =>
+                                                    (&fresh_env).define_val(cname, cty, false, Option(EvalValue).None),
+                                                  true =>
+                                                    (&fresh_env).define_val(cname, cty, true, .Some(cval))
+                                                );
+                                              },
+                                              .None => ()
+                                            ),
+                                          .None => ()
+                                        ),
+                                      .None => ()
+                                    );
+                                    ci = (ci + usize(1));
+                                  };
+                                  // Push param frame for __recur_fn + params
+                                  _frame := (&fresh_env).push_frame(false);
+                                  // Bind __recur_fn to this FuncVal for recursive calls
+                                  _rr := (&fresh_env).define_val(
+                                    String.from("__recur_fn"),
+                                    t_unit(), true, .Some(func_val)
                                   );
                                   (j : usize) = usize(0);
                                   while runtime((j < n_params)), {
@@ -1449,7 +1520,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                       .Some(pname) =>
                                         match(evaled.get(j),
                                           .Some(pval) => {
-                                            _d := env.define_val(
+                                            _d := (&fresh_env).define_val(
                                               pname,
                                               type_of_eval_value(pval),
                                               value_is_comptime(pval),
@@ -1462,8 +1533,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                     );
                                     j = (j + usize(1));
                                   };
-                                  body_res := recur(body.*, env);
-                                  env.pop_frame();
+                                  body_res := recur(body.*, &fresh_env);
                                   match(body_res,
                                     .None => Option(EvalResult).None,
                                     .Some(br) =>

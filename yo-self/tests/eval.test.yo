@@ -938,7 +938,7 @@ test "evaluate: fn def stores FuncVal", {
   check_some(f_res, "f is bound");
   match(f_res,
     .Some(r) => match(r.value,
-      .FuncVal(ps, _) => assert((ps.len() == usize(1)), "1 param"),
+      .FuncVal(ps, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
       _ => assert(false, "expected FuncVal")
     ),
     .None => ()
@@ -1441,6 +1441,54 @@ test "evaluate: field access point.y returns IntLit(2)", {
   check_some(result, "point.y");
   match(result,
     .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "point.y == 2"),
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3i — closure capture / lexical scoping
+// ---------------------------------------------------------------------------
+
+test "evaluate: closure captures outer variable (make_adder)", {
+  // Verify lexical scoping: inner_fn captures x from the call frame of make_adder.
+  // make_adder := (fn(x)(fn(y)(x + y)))
+  // add5  := make_adder(5)  — creates closure with x=5 captured
+  // result := add5(3)       — evaluates x+y with x=5, y=3 → 8
+  env := empty_env();
+
+  // Build inner function body: x + y
+  inner_body := make_infix("+", make_ident("x"), make_ident("y"));
+  inner_params := ArrayList(String).new();
+  inner_params.push(String.from("y"));
+  inner_fn := make_fn_def(inner_params, inner_body);
+
+  // Build outer function: (fn(x) -> unit)(inner_fn)
+  outer_params := ArrayList(String).new();
+  outer_params.push(String.from("x"));
+  make_adder_def := make_fn_def(outer_params, inner_fn);
+
+  // make_adder := make_adder_def
+  _d1 := evaluate(make_infix(":=", make_ident("make_adder"), make_adder_def), &env);
+
+  // add5 := make_adder(5)
+  adder_args := ArrayList(AstExpr).new();
+  adder_args.push(make_atom(TokenKind.Integer, "5"));
+  _d2 := evaluate(
+    make_infix(":=", make_ident("add5"), make_call("make_adder", adder_args)),
+    &env
+  );
+
+  // result := add5(3)
+  add5_args := ArrayList(AstExpr).new();
+  add5_args.push(make_atom(TokenKind.Integer, "3"));
+  result := evaluate(make_call("add5", add5_args), &env);
+
+  check_some(result, "add5(3) closure");
+  match(result,
+    .Some(r) => assert(
+      (r.value == EvalValue.IntLit(String.from("8"))),
+      "closure: 5+3=8"
+    ),
     .None => ()
   );
 };

@@ -267,14 +267,16 @@ The largest and most complex phase (~56K lines). Break into sub-phases:
 **3b. Literal and atom evaluation** ✅ Done — constants, variable references, define `:=`, assign `=`, begin blocks, `cond`
 **3c. Arithmetic and logic operators** ✅ Done — `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, unary `-`
 **3d. Enum, match, while** ✅ Done — variant construction, `match` pattern matching, `while` loops (compile-time + runtime)
-**3e. Function definitions and calls** ✅ Done — `(fn(params) -> T)(body)` → `FuncVal`, named fn calls, `return` propagation via `ReturnVal` signal. NOTE: dynamic scoping (no closure capture) — lexical capture deferred to later phase.
+**3e. Function definitions and calls** ✅ Done — `(fn(params) -> T)(body)` → `FuncVal`, named fn calls, `return` propagation via `ReturnVal` signal.
 **3f. Type casts and typed arithmetic** ✅ Done — `i32(x)`, `usize(x)`, etc.; typed `+`/`-`/`*`/`/`; `::` constants; typed fibonacci test.
 **3g. Typed declarations and string comparison** ✅ Done — `(x : T) = rhs` typed declarations, string `==`/`!=` comparison.
-**3h. Trait resolution** — impl lookup, method dispatch, where-clause matching
-**3i. Generic specialization** — monomorphization, SomeType resolution
-**3j. Compile-time evaluation (CTFE)** — constant folding, comptime execution
-**3k. Module system** — imports, exports, open imports
-**3l. Effects analysis** — algebraic effects, evidence passing analysis
+**3h. Struct construction and field access** ✅ Done — `TypeName(field: val…)` → `StructVal`, `obj.field` field access, self-hosted-parser format for enum variants with fields.
+**3i. Lexical closure capture** ✅ Done — `FuncVal` now snapshots all visible bindings at definition time; call sites rebuild a fresh env from captures so nested functions see the correct lexical scope.
+**3j. Trait resolution** — impl lookup, method dispatch, where-clause matching
+**3k. Generic specialization** — monomorphization, SomeType resolution
+**3l. Compile-time evaluation (CTFE)** — constant folding, comptime execution
+**3m. Module system** — imports, exports, open imports
+**3n. Effects analysis** — algebraic effects, evidence passing analysis
 
 **Validation milestone**: Evaluate `hello_world.yo` through the full pipeline (without codegen — just verify types and values are correct by comparing with TS evaluator output).
 
