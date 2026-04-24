@@ -849,3 +849,190 @@ test "evaluate: while with runtime(...) wrapper", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3e helpers — function definitions and calls
+// ---------------------------------------------------------------------------
+
+/// Build the param-list part of a fn expression: FnCall(Atom("fn"), [p1, p2, …], false).
+/// Params are bare atoms (no type annotation) for test simplicity.
+make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
+  param_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while runtime((i < param_names.len())), {
+    match(param_names.get(i),
+      .Some(n) => {
+        param_exprs.push(.Atom(make_token(TokenKind.Identifier, n.as_str())));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  )
+});
+
+/// Build `(fn(params) -> unit)(body)`.
+make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)({
+  fn_expr := make_fn_params(param_names);
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+/// Build a function call `name(args…)`.
+make_call :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, name))),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build `return expr`.
+make_return :: (fn(expr : AstExpr) -> AstExpr)({
+  ret_args := ArrayList(AstExpr).new();
+  ret_args.push(expr);
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "return"))),
+    ret_args,
+    false,
+    make_token(TokenKind.Identifier, "return")
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3e — function definitions and calls
+// ---------------------------------------------------------------------------
+
+test "evaluate: fn def stores FuncVal", {
+  // f := (fn(x) -> unit)(x) — defines identity function
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  fn_def := make_fn_def(params, make_ident("x"));
+  define_e := make_infix(":=", make_ident("f"), fn_def);
+  result := evaluate(define_e, &env);
+  check_some(result, "fn def define");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "define returns unit"),
+    .None => ()
+  );
+  // Look up f — should be FuncVal
+  f_res := evaluate(make_ident("f"), &env);
+  check_some(f_res, "f is bound");
+  match(f_res,
+    .Some(r) => match(r.value,
+      .FuncVal(ps, _) => assert((ps.len() == usize(1)), "1 param"),
+      _ => assert(false, "expected FuncVal")
+    ),
+    .None => ()
+  );
+};
+
+test "evaluate: fn call identity", {
+  // f := (fn(x) -> unit)(x); f(42) → 42
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  fn_def := make_fn_def(params, make_ident("x"));
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "42"));
+  result := evaluate(make_call("f", call_args), &env);
+  check_some(result, "identity call");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("42"))), "identity returns arg"),
+    .None => ()
+  );
+};
+
+test "evaluate: fn call arithmetic", {
+  // add := (fn(x, y) -> unit)((x + y)); add(3, 4) → 7
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  params.push(String.from("y"));
+  body := make_infix("+", make_ident("x"), make_ident("y"));
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix(":=", make_ident("add"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_args.push(make_atom(TokenKind.Integer, "4"));
+  result := evaluate(make_call("add", call_args), &env);
+  check_some(result, "add(3,4)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("7"))), "3+4=7"),
+    .None => ()
+  );
+};
+
+test "evaluate: fn call with return", {
+  // f := (fn(x) -> unit)({ return x; }); f(99) → 99
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  ret_stmts := ArrayList(AstExpr).new();
+  ret_stmts.push(make_return(make_ident("x")));
+  body := make_begin(ret_stmts);
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  result := evaluate(make_call("f", call_args), &env);
+  check_some(result, "return from fn");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("99"))), "return propagates"),
+    .None => ()
+  );
+};
+
+test "evaluate: return stops begin block", {
+  // f := (fn(x) -> unit)({ return x; 100 }); f(7) → 7 (not 100)
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_return(make_ident("x")));
+  stmts.push(make_atom(TokenKind.Integer, "100"));
+  body := make_begin(stmts);
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "7"));
+  result := evaluate(make_call("f", call_args), &env);
+  check_some(result, "early return");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("7"))), "return stops block"),
+    .None => ()
+  );
+};
+
+test "evaluate: fn call arity mismatch returns None", {
+  // add := (fn(x, y) -> unit)((x+y)); add(1) → None (arity mismatch)
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  params.push(String.from("y"));
+  fn_def := make_fn_def(params, make_infix("+", make_ident("x"), make_ident("y")));
+  _d := evaluate(make_infix(":=", make_ident("add"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  result := evaluate(make_call("add", call_args), &env);
+  check_none(result, "arity mismatch");
+};

@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -16,12 +16,20 @@
 //!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
 //!   - `match(scrutinee, arm1, …)` pattern matching on compile-time enum values
 //!   - `while condition, body` compile-time while loops (condition must fold to bool)
+//!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal
+//!   - Function calls `name(args…)` where `name` is bound to a FuncVal
+//!   - `return expr` — emits a ReturnVal signal propagated to the call boundary
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
 //! This avoids mutual-recursion ordering issues: helpers that recurse back into
 //! the evaluator are inlined inside the single `evaluate` fn body.
 //!
 //! All other expression forms return `None`; they are covered by later phases.
+//!
+//! NOTE (Phase 3e): Function bodies run in the CURRENT env frame stack at
+//! call time (dynamic scoping). Proper lexical closure capture will be added
+//! in a later phase. Functions that only access their own parameters and
+//! module-level bindings behave correctly without closure capture.
 
 open import "std/string";
 open import "std/fmt";
@@ -43,13 +51,15 @@ open import "std/fmt";
 /// True when the evaluated value should be treated as compile-time-only.
 value_is_comptime :: (fn(v : EvalValue) -> bool)(
   match(v,
-    .UnitVal    => true,
-    .BoolVal(_) => true,
-    .IntLit(_)  => true,
-    .FloatLit(_ )=> true,
-    .StrLit(_)  => true,
-    .VarRef(_)  => false,
-    .EnumVal(_, _) => true
+    .UnitVal       => true,
+    .BoolVal(_)    => true,
+    .IntLit(_)     => true,
+    .FloatLit(_)   => true,
+    .StrLit(_)     => true,
+    .VarRef(_)     => false,
+    .EnumVal(_, _) => true,
+    .FuncVal(_, _) => true,
+    .ReturnVal(_, _) => true
   )
 );
 
@@ -101,13 +111,15 @@ eval_atom :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
 /// complex or runtime values (where the exact type is not tracked in the value).
 type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
   match(v,
-    .UnitVal      => t_unit(),
-    .BoolVal(_)   => t_bool(),
-    .IntLit(_)    => t_comptime_int(),
-    .FloatLit(_)  => t_comptime_float(),
-    .StrLit(_)    => t_comptime_string(),
-    .VarRef(_)    => t_unit(),
-    .EnumVal(_, _) => t_unit()
+    .UnitVal         => t_unit(),
+    .BoolVal(_)      => t_bool(),
+    .IntLit(_)       => t_comptime_int(),
+    .FloatLit(_)     => t_comptime_float(),
+    .StrLit(_)       => t_comptime_string(),
+    .VarRef(_)       => t_unit(),
+    .EnumVal(_, _)   => t_unit(),
+    .FuncVal(_, _)   => t_unit(),
+    .ReturnVal(_, _) => t_unit()
   )
 );
 
@@ -315,45 +327,126 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
       match(func_box.*,
         // -----------------------------------------------------------------
         // Enum variant construction with args: .Some(42), .Ok(x), …
-        // func_box.* = FnCall(Atom(Dot), [Atom("Some")], is_infix)
-        // args = [arg1, arg2, …]
+        //   func_box.* = FnCall(Atom(Dot), [Atom("Some")], true)
+        //   outer args = [arg1, arg2, …]
+        //
+        // Function definition: (fn(params) -> RetType)(body)
+        //   func_box.* = FnCall(Atom("->"), [FnCall(Atom("fn"), [...]), RetType], true)
+        //   outer args = [body_expr]
         // -----------------------------------------------------------------
         .FnCall(inner_func, inner_args, _, _) => {
-          (is_dot_variant : bool) = match(inner_func.*,
-            .Atom(dt) => (dt.kind == TokenKind.Dot),
-            .FnCall(_, _, _, _) => false
-          );
-          cond(
-            (!(is_dot_variant)) => Option(EvalResult).None,
-            true => {
-              vname := match(inner_args.get(usize(0)),
-                .Some(vne) => match(vne,
-                  .Atom(vntok) => vntok.value.as_str(),
-                  .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
-                ),
-                .None => { return Option(EvalResult).None; }
-              );
-              variant_str := `.${ String.from(vname) }`;
-              n_args := args.len();
-              fields := ArrayList(EvalValue).new();
-              (i : usize) = usize(0);
-              (ok : bool) = true;
-              while runtime(((i < n_args) && ok)), {
-                match(args.get(i),
-                  .Some(arg_expr) =>
-                    match(recur(arg_expr, env),
-                      .Some(r) => { fields.push(r.value); },
-                      .None    => { ok = false; }
-                    ),
-                  .None => { ok = false; }
-                );
-                i = (i + usize(1));
-              };
+          match(inner_func.*,
+            .Atom(dt) =>
               cond(
-                ok => .Some(eval_result(.EnumVal(variant_str, fields), t_unit())),
+                // ---- enum variant with args ----
+                (dt.kind == TokenKind.Dot) => {
+                  vname := match(inner_args.get(usize(0)),
+                    .Some(vne) => match(vne,
+                      .Atom(vntok) => vntok.value.as_str(),
+                      .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  variant_str := `.${ String.from(vname) }`;
+                  n_args := args.len();
+                  fields := ArrayList(EvalValue).new();
+                  (i : usize) = usize(0);
+                  (ok : bool) = true;
+                  while runtime(((i < n_args) && ok)), {
+                    match(args.get(i),
+                      .Some(arg_expr) =>
+                        match(recur(arg_expr, env),
+                          .Some(r) => { fields.push(r.value); },
+                          .None    => { ok = false; }
+                        ),
+                      .None => { ok = false; }
+                    );
+                    i = (i + usize(1));
+                  };
+                  cond(
+                    ok => .Some(eval_result(.EnumVal(variant_str, fields), t_unit())),
+                    true => Option(EvalResult).None
+                  )
+                },
+
+                // ---- function definition: (fn(params) -> RetType)(body) ----
+                (dt.value.as_str() == "->") =>
+                  match(inner_args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(fn_call_expr) =>
+                      match(fn_call_expr,
+                        .Atom(_) => Option(EvalResult).None,
+                        .FnCall(fn_func_box, fn_params_list, _, _) => {
+                          // Verify func_box is `fn` atom
+                          ok_fn := match(fn_func_box.*,
+                            .Atom(fntok) => (fntok.value.as_str() == "fn"),
+                            .FnCall(_, _, _, _) => false
+                          );
+                          cond(
+                            (!(ok_fn)) => Option(EvalResult).None,
+                            true => {
+                              // Extract param names from param_decls.
+                              // Each is FnCall(Atom(":"), [Atom(name), type], true)
+                              // or a bare Atom(name) for untyped params.
+                              // forall/using/where params are skipped.
+                              params := ArrayList(String).new();
+                              (pi : usize) = usize(0);
+                              n_p := fn_params_list.len();
+                              (param_ok : bool) = true;
+                              while runtime(((pi < n_p) && param_ok)), {
+                                match(fn_params_list.get(pi),
+                                  .Some(pd) =>
+                                    match(pd,
+                                      .FnCall(colon_box, colon_args, _, _) =>
+                                        match(colon_box.*,
+                                          .Atom(colon_tok) =>
+                                            cond(
+                                              (colon_tok.value.as_str() == ":") =>
+                                                match(colon_args.get(usize(0)),
+                                                  .Some(name_expr) =>
+                                                    match(name_expr,
+                                                      .Atom(name_tok) => {
+                                                        params.push(name_tok.value);
+                                                      },
+                                                      .FnCall(_, _, _, _) => {
+                                                        param_ok = false;
+                                                      }
+                                                    ),
+                                                  .None => { param_ok = false; }
+                                                ),
+                                              // forall/using/where — skip
+                                              true => ()
+                                            ),
+                                          .FnCall(_, _, _, _) => { param_ok = false; }
+                                        ),
+                                      .Atom(bare_tok) => {
+                                        params.push(bare_tok.value);
+                                      }
+                                    ),
+                                  .None => { param_ok = false; }
+                                );
+                                pi = (pi + usize(1));
+                              };
+                              // Only extract body after params validated (ownership)
+                              cond(
+                                (!(param_ok)) => Option(EvalResult).None,
+                                true =>
+                                  match(args.get(usize(0)),
+                                    .None => Option(EvalResult).None,
+                                    // NOTE Phase 3f: replace t_unit() with actual fn type
+                                    .Some(body_expr) =>
+                                      .Some(eval_result(.FuncVal(params, box(body_expr)), t_unit()))
+                                  )
+                              )
+                            }
+                          )
+                        }
+                      )
+                  ),
+
                 true => Option(EvalResult).None
-              )
-            }
+              ),
+            .FnCall(_, _, _, _) => Option(EvalResult).None
           )
         },
         .Atom(ftok) => {
@@ -378,12 +471,19 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                   (last : Option(EvalResult)) = .Some(eval_result(.UnitVal, t_unit()));
                   (i : usize) = usize(0);
                   (had_error : bool) = false;
-                  while runtime(((i < n) && !(had_error))), {
+                  (returning : bool) = false;
+                  while runtime((((i < n) && (!(had_error))) && (!(returning)))), {
                     match(args.get(i),
                       .Some(stmt) =>
                         match(recur(stmt, env),
-                          .Some(r) => { last = .Some(r); },
-                          .None    => { had_error = true; }
+                          .Some(r) => {
+                            last = .Some(r);
+                            match(r.value,
+                              .ReturnVal(_, _) => { returning = true; },
+                              _ => ()
+                            );
+                          },
+                          .None => { had_error = true; }
                         ),
                       .None => ()
                     );
@@ -392,7 +492,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                   env.pop_frame();
                   cond(
                     had_error => Option(EvalResult).None,
-                    true      => last
+                    true      => last  // returning=true: last=Some(ReturnVal(...)), propagate
                   )
                 }
               )
@@ -792,7 +892,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                       true => {
                                         match(recur(body_expr, env),
                                           .None => { keep_going = false; },
-                                          .Some(bv) => { last = bv; }
+                                          .Some(bv) => {
+                                            last = bv;
+                                            match(bv.value,
+                                              .ReturnVal(_, _) => { keep_going = false; },
+                                              _ => ()
+                                            );
+                                          }
                                         );
                                         iter_count = (iter_count + i64(1));
                                       }
@@ -810,8 +916,107 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               )
             },
 
-            true =>
-              Option(EvalResult).None
+            // -----------------------------------------------------------------
+            // return expr — emit a ReturnVal signal
+            // -----------------------------------------------------------------
+            (fval == "return") => {
+              cond(
+                (args.len() == usize(0)) =>
+                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
+                true =>
+                  match(args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(ret_expr) =>
+                      match(recur(ret_expr, env),
+                        .None => Option(EvalResult).None,
+                        .Some(ret_res) =>
+                          .Some(eval_result(
+                            .ReturnVal(box(ret_res.value), ret_res.ty),
+                            t_unit()
+                          ))
+                      )
+                  )
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // General identifier: call a user-defined FuncVal.
+            // Arity mismatch or unbound identifier → None.
+            // NOTE: No closure capture; body runs in the current env frame stack
+            // (dynamic scoping for Phase 3e — lexical capture in a later phase).
+            // -----------------------------------------------------------------
+            true => {
+              match(env.*.lookup(String.from(fval)),
+                .None => Option(EvalResult).None,
+                .Some(var) =>
+                  match(var.value,
+                    .None => Option(EvalResult).None,
+                    .Some(func_val) =>
+                      match(func_val,
+                        .FuncVal(params, body) => {
+                          n_params := params.len();
+                          n_call_args := args.len();
+                          cond(
+                            (n_params != n_call_args) => Option(EvalResult).None,
+                            true => {
+                              evaled := ArrayList(EvalValue).new();
+                              (i : usize) = usize(0);
+                              (ok : bool) = true;
+                              while runtime(((i < n_call_args) && ok)), {
+                                match(args.get(i),
+                                  .Some(arg_expr) =>
+                                    match(recur(arg_expr, env),
+                                      .Some(r) => { evaled.push(r.value); },
+                                      .None    => { ok = false; }
+                                    ),
+                                  .None => { ok = false; }
+                                );
+                                i = (i + usize(1));
+                              };
+                              cond(
+                                (!(ok)) => Option(EvalResult).None,
+                                true => {
+                                  _frame := env.push_frame(true);
+                                  (j : usize) = usize(0);
+                                  while runtime((j < n_params)), {
+                                    match(params.get(j),
+                                      .Some(pname) =>
+                                        match(evaled.get(j),
+                                          .Some(pval) => {
+                                            _d := env.define_val(
+                                              pname,
+                                              type_of_eval_value(pval),
+                                              value_is_comptime(pval),
+                                              .Some(pval)
+                                            );
+                                          },
+                                          .None => ()
+                                        ),
+                                      .None => ()
+                                    );
+                                    j = (j + usize(1));
+                                  };
+                                  body_res := recur(body.*, env);
+                                  env.pop_frame();
+                                  match(body_res,
+                                    .None => Option(EvalResult).None,
+                                    .Some(br) =>
+                                      match(br.value,
+                                        .ReturnVal(ret_val, ret_ty) =>
+                                          .Some(eval_result(ret_val.*, ret_ty)),
+                                        _ => .Some(br)
+                                      )
+                                  )
+                                }
+                              )
+                            }
+                          )
+                        },
+                        _ => Option(EvalResult).None
+                      )
+                  )
+              )
+            }
           )
         }
       )

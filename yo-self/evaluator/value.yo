@@ -8,6 +8,7 @@
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { TypeValue } :: import "../types/type.yo";
+{ AstExpr } :: import "../expr/expr.yo";
 
 /// The compile-time representation of an evaluated expression.
 ///
@@ -45,7 +46,20 @@ EvalValue :: enum(
   /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
   /// `fields` holds the evaluated values of the constructor arguments in
   /// declaration order (positional).
-  EnumVal(variant : String, fields : ArrayList(Self))
+  EnumVal(variant : String, fields : ArrayList(Self)),
+
+  /// A compiled function value: parameter names + unevaluated body expression.
+  ///
+  /// NOTE (Phase 3e): No closure capture is performed. Function bodies access
+  /// the calling environment at call time (dynamic scoping). Lexical capture
+  /// will be added in a later phase.
+  FuncVal(params : ArrayList(String), body : Box(AstExpr)),
+
+  /// Control-flow signal emitted by a `return expr` statement.
+  ///
+  /// Propagated upward through begin blocks and while loops until it reaches
+  /// the function call boundary, where it is unwrapped into the return value.
+  ReturnVal(val : Box(Self), ty : TypeValue)
 );
 
 /// Element-wise equality for `EvalValue`.
@@ -96,7 +110,9 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
             }
           ),
         _ => false
-      )
+      ),
+    .FuncVal(_, _) => false,
+    .ReturnVal(_, _) => false
   )
 );
 

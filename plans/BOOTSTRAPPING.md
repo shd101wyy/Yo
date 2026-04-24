@@ -263,16 +263,17 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 
 The largest and most complex phase (~56K lines). Break into sub-phases:
 
-**3a. Core evaluation loop** — `evaluate(expr, env)` dispatch on `Expr` tag
-**3b. Literal and atom evaluation** — constants, variable references
-**3c. Function calls** — argument binding, overload resolution
-**3d. Control flow** — `cond`, `match`, `while`, `begin` blocks
-**3e. Type checking** — type inference, unification, constraint solving
-**3f. Trait resolution** — impl lookup, method dispatch, where-clause matching
-**3g. Generic specialization** — monomorphization, SomeType resolution
-**3h. Compile-time evaluation (CTFE)** — constant folding, comptime execution
-**3i. Module system** — imports, exports, open imports
-**3j. Effects analysis** — algebraic effects, evidence passing analysis
+**3a. Core evaluation loop** ✅ Done — `evaluate(expr, env)` dispatch on `Expr` tag
+**3b. Literal and atom evaluation** ✅ Done — constants, variable references, define `:=`, assign `=`, begin blocks, `cond`
+**3c. Arithmetic and logic operators** ✅ Done — `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, unary `-`
+**3d. Enum, match, while** ✅ Done — variant construction, `match` pattern matching, `while` loops (compile-time + runtime)
+**3e. Function definitions and calls** ✅ Done — `(fn(params) -> T)(body)` → `FuncVal`, named fn calls, `return` propagation via `ReturnVal` signal. NOTE: dynamic scoping (no closure capture) — lexical capture deferred to later phase.
+**3f. Type checking** — type inference, unification, constraint solving
+**3g. Trait resolution** — impl lookup, method dispatch, where-clause matching
+**3h. Generic specialization** — monomorphization, SomeType resolution
+**3i. Compile-time evaluation (CTFE)** — constant folding, comptime execution
+**3j. Module system** — imports, exports, open imports
+**3k. Effects analysis** — algebraic effects, evidence passing analysis
 
 **Validation milestone**: Evaluate `hello_world.yo` through the full pipeline (without codegen — just verify types and values are correct by comparing with TS evaluator output).
 
