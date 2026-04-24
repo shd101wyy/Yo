@@ -1123,3 +1123,102 @@ test "evaluate: :: fn constant", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3f — type casts: i32(x), u64(x), usize(n), etc.
+// ---------------------------------------------------------------------------
+
+test "evaluate: i32 cast integer literal", {
+  // i32(42) → IntLit("42") with type t_i32()
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Integer, "42"));
+  expr := make_call("i32", args);
+  result := evaluate(expr, &env);
+  check_some(result, "i32(42)");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "value preserved");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: usize cast integer", {
+  // usize(0) → IntLit("0")
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Integer, "0"));
+  result := evaluate(make_call("usize", args), &env);
+  check_some(result, "usize(0)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "usize(0)=0"),
+    .None => ()
+  );
+};
+
+test "evaluate: i32 typed arithmetic", {
+  // i32(3) + i32(4) → IntLit("7")
+  env := empty_env();
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Integer, "3"));
+  rhs_args := ArrayList(AstExpr).new();
+  rhs_args.push(make_atom(TokenKind.Integer, "4"));
+  lhs := make_call("i32", lhs_args);
+  rhs := make_call("i32", rhs_args);
+  result := evaluate(make_infix("+", lhs, rhs), &env);
+  check_some(result, "i32(3)+i32(4)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("7"))), "3+4=7"),
+    .None => ()
+  );
+};
+
+test "evaluate: typed fibonacci fib(3)=2", {
+  // fib :: (fn(n) -> unit)(cond(n <= i32(1) => n, true => recur(n-i32(1)) + recur(n-i32(2))))
+  // fib(i32(3)) should return IntLit("2")
+  // NOTE: fib(5) overflows ASAN-instrumented stack (~566KB/frame × 22 frames > 8MB).
+  //       fib(3) uses only ~11 frames × 566KB = 6.2MB which fits safely.
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("n"));
+
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_cast := make_call("i32", one_args);
+
+  two_args2 := ArrayList(AstExpr).new();
+  two_args2.push(make_atom(TokenKind.Integer, "2"));
+  two_cast2 := make_call("i32", two_args2);
+
+  one_args2 := ArrayList(AstExpr).new();
+  one_args2.push(make_atom(TokenKind.Integer, "1"));
+  one_cast2 := make_call("i32", one_args2);
+
+  recur1_args := ArrayList(AstExpr).new();
+  recur1_args.push(make_infix("-", make_ident("n"), one_cast2));
+  recur2_args := ArrayList(AstExpr).new();
+  recur2_args.push(make_infix("-", make_ident("n"), two_cast2));
+
+  rec_sum := make_infix("+", make_call("recur", recur1_args), make_call("recur", recur2_args));
+
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_infix("<=", make_ident("n"), one_cast), make_ident("n")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), rec_sum));
+  body := make_cond(arms);
+  fn_def := make_fn_def(params, body);
+  _d := evaluate(make_infix("::", make_ident("fib"), fn_def), &env);
+
+  three_args := ArrayList(AstExpr).new();
+  three_args.push(make_call("i32", {
+    a := ArrayList(AstExpr).new();
+    a.push(make_atom(TokenKind.Integer, "3"));
+    a
+  }));
+  result := evaluate(make_call("fib", three_args), &env);
+  check_some(result, "fib(3)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "fib(3)=2"),
+    .None => ()
+  );
+};

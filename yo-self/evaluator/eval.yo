@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f (partial).
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -20,6 +20,8 @@
 //!   - Function calls `name(args…)` where `name` is bound to a FuncVal
 //!   - `return expr` — emits a ReturnVal signal propagated to the call boundary
 //!   - `recur(args…)` — recursive call to the currently-executing function
+//!   - `name :: expr` — compile-time constant declaration
+//!   - Type casts: `i32(x)`, `u64(x)`, `usize(x)`, `f64(x)`, `bool(x)`, etc.
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
 //! This avoids mutual-recursion ordering issues: helpers that recurse back into
@@ -42,7 +44,12 @@ open import "std/fmt";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
-  t_unit, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string }
+  t_unit, t_bool, t_void,
+  t_i8, t_i16, t_i32, t_i64,
+  t_u8, t_u16, t_u32, t_u64,
+  t_f32, t_f64,
+  t_usize, t_isize,
+  t_comptime_int, t_comptime_float, t_comptime_string }
   :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
@@ -51,6 +58,61 @@ open import "std/fmt";
 // ---------------------------------------------------------------------------
 // Helpers (must precede evaluate — no back-references to evaluate)
 // ---------------------------------------------------------------------------
+
+/// Map a known primitive type name (e.g. `"i32"`, `"usize"`) to its TypeValue.
+/// Returns `t_unit()` for unrecognized names.
+type_from_name :: (fn(name : str) -> TypeValue)(
+  cond(
+    (name == "i8")    => t_i8(),
+    (name == "i16")   => t_i16(),
+    (name == "i32")   => t_i32(),
+    (name == "i64")   => t_i64(),
+    (name == "u8")    => t_u8(),
+    (name == "u16")   => t_u16(),
+    (name == "u32")   => t_u32(),
+    (name == "u64")   => t_u64(),
+    (name == "usize") => t_usize(),
+    (name == "isize") => t_isize(),
+    (name == "f32")   => t_f32(),
+    (name == "f64")   => t_f64(),
+    (name == "bool")  => t_bool(),
+    true              => t_unit()
+  )
+);
+
+/// True when `name` is a recognized primitive type that can be used
+/// as a cast/coercion call: `i32(x)`, `u64(y)`, `usize(n)`, etc.
+is_primitive_type_cast :: (fn(name : str) -> bool)(
+  cond(
+    (name == "i8")    => true,
+    (name == "i16")   => true,
+    (name == "i32")   => true,
+    (name == "i64")   => true,
+    (name == "u8")    => true,
+    (name == "u16")   => true,
+    (name == "u32")   => true,
+    (name == "u64")   => true,
+    (name == "usize") => true,
+    (name == "isize") => true,
+    (name == "f32")   => true,
+    (name == "f64")   => true,
+    (name == "bool")  => true,
+    true              => false
+  )
+);
+
+/// True for any integer-like type the evaluator handles numerically.
+/// Broader than `is_int_type` from type.yo because it includes ComptimeInt,
+/// Usize, and Isize (which the type-system helper does not).
+is_eval_int_type :: (fn(t : TypeValue) -> bool)(
+  match(t,
+    .Int(_, _)   => true,
+    .Usize       => true,
+    .Isize       => true,
+    .ComptimeInt => true,
+    _            => false
+  )
+);
 
 /// True when the evaluated value should be treated as compile-time-only.
 value_is_comptime :: (fn(v : EvalValue) -> bool)(
@@ -620,11 +682,10 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
               lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
               rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
-              // Only fold comptime_int × comptime_int
+              // Fold int × int (comptime or typed); result preserves lv type
               cond(
-                (!(((type_value_tag(lv.ty) == TypeTag.TComptimeInt) && (type_value_tag(rv.ty) == TypeTag.TComptimeInt)))) =>
-                  Option(EvalResult).None,
-                true => {
+                (is_eval_int_type(lv.ty) && is_eval_int_type(rv.ty)) => {
+                  lv_ty := lv.ty;
                   a_raw := match(lv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
                   b_raw := match(rv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
                   a := match(parse_raw_int(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
@@ -638,10 +699,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     true => Option(i64).None
                   );
                   match(res_opt,
-                    .Some(res) => .Some(eval_result(.IntLit(res.to_string()), t_comptime_int())),
+                    .Some(res) => .Some(eval_result(.IntLit(res.to_string()), lv_ty)),
                     .None => Option(EvalResult).None
                   )
-                }
+                },
+                true => Option(EvalResult).None
               )
             },
 
@@ -655,8 +717,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
               rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
               cond(
-                // comptime_int × comptime_int
-                ((type_value_tag(lv.ty) == TypeTag.TComptimeInt) && (type_value_tag(rv.ty) == TypeTag.TComptimeInt)) => {
+                // int × int (comptime or typed)
+                (is_eval_int_type(lv.ty) && is_eval_int_type(rv.ty)) => {
                   a_raw := match(lv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
                   b_raw := match(rv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
                   a := match(parse_raw_int(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
@@ -748,14 +810,16 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
               v := match(recur(expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
               cond(
-                (type_value_tag(v.ty) == TypeTag.TComptimeInt) =>
+                is_eval_int_type(v.ty) => {
+                  v_ty := v.ty;
                   match(v.value,
                     .IntLit(raw) => {
                       a := match(parse_raw_int(raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
-                      .Some(eval_result(.IntLit((i64(0) - a).to_string()), t_comptime_int()))
+                      .Some(eval_result(.IntLit((i64(0) - a).to_string()), v_ty))
                     },
                     _ => Option(EvalResult).None
-                  ),
+                  )
+                },
                 true => Option(EvalResult).None
               )
             },
@@ -919,6 +983,24 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                 }
               )
             },
+
+            // -----------------------------------------------------------------
+            // Type casts: i32(x), u64(x), usize(x), f32(x), bool(x), etc.
+            // For numeric/bool literals, just retag the type; value unchanged.
+            // Other values are passed through with the new type tag.
+            // -----------------------------------------------------------------
+            (((args.len() == usize(1)) && is_primitive_type_cast(fval))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(arg_expr) =>
+                  match(recur(arg_expr, env),
+                    .None => Option(EvalResult).None,
+                    .Some(arg_res) => {
+                      cast_ty := type_from_name(fval);
+                      .Some(eval_result(arg_res.value, cast_ty))
+                    }
+                  )
+              ),
 
             // -----------------------------------------------------------------
             // return expr — emit a ReturnVal signal
