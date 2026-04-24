@@ -9,7 +9,7 @@ open import "std/string";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
-  t_i32, t_bool, t_u32, t_f32,
+  t_i32, t_bool, t_u32, t_f32, t_type,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
@@ -1584,5 +1584,102 @@ test "evaluate: impl block registers methods", {
       "point.get_y() == 2"
     ),
     .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3k — TypeVal: type names as first-class compile-time values
+// ---------------------------------------------------------------------------
+
+test "evaluate: type identifier i32 resolves to TypeVal", {
+  env := empty_env();
+  result := evaluate(make_ident("i32"), &env);
+  check_some(result, "i32 identifier");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .TypeVal(ty) =>
+          match(ty.*,
+            .Int(bits, signed) => {
+              assert((bits == u8(32)), "i32 must have 32 bits");
+              assert(signed, "i32 must be signed");
+            },
+            _ => { assert(false, "TypeVal ty must be Int(32, true)"); }
+          ),
+        _ => { assert(false, "result must be TypeVal"); }
+      );
+      // The type-of a TypeVal is Type (TypeUni level 0)
+      match(r.ty,
+        .TypeUni(_) => (),
+        _ => { assert(false, "type-of TypeVal must be TypeUni"); }
+      );
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: type identifier bool resolves to TypeVal", {
+  env := empty_env();
+  result := evaluate(make_ident("bool"), &env);
+  check_some(result, "bool identifier");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(ty) =>
+          match(ty.*,
+            .BoolT => (),
+            _ => { assert(false, "TypeVal ty must be BoolT"); }
+          ),
+        _ => { assert(false, "result must be TypeVal"); }
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: type identifier usize resolves to TypeVal", {
+  env := empty_env();
+  result := evaluate(make_ident("usize"), &env);
+  check_some(result, "usize identifier");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(ty) =>
+          match(ty.*,
+            .Usize => (),
+            _ => { assert(false, "TypeVal ty must be Usize"); }
+          ),
+        _ => { assert(false, "result must be TypeVal"); }
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: TypeVal is comptime", {
+  env := empty_env();
+  result := evaluate(make_ident("i32"), &env);
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => { assert(false, "expected TypeVal"); }
+      );
+      // TypeVal equality: two TypeVals for i32 should compare equal
+      (tv_a : EvalValue) = EvalValue.TypeVal(box(t_i32()));
+      (tv_b : EvalValue) = EvalValue.TypeVal(box(t_i32()));
+      assert((tv_a == tv_b), "TypeVal(i32) == TypeVal(i32)");
+      (tv_c : EvalValue) = EvalValue.TypeVal(box(t_bool()));
+      assert(!(tv_a == tv_c), "TypeVal(i32) != TypeVal(bool)");
+    },
+    .None => { assert(false, "expected Some"); }
+  );
+};
+
+test "evaluate: unknown identifier not a type name still returns None", {
+  env := empty_env();
+  // "MyCustomType" is not a primitive type name, not in env → None
+  result := evaluate(make_ident("MyCustomType"), &env);
+  match(result,
+    .None => (), // expected — unknown ident returns None
+    .Some(_) => { assert(false, "unknown ident must return None"); }
   );
 };

@@ -9,6 +9,7 @@ open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { TypeValue } :: import "../types/type.yo";
 { AstExpr } :: import "../expr/expr.yo";
+{ are_types_compatible } :: import "../types/compatibility.yo";
 
 /// The compile-time representation of an evaluated expression.
 ///
@@ -71,6 +72,19 @@ EvalValue :: enum(
   /// the function call boundary, where it is unwrapped into the return value.
   ReturnVal(val : Box(Self), ty : TypeValue),
 
+  /// A compile-time type value (Phase 3k).
+  ///
+  /// Represents a Yo type as a first-class compile-time value.  For example,
+  /// evaluating the bare identifier `i32` produces `TypeVal(Int(32, true))`.
+  /// This is needed for `forall(T: Type)` param binding, type-level lambdas
+  /// (`ArrayList(String)`), and any other context where a type appears as a
+  /// value.
+  ///
+  /// `ty` is heap-allocated via `Box` to keep the `EvalValue` enum size small —
+  /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
+  /// storing it inline would bloat every local `EvalValue` and stack frame.
+  TypeVal(ty : Box(TypeValue)),
+
   /// A compile-time known struct/object value with named fields.
   ///
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
@@ -129,6 +143,8 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       ),
     .FuncVal(_, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
+    .TypeVal(at) =>
+      match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
     .StructVal(atn, anames, avals) =>
       match(b,
         .StructVal(btn, bnames, bvals) =>

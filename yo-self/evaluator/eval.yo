@@ -55,7 +55,8 @@ open import "std/fmt";
   t_u8, t_u16, t_u32, t_u64,
   t_f32, t_f64,
   t_usize, t_isize,
-  t_comptime_int, t_comptime_float, t_comptime_string }
+  t_comptime_int, t_comptime_float, t_comptime_string,
+  t_type }
   :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
@@ -90,6 +91,30 @@ type_from_name :: (fn(name : str) -> TypeValue)(
     (name == "f64")   => t_f64(),
     (name == "bool")  => t_bool(),
     true              => t_unit()
+  )
+);
+
+/// Like `type_from_name` but returns `Option(TypeValue)` — used in the
+/// identifier lookup fallback so we can distinguish "unknown type name" from
+/// "known type name" without returning the sentinel `t_unit()`.
+type_from_name_opt :: (fn(name : str) -> Option(TypeValue))(
+  cond(
+    (name == "i8")    => .Some(t_i8()),
+    (name == "i16")   => .Some(t_i16()),
+    (name == "i32")   => .Some(t_i32()),
+    (name == "i64")   => .Some(t_i64()),
+    (name == "u8")    => .Some(t_u8()),
+    (name == "u16")   => .Some(t_u16()),
+    (name == "u32")   => .Some(t_u32()),
+    (name == "u64")   => .Some(t_u64()),
+    (name == "usize") => .Some(t_usize()),
+    (name == "isize") => .Some(t_isize()),
+    (name == "f32")   => .Some(t_f32()),
+    (name == "f64")   => .Some(t_f64()),
+    (name == "bool")  => .Some(t_bool()),
+    (name == "unit")  => .Some(t_unit()),
+    (name == "Type")  => .Some(t_type()),
+    true              => Option(TypeValue).None
   )
 );
 
@@ -139,6 +164,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .EnumVal(_, _) => true,
     .FuncVal(_, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
+    .TypeVal(_)    => true,
     .StructVal(_, _, _) => true
   )
 );
@@ -164,7 +190,13 @@ eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))
         .None     => .Some(eval_result(.VarRef(tok.value), var.ty))
       ),
     .None =>
-      Option(EvalResult).None
+      // Not in env — check if the name is a known primitive type name.
+      // This makes `i32`, `bool`, `usize`, etc. resolve to TypeVal at
+      // use sites like `(x : i32) = …` or generic type-param bindings.
+      match(type_from_name_opt(tok.value.as_str()),
+        .Some(ty) => .Some(eval_result(.TypeVal(box(ty)), t_type())),
+        .None     => Option(EvalResult).None
+      )
   )
 );
 
@@ -210,6 +242,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .EnumVal(_, _)   => t_unit(),
     .FuncVal(_, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
+    .TypeVal(_)      => t_type(),
     .StructVal(_, _, _) => t_unit()
   )
 );
