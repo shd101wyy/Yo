@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -9,6 +9,13 @@
 //!   - `cond(cond1 => body1, …)` conditional expressions
 //!   - Variable define `name := expr`
 //!   - Variable assign  `name = expr`
+//!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int only)
+//!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=`
+//!   - Boolean operators `&&`, `||` (short-circuit), unary `!`
+//!   - Unary negation `-`
+//!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
+//!   - `match(scrutinee, arm1, …)` pattern matching on compile-time enum values
+//!   - `while condition, body` compile-time while loops (condition must fold to bool)
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
 //! This avoids mutual-recursion ordering issues: helpers that recurse back into
@@ -17,12 +24,15 @@
 //! All other expression forms return `None`; they are covered by later phases.
 
 open import "std/string";
+open import "std/fmt";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE } :: import "../expr/expr.yo";
-{ TypeValue, t_unit, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string }
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
+{ TypeValue, type_value_tag,
+  t_unit, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string }
   :: import "../types/type.yo";
+{ TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult, eval_result } :: import "./value.yo";
 
@@ -38,7 +48,8 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .IntLit(_)  => true,
     .FloatLit(_ )=> true,
     .StrLit(_)  => true,
-    .VarRef(_)  => false
+    .VarRef(_)  => false,
+    .EnumVal(_, _) => true
   )
 );
 
@@ -82,13 +93,219 @@ eval_atom :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
 );
 
 // ---------------------------------------------------------------------------
-// Main evaluator — Phase 3b forms are inlined so `recur` can be used for
+// Phase 3d helpers: type inference from value, pattern matching
+// ---------------------------------------------------------------------------
+
+/// Best-effort type inference from an `EvalValue`.
+/// Returns a primitive type for known literals; falls back to `t_unit()` for
+/// complex or runtime values (where the exact type is not tracked in the value).
+type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
+  match(v,
+    .UnitVal      => t_unit(),
+    .BoolVal(_)   => t_bool(),
+    .IntLit(_)    => t_comptime_int(),
+    .FloatLit(_)  => t_comptime_float(),
+    .StrLit(_)    => t_comptime_string(),
+    .VarRef(_)    => t_unit(),
+    .EnumVal(_, _) => t_unit()
+  )
+);
+
+/// Try to match `pattern` (an AstExpr from a match arm) against `scrutinee_val`,
+/// adding variable bindings into `env`.  Returns `true` on success (and the env
+/// has been updated with any new bindings), or `false` when the pattern does not
+/// match the scrutinee.
+///
+/// Supported pattern forms:
+///   - `_`            — wildcard, always matches, no bindings
+///   - `ident`        — bare identifier (no dot), binds the whole scrutinee
+///   - `.None`        — fieldless enum variant `FnCall(Atom(Dot), [Atom("None")], _)`
+///   - `.Some(x, …)` — variant with positional bindings
+try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty : TypeValue, env : *(Environment)) -> bool)({
+  match(pattern,
+    // -----------------------------------------------------------------------
+    // Atom patterns: wildcard `_` or bare variable binding
+    // -----------------------------------------------------------------------
+    .Atom(ptok) =>
+      cond(
+        (ptok.value.as_str() == "_") =>
+          true,
+        true => {
+          // Bare identifier: bind whole scrutinee
+          _idx := env.define_val(ptok.value, scrutinee_ty, true, .Some(scrutinee_val));
+          true
+        }
+      ),
+
+    // -----------------------------------------------------------------------
+    // FnCall patterns
+    // -----------------------------------------------------------------------
+    .FnCall(pat_func, pat_args, _, _) =>
+      match(pat_func.*,
+        // Fieldless variant: FnCall(Atom(Dot), [Atom("None")], _)
+        .Atom(dot_tok) =>
+          cond(
+            (dot_tok.kind != TokenKind.Dot) => false,
+            true => {
+              // variant name is pat_args[0]
+              vname := match(pat_args.get(usize(0)),
+                .Some(vne) => match(vne,
+                  .Atom(vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _) => { return false; }
+                ),
+                .None => { return false; }
+              );
+              full_variant := `.${ String.from(vname) }`;
+              match(scrutinee_val,
+                .EnumVal(svar, _) => (svar.as_str() == full_variant.as_str()),
+                _ => false
+              )
+            }
+          ),
+
+        // Variant-with-args: FnCall(FnCall(Atom(Dot), [Atom("Some")], _), [x, …], false)
+        .FnCall(inner_dot_func, inner_dot_args, _, _) => {
+          // Verify inner func is a dot
+          (is_dot : bool) = match(inner_dot_func.*,
+            .Atom(dt) => (dt.kind == TokenKind.Dot),
+            .FnCall(_, _, _, _) => false
+          );
+          cond(
+            (!(is_dot)) => false,
+            true => {
+              vname := match(inner_dot_args.get(usize(0)),
+                .Some(vne) => match(vne,
+                  .Atom(vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _) => { return false; }
+                ),
+                .None => { return false; }
+              );
+              full_variant := `.${ String.from(vname) }`;
+              match(scrutinee_val,
+                .EnumVal(svar, sfields) =>
+                  cond(
+                    (!(svar.as_str() == full_variant.as_str())) => false,
+                    (sfields.len() != pat_args.len()) => false,
+                    true => {
+                      n_bind := pat_args.len();
+                      (i : usize) = usize(0);
+                      (ok : bool) = true;
+                      while runtime(((i < n_bind) && ok)), {
+                        match(sfields.get(i),
+                          .Some(field_val) =>
+                            match(pat_args.get(i),
+                              .Some(binding_expr) =>
+                                match(binding_expr,
+                                  .Atom(btok) =>
+                                    cond(
+                                      (btok.value.as_str() == "_") => (),
+                                      true => {
+                                        bty := type_of_eval_value(field_val);
+                                        _idx := env.define_val(btok.value, bty, true, .Some(field_val));
+                                        ()
+                                      }
+                                    ),
+                                  .FnCall(_, _, _, _) => { ok = false; }
+                                ),
+                              .None => { ok = false; }
+                            ),
+                          .None => { ok = false; }
+                        );
+                        i = (i + usize(1));
+                      };
+                      ok
+                    }
+                  ),
+                _ => false
+              )
+            }
+          )
+        }
+      )
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Integer parsing helpers (Phase 3c — comptime integer folding)
+// ---------------------------------------------------------------------------
+
+/// Get the numeric value of byte `b` as a digit in the given numeric base
+/// (2, 8, 10, or 16). Returns `None` if `b` is not a valid digit for that base.
+digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => {  // '0'-'9'
+      d := (i64(b) - i64(48));
+      cond((d < base) => .Some(d), true => .None)
+    },
+    ((b >= u8(97)) && (b <= u8(102))) => {  // 'a'-'f'
+      d := ((i64(b) - i64(97)) + i64(10));
+      cond((d < base) => .Some(d), true => .None)
+    },
+    ((b >= u8(65)) && (b <= u8(70))) => {  // 'A'-'F'
+      d := ((i64(b) - i64(65)) + i64(10));
+      cond((d < base) => .Some(d), true => .None)
+    },
+    true => .None
+  )
+);
+
+/// Parse `bytes[start..]` as a non-negative integer in the given base.
+/// Returns `None` if the slice is empty or contains an invalid digit.
+parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> Option(i64))({
+  n := bytes.len();
+  cond(
+    (start >= n) => .None,
+    true => {
+      (result : i64) = i64(0);
+      (i : usize) = start;
+      (ok : bool) = true;
+      while runtime(((i < n) && ok)), {
+        match(bytes.get(i),
+          .Some(b) =>
+            match(digit_value(b, base),
+              .Some(d) => { result = ((result * base) + d); },
+              .None    => { ok = false; }
+            ),
+          .None => { ok = false; }
+        );
+        i = (i + usize(1));
+      };
+      cond(ok => .Some(result), true => .None)
+    }
+  )
+});
+
+/// Parse a raw integer token string to `i64`.
+///
+/// Handles:
+/// - Decimal integers (default)
+/// - Hex integers with `0x` / `0X` prefix
+/// - Binary integers with `0b` / `0B` prefix
+/// - Octal integers with `0o` / `0O` prefix
+/// - Underscore separators (e.g. `1_000_000`)
+///
+/// Returns `None` if the raw string cannot be parsed.
+parse_raw_int :: (fn(raw : String) -> Option(i64))({
+  stripped := raw.replace_all(`_`, ``);
+  cond(
+    ((stripped.starts_with(`0x`)) || (stripped.starts_with(`0X`))) =>
+      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
+    ((stripped.starts_with(`0b`)) || (stripped.starts_with(`0B`))) =>
+      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
+    ((stripped.starts_with(`0o`)) || (stripped.starts_with(`0O`))) =>
+      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
+    true => stripped.parse_i64()
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Main evaluator — Phase 3b/3c/3d forms are inlined so `recur` can be used for
 // recursive evaluation without forward-reference issues.
 // ---------------------------------------------------------------------------
 
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
-/// Returns `None` for expression forms not yet handled (Phase 3c+ scope).
+/// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
 evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
   match(e,
     .Atom(tok) =>
@@ -96,7 +313,49 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
 
     .FnCall(func_box, args, is_infix, _tok) =>
       match(func_box.*,
-        .FnCall(_, _, _, _) => Option(EvalResult).None,
+        // -----------------------------------------------------------------
+        // Enum variant construction with args: .Some(42), .Ok(x), …
+        // func_box.* = FnCall(Atom(Dot), [Atom("Some")], is_infix)
+        // args = [arg1, arg2, …]
+        // -----------------------------------------------------------------
+        .FnCall(inner_func, inner_args, _, _) => {
+          (is_dot_variant : bool) = match(inner_func.*,
+            .Atom(dt) => (dt.kind == TokenKind.Dot),
+            .FnCall(_, _, _, _) => false
+          );
+          cond(
+            (!(is_dot_variant)) => Option(EvalResult).None,
+            true => {
+              vname := match(inner_args.get(usize(0)),
+                .Some(vne) => match(vne,
+                  .Atom(vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              variant_str := `.${ String.from(vname) }`;
+              n_args := args.len();
+              fields := ArrayList(EvalValue).new();
+              (i : usize) = usize(0);
+              (ok : bool) = true;
+              while runtime(((i < n_args) && ok)), {
+                match(args.get(i),
+                  .Some(arg_expr) =>
+                    match(recur(arg_expr, env),
+                      .Some(r) => { fields.push(r.value); },
+                      .None    => { ok = false; }
+                    ),
+                  .None => { ok = false; }
+                );
+                i = (i + usize(1));
+              };
+              cond(
+                ok => .Some(eval_result(.EnumVal(variant_str, fields), t_unit())),
+                true => Option(EvalResult).None
+              )
+            }
+          )
+        },
         .Atom(ftok) => {
           fval := ftok.value.as_str();
           cond(
@@ -249,6 +508,308 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                   )
               ),
 
+            // -----------------------------------------------------------------
+            // Arithmetic operators: + - * / %  (comptime_int only)
+            // -----------------------------------------------------------------
+            (is_infix && (((((fval == "+") || (fval == "-")) || (fval == "*")) || (fval == "/")) || (fval == "%"))) => {
+              lhs_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              // Only fold comptime_int × comptime_int
+              cond(
+                (!(((type_value_tag(lv.ty) == TypeTag.TComptimeInt) && (type_value_tag(rv.ty) == TypeTag.TComptimeInt)))) =>
+                  Option(EvalResult).None,
+                true => {
+                  a_raw := match(lv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+                  b_raw := match(rv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+                  a := match(parse_raw_int(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  b := match(parse_raw_int(b_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  res_opt := cond(
+                    (fval == "+") => Option(i64).Some((a + b)),
+                    (fval == "-") => Option(i64).Some((a - b)),
+                    (fval == "*") => Option(i64).Some((a * b)),
+                    (fval == "/") => cond((b == i64(0)) => Option(i64).None, true => Option(i64).Some((a / b))),
+                    (fval == "%") => cond((b == i64(0)) => Option(i64).None, true => Option(i64).Some((a % b))),
+                    true => Option(i64).None
+                  );
+                  match(res_opt,
+                    .Some(res) => .Some(eval_result(.IntLit(res.to_string()), t_comptime_int())),
+                    .None => Option(EvalResult).None
+                  )
+                }
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // Comparison operators: == != < > <= >=
+            // Handles comptime_int × comptime_int and bool × bool (== / !=)
+            // -----------------------------------------------------------------
+            (is_infix && (((((fval == "==") || (fval == "!=")) || (fval == "<")) || (fval == ">")) || ((fval == "<=") || (fval == ">=")))) => {
+              lhs_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              cond(
+                // comptime_int × comptime_int
+                ((type_value_tag(lv.ty) == TypeTag.TComptimeInt) && (type_value_tag(rv.ty) == TypeTag.TComptimeInt)) => {
+                  a_raw := match(lv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+                  b_raw := match(rv.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+                  a := match(parse_raw_int(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  b := match(parse_raw_int(b_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  res := cond(
+                    (fval == "==") => (a == b),
+                    (fval == "!=") => (!(a == b)),
+                    (fval == "<")  => (a < b),
+                    (fval == ">")  => (a > b),
+                    (fval == "<=") => (a <= b),
+                    (fval == ">=") => (a >= b),
+                    true           => { return Option(EvalResult).None; }
+                  );
+                  .Some(eval_result(.BoolVal(res), t_bool()))
+                },
+                // bool × bool (== and != only)
+                (((type_value_tag(lv.ty) == TypeTag.TBool) && (type_value_tag(rv.ty) == TypeTag.TBool)) && ((fval == "==") || (fval == "!="))) => {
+                  la := match(lv.value, .BoolVal(b) => b, _ => { return Option(EvalResult).None; });
+                  rb := match(rv.value, .BoolVal(b) => b, _ => { return Option(EvalResult).None; });
+                  res := cond((fval == "==") => (la == rb), true => (!(la == rb)));
+                  .Some(eval_result(.BoolVal(res), t_bool()))
+                },
+                true => Option(EvalResult).None
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // Boolean &&  (short-circuit: skip RHS when LHS is false)
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "&&")) => {
+              lhs_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              match(lv.value,
+                .BoolVal(b) =>
+                  cond(
+                    (!(b)) => .Some(eval_result(.BoolVal(false), t_bool())),
+                    true => {
+                      rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                      match(rv.value,
+                        .BoolVal(rb) => .Some(eval_result(.BoolVal(rb), t_bool())),
+                        _ => Option(EvalResult).None
+                      )
+                    }
+                  ),
+                _ => Option(EvalResult).None
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // Boolean ||  (short-circuit: skip RHS when LHS is true)
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "||")) => {
+              lhs_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              match(lv.value,
+                .BoolVal(b) =>
+                  cond(
+                    b => .Some(eval_result(.BoolVal(true), t_bool())),
+                    true => {
+                      rv := match(recur(rhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                      match(rv.value,
+                        .BoolVal(rb) => .Some(eval_result(.BoolVal(rb), t_bool())),
+                        _ => Option(EvalResult).None
+                      )
+                    }
+                  ),
+                _ => Option(EvalResult).None
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // Unary ! — logical negation of bool
+            // -----------------------------------------------------------------
+            ((!(is_infix)) && ((fval == "!") && (args.len() == usize(1)))) => {
+              expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              v := match(recur(expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              match(v.value,
+                .BoolVal(b) => .Some(eval_result(.BoolVal(!(b)), t_bool())),
+                _ => Option(EvalResult).None
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // Unary - — negation of comptime_int
+            // -----------------------------------------------------------------
+            ((!(is_infix)) && ((fval == "-") && (args.len() == usize(1)))) => {
+              expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              v := match(recur(expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              cond(
+                (type_value_tag(v.ty) == TypeTag.TComptimeInt) =>
+                  match(v.value,
+                    .IntLit(raw) => {
+                      a := match(parse_raw_int(raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                      .Some(eval_result(.IntLit((i64(0) - a).to_string()), t_comptime_int()))
+                    },
+                    _ => Option(EvalResult).None
+                  ),
+                true => Option(EvalResult).None
+              )
+            },
+
+            // ---------------------------------------------------------------
+            // Fieldless enum variant construction: `.None`, `.Ok`, …
+            // Parsed as FnCall(Atom(Dot), [Atom("Name")], is_infix=true)
+            // fval == "."  (the dot atom is the func, args[0] has the name)
+            // ---------------------------------------------------------------
+            (fval == ".") => {
+              vname := match(args.get(usize(0)),
+                .Some(vne) => match(vne,
+                  .Atom(vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              variant_str := `.${ String.from(vname) }`;
+              fields := ArrayList(EvalValue).new();
+              .Some(eval_result(.EnumVal(variant_str, fields), t_unit()))
+            },
+
+            // ---------------------------------------------------------------
+            // `match(scrutinee, arm1, …)` pattern matching
+            // Each arm is FnCall(Atom("=>"), [pattern, body], is_infix=true)
+            // ---------------------------------------------------------------
+            (fval == "match") => {
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(scrutinee_expr) => {
+                  match(recur(scrutinee_expr, env),
+                    .None => Option(EvalResult).None,
+                    .Some(scrut_res) => {
+                      n_arms := args.len();
+                      (arm_i : usize) = usize(1);
+                      (match_result : Option(EvalResult)) = Option(EvalResult).None;
+                      (matched : bool) = false;
+                      while runtime(((arm_i < n_arms) && (!(matched)))), {
+                        match(args.get(arm_i),
+                          .Some(arm_expr) =>
+                            match(arm_expr,
+                              // Each arm: FnCall(Atom("=>"), [pattern, body], _)
+                              .FnCall(arrow_func, arm_sub, _, _) =>
+                                match(arrow_func.*,
+                                  .Atom(arrtok) =>
+                                    cond(
+                                      (!(arrtok.value.as_str() == "=>")) => (),
+                                      true => {
+                                        match(arm_sub.get(usize(0)),
+                                          .None => (),
+                                          .Some(pat_expr) => {
+                                            env.push_frame(false);
+                                            (did_match : bool) = try_match_pat(pat_expr, scrut_res.value, scrut_res.ty, env);
+                                            cond(
+                                              (!(did_match)) => { env.pop_frame(); },
+                                              true => {
+                                                match(arm_sub.get(usize(1)),
+                                                  .None => {
+                                                    env.pop_frame();
+                                                  },
+                                                  .Some(body_expr) => {
+                                                    match(recur(body_expr, env),
+                                                      .None => {
+                                                        env.pop_frame();
+                                                      },
+                                                      .Some(body_res) => {
+                                                        env.pop_frame();
+                                                        match_result = .Some(body_res);
+                                                        matched = true;
+                                                      }
+                                                    );
+                                                  }
+                                                );
+                                              }
+                                            );
+                                          }
+                                        );
+                                      }
+                                    ),
+                                  .FnCall(_, _, _, _) => ()
+                                ),
+                              .Atom(_) => ()
+                            ),
+                          .None => ()
+                        );
+                        arm_i = (arm_i + usize(1));
+                      };
+                      match_result
+                    }
+                  )
+                }
+              )
+            },
+
+            // ---------------------------------------------------------------
+            // `while condition, body`
+            // Compile-time while loop: condition must fold to BoolVal.
+            // `while runtime(true), body` handled: runtime(...) is unwrapped.
+            // ---------------------------------------------------------------
+            (fval == "while") => {
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(raw_cond) => {
+                  match(args.get(usize(1)),
+                    .None => Option(EvalResult).None,
+                    .Some(body_expr) => {
+                      // Unwrap `runtime(cond_inner)` wrapper if present
+                      cond_expr := match(raw_cond,
+                        .FnCall(rt_func, rt_args, _, _) =>
+                          match(rt_func.*,
+                            .Atom(rttok) =>
+                              cond(
+                                (rttok.value.as_str() == "runtime") =>
+                                  match(rt_args.get(usize(0)),
+                                    .Some(inner) => inner,
+                                    .None => raw_cond
+                                  ),
+                                true => raw_cond
+                              ),
+                            .FnCall(_, _, _, _) => raw_cond
+                          ),
+                        .Atom(_) => raw_cond
+                      );
+                      (last : EvalResult) = eval_result(.UnitVal, t_unit());
+                      (keep_going : bool) = true;
+                      (iter_count : i64) = i64(0);
+                      while runtime(keep_going), {
+                        cond(
+                          (iter_count >= i64(10000)) => { keep_going = false; },
+                          true => {
+                            match(recur(cond_expr, env),
+                              .None => { keep_going = false; },
+                              .Some(cv) =>
+                                match(cv.value,
+                                  .BoolVal(b) =>
+                                    cond(
+                                      (!(b)) => { keep_going = false; },
+                                      true => {
+                                        match(recur(body_expr, env),
+                                          .None => { keep_going = false; },
+                                          .Some(bv) => { last = bv; }
+                                        );
+                                        iter_count = (iter_count + i64(1));
+                                      }
+                                    ),
+                                  _ => { keep_going = false; }
+                                )
+                            );
+                          }
+                        );
+                      };
+                      .Some(last)
+                    }
+                  )
+                }
+              )
+            },
+
             true =>
               Option(EvalResult).None
           )
@@ -257,6 +818,6 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
   )
 });
 
-export evaluate, eval_atom, eval_identifier;
+export evaluate, eval_atom, eval_identifier, parse_raw_int;
 
 

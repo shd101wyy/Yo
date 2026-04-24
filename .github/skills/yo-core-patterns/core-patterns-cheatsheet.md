@@ -241,6 +241,60 @@ println(p1.to_string());
 - Works for both structs and enums
 - Custom derives can be registered with `derive_rule`; see [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)
 
+### ⚠️ Circular derive trap: recursive enum with `ArrayList`
+
+`derive(T, Eq)` and `derive(T, Clone)` fail when any field's type requires the derived trait to be already registered:
+
+```rust
+// PROBLEM: derive expansion generates `fields_l == fields_r` (ArrayList(Node) needs
+// Eq(Node)), but Eq(Node) isn't registered yet — compile error.
+Node :: enum(Leaf, Branch(children : ArrayList(Self)));
+derive(Node, Eq);  // ← ERROR: "No matching call found for __lhs_children == __rhs_children"
+```
+
+**Fix**: skip `derive`, write a manual recursive equality function with `recur`:
+
+```rust
+node_eq :: (fn(a : Node, b : Node) -> bool)(
+  match(a,
+    .Leaf => match(b, .Leaf => true, _ => false),
+    .Branch(acs) =>
+      match(b,
+        .Branch(bcs) => {
+          cond(
+            (acs.len() != bcs.len()) => false,
+            true => {
+              (i : usize) = usize(0);
+              (ok : bool) = true;
+              while runtime(((i < acs.len()) && ok)), {
+                match(acs.get(i),
+                  .Some(ac) => match(bcs.get(i),
+                    .Some(bc) => { ok = recur(ac, bc); },
+                    .None     => { ok = false; }
+                  ),
+                  .None => { ok = false; }
+                );
+                i = (i + usize(1));
+              };
+              ok
+            }
+          )
+        },
+        _ => false
+      )
+  )
+);
+
+impl(Node, Eq(Node)(
+  (==) : (fn(a : Self, b : Self) -> bool)(node_eq(a, b))
+));
+```
+
+Same issue applies to `Clone` when fields contain `ArrayList(Self)`.
+Yo's reference counting handles shallow copies automatically (no `Clone` trait call needed);
+the `Clone` trait is only for deep cloning and has the same circularity problem.
+In practice, passing `EvalValue`-like types by value works fine without a `Clone` impl.
+
 ## Error handling
 
 ```rust

@@ -696,6 +696,32 @@ impl(forall(T : Type), where(T <: Ord(T)), ArrayList(T),
   })
 );
 
+/// Equality for ArrayList — two lists are equal if they have the same length
+/// and every pair of elements at corresponding indices is equal.
+impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T), Eq(ArrayList(T))(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    n := lhs.len();
+    cond(
+      ((!(n == rhs.len()))) => false,
+      true => {
+        (i : usize) = usize(0);
+        (equal : bool) = true;
+        while runtime(((i < n) && equal)), {
+          match(lhs.get(i),
+            .Some(a) => match(rhs.get(i),
+              .Some(b) => { equal = (a == b); },
+              .None    => { equal = false; }
+            ),
+            .None => { equal = false; }
+          );
+          i = (i + usize(1));
+        };
+        equal
+      }
+    )
+  })
+));
+
 /// Clone implementation for ArrayList — deep-clones each element.
 impl(forall(T : Type), where(T <: Clone), ArrayList(T), Clone(
   clone : (fn(self: *(Self)) -> Self)(

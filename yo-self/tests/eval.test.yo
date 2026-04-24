@@ -1,19 +1,20 @@
-/// Tests for the evaluator core — Phase 3a/3b (literals + identifier lookup +
-/// begin/cond/define/assign).
+/// Tests for the evaluator core — Phase 3a/3b/3c/3d (literals + identifier lookup +
+/// begin/cond/define/assign + arithmetic/comparison/boolean operators +
+/// enum variant construction + match + while loops).
 
 open import "std/fmt";
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_i32, t_bool, t_u32, t_f32,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult } :: import "../evaluator/value.yo";
-{ evaluate } :: import "../evaluator/eval.yo";
+{ evaluate, parse_raw_int } :: import "../evaluator/eval.yo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -535,3 +536,316 @@ test "evaluate: assign updates stored value", {
   );
 };
 
+
+// ---------------------------------------------------------------------------
+// Phase 3d helpers: build enum-variant AST nodes
+// ---------------------------------------------------------------------------
+
+/// Build the dot-token and dot-atom.
+make_dot_tok :: (fn() -> Token)(make_token(TokenKind.Dot, "."));
+make_dot_atom :: (fn() -> AstExpr)(make_atom(TokenKind.Dot, "."));
+
+/// Build a fieldless enum variant: `.None`
+/// Parsed representation: FnCall(Atom(Dot), [Atom(Identifier, "None")], is_infix=true)
+make_fieldless_variant :: (fn(name : str) -> AstExpr)(
+  .FnCall(
+    box(make_dot_atom()),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_ident(name));
+      a
+    },
+    true,
+    make_dot_tok()
+  )
+);
+
+/// Build a variant-with-args call: `.Some(arg)`
+/// Representation: FnCall(FnCall(Atom(Dot), [Atom("Some")], true), [arg], false)
+make_variant_call :: (fn(name : str, args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(
+    box(make_fieldless_variant(name)),
+    args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build a `match(scrutinee, arm1, …)` call.
+make_match :: (fn(scrutinee : AstExpr, arms : ArrayList(AstExpr)) -> AstExpr)({
+  all := ArrayList(AstExpr).new();
+  all.push(scrutinee);
+  (i : usize) = usize(0);
+  while runtime((i < arms.len())), {
+    match(arms.get(i),
+      .Some(arm) => { all.push(arm); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "match"))),
+    all,
+    false,
+    make_token(TokenKind.Identifier, "match")
+  )
+});
+
+/// Build `while condition, body`.
+make_while :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(cond_expr);
+  args.push(body_expr);
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "while"))),
+    args,
+    false,
+    make_token(TokenKind.Identifier, "while")
+  )
+});
+
+/// Build `runtime(expr)`.
+make_runtime :: (fn(inner : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(inner);
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "runtime"))),
+    args,
+    false,
+    make_token(TokenKind.Identifier, "runtime")
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3d — enum variant construction
+// ---------------------------------------------------------------------------
+
+test "evaluate: fieldless variant .None", {
+  env := empty_env();
+  expr := make_fieldless_variant("None");
+  result := evaluate(expr, &env);
+  check_some(result, ".None");
+  match(result,
+    .Some(r) => {
+      expected := EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new());
+      assert((r.value == expected), "expected EnumVal(.None)");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: variant .Some(42)", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Integer, "42"));
+  expr := make_variant_call("Some", args);
+  result := evaluate(expr, &env);
+  check_some(result, ".Some(42)");
+  match(result,
+    .Some(r) => {
+      inner := ArrayList(EvalValue).new();
+      inner.push(.IntLit(String.from("42")));
+      expected := EvalValue.EnumVal(String.from(".Some"), inner);
+      assert((r.value == expected), "expected EnumVal(.Some, [IntLit(42)])");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: variant .Ok(true)", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Bool, "true"));
+  expr := make_variant_call("Ok", args);
+  result := evaluate(expr, &env);
+  check_some(result, ".Ok(true)");
+  match(result,
+    .Some(r) => {
+      inner := ArrayList(EvalValue).new();
+      inner.push(.BoolVal(true));
+      expected := EvalValue.EnumVal(String.from(".Ok"), inner);
+      assert((r.value == expected), "expected EnumVal(.Ok, [BoolVal(true)])");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: nested variant .Some(.None)", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_fieldless_variant("None"));
+  expr := make_variant_call("Some", args);
+  result := evaluate(expr, &env);
+  check_some(result, ".Some(.None)");
+  match(result,
+    .Some(r) => {
+      inner_none_fields := ArrayList(EvalValue).new();
+      inner_none := EvalValue.EnumVal(String.from(".None"), inner_none_fields);
+      inner := ArrayList(EvalValue).new();
+      inner.push(inner_none);
+      expected := EvalValue.EnumVal(String.from(".Some"), inner);
+      assert((r.value == expected), "expected EnumVal(.Some, [EnumVal(.None)])");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3d — match expressions
+// ---------------------------------------------------------------------------
+
+test "evaluate: match fieldless variant", {
+  env := empty_env();
+  // match(.None, .None => 1, .Some(_) => 2)
+  scrutinee := make_fieldless_variant("None");
+  arm1 := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, "1"));
+  arm2_pat_args := ArrayList(AstExpr).new();
+  arm2_pat_args.push(make_ident("_"));
+  arm2 := make_arm(make_variant_call("Some", arm2_pat_args), make_atom(TokenKind.Integer, "2"));
+  arms := ArrayList(AstExpr).new();
+  arms.push(arm1);
+  arms.push(arm2);
+  expr := make_match(scrutinee, arms);
+  result := evaluate(expr, &env);
+  check_some(result, "match .None");
+  match(result,
+    .Some(r) =>
+      assert((r.value == EvalValue.IntLit(String.from("1"))), "expected arm1 body"),
+    .None => ()
+  );
+};
+
+test "evaluate: match .Some(x) binds variable", {
+  env := empty_env();
+  // match(.Some(42), .None => 0, .Some(x) => x)
+  scrutinee_args := ArrayList(AstExpr).new();
+  scrutinee_args.push(make_atom(TokenKind.Integer, "42"));
+  scrutinee := make_variant_call("Some", scrutinee_args);
+
+  arm_none := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, "0"));
+  arm_some_pat_args := ArrayList(AstExpr).new();
+  arm_some_pat_args.push(make_ident("x"));
+  arm_some := make_arm(make_variant_call("Some", arm_some_pat_args), make_ident("x"));
+  arms := ArrayList(AstExpr).new();
+  arms.push(arm_none);
+  arms.push(arm_some);
+  expr := make_match(scrutinee, arms);
+  result := evaluate(expr, &env);
+  check_some(result, "match .Some binds x");
+  match(result,
+    .Some(r) =>
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected bound x = 42"),
+    .None => ()
+  );
+};
+
+test "evaluate: match wildcard arm", {
+  env := empty_env();
+  // match(.None, _ => 99)
+  scrutinee := make_fieldless_variant("None");
+  arm_wild := make_arm(make_ident("_"), make_atom(TokenKind.Integer, "99"));
+  arms := ArrayList(AstExpr).new();
+  arms.push(arm_wild);
+  expr := make_match(scrutinee, arms);
+  result := evaluate(expr, &env);
+  check_some(result, "wildcard match");
+  match(result,
+    .Some(r) =>
+      assert((r.value == EvalValue.IntLit(String.from("99"))), "expected 99 from wildcard"),
+    .None => ()
+  );
+};
+
+test "evaluate: match variable binding whole scrutinee", {
+  env := empty_env();
+  // match(.None, v => v)  — binds whole scrutinee to v
+  scrutinee := make_fieldless_variant("None");
+  arm_v := make_arm(make_ident("v"), make_ident("v"));
+  arms := ArrayList(AstExpr).new();
+  arms.push(arm_v);
+  expr := make_match(scrutinee, arms);
+  result := evaluate(expr, &env);
+  check_some(result, "var-bind match");
+  match(result,
+    .Some(r) => {
+      expected := EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new());
+      assert((r.value == expected), "expected bound v = .None");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: match arm scope isolated", {
+  outer_env := Environment.new(`test`);
+  // match(.Some(7), .Some(x) => x);  x should not leak outside
+  scrutinee_args := ArrayList(AstExpr).new();
+  scrutinee_args.push(make_atom(TokenKind.Integer, "7"));
+  scrutinee := make_variant_call("Some", scrutinee_args);
+  arm_pat_args := ArrayList(AstExpr).new();
+  arm_pat_args.push(make_ident("x"));
+  arm := make_arm(make_variant_call("Some", arm_pat_args), make_ident("x"));
+  arms := ArrayList(AstExpr).new();
+  arms.push(arm);
+  expr := make_match(scrutinee, arms);
+  _r := evaluate(expr, &outer_env);
+  // x should not exist outside the match arm
+  x_lookup := evaluate(make_ident("x"), &outer_env);
+  check_none(x_lookup, "x should not leak out of match arm scope");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3d — while loops
+// ---------------------------------------------------------------------------
+
+test "evaluate: while false never executes", {
+  env := empty_env();
+  // while false, 42  → unit (condition false on first check)
+  expr := make_while(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "42"));
+  result := evaluate(expr, &env);
+  check_some(result, "while false");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "expected UnitVal from while false"),
+    .None => ()
+  );
+};
+
+test "evaluate: while loop runs to completion", {
+  env := Environment.new(`test`);
+  // n := 3; while n > 0, { n = n - 1 }
+  define_e := make_infix(":=", make_ident("n"), make_atom(TokenKind.Integer, "3"));
+  _d := evaluate(define_e, &env);
+  cond_e := make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0"));
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(make_infix("=", make_ident("n"), make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1"))));
+  body_e := make_begin(body_stmts);
+  expr := make_while(cond_e, body_e);
+  result := evaluate(expr, &env);
+  check_some(result, "while runs");
+  // n should be 0 after loop
+  n_lookup := evaluate(make_ident("n"), &env);
+  check_some(n_lookup, "n after while");
+  match(n_lookup,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "n should be 0"),
+    .None => ()
+  );
+};
+
+test "evaluate: while with runtime(...) wrapper", {
+  env := Environment.new(`test`);
+  // n := 2; while runtime(n > 0), { n = n - 1 }
+  define_e := make_infix(":=", make_ident("n"), make_atom(TokenKind.Integer, "2"));
+  _d := evaluate(define_e, &env);
+  raw_cond := make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0"));
+  wrapped_cond := make_runtime(raw_cond);
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(make_infix("=", make_ident("n"), make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1"))));
+  body_e := make_begin(body_stmts);
+  expr := make_while(wrapped_cond, body_e);
+  result := evaluate(expr, &env);
+  check_some(result, "while runtime runs");
+  n_lookup := evaluate(make_ident("n"), &env);
+  match(n_lookup,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "n should be 0 after while runtime"),
+    .None => ()
+  );
+};

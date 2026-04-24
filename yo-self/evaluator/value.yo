@@ -6,6 +6,7 @@
 //! value at compile time — they mirror `UnknownValue` from the TS evaluator.
 
 open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
 { TypeValue } :: import "../types/type.yo";
 
 /// The compile-time representation of an evaluated expression.
@@ -37,10 +38,71 @@ EvalValue :: enum(
   /// Runtime variable reference: type is known from the environment, but the
   /// value is only available at runtime.  Mirrors `UnknownValue` in the TS
   /// evaluator for non-comptime bindings.
-  VarRef(name : String)
+  VarRef(name : String),
+
+  /// A compile-time known enum variant value.
+  ///
+  /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
+  /// `fields` holds the evaluated values of the constructor arguments in
+  /// declaration order (positional).
+  EnumVal(variant : String, fields : ArrayList(Self))
 );
 
-derive(EvalValue, Eq(EvalValue), Clone);
+/// Element-wise equality for `EvalValue`.
+///
+/// Implemented manually (not via `derive`) because `derive(EvalValue, Eq)` would
+/// need `ArrayList(EvalValue) <: Eq(ArrayList(EvalValue))` which in turn needs
+/// `EvalValue <: Eq(EvalValue)` — a circularity at derive-expansion time.
+///
+/// By writing the function with `recur` for the `EnumVal` case we break the
+/// cycle: the `Eq(ArrayList(EvalValue))` impl is only exercised at call time,
+/// after both impls are registered.
+eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
+  match(a,
+    .UnitVal =>
+      match(b, .UnitVal => true, _ => false),
+    .BoolVal(ab) =>
+      match(b, .BoolVal(bb) => (ab == bb), _ => false),
+    .IntLit(ar) =>
+      match(b, .IntLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .FloatLit(ar) =>
+      match(b, .FloatLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .StrLit(ar) =>
+      match(b, .StrLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .VarRef(an) =>
+      match(b, .VarRef(bn) => (an.as_str() == bn.as_str()), _ => false),
+    .EnumVal(av, afs) =>
+      match(b,
+        .EnumVal(bv, bfs) =>
+          cond(
+            (!(av.as_str() == bv.as_str())) => false,
+            (afs.len() != bfs.len()) => false,
+            true => {
+              n := afs.len();
+              (i : usize) = usize(0);
+              (ok : bool) = true;
+              while runtime(((i < n) && ok)), {
+                match(afs.get(i),
+                  .Some(af) =>
+                    match(bfs.get(i),
+                      .Some(bf) => { ok = recur(af, bf); },
+                      .None     => { ok = false; }
+                    ),
+                  .None => { ok = false; }
+                );
+                i = (i + usize(1));
+              };
+              ok
+            }
+          ),
+        _ => false
+      )
+  )
+);
+
+impl(EvalValue, Eq(EvalValue)(
+  (==) : (fn(a : Self, b : Self) -> bool)(eval_value_eq(a, b))
+));
 
 /// The result of evaluating a single `AstExpr` node.
 EvalResult :: object(
