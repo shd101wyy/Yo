@@ -7,18 +7,17 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ## Status
 
 ✅ **Phase 1 complete.** Lexer and parser are ported and tested.
-✅ **Phase 2a complete.** Type system foundations and environment are ported and tested.
-✅ **Phase 2b complete.** Compound types (Func, TraitT, ModuleT, SomeT), substitution engine, and extended compatibility/stringification are ported and tested.
-✅ **Phase 2c complete.** Literal type-of pass over parsed AST is implemented and tested.
+✅ **Phase 2 complete.** Type system (all variants), environment, substitution engine, and literal type-of pass are ported and tested.
+🚧 **Phase 3a/3b in progress.** Evaluator core dispatch + literal/identifier evaluation implemented and tested.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass; 12 tests passing
+- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types; `evaluate` core dispatch (literals + identifiers) (Phase 3a/3b); 25 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Total: 128 tests passing** under `yo-self/tests/`
+- **Total: 141 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -52,6 +51,8 @@ yo-self/
     env.yo            -- Variable, Frame, Environment (mirrors src/env.ts)
   evaluator/
     type_of.yo        -- literal type-of pass (mirrors src/evaluator/exprs/atoms.ts)
+    value.yo          -- EvalValue enum + EvalResult object (Phase 3a)
+    eval.yo           -- evaluate() dispatch: literals + identifier lookup (Phase 3b)
     ...
   codegen/            -- (Phase 4+)
     ...
@@ -62,6 +63,7 @@ yo-self/
     types_compound.test.yo       -- 29 compound type + substitution tests
     env.test.yo       -- 3 environment tests
     type_of.test.yo   -- 12 literal type-of tests
+    eval.test.yo      -- 13 evaluator core tests (Phase 3a/3b)
     circular_smoke.test.yo       -- 3 circular-import validation tests
 ```
 

@@ -1,0 +1,58 @@
+//! EvalValue and EvalResult — core value types for the self-hosted evaluator.
+//!
+//! Phase 3a defines the value representation.  Numeric literals store their
+//! raw token text (actual parsing / CTFE is Phase 3h scope).  Variable
+//! references carry the bound type from the environment but have no computed
+//! value at compile time — they mirror `UnknownValue` from the TS evaluator.
+
+open import "std/string";
+{ TypeValue } :: import "../types/type.yo";
+
+/// The compile-time representation of an evaluated expression.
+///
+/// - Literal variants (`BoolVal`, `IntLit`, `FloatLit`, `StrLit`) hold the
+///   actual data for constants that can be folded at compile time.
+/// - `VarRef` represents a runtime variable reference: the type is known from
+///   the environment, but the runtime value is unknown at compile time.
+/// - `UnitVal` is the value of the `()` unit expression.
+EvalValue :: enum(
+  /// The unit `()` value.
+  UnitVal,
+
+  /// Boolean constant from a `true`/`false` literal.
+  BoolVal(b : bool),
+
+  /// Integer or char literal — raw token text, e.g. `"42"`, `"0xFF"`, `"'a'"`.
+  /// Full parsing (CTFE numeric evaluation) is deferred to Phase 3h.
+  IntLit(raw : String),
+
+  /// Float literal — raw token text, e.g. `"3.14"`.
+  FloatLit(raw : String),
+
+  /// String or template-string literal — raw token text.
+  /// For StringLit tokens the value includes surrounding `"` delimiters.
+  /// For TemplateString tokens the delimiters are stripped by the lexer.
+  StrLit(raw : String),
+
+  /// Runtime variable reference: type is known from the environment, but the
+  /// value is only available at runtime.  Mirrors `UnknownValue` in the TS
+  /// evaluator for non-comptime bindings.
+  VarRef(name : String)
+);
+
+derive(EvalValue, Eq(EvalValue), Clone);
+
+/// The result of evaluating a single `AstExpr` node.
+EvalResult :: object(
+  /// The evaluated value (or a runtime reference marker).
+  value : EvalValue,
+  /// The compile-time type of the expression.
+  ty    : TypeValue
+);
+
+/// Construct an `EvalResult` with the given value and type.
+eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
+  EvalResult(value: value, ty: ty)
+);
+
+export EvalValue, EvalResult, eval_result;

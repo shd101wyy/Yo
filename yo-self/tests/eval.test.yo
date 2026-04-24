@@ -1,0 +1,537 @@
+/// Tests for the evaluator core — Phase 3a/3b (literals + identifier lookup +
+/// begin/cond/define/assign).
+
+open import "std/fmt";
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ TokenKind, Token } :: import "../lexer/token.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE } :: import "../expr/expr.yo";
+{ TypeValue, type_value_tag,
+  t_i32, t_bool, t_u32, t_f32,
+  t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
+{ TypeTag } :: import "../types/tags.yo";
+{ Environment } :: import "../env/env.yo";
+{ EvalValue, EvalResult } :: import "../evaluator/value.yo";
+{ evaluate } :: import "../evaluator/eval.yo";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+make_token :: (fn(kind : TokenKind, value : str) -> Token)(
+  Token(
+    kind:        kind,
+    value:       String.from(value),
+    row:         usize(0),
+    column:      usize(0),
+    character:   usize(0),
+    module_path: String.from(""),
+    input:       String.from("")
+  )
+);
+
+make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
+  .Atom(make_token(kind, value))
+);
+
+make_ident :: (fn(name : str) -> AstExpr)(
+  make_atom(TokenKind.Identifier, name)
+);
+
+make_infix :: (fn(op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, op))),
+    {
+      args := ArrayList(AstExpr).new();
+      args.push(lhs);
+      args.push(rhs);
+      args
+    },
+    true,
+    make_token(TokenKind.Operator, op)
+  )
+);
+
+/// Build a begin-block `{ stmts… }` from an ArrayList of statements.
+make_begin :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, BK_BEGIN))),
+    stmts,
+    false,
+    make_token(TokenKind.Identifier, BK_BEGIN)
+  )
+);
+
+/// Build the unit expression `()`.
+make_unit :: (fn() -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, BK_TUPLE))),
+    ArrayList(AstExpr).new(),
+    false,
+    make_token(TokenKind.Identifier, BK_TUPLE)
+  )
+);
+
+/// Build a cond arm `condition => body` (infix =>).
+make_arm :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, "=>"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(cond_expr);
+      a.push(body_expr);
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, "=>")
+  )
+);
+
+/// Build `cond(arm1, arm2, …)`.
+make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "cond"))),
+    arms,
+    false,
+    make_token(TokenKind.Identifier, "cond")
+  )
+);
+
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+check_some :: (fn(result : Option(EvalResult), label : str) -> unit)(
+  match(result,
+    .Some(_) => (),
+    .None => {
+      println(`FAIL [${label}]: expected Some, got None`);
+      assert(false, label);
+    }
+  )
+);
+
+check_none :: (fn(result : Option(EvalResult), label : str) -> unit)(
+  match(result,
+    .Some(_) => {
+      println(`FAIL [${label}]: expected None, got Some`);
+      assert(false, label);
+    },
+    .None => ()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Bool literals
+// ---------------------------------------------------------------------------
+
+test "evaluate: bool literal true", {
+  e := make_atom(TokenKind.Bool, "true");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "bool true");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(true)), "expected BoolVal(true)");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: bool literal false", {
+  e := make_atom(TokenKind.Bool, "false");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "bool false");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(false)), "expected BoolVal(false)");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Integer literals
+// ---------------------------------------------------------------------------
+
+test "evaluate: integer literal", {
+  e := make_atom(TokenKind.Integer, "42");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "integer 42");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: integer zero", {
+  e := make_atom(TokenKind.Integer, "0");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "integer 0");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Float literals
+// ---------------------------------------------------------------------------
+
+test "evaluate: float literal", {
+  e := make_atom(TokenKind.Float, "3.14");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "float 3.14");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.FloatLit(String.from("3.14"))), "expected FloatLit(3.14)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeFloat), "expected TComptimeFloat");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// String literals
+// ---------------------------------------------------------------------------
+
+test "evaluate: string literal type", {
+  e := make_atom(TokenKind.StringLit, "hello");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "string lit");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .StrLit(_) => (),
+        _ => {
+          println(`FAIL: expected StrLit variant`);
+          assert(false, "expected StrLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: template string type", {
+  e := make_atom(TokenKind.TemplateString, "hello");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "template str");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .StrLit(_) => (),
+        _ => {
+          println(`FAIL: expected StrLit variant for template string`);
+          assert(false, "expected StrLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Char literals
+// ---------------------------------------------------------------------------
+
+test "evaluate: char literal type", {
+  e := make_atom(TokenKind.CharLit, "a");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "char lit");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .IntLit(_) => (),
+        _ => {
+          println(`FAIL: expected IntLit for char literal`);
+          assert(false, "expected IntLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TU32), "expected TU32 (rune)");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Identifier lookup
+// ---------------------------------------------------------------------------
+
+test "evaluate: identifier found — returns VarRef when no value stored", {
+  env := Environment.new(`test`);
+  _d := env.define(`x`, t_i32(), false);
+  e := make_atom(TokenKind.Identifier, "x");
+  result := evaluate(e, &env);
+  check_some(result, "identifier x");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.VarRef(String.from("x"))), "expected VarRef(x)");
+      assert((type_value_tag(r.ty) == TypeTag.TI32), "expected TI32");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: identifier found — returns stored comptime value", {
+  env := Environment.new(`test`);
+  _d := env.define_val(`n`, t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("7"))));
+  e := make_atom(TokenKind.Identifier, "n");
+  result := evaluate(e, &env);
+  check_some(result, "identifier n with value");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("7"))), "expected IntLit(7)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: identifier not found → None", {
+  env := empty_env();
+  e := make_atom(TokenKind.Identifier, "unknown");
+  check_none(evaluate(e, &env), "unknown identifier");
+};
+
+test "evaluate: identifier in nested frame", {
+  env := Environment.new(`test`);
+  _d0 := env.define(`outer`, t_bool(), false);
+  _pushed := env.push_frame(true);
+  _d1 := env.define(`inner`, t_f32(), false);
+  e_outer := make_atom(TokenKind.Identifier, "outer");
+  e_inner := make_atom(TokenKind.Identifier, "inner");
+  match(evaluate(e_outer, &env),
+    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TBool), "outer type"),
+    .None => assert(false, "outer must be found")
+  );
+  match(evaluate(e_inner, &env),
+    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TF32), "inner type"),
+    .None => assert(false, "inner must be found")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Non-literal / unsupported atoms → None
+// ---------------------------------------------------------------------------
+
+test "evaluate: operator atom → None", {
+  e := make_atom(TokenKind.Operator, "+");
+  env := empty_env();
+  check_none(evaluate(e, &env), "operator atom");
+};
+
+test "evaluate: fn call (unknown fn) → None", {
+  (e : AstExpr) = .FnCall(
+    box(make_ident("foo")),
+    ArrayList(AstExpr).new(),
+    false,
+    make_token(TokenKind.Identifier, "foo")
+  );
+  env := empty_env();
+  check_none(evaluate(e, &env), "fn call");
+};
+
+// ---------------------------------------------------------------------------
+// Unit expression
+// ---------------------------------------------------------------------------
+
+test "evaluate: unit expression ()", {
+  e := make_unit();
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "unit expr");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
+      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Begin blocks
+// ---------------------------------------------------------------------------
+
+test "evaluate: empty begin block → unit", {
+  e := make_begin(ArrayList(AstExpr).new());
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "empty begin");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
+      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block returns last stmt value", {
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_atom(TokenKind.Integer, "1"));
+  stmts.push(make_atom(TokenKind.Integer, "2"));
+  stmts.push(make_atom(TokenKind.Integer, "42"));
+  e := make_begin(stmts);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "begin last value");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block with define then lookup", {
+  // { x := 99; x }
+  define_stmt := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "99"));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(define_stmt);
+  stmts.push(make_ident("x"));
+  e := make_begin(stmts);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "begin define+lookup");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("99"))), "expected IntLit(99)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block scope is isolated from outer env", {
+  env := Environment.new(`test`);
+  define_stmt := make_infix(":=", make_ident("tmp"), make_atom(TokenKind.Integer, "5"));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(define_stmt);
+  e := make_begin(stmts);
+  _r := evaluate(e, &env);
+  // after the begin block, 'tmp' should NOT be visible in the outer env
+  lookup_result := evaluate(make_ident("tmp"), &env);
+  check_none(lookup_result, "tmp not visible outside begin");
+};
+
+// ---------------------------------------------------------------------------
+// cond expression
+// ---------------------------------------------------------------------------
+
+test "evaluate: cond — first true arm wins", {
+  // cond(true => 1, true => 2)  →  1
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  e := make_cond(arms);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "cond first true");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("1"))), "expected 1"),
+    .None => ()
+  );
+};
+
+test "evaluate: cond — false arm skipped", {
+  // cond(false => 1, true => 2)  →  2
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  e := make_cond(arms);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "cond skip false");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "expected 2"),
+    .None => ()
+  );
+};
+
+test "evaluate: cond — no arm matches → None", {
+  // cond(false => 1)  →  None (no default arm)
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
+  e := make_cond(arms);
+  env := empty_env();
+  check_none(evaluate(e, &env), "cond no match");
+};
+
+// ---------------------------------------------------------------------------
+// Variable define (:=)
+// ---------------------------------------------------------------------------
+
+test "evaluate: define stores value in env", {
+  env := Environment.new(`test`);
+  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
+  result := evaluate(define_e, &env);
+  check_some(result, "define result");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "define returns unit"),
+    .None => ()
+  );
+  // now lookup x
+  lookup := evaluate(make_ident("x"), &env);
+  check_some(lookup, "lookup after define");
+  match(lookup,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("10"))), "x should be 10");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: define bool variable", {
+  env := Environment.new(`test`);
+  define_e := make_infix(":=", make_ident("flag"), make_atom(TokenKind.Bool, "true"));
+  _r := evaluate(define_e, &env);
+  lookup := evaluate(make_ident("flag"), &env);
+  check_some(lookup, "flag lookup");
+  match(lookup,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(true)), "flag should be true");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "flag type TBool");
+    },
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Variable assign (=)
+// ---------------------------------------------------------------------------
+
+test "evaluate: assign updates stored value", {
+  env := Environment.new(`test`);
+  // x := 1
+  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "1"));
+  _d := evaluate(define_e, &env);
+  // x = 2
+  assign_e := make_infix("=", make_ident("x"), make_atom(TokenKind.Integer, "2"));
+  result := evaluate(assign_e, &env);
+  check_some(result, "assign result");
+  // check x is now 2
+  lookup := evaluate(make_ident("x"), &env);
+  check_some(lookup, "lookup after assign");
+  match(lookup,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "x should be 2"),
+    .None => ()
+  );
+};
+

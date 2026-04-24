@@ -1,0 +1,262 @@
+//! Core evaluator dispatch — Phase 3a + 3b.
+//!
+//! `evaluate` is the main entry point. It handles:
+//!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
+//!   - Identifier atoms (returns stored compile-time value when available,
+//!     otherwise a `VarRef` carrying the variable's type)
+//!   - Unit expression `()`
+//!   - Begin blocks `{ stmts… }`
+//!   - `cond(cond1 => body1, …)` conditional expressions
+//!   - Variable define `name := expr`
+//!   - Variable assign  `name = expr`
+//!
+//! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
+//! This avoids mutual-recursion ordering issues: helpers that recurse back into
+//! the evaluator are inlined inside the single `evaluate` fn body.
+//!
+//! All other expression forms return `None`; they are covered by later phases.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ TokenKind, Token } :: import "../lexer/token.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE } :: import "../expr/expr.yo";
+{ TypeValue, t_unit, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string }
+  :: import "../types/type.yo";
+{ Environment } :: import "../env/env.yo";
+{ EvalValue, EvalResult, eval_result } :: import "./value.yo";
+
+// ---------------------------------------------------------------------------
+// Helpers (must precede evaluate — no back-references to evaluate)
+// ---------------------------------------------------------------------------
+
+/// True when the evaluated value should be treated as compile-time-only.
+value_is_comptime :: (fn(v : EvalValue) -> bool)(
+  match(v,
+    .UnitVal    => true,
+    .BoolVal(_) => true,
+    .IntLit(_)  => true,
+    .FloatLit(_ )=> true,
+    .StrLit(_)  => true,
+    .VarRef(_)  => false
+  )
+);
+
+/// Look up an identifier in the environment. Returns the stored compile-time
+/// value when available; otherwise a `VarRef` carrying the variable's type.
+/// Returns `None` if the name is unbound.
+eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
+  match((env.*).lookup(tok.value),
+    .Some(var) =>
+      match(var.value,
+        .Some(v)  => .Some(eval_result(v, var.ty)),
+        .None     => .Some(eval_result(.VarRef(tok.value), var.ty))
+      ),
+    .None =>
+      Option(EvalResult).None
+  )
+);
+
+/// Evaluate a single-token `Atom` expression (does not recurse into evaluate).
+eval_atom :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
+  cond(
+    (tok.kind == TokenKind.Bool) => {
+      b := (tok.value.as_str() == "true");
+      .Some(eval_result(.BoolVal(b), t_bool()))
+    },
+    (tok.kind == TokenKind.Integer) =>
+      .Some(eval_result(.IntLit(tok.value), t_comptime_int())),
+    (tok.kind == TokenKind.Float) =>
+      .Some(eval_result(.FloatLit(tok.value), t_comptime_float())),
+    (tok.kind == TokenKind.StringLit) =>
+      .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
+    (tok.kind == TokenKind.TemplateString) =>
+      .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
+    (tok.kind == TokenKind.CharLit) =>
+      .Some(eval_result(.IntLit(tok.value), t_u32())),
+    (tok.kind == TokenKind.Identifier) =>
+      eval_identifier(tok, env),
+    true =>
+      Option(EvalResult).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Main evaluator — Phase 3b forms are inlined so `recur` can be used for
+// recursive evaluation without forward-reference issues.
+// ---------------------------------------------------------------------------
+
+/// Evaluate a single `AstExpr` node in the given environment.
+///
+/// Returns `None` for expression forms not yet handled (Phase 3c+ scope).
+evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
+  match(e,
+    .Atom(tok) =>
+      eval_atom(tok, env),
+
+    .FnCall(func_box, args, is_infix, _tok) =>
+      match(func_box.*,
+        .FnCall(_, _, _, _) => Option(EvalResult).None,
+        .Atom(ftok) => {
+          fval := ftok.value.as_str();
+          cond(
+            // -----------------------------------------------------------------
+            // Unit expression: ()
+            // -----------------------------------------------------------------
+            ((fval == BK_TUPLE) && (args.len() == usize(0))) =>
+              .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Begin block: { stmt1; stmt2; … }
+            // -----------------------------------------------------------------
+            (fval == BK_BEGIN) => {
+              n := args.len();
+              cond(
+                (n == usize(0)) =>
+                  .Some(eval_result(.UnitVal, t_unit())),
+                true => {
+                  _p := env.push_frame(true);
+                  (last : Option(EvalResult)) = .Some(eval_result(.UnitVal, t_unit()));
+                  (i : usize) = usize(0);
+                  (had_error : bool) = false;
+                  while runtime(((i < n) && !(had_error))), {
+                    match(args.get(i),
+                      .Some(stmt) =>
+                        match(recur(stmt, env),
+                          .Some(r) => { last = .Some(r); },
+                          .None    => { had_error = true; }
+                        ),
+                      .None => ()
+                    );
+                    i = (i + usize(1));
+                  };
+                  env.pop_frame();
+                  cond(
+                    had_error => Option(EvalResult).None,
+                    true      => last
+                  )
+                }
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // cond(arm1, arm2, …)  where each arm is `cond_expr => body_expr`
+            // -----------------------------------------------------------------
+            (fval == "cond") => {
+              n := args.len();
+              (result : Option(EvalResult)) = Option(EvalResult).None;
+              (i : usize) = usize(0);
+              while runtime((i < n)), {
+                match(args.get(i),
+                  .Some(arm) =>
+                    match(arm,
+                      .FnCall(_, arm_args, _, _) =>
+                        match(arm_args.get(usize(0)),
+                          .Some(cond_expr) =>
+                            match(recur(cond_expr, env),
+                              .Some(cond_res) =>
+                                match(cond_res.value,
+                                  .BoolVal(b) =>
+                                    cond(
+                                      b => {
+                                        match(arm_args.get(usize(1)),
+                                          .Some(body_expr) => {
+                                            result = recur(body_expr, env);
+                                            i = n;
+                                          },
+                                          .None => { i = n; }
+                                        )
+                                      },
+                                      true => ()
+                                    ),
+                                  _ => ()
+                                ),
+                              .None => ()
+                            ),
+                          .None => ()
+                        ),
+                      .Atom(_) => ()
+                    ),
+                  .None => ()
+                );
+                i = (i + usize(1));
+              };
+              result
+            },
+
+            // -----------------------------------------------------------------
+            // Variable define: name := expr
+            // -----------------------------------------------------------------
+            (is_infix && (fval == ":=")) =>
+              cond(
+                (args.len() < usize(2)) => Option(EvalResult).None,
+                true =>
+                  match(args.get(usize(0)),
+                    .Some(lhs) =>
+                      match(args.get(usize(1)),
+                        .Some(rhs) =>
+                          match(lhs,
+                            .Atom(name_tok) =>
+                              match(recur(rhs, env),
+                                .Some(rhs_res) => {
+                                  is_ct := value_is_comptime(rhs_res.value);
+                                  _idx := env.define_val(
+                                    name_tok.value,
+                                    rhs_res.ty,
+                                    is_ct,
+                                    .Some(rhs_res.value)
+                                  );
+                                  .Some(eval_result(.UnitVal, t_unit()))
+                                },
+                                .None => Option(EvalResult).None
+                              ),
+                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                          ),
+                        .None => Option(EvalResult).None
+                      ),
+                    .None => Option(EvalResult).None
+                  )
+              ),
+
+            // -----------------------------------------------------------------
+            // Variable assign: name = expr
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "=")) =>
+              cond(
+                (args.len() < usize(2)) => Option(EvalResult).None,
+                true =>
+                  match(args.get(usize(0)),
+                    .Some(lhs) =>
+                      match(args.get(usize(1)),
+                        .Some(rhs) =>
+                          match(lhs,
+                            .Atom(name_tok) =>
+                              match(recur(rhs, env),
+                                .Some(rhs_res) => {
+                                  _found := env.set_value(
+                                    name_tok.value,
+                                    rhs_res.value
+                                  );
+                                  .Some(eval_result(.UnitVal, t_unit()))
+                                },
+                                .None => Option(EvalResult).None
+                              ),
+                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                          ),
+                        .None => Option(EvalResult).None
+                      ),
+                    .None => Option(EvalResult).None
+                  )
+              ),
+
+            true =>
+              Option(EvalResult).None
+          )
+        }
+      )
+  )
+});
+
+export evaluate, eval_atom, eval_identifier;
+
+

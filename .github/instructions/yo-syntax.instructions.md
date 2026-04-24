@@ -604,6 +604,36 @@ ptr.* = i32(100);            // also works
 - `list.get(i)` returns `Option(T)` for safe bounds-checked access
 - Out-of-bounds access via `list(i)` panics at runtime
 
+## Module-level declarations are processed in order
+
+`::` definitions at the top level are evaluated sequentially. A function body that calls another top-level function declared later in the same file will fail with **"Variable not found"** at module load time.
+
+Always define helper functions **before** the callers (bottom-up order):
+
+```rust
+// WRONG — evaluate references eval_atom which is not yet defined:
+evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
+  match(e,
+    .Atom(tok) => eval_atom(tok, env),  // ERROR: Variable "eval_atom" not found
+    _ => .None
+  )
+);
+
+eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
+
+// CORRECT — define leaves first, callers last:
+eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
+
+evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
+  match(e,
+    .Atom(tok) => eval_atom(tok, env),  // OK
+    _ => .None
+  )
+);
+```
+
+**Exception**: methods inside the same `impl(...)` block **do** support forward references — a method declared earlier can call one declared later within the same block.
+
 ## Named constructor arguments are required for `struct`/`object` types
 
 When constructing a `struct(...)` or `object(...)` value, always use named field syntax:
