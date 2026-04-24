@@ -272,7 +272,7 @@ The largest and most complex phase (~56K lines). Break into sub-phases:
 **3g. Typed declarations and string comparison** ✅ Done — `(x : T) = rhs` typed declarations, string `==`/`!=` comparison.
 **3h. Struct construction and field access** ✅ Done — `TypeName(field: val…)` → `StructVal`, `obj.field` field access, self-hosted-parser format for enum variants with fields.
 **3i. Lexical closure capture** ✅ Done — `FuncVal` now snapshots all visible bindings at definition time; call sites rebuild a fresh env from captures so nested functions see the correct lexical scope.
-**3j. Trait resolution** — impl lookup, method dispatch, where-clause matching
+**3j. impl + method dispatch** ✅ Done — `impl(TypeName, method: fn_def, …)` registers `TypeName.method` qualified bindings; `recv.method(args)` dispatch looks up by qualified name then falls back to bare name. Stack-frame overhead managed via module-level helper functions and a `g_eval_fn` slot to break the forward-reference cycle.
 **3k. Generic specialization** — monomorphization, SomeType resolution
 **3l. Compile-time evaluation (CTFE)** — constant folding, comptime execution
 **3m. Module system** — imports, exports, open imports
