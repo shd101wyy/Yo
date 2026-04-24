@@ -161,6 +161,11 @@ function isMatchablePrimitiveType(type: Type): boolean {
 /**
  * Evaluate a `match` expression.
  *
+ * **Ownership**: `match` does NOT consume the scrutinee. The original variable
+ * remains live and accessible both inside the arm body and after the match
+ * expression. Only the extracted destructuring variables (e.g., `w`, `h` from
+ * `.Rectangle(w, h)`) are new bindings scoped to that arm.
+ *
  * Supported scrutinee types:
  *   - Enum types (with variant patterns, optional destructuring, GADT refinement)
  *   - Primitive types (i*, u*, f*, bool, comptime_int/float/string) — see

@@ -7,14 +7,16 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ## Status
 
 ✅ **Phase 1 complete.** Lexer and parser are ported and tested.
-🔨 **Phase 2a complete.** Type system and environment are ported and tested.
+✅ **Phase 2a complete.** Type system foundations and environment are ported and tested.
+✅ **Phase 2b complete.** Compound types (Func, TraitT, ModuleT, SomeT), substitution engine, and extended compatibility/stringification are ported and tested.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
-- **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue`, `type_to_string`, `are_types_compatible`; 6 tests passing
+- **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Total: 84 tests passing** under `yo-self/tests/`
+- **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
+- **Total: 116 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -43,6 +45,7 @@ yo-self/
     type.yo           -- TypeValue enum + constructors (mirrors src/types/*.ts)
     string.yo         -- type_to_string (mirrors src/types/strings.ts)
     compatibility.yo  -- are_types_compatible (mirrors src/types/compatibility.ts)
+    substitution.yo   -- Substitution engine (subst_new/add/lookup/substitute)
   env/
     env.yo            -- Variable, Frame, Environment (mirrors src/env.ts)
   evaluator/          -- (Phase 2b+)
@@ -52,8 +55,10 @@ yo-self/
   tests/
     lexer.test.yo     -- 33 lexer tests
     parser.test.yo    -- 36 parser tests
-    types_string_compat.test.yo  -- 6 type system tests
+    types_string_compat.test.yo  -- 6 type system foundation tests
+    types_compound.test.yo       -- 29 compound type + substitution tests
     env.test.yo       -- 3 environment tests
+    circular_smoke.test.yo       -- 3 circular-import validation tests
 ```
 
 ## Phases

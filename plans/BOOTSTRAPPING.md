@@ -243,11 +243,15 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 - `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame` (`yo-self/env/env.yo`)
 - **Total: 84 tests passing** (69 Phase 1 + 9 Phase 2a + 6 carry-over type tests)
 
-**2b. Remaining type variants** (function types, struct types, enum types, trait types, SomeType, effects) — 🔲 Planned
+**2b. Remaining type variants** (function types, struct types, enum types, trait types, SomeType, effects) ✅ Done — 116 tests total
 
-- Extend `TypeValue` with all remaining variants from `src/types/*.ts`
-- Full `areTypesCompatible` covering function signatures, trait constraints, generics
-- Type substitution and normalization utilities
+- Extended `TypeValue` with compound variants: `Func` (9 fields: forall vars, params, implicit params, where-clauses, result), `TraitT` (4 fields), `ModuleT` (3 fields), `SomeT` (6 fields) (`yo-self/types/type.yo`)
+- Constructors: `t_func_simple`, `t_trait`, `t_trait_simple`, `t_module`, `t_module_simple`, `t_some_t`
+- Predicates: `is_function_type`, `is_trait_type`, `is_module_type`, `is_some_type`
+- Extended `type_to_string` and `are_types_compatible` for all new variants
+- `Substitution` engine: parallel-array map; `subst_new`/`subst_add`/`subst_lookup`/`substitute`/`substitute_all` (`yo-self/types/substitution.yo`)
+- Validated circular-import mechanism via `yo-self/tests/circular_smoke.test.yo` (3 tests)
+- **Total: 116 tests passing** (84 Phase 2a + 29 compound/substitution + 3 circular smoke)
 
 **Validation milestone**: Resolve types for simple Yo programs (literal types, function types, struct types).
 

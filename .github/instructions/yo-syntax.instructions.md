@@ -230,7 +230,7 @@ err1 :
 
 ## Unary operators need parentheses around their operand
 
-Unary operators like `!` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
+Unary operators like `!`, `&`, and `-` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
 
 ```rust
 // WRONG — `!` captures `d.is_empty(), "msg"` as one expression:
@@ -238,7 +238,20 @@ assert(!d.is_empty(), "should not be empty");
 
 // CORRECT — parentheses limit the operand:
 assert(!(d.is_empty()), "should not be empty");
+
+// WRONG — `&` captures `s, label, extra` as a TUPLE argument:
+func(&s, label, extra);  // parsed as func(&(s, label, extra)) — one tuple arg!
+
+// CORRECT — take address first, then pass separately:
+p := &s;
+func(p, label, extra);
+// OR — wrap operand only:
+func((&s), label, extra);
 ```
+
+This applies to **all** unary operators: `!`, `&`, `-`, `~`. Any of them placed before a comma-separated list will greedily absorb the entire list as a tuple.
+
+**Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 
 ## Recursion requires `recur`
 

@@ -90,6 +90,7 @@ Key rules:
 - In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
 
 ## Calls, operators, and whitespace
 
@@ -102,7 +103,8 @@ masked := ((A | B) | C);
 - Prefer parenthesized calls: `func(arg1, arg2)`
 - `func (a, b)` is a different parse shape than `func(a, b)`
 - Yo has no operator precedence; fully parenthesize binary expressions
-- Parenthesize unary operands: `!(ready)`, `-(value)`
+- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Always wrap: `p := &s; func(p, a, b)` or use `func((&s), a, b)`.
+- Parenthesize other unary operands too: `!(ready)`, `-(value)`
 
 ## Functions and methods
 

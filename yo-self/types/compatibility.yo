@@ -104,8 +104,8 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
       },
       _ => false
     ),
-    .Func(_, aps, ares) => match(expected,
-      .Func(_, eps, eres) => {
+    .Func(param_types: aps, result: ares) => match(expected,
+      .Func(param_types: eps, result: eres) => {
         n := aps.len();
         if((n != eps.len()), { return false; });
         if(!(recur(ares.*, eres.*)), { return false; });
@@ -142,18 +142,18 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
       .Union(ename, _, _) => (aname == ename),
       _ => false
     ),
-    .TraitT(aname) => match(expected,
-      .TraitT(ename) => (aname == ename),
+    .TraitT(name: aname) => match(expected,
+      .TraitT(name: ename) => (aname == ename),
       _ => false
     ),
-    .ModuleT(aname) => match(expected,
-      .ModuleT(ename) => (aname == ename),
+    .ModuleT(name: aname) => match(expected,
+      .ModuleT(name: ename) => (aname == ename),
       _ => false
     ),
     // SomeType: identity by (name, frame_level). Phase 2b adds trait-aware
     // unification.
-    .SomeT(aname, alvl) => match(expected,
-      .SomeT(ename, elvl) => ((aname == ename) && (alvl == elvl)),
+    .SomeT(name: aname, frame_level: alvl) => match(expected,
+      .SomeT(name: ename, frame_level: elvl) => ((aname == ename) && (alvl == elvl)),
       _ => false
     )
   );

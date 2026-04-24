@@ -71,10 +71,24 @@ type_to_string :: (fn(t : TypeValue) -> String)(
       };
       `Tuple(${body})`
     },
-    .Func(plabels, ptypes, ret) => {
+    .Func(forall_labels: fls, forall_types: fts,
+          param_labels: plabels, param_types: ptypes,
+          implicit_labels: ils, implicit_types: its,
+          result: ret) => {
+      // forall prefix: forall(T, U, ...)
       body := String.from("");
-      n    := ptypes.len();
+      fn := usize(0);
+      while runtime((fn < fts.len())), {
+        if((fn > usize(0)), { body = `${body}, `; });
+        fl := match(fls.get(fn), .Some(s) => s, .None => `""`);
+        body = `${body}${fl}`;
+        fn = (fn + usize(1));
+      };
+      forall_prefix := if((body.len() > usize(0)), `forall(${body}) `, String.from(""));
+      // params
+      body = String.from("");
       i    := usize(0);
+      n    := ptypes.len();
       while runtime((i < n)), {
         if((i > usize(0)), { body = `${body}, `; });
         label := match(plabels.get(i), .Some(s) => s, .None => `""`);
@@ -86,14 +100,72 @@ type_to_string :: (fn(t : TypeValue) -> String)(
         });
         i = (i + usize(1));
       };
-      `fn(${body}) -> ${recur(ret.*)}`
+      // implicit params (effects)
+      ibody := String.from("");
+      ii    := usize(0);
+      in_   := its.len();
+      while runtime((ii < in_)), {
+        if((ii > usize(0)), { ibody = `${ibody}, `; });
+        ilabel := match(ils.get(ii), .Some(s) => s, .None => `""`);
+        its2   := match(its.get(ii), .Some(t2) => recur(t2), .None => `?`);
+        if((ilabel.len() > usize(0)), {
+          ibody = `${ibody}${ilabel} : ${its2}`;
+        }, {
+          ibody = `${ibody}${its2}`;
+        });
+        ii = (ii + usize(1));
+      };
+      using_suffix := if((ibody.len() > usize(0)), ` using(${ibody})`, String.from(""));
+      `fn(${forall_prefix}${body}) -> ${recur(ret.*)}${using_suffix}`
     },
-    .Struct(name, _, _)   => name,
-    .EnumT(name, _, _)    => name,
-    .Union(name, _, _)    => name,
-    .TraitT(name)         => name,
-    .ModuleT(name)        => name,
-    .SomeT(name, _)       => name
+    .Struct(name, _, _)  => name,
+    .EnumT(name, _, _)   => name,
+    .Union(name, _, _)   => name,
+    .TraitT(name: n, field_labels: fls, field_types: fts) => {
+      if((fls.len() == usize(0)), { return n; });
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < fls.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        fl := match(fls.get(i), .Some(s) => s, .None => `""`);
+        ft := match(fts.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${fl} : ${ft}`;
+        i = (i + usize(1));
+      };
+      `${n}(${body})`
+    },
+    .ModuleT(name: n, field_labels: fls, field_types: fts) => {
+      if((fls.len() == usize(0)), { return `module ${n}`; });
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < fls.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        fl := match(fls.get(i), .Some(s) => s, .None => `""`);
+        ft := match(fts.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${fl} : ${ft}`;
+        i = (i + usize(1));
+      };
+      `module ${n}(${body})`
+    },
+    .SomeT(name: n, required_trait_types: rts, negative_trait_types: nts) => {
+      if(((rts.len() == usize(0)) && (nts.len() == usize(0))), { return n; });
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < rts.len())), {
+        if((i > usize(0)), { body = `${body} + `; });
+        rt := match(rts.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${rt}`;
+        i = (i + usize(1));
+      };
+      ii := usize(0);
+      while runtime((ii < nts.len())), {
+        if(((body.len() > usize(0)) || (ii > usize(0))), { body = `${body} + `; });
+        nt := match(nts.get(ii), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}!(${nt})`;
+        ii = (ii + usize(1));
+      };
+      `${n} : (${body})`
+    }
   )
 );
 

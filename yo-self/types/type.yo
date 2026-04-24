@@ -65,13 +65,18 @@ TypeValue :: enum(
   /// field (empty `String` means positional). `field_types(i)` is the type.
   Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
 
-  /// Function type. Parameters carry labels and types; `result` is the
-  /// return type. (Effects, where-clauses, forall vars are not modelled
-  /// in Phase 2a — they go into the FunctionType extension in Phase 2b.)
+  /// Function type. Phase 2b: forall type-vars, implicit (using) params,
+  /// effect-row-spread flags, and where-clause constraint types.
   Func(
-    param_labels : ArrayList(String),
-    param_types  : ArrayList(Self),
-    result       : Box(Self)
+    forall_labels    : ArrayList(String),    // forall type-var names
+    forall_types     : ArrayList(Self),      // forall type-var kinds (usually TypeUni)
+    param_labels     : ArrayList(String),    // normal parameter labels
+    param_types      : ArrayList(Self),      // normal parameter types
+    implicit_labels  : ArrayList(String),    // using(...) parameter labels
+    implicit_types   : ArrayList(Self),      // using(...) parameter types
+    implicit_spreads : ArrayList(bool),      // isEffectRowSpread flags
+    where_types      : ArrayList(Self),      // where-clause constraint types
+    result           : Box(Self)             // return type
   ),
 
   // Named user-defined types ------------------------------------------------
@@ -95,15 +100,34 @@ TypeValue :: enum(
     field_types  : ArrayList(Self)
   ),
 
-  // Traits / modules (placeholders — payload fleshed out in Phase 2b) -------
-  TraitT(name : String),
-  ModuleT(name : String),
+  // Traits / modules --------------------------------------------------------
+  /// Named trait type. Phase 2b: associated type names and method/field list.
+  TraitT(
+    name             : String,
+    assoc_type_names : ArrayList(String),    // names of associated type members
+    field_labels     : ArrayList(String),    // method / field names
+    field_types      : ArrayList(Self)       // method / field types
+  ),
+
+  /// Named module type. Phase 2b: function-field list.
+  ModuleT(
+    name         : String,
+    field_labels : ArrayList(String),        // function / field names
+    field_types  : ArrayList(Self)           // function / field types
+  ),
 
   // Generic / unresolved ----------------------------------------------------
   /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic
-  /// parameter. `frame_level` is the env frame at which it was introduced —
-  /// used to resolve bindings without leaking across shadowed scopes.
-  SomeT(name : String, frame_level : usize)
+  /// parameter. `frame_level` is the env frame at which it was introduced.
+  /// Phase 2b: required and negative trait constraint lists.
+  SomeT(
+    name                  : String,
+    frame_level           : usize,
+    required_trait_types  : ArrayList(Self),   // required trait constraints
+    required_trait_levels : ArrayList(usize),  // frame-level of each constraint
+    negative_trait_types  : ArrayList(Self),   // negative trait constraints
+    negative_trait_levels : ArrayList(usize)   // frame-level of each negative constraint
+  )
 );
 
 derive(TypeValue, Clone);
@@ -142,6 +166,67 @@ t_slice           :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element))
 t_array           :: (fn(element : TypeValue, length : usize) -> TypeValue)(
   .Array(box(element), length)
 );
+
+// ---------------------------------------------------------------------------
+// Convenience constructors for compound types (Phase 2b)
+// ---------------------------------------------------------------------------
+
+/// Create a simple function type (no forall, implicit, or where constraints).
+t_func_simple :: (fn(
+  param_labels : ArrayList(String),
+  param_types  : ArrayList(TypeValue),
+  result       : TypeValue
+) -> TypeValue)({
+  .Func(
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    param_labels,
+    param_types,
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    ArrayList(bool).new(),
+    ArrayList(TypeValue).new(),
+    box(result)
+  )
+});
+
+/// Create a trait type with associated-type names and method/field lists.
+t_trait :: (fn(
+  name         : String,
+  assoc_names  : ArrayList(String),
+  field_labels : ArrayList(String),
+  field_types  : ArrayList(TypeValue)
+) -> TypeValue)(
+  .TraitT(name, assoc_names, field_labels, field_types)
+);
+
+/// Create a named trait type with no fields.
+t_trait_simple :: (fn(name : String) -> TypeValue)(
+  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+);
+
+/// Create a module type with field lists.
+t_module :: (fn(
+  name         : String,
+  field_labels : ArrayList(String),
+  field_types  : ArrayList(TypeValue)
+) -> TypeValue)(
+  .ModuleT(name, field_labels, field_types)
+);
+
+/// Create a named module type with no fields.
+t_module_simple :: (fn(name : String) -> TypeValue)(
+  .ModuleT(name, ArrayList(String).new(), ArrayList(TypeValue).new())
+);
+
+/// Create an unconstrained SomeType (generic type variable).
+t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)({
+  .SomeT(
+    name, frame_level,
+    ArrayList(TypeValue).new(), ArrayList(usize).new(),
+    ArrayList(TypeValue).new(), ArrayList(usize).new()
+  )
+});
 
 // ---------------------------------------------------------------------------
 // Tag accessor — useful for fast dispatch and equality short-circuits.
@@ -190,13 +275,13 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Slice(_)             => TypeTag.TSlice,
     .Array(_, _)          => TypeTag.TArray,
     .Tuple(_, _)          => TypeTag.TTuple,
-    .Func(_, _, _)        => TypeTag.TFunction,
+    .Func(result: _)      => TypeTag.TFunction,
     .Struct(_, _, _)      => TypeTag.TStruct,
     .EnumT(_, _, _)       => TypeTag.TEnum,
     .Union(_, _, _)       => TypeTag.TUnion,
-    .TraitT(_)            => TypeTag.TTrait,
-    .ModuleT(_)           => TypeTag.TModule,
-    .SomeT(_, _)          => TypeTag.TSomeType
+    .TraitT(name: _)      => TypeTag.TTrait,
+    .ModuleT(name: _)     => TypeTag.TModule,
+    .SomeT(name: _)       => TypeTag.TSomeType
   )
 );
 
@@ -247,11 +332,19 @@ is_array_type :: (fn(t : TypeValue) -> bool)(
 );
 
 is_function_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Func(_, _, _) => true, _ => false)
+  match(t, .Func(result: _) => true, _ => false)
 );
 
 is_some_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .SomeT(_, _) => true, _ => false)
+  match(t, .SomeT(name: _) => true, _ => false)
+);
+
+is_trait_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .TraitT(name: _) => true, _ => false)
+);
+
+is_module_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .ModuleT(name: _) => true, _ => false)
 );
 
 is_struct_type :: (fn(t : TypeValue) -> bool)(
@@ -281,7 +374,12 @@ export
   t_comptime_int, t_comptime_float, t_comptime_string,
   t_type,
   t_ptr, t_slice, t_array,
+  t_func_simple,
+  t_trait, t_trait_simple,
+  t_module, t_module_simple,
+  t_some_t,
   is_int_type, is_float_type, is_signed_int_type, is_numeric_type,
   is_pointer_type, is_slice_type, is_array_type, is_function_type,
+  is_trait_type, is_module_type,
   is_some_type, is_struct_type, is_enum_type,
   is_unit_type, is_bool_type;
