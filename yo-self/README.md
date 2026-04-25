@@ -29,6 +29,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 4d (match) complete.** Match codegen — `generate_match_simple` and `generate_match_data` (`yo-self/codegen/match.yo`) emit `switch` statements for unit-enum and data-enum matches respectively; `DataBinding`/`SimpleArm`/`DataArm` data structures; wildcard arms emit `default:` cases; 9 new tests passing.
 ✅ **Phase 4 validation milestone (compiler driver).** `compile_module_to_c` (`yo-self/codegen/driver.yo`) walks a parsed module body, extracts `name :: (fn(params) -> T)(body)` definitions via `extract_fn_def`, maps Yo type annotations to C types, and assembles a complete C11 source file; 9 new tests passing including two parser-integrated end-to-end tests that parse real Yo source then verify C output.
 ✅ **Phase 4 integration milestone (compile → run).** Two end-to-end integration tests (`yo-self/tests/integration.test.yo`) parse Yo source with the self-hosted parser, call `compile_module_to_c` to produce C11 source, write the C to a temp file, compile it with the system `cc`, run the binary, and assert exit code 0. Also fixed two underlying bugs: (1) compiler codegen bug — unspecialized `isModuleEffectMember` forall effect handlers were not emitted when specializations existed, causing `cc` link errors when the async capture struct stored the unspecialized function pointer; (2) self-hosted codegen bug — empty `{ }` blocks were parsed as zero-arg anonymous structs (`_()`) and fell through to the regular function-call emitter, generating `_()` in C instead of the unit sentinel `0`.
+✅ **Phase 5a CLI entry point.** `yo-self/main.yo` wires argument parsing, the `compile` subcommand, the self-hosted parser, `compile_module_to_c`, C output, and `cc` invocation into a working `yo-self-bin` binary. Also fixed three compiler bugs exposed by this phase: phantom RC-owning temp for forall escape handlers in match arms (`helper.ts`); missing escape control-flow propagation for forall `isControlFunction` calls (`function.ts`); dead-code after escape handlers not skipped in `begin.ts`/`cond.ts` codegen; uninitialized variable drops at escape sites skipped in `return.ts`.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
@@ -39,7 +40,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j), compiler driver: `extract_fn_def` + `compile_module_to_c` (Phase 4 validation), integration tests: parse→C→cc→run binary (Phase 4 integration milestone); 94 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
 - **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: ~321 tests passing** under `yo-self/tests/`
+- **Total: ~319 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -109,7 +110,7 @@ Each phase ends with a working binary that passes a target subset of the existin
 | 2     | Evaluator core (begin/cond/match, types, env)   | partial of ~50 k  | ✅ Done                        |
 | 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | ✅ Done                        |
 | 4     | C Codegen                                       | ~46 k lines       | 🔨 In progress (4a–4e, 4i, 4j) |
-| 5     | CLI, build runner, dependency management        | smaller modules   | 🔲 Planned                     |
+| 5     | CLI, build runner, dependency management        | smaller modules   | 🔨 In progress (5a done)       |
 | 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned                     |
 
 (The 50 k / 46 k figures are TS line counts under `src/evaluator` and

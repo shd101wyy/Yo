@@ -14,6 +14,7 @@ import {
   type AtomExpr,
   attachTempVariableToExpr,
   cloneExpr,
+  controlFlowOf,
   type Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -2008,6 +2009,22 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         deferredDropExpressions,
         variableName: previousVariableName,
       };
+
+      // isControlFunction with forall parameters that was specialized inline: mark
+      // the call expression with escape control flow. After specialization the
+      // effective return type matches the enclosing function's return type (e.g. unit
+      // → void). The "escape" annotation lets match arms treat this call as
+      // "never-type" so type unification with other arms works correctly.
+      // Do NOT set escape for isControlFunction calls that were NOT specialized
+      // (e.g. `Raise :: fn(...) -> i32`); those have a meaningful return type that
+      // must remain visible to the enclosing type-checker.
+      if (
+        isFunctionValue(functionToCall.value) &&
+        functionToCall.value.isControlFunction &&
+        specializedFunctionValue !== undefined
+      ) {
+        expr.$.controlFlow = controlFlowOf("escape");
+      }
 
       // For io.async calls, propagate awaitAnalysis and captureType from the closure
       // argument to the call expression. This enables codegen to generate a state machine

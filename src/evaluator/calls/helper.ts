@@ -2493,20 +2493,32 @@ Please use explicit using() to disambiguate.`,
       callerEnv,
       context,
     });
-    // For `return(value)` (resume) handlers, update returnType to the concrete
-    // type from the evaluated body so the call site gets the right type.
-    if (specializedFunctionValue && isSomeType(returnType)) {
-      const bodyType = specializedFunctionValue.body?.$?.type;
-      if (bodyType && !isSomeType(bodyType)) {
-        returnType = bodyType;
-        if (specializedFunctionValue.specializedType) {
-          specializedFunctionValue.specializedType = {
-            ...specializedFunctionValue.specializedType,
-            return: {
-              ...specializedFunctionValue.specializedType.return,
-              type: bodyType,
-            },
-          };
+    // Update returnType to the concrete type from the specialization.
+    // For escape-only handlers (isControlFunction, e.g. Exception.throw), the
+    // specialization uses the enclosing function's return type as the forall
+    // concrete type (e.g. unit → void). Using specializedType.return.type here
+    // prevents a phantom RC-owning temp when context.expectedType has already
+    // overridden returnType with a concrete RC type (e.g. String) before this
+    // block runs.  For resume handlers (return(value)), fall back to the body
+    // type to pick up the actual result type.
+    if (specializedFunctionValue) {
+      const specializedReturnType =
+        specializedFunctionValue.specializedType?.return.type;
+      if (specializedReturnType && !isSomeType(specializedReturnType)) {
+        returnType = specializedReturnType;
+      } else if (isSomeType(returnType)) {
+        const bodyType = specializedFunctionValue.body?.$?.type;
+        if (bodyType && !isSomeType(bodyType)) {
+          returnType = bodyType;
+          if (specializedFunctionValue.specializedType) {
+            specializedFunctionValue.specializedType = {
+              ...specializedFunctionValue.specializedType,
+              return: {
+                ...specializedFunctionValue.specializedType.return,
+                type: bodyType,
+              },
+            };
+          }
         }
       }
     }
@@ -2775,9 +2787,15 @@ function createSpecializedFunctionInline({
   // after the function type itself (e.g., handler functions bound via `given` may need
   // access to types like Raise that are visible at the call site but not captured in
   // the handler's closure).
+  // NOTE: We only inject non-function compile-time values (modules, types, traits).
+  // Injecting plain function values would cause false "variable already defined" errors
+  // when the callee's body uses the same local variable name as a caller-scope function.
   for (const frame of callerEnv.frames) {
     for (const variable of frame.variables) {
       if (!variable.isCompileTimeOnly) continue;
+      // Skip plain function values — only types, modules, and traits need to cross
+      // the call boundary; function values live in the callee's own closure env.
+      if (variable.value?.[0] && isFunctionValue(variable.value[0])) continue;
       const existing = getVariablesFromEnv(specializedEnv, variable.name);
       if (existing.length > 0) {
         continue;
@@ -3650,9 +3668,15 @@ function evaluateCtlFunctionBodyInline({
   // Add compile-time bindings from caller's scope that are missing from calleeEnv.
   // This allows the handler body to reference types like Raise that are visible at
   // the call site but not in the handler's closure (which comes from the ctl type's env).
+  // NOTE: We only inject non-function compile-time values (modules, types, traits).
+  // Injecting plain function values would cause false "variable already defined" errors
+  // when the callee's body uses the same local variable name as a caller-scope function.
   for (const frame of callerEnv.frames) {
     for (const variable of frame.variables) {
       if (!variable.isCompileTimeOnly) continue;
+      // Skip plain function values — only types, modules, and traits need to cross
+      // the call boundary; function values live in the callee's own closure env.
+      if (variable.value?.[0] && isFunctionValue(variable.value[0])) continue;
       // Check if this variable already exists in specializedEnv
       const existing = getVariablesFromEnv(specializedEnv, variable.name);
       if (existing.length > 0) continue;

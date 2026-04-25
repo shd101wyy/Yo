@@ -306,7 +306,12 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 ### Phase 5 — CLI + Integration
 
-**5a. CLI entry point** — argument parsing, subcommands (`compile`, `test`, `build`, `init`, …)
+**5a. CLI entry point** ✅ Done — `yo-self/main.yo` wires argument parsing, the `compile` subcommand, the self-hosted parser, `compile_module_to_c`, temp-file C output, and `cc` invocation into a working binary (`yo-self/yo-self-bin`). Also fixed three underlying compiler bugs exposed by this phase:
+
+- _Phantom RC-owning temp for forall escape handlers_: `tryToCallFunctionWithArguments` in `src/evaluator/calls/helper.ts` now uses the specialized return type from `evaluateCtlFunctionBodyInline` directly rather than the `context.expectedType`-overridden type, preventing a type mismatch that generated an undeclared C temp var.
+- _Escape control flow not propagated for forall `isControlFunction` calls_: `src/evaluator/calls/function.ts` now sets `expr.$.controlFlow = escape` for `isControlFunction` calls when forall specialization ran (`specializedFunctionValue !== undefined`), so match arms treat the call as never-type.
+- _Dead-code after escape handler not guarded in codegen_: `src/codegen/exprs/begin.ts` and `src/codegen/exprs/cond.ts` now skip unevaluated expressions (`expr.$ === undefined`) that follow an escape call in the same begin block. Additionally, `src/codegen/exprs/return.ts` skips uninitialized variables (not yet past their binding RHS) when generating consumed-var drops for an escape site.
+
 **5b. Test runner** — `yo test` with filtering, parallel execution, output formatting
 **5c. Error formatting** — colored terminal output, source location display, error notes
 

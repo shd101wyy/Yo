@@ -240,7 +240,15 @@ export function generateConsumedVarDropsForEscape(
           const varName = getDeferredDropTargetAtomName(dropExpr);
           if (!varName) return false;
           const variables = getVariablesFromEnv(expr.$!.env, varName);
-          return variables.length > 0;
+          if (variables.length === 0) return false;
+          // Skip variables that exist in the env but are not yet initialized —
+          // evaluateBinding adds the LHS to the env before the RHS runs, so the
+          // variable appears in the env at the escape site but its C declaration
+          // hasn't been emitted yet. Dropping it here would reference an
+          // undeclared C identifier (same guard as generatePendingDeferredDrops).
+          const latestVar = variables[variables.length - 1]!;
+          if (!latestVar.initializedAtToken) return false;
+          return true;
         })
       : [...context.consumedVarPendingDrops];
 
