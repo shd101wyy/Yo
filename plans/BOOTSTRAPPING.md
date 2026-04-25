@@ -326,7 +326,14 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 - _Test bodies can call module-level helpers_: `compile_test_body_to_c` now accepts `module_exprs`. It registers all function names (Pass 1), emits helper function bodies and struct typedefs (Pass 2), then emits the test body. Test files with `helper :: (fn(...) -> T)(...)` definitions can be called from test bodies.
 
-**5d. Error formatting** — colored terminal output, source location display, error notes
+**5d. Match value codegen** ✅ Done — `match(scrut, pat => body, ..., _ => default)` emits a ternary chain.
+
+- `handle_match_value` in `exprs.yo` emits the scrutinee into a fresh `_yo_tN` temp var (via `fresh_temp`), then builds a right-to-left ternary chain from the arms.
+- `gen_match_arm` emits one arm as `(temp == pat ? body : rest)`. A wildcard `_` arm becomes the default (body only, no condition check).
+- Added `match` dispatch to `generate_expr` (was missing despite `match` being listed as a builtin keyword).
+- 4 new unit tests; 125 codegen tests, 352 yo-self tests pass.
+
+**5e. Error formatting** — colored terminal output, source location display, error notes
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 
