@@ -1,4 +1,4 @@
-/// Tests for the self-hosted C code emitter — Phase 4a/4b/4c/4d.
+/// Tests for the self-hosted C code emitter — Phase 4a/4b/4c/4d/4e.
 
 open import "std/fmt";
 open import "std/string";
@@ -12,6 +12,9 @@ open import "std/string";
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
   type_name_to_c, gen_arg_list } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
+{ TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
+{ generate_type_decl, type_value_to_c_field,
+  struct_c_name, enum_c_name, enum_tag_prefix } :: import "../codegen/types.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -839,4 +842,132 @@ test "generate_function: function with begin block body", {
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t const_42()")), "signature");
   assert(output.contains(String.from("return 42;")), "expected 'return 42;'");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4e: Type codegen helpers
+// ---------------------------------------------------------------------------
+
+test "struct_c_name and enum_c_name", {
+  sn := struct_c_name("yoabc123", usize(5));
+  en := enum_c_name("yoabc123", usize(7));
+  assert((sn == String.from("__yo_struct_yoabc123_id_5")), "struct c name");
+  assert((en == String.from("__yo_enum_yoabc123_id_7")),   "enum c name");
+};
+
+test "enum_tag_prefix: uppercase module_id and id", {
+  p := enum_tag_prefix("yoabc123", usize(3));
+  assert((p == String.from("__YO_ENUM_YOABC123_ID_3")), "tag prefix");
+};
+
+test "type_value_to_c_field: primitives", {
+  assert(
+    match(type_value_to_c_field(t_i32()), .Some(s) => (s == String.from("int32_t")), .None => false),
+    "i32 → int32_t"
+  );
+  assert(
+    match(type_value_to_c_field(t_f32()), .Some(s) => (s == String.from("float")), .None => false),
+    "f32 → float"
+  );
+  assert(
+    match(type_value_to_c_field(t_usize()), .Some(s) => (s == String.from("size_t")), .None => false),
+    "usize → size_t"
+  );
+  assert(
+    match(type_value_to_c_field(t_bool()), .Some(s) => (s == String.from("bool")), .None => false),
+    "bool → bool"
+  );
+};
+
+test "generate_type_decl: simple struct Point with two i32 fields", {
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("x"));
+  field_labels.push(String.from("y"));
+  field_types := ArrayList(TypeValue).new();
+  field_types.push(t_i32());
+  field_types.push(t_i32());
+  tv := TypeValue.Struct(String.from("Point"), field_labels, field_types);
+
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  result_opt := generate_type_decl(tv, "yomod0001", usize(2), pctx);
+  c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
+
+  assert((c_name == String.from("__yo_struct_yomod0001_id_2")), "c name");
+
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("typedef struct __yo_struct_yomod0001_id_2_struct")), "fwd decl");
+  assert(output.contains(String.from("struct __yo_struct_yomod0001_id_2_struct")), "struct def");
+  assert(output.contains(String.from("int32_t x;")), "field x");
+  assert(output.contains(String.from("int32_t y;")), "field y");
+};
+
+test "generate_type_decl: simple enum Color (all unit variants)", {
+  variant_names := ArrayList(String).new();
+  variant_names.push(String.from("Red"));
+  variant_names.push(String.from("Green"));
+  variant_names.push(String.from("Blue"));
+  variant_fields := ArrayList(ArrayList(TypeValue)).new();
+  variant_fields.push(ArrayList(TypeValue).new());
+  variant_fields.push(ArrayList(TypeValue).new());
+  variant_fields.push(ArrayList(TypeValue).new());
+  tv := TypeValue.EnumT(String.from("Color"), variant_names, variant_fields);
+
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  result_opt := generate_type_decl(tv, "yomod0001", usize(10), pctx);
+  c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
+
+  assert((c_name == String.from("__yo_enum_yomod0001_id_10")), "enum c name");
+
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("optimized as simple enum")), "simple enum comment");
+  assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_10_RED")),   "RED variant");
+  assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_10_GREEN")), "GREEN variant");
+  assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_10_BLUE")),  "BLUE variant");
+  assert(output.contains(String.from("} __yo_enum_yomod0001_id_10;")),     "closing typedef");
+};
+
+test "generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", {
+  variant_names := ArrayList(String).new();
+  variant_names.push(String.from("Circle"));
+  variant_names.push(String.from("Rect"));
+
+  circle_fields := ArrayList(TypeValue).new();
+  circle_fields.push(t_f32());
+  rect_fields := ArrayList(TypeValue).new();
+  rect_fields.push(t_f32());
+  rect_fields.push(t_f32());
+  variant_fields := ArrayList(ArrayList(TypeValue)).new();
+  variant_fields.push(circle_fields);
+  variant_fields.push(rect_fields);
+
+  tv := TypeValue.EnumT(String.from("Shape"), variant_names, variant_fields);
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  result_opt := generate_type_decl(tv, "yomod0001", usize(15), pctx);
+  c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
+
+  assert((c_name == String.from("__yo_enum_yomod0001_id_15")), "enum c name");
+
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("typedef struct __yo_enum_yomod0001_id_15_struct")), "fwd decl");
+  assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_15_CIRCLE")), "CIRCLE tag");
+  assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_15_RECT")),   "RECT tag");
+  assert(output.contains(String.from("typedef union {")), "union");
+  assert(output.contains(String.from("} Circle;")),       "Circle member");
+  assert(output.contains(String.from("} Rect;")),         "Rect member");
+  assert(output.contains(String.from("__yo_enum_yomod0001_id_15_tag tag;")),  "tag field");
+  assert(output.contains(String.from("__yo_enum_yomod0001_id_15_data data;")), "data field");
+};
+
+test "generate_type_decl: unsupported TypeValue returns None", {
+  tv := TypeValue.Int(u8(32), true);
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  result_opt := generate_type_decl(tv, "yomod0001", usize(1), pctx);
+  assert(
+    match(result_opt, .None => true, .Some(_) => false),
+    "primitive should return None"
+  );
 };

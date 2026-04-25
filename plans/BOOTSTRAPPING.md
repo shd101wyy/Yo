@@ -289,7 +289,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **4b. Expression codegen** — literals, variables, function calls, operators ✅ Done
 **4c. Control flow codegen** — cond, match, while, begin blocks ✅ Done (cond/if/while/begin; match deferred to 4d)
 **4d. Function codegen** — function definitions, closures, generic specialization ✅ Done
-**4e. Type codegen** — struct/enum/union layouts, RC headers, type declarations
+**4e. Type codegen** — struct/enum/union layouts, RC headers, type declarations ✅ Done
 **4f. Async/await state machines** — Future types, SM generation, event loop
 **4g. Platform I/O runtimes** — io_uring (Linux), kqueue (macOS), IOCP (Windows)
 **4h. Effects codegen** — evidence passing, escape detection, handler installation

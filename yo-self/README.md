@@ -23,7 +23,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 4a complete.** Core emission framework — `Emitter` type (`yo-self/codegen/emitter.yo`) with `headers`/`declarations`/`code` string buffers; methods `emit`, `emit_line`, `emit_header_line`, `emit_declaration_line`, `emit_string`, and `print`; 8 tests passing.
 ✅ **Phase 4b complete.** Expression codegen — `generate_expr` (`yo-self/codegen/exprs.yo`) handles integer/float/bool/string literals, identifier atoms, all binary infix operators (`+`,`-`,`*`,`/`,`%`,`==`,`!=`,`<`,`>`,`<=`,`>=`,`&&`,`||`), and unary prefix operators (`-`,`!`); nested expressions handled via module-level `g_gen_expr_fn` pointer; 24 new tests passing.
 ✅ **Phase 4c complete.** Control flow codegen — `generate_expr` extended with `CodegenContext` parameter (`yo-self/codegen/context.yo`); handles `begin` blocks (emit all-but-last as statements, return last expr), `cond` and `if`/`if-else` (right-nested C ternary chains), `while runtime(cond), body` (C while loop with optional `runtime(...)` unwrapping); 9 new tests passing.
-✅ **Phase 4d complete.** Function codegen — `generate_function` (`yo-self/codegen/functions.yo`) emits full C function definitions (return type, name, typed params, body); `generate_expr` extended with dot field access (struct member access), method calls (`recv.method(args)`), regular function calls, and infix `=` assignment expressions; `type_name_to_c` helper maps Yo type names to C type spellings; 14 new tests passing.
+✅ **Phase 4e complete.** Type codegen — `generate_type_decl` (`yo-self/codegen/types.yo`) emits C type declarations for `Struct` (forward declaration + field list) and `EnumT` (simple `typedef enum` for unit variants; tagged-union struct for data variants); `type_value_to_c_field` maps primitive `TypeValue`s to C type strings; `struct_c_name`/`enum_c_name`/`enum_tag_prefix` build the ID-based C names; `emit_declaration_string_line` added to `Emitter`; 7 new tests passing.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
@@ -31,10 +31,10 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
 - **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 97 tests passing
-- **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), dot/method/function-call/assignment codegen + `generate_function` (Phase 4d); 55 tests passing
+- **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), dot/method/function-call/assignment codegen + `generate_function` (Phase 4d), type declaration codegen for struct/enum (Phase 4e); 62 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
 - **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: ~280 tests passing** under `yo-self/tests/`
+- **Total: ~287 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -76,6 +76,7 @@ yo-self/
     context.yo        -- CodegenContext with Emitter + temp var counter (Phase 4a/4c)
     exprs.yo          -- generate_expr: literals, operators, control flow, calls, assignment (Phase 4b/4c/4d)
     functions.yo      -- generate_function: C function definition emitter (Phase 4d)
+    types.yo          -- generate_type_decl: struct/enum C type declaration emitter (Phase 4e)
   tests/
     lexer.test.yo     -- 33 lexer tests
     parser.test.yo    -- 36 parser tests
@@ -85,7 +86,7 @@ yo-self/
     type_of.test.yo   -- 12 literal type-of tests
     eval.test.yo      -- 97 evaluator tests (Phases 3a–3o)
     circular_smoke.test.yo       -- 3 circular-import validation tests
-    codegen.test.yo   -- 55 codegen tests (Phases 4a–4d)
+    codegen.test.yo   -- 62 codegen tests (Phases 4a–4e)
 ```
 
 ## Phases
@@ -98,7 +99,7 @@ Each phase ends with a working binary that passes a target subset of the existin
 | 1     | Lexer + Token types + Parser + AST node types   | ~4 800 lines      | ✅ Done                |
 | 2     | Evaluator core (begin/cond/match, types, env)   | partial of ~50 k  | ✅ Done                |
 | 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | ✅ Done                |
-| 4     | C Codegen                                       | ~46 k lines       | 🔨 In progress (4a–4d) |
+| 4     | C Codegen                                       | ~46 k lines       | 🔨 In progress (4a–4e) |
 | 5     | CLI, build runner, dependency management        | smaller modules   | 🔲 Planned             |
 | 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned             |
 
