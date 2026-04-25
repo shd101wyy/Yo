@@ -312,7 +312,12 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - _Escape control flow not propagated for forall `isControlFunction` calls_: `src/evaluator/calls/function.ts` now sets `expr.$.controlFlow = escape` for `isControlFunction` calls when forall specialization ran (`specializedFunctionValue !== undefined`), so match arms treat the call as never-type.
 - _Dead-code after escape handler not guarded in codegen_: `src/codegen/exprs/begin.ts` and `src/codegen/exprs/cond.ts` now skip unevaluated expressions (`expr.$ === undefined`) that follow an escape call in the same begin block. Additionally, `src/codegen/exprs/return.ts` skips uninitialized variables (not yet past their binding RHS) when generating consumed-var drops for an escape site.
 
-**5b. Test runner** — `yo test` with filtering, parallel execution, output formatting
+**5b. Test runner** ✅ Done — `yo-self/main.yo` extended with a `test` subcommand. `yo-self test <file.test.yo> [--test-name-pattern <pattern>]` parses a `.test.yo` file, finds all `test "name", { body }` declarations, compiles each body to a standalone C program via `compile_test_body_to_c`, runs it, and reports pass/fail/skipped. Tests that fail to compile (due to unsupported features like structs or IO in Phase 5b) are marked "skipped". Exit code 0 when all pass, 1 when any fail. Also fixed three self-hosted codegen gaps exposed by this phase:
+
+- _`:=` define not emitted_: `handle_define` now emits `__auto_type name = val;` for `:=` expressions.
+- _Type casts emitted as C function calls_: `handle_type_cast` now emits `(int32_t)(x)` for `i32(x)` style casts.
+- _`assert`/`comptime_assert` not handled_: now handled as `if (!(cond)) { exit(1); }` in generated C.
+
 **5c. Error formatting** — colored terminal output, source location display, error notes
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.

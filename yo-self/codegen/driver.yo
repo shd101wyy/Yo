@@ -326,3 +326,32 @@ compile_module_to_c :: (fn(
 });
 
 export FnDef, extract_fn_def, compile_module_to_c;
+
+// ---------------------------------------------------------------------------
+// Test body compilation
+// ---------------------------------------------------------------------------
+
+/// Generate a complete C11 test program from a bare test body expression.
+///
+/// The body is wrapped in a `static void fn_test_body(void)` function.
+/// An `int main(void)` wrapper calls `fn_test_body()`.
+///
+/// `assert(cond, msg)` in the body emits `if (!(cond)) { exit(1); }` via
+/// the `handle_assert` hook in `generate_expr`.
+///
+/// Returns the full C source string.
+compile_test_body_to_c :: (fn(body : AstExpr, module_id : str) -> String)({
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+
+  emit_c_preamble(module_id, pctx);
+
+  params    := ArrayList(String).new();
+  param_tys := ArrayList(String).new();
+  generate_function("fn_test_body", "void", params, param_tys, body, pctx);
+
+  emit_main_wrapper("fn_test_body", pctx);
+  generate_c_output(pctx)
+});
+
+export compile_test_body_to_c;

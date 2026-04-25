@@ -485,25 +485,107 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
   )
 );
 
+/// True if `name` is a primitive numeric or bool type name that supports casting.
+///
+/// These names are used for explicit type-cast expressions: `i32(x)` → `(int32_t)(x)`.
+is_primitive_type_cast :: (fn(name : str) -> bool)(
+  cond(
+    (name == "i8")    => true,
+    (name == "i16")   => true,
+    (name == "i32")   => true,
+    (name == "i64")   => true,
+    (name == "u8")    => true,
+    (name == "u16")   => true,
+    (name == "u32")   => true,
+    (name == "u64")   => true,
+    (name == "usize") => true,
+    (name == "f32")   => true,
+    (name == "f64")   => true,
+    (name == "bool")  => true,
+    true              => false
+  )
+);
+
+/// Handle a primitive type cast: `i32(x)` → `(int32_t)(x)`.
+handle_type_cast :: (fn(
+  type_name : String,
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None      => Option(String).None,
+    .Some(arg) => match(call_gen_expr(arg, ctx, indent),
+      .None      => Option(String).None,
+      .Some(val) => {
+        result := String.from("(");
+        result.push_string(type_name_to_c(type_name.as_str()));
+        result.push_str(")(");
+        result.push_string(val);
+        result.push_str(")");
+        .Some(result)
+      }
+    )
+  )
+);
+
+/// Handle variable definition `name := val` → emit `__auto_type name = val;\n` as a
+/// statement and return `"0"` (the unit sentinel).
+///
+/// Uses `__auto_type` (GCC/Clang extension) for type inference, avoiding the need
+/// to know the type at this phase.
+handle_define :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  lhs_opt := args.get(usize(0));
+  rhs_opt := args.get(usize(1));
+  match(lhs_opt,
+    .None => Option(String).None,
+    .Some(lhs_expr) => match(rhs_opt,
+      .None => Option(String).None,
+      .Some(rhs_expr) => match(call_gen_expr(rhs_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(rhs_code) => match(lhs_expr,
+          // x := val — auto-type variable declaration
+          .Atom(name_tok) => {
+            ctx.*.emitter.emit_string(indent);
+            ctx.*.emitter.emit("__auto_type ");
+            ctx.*.emitter.emit_string(name_tok.value);
+            ctx.*.emitter.emit(" = ");
+            ctx.*.emitter.emit_string(rhs_code);
+            ctx.*.emitter.emit_line(";");
+            .Some(String.from("0"))
+          },
+          .FnCall(_, _, _, _) => Option(String).None
+        )
+      )
+    )
+  )
+});
+
 /// True if `name` is a builtin keyword handled specially by `generate_expr`.
 ///
 /// These names must NOT be treated as regular function calls.
 is_builtin_keyword :: (fn(name : str) -> bool)(
   cond(
-    (name == BK_BEGIN)       => true,
-    (name == "cond")         => true,
-    (name == "while")        => true,
-    (name == "if")           => true,
-    (name == "runtime")      => true,
-    (name == "match")        => true,
-    (name == "recur")        => true,
-    (name == "escape")       => true,
-    (name == "return")       => true,
+    (name == BK_BEGIN)          => true,
+    (name == "cond")            => true,
+    (name == "while")           => true,
+    (name == "if")              => true,
+    (name == "runtime")         => true,
+    (name == "match")           => true,
+    (name == "recur")           => true,
+    (name == "escape")          => true,
+    (name == "return")          => true,
+    (name == "assert")          => true,
+    (name == "comptime_assert") => true,
     // Unit value: FnCall(Atom("tuple"), [], …) — the zero-arg tuple is unit
-    (name == BK_TUPLE)       => true,
+    (name == BK_TUPLE)          => true,
     // Empty anon struct: FnCall(Atom("_"), [], …) from `{ }` — also unit
-    (name == BK_ANON_STRUCT) => true,
-    true                     => false
+    (name == BK_ANON_STRUCT)    => true,
+    true                        => false
   )
 );
 
@@ -755,6 +837,31 @@ handle_assignment :: (fn(
 // Core entry point
 // ---------------------------------------------------------------------------
 
+/// Handle `assert(cond, msg)` — emit a test assertion as a C if-check.
+///
+/// Generates: `if (!(cond)) { exit(1); }` into the code buffer.
+/// Returns `"0"` (the unit sentinel).
+/// The `msg` argument (second arg) is evaluated but discarded for Phase 5b.
+handle_assert :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None => Option(String).None,
+    .Some(cond_expr) => match(call_gen_expr(cond_expr, ctx, indent),
+      .None => Option(String).None,
+      .Some(cond_code) => {
+        ctx.*.emitter.emit_string(indent);
+        ctx.*.emitter.emit("if (!(");
+        ctx.*.emitter.emit_string(cond_code);
+        ctx.*.emitter.emit_line(")) { exit(1); }");
+        .Some(String.from("0"))
+      }
+    )
+  )
+);
+
 /// Generate a C expression string for a Yo AST expression.
 ///
 /// May emit C statements into `ctx.emitter` as side effects (for begin blocks,
@@ -826,7 +933,22 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
+        // assert(cond, msg) / comptime_assert(cond, msg) — test assertions
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => ((id.as_str() == "assert") || (id.as_str() == "comptime_assert"))
+        )) => handle_assert(args, ctx, indent),
         // Regular function call: f(args) — identifier func, not a builtin keyword
+        // Special case: primitive type cast — i32(x) → (int32_t)(x)
+        ((!is_infix) &&
+          ((args.len() == usize(1)) &&
+          match(ident_opt,
+            .None    => false,
+            .Some(id) => is_primitive_type_cast(id.as_str())
+          ))) => match(ident_opt,
+          .None    => Option(String).None,
+          .Some(id) => handle_type_cast(id, args, ctx, indent)
+        ),
         ((!is_infix) && match(ident_opt,
           .None    => false,
           .Some(id) => (!is_builtin_keyword(id.as_str()))
@@ -836,6 +958,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(op) => (op.as_str() == "=")
         )) => handle_assignment(args, ctx, indent),
+        // Variable definition: x := val  →  __auto_type x = val;
+        (is_infix && match(op_opt,
+          .None    => false,
+          .Some(op) => (op.as_str() == ":=")
+        )) => handle_define(args, ctx, indent),
         true => Option(String).None
       )
     }
@@ -851,6 +978,7 @@ _gen_expr_fn_init := (fn() -> bool)({
 export generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op;
 export gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit;
 export gen_binary_op, gen_unary_op;
-export type_name_to_c, type_expr_to_c, is_builtin_keyword;
+export type_name_to_c, type_expr_to_c, is_builtin_keyword, is_primitive_type_cast;
 export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
+export handle_define, handle_type_cast, handle_assert;
 export func_box_is_dot, func_box_is_dot_dispatch;
