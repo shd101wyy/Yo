@@ -862,6 +862,111 @@ handle_assert :: (fn(
   )
 );
 
+/// True if `expr` is a labeled argument: `FnCall(Atom(":"), [name, val], true)`.
+is_labeled_arg :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_) => false,
+    .FnCall(ff, fa, finfix, _) => (finfix && (match(ff.*,
+      .Atom(ftok) => (ftok.value.as_str() == ":"),
+      .FnCall(_, _, _, _) => false
+    ) && (fa.len() == usize(2))))
+  )
+);
+
+/// True if all elements of `args` are labeled (`field: val`) args AND args is non-empty.
+all_labeled_args :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  n := args.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      (all : bool) = true;
+      (i : usize) = usize(0);
+      while runtime(((i < n) && all)), {
+        match(args.get(i),
+          .None => { all = false; },
+          .Some(e) => {
+            if((!is_labeled_arg(e)), { all = false; });
+          }
+        );
+        i = (i + usize(1));
+      };
+      all
+    }
+  )
+});
+
+/// True if `s` starts with an uppercase ASCII letter (A–Z).
+/// Used to distinguish struct type names from lowercase function names.
+is_uppercase_start :: (fn(s : String) -> bool)(
+  match(s.at(usize(0)),
+    .None => false,
+    .Some(r) => ((r.char >= u32(65)) && (r.char <= u32(90)))
+  )
+);
+
+/// Handle struct construction: `TypeName(field1: val1, field2: val2)`
+/// → `(TypeName){.field1 = val1, .field2 = val2}`.
+///
+/// All args must be labeled (`:` infix). The type name must start with an
+/// uppercase letter (Yo convention for types).
+handle_struct_constructor :: (fn(
+  type_name : String,
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))({
+  result := String.from("(");
+  result.push_string(type_name);
+  result.push_str("){");
+  n := args.len();
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  (first : bool) = true;
+  while runtime(((i < n) && all_ok)), {
+    match(args.get(i),
+      .None => { all_ok = false; },
+      .Some(field_expr) => match(field_expr,
+        .Atom(_) => { all_ok = false; },
+        .FnCall(ff, fa, _, _) => {
+          field_name_opt := match(fa.get(usize(0)),
+            .None => Option(String).None,
+            .Some(name_e) => match(name_e,
+              .Atom(ntok) => Option(String).Some(ntok.value),
+              .FnCall(_, _, _, _) => Option(String).None
+            )
+          );
+          field_val_opt := match(fa.get(usize(1)),
+            .None => Option(String).None,
+            .Some(val_e) => call_gen_expr(val_e, ctx, indent)
+          );
+          match(field_name_opt,
+            .None => { all_ok = false; },
+            .Some(fname) => match(field_val_opt,
+              .None => { all_ok = false; },
+              .Some(fval) => {
+                if((!first), { result.push_str(", "); });
+                result.push_str(".");
+                result.push_string(fname);
+                result.push_str(" = ");
+                result.push_string(fval);
+                first = false;
+              }
+            )
+          );
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  cond(
+    (!(all_ok)) => Option(String).None,
+    true => {
+      result.push_str("}");
+      .Some(result)
+    }
+  )
+});
+
 /// Generate a C expression string for a Yo AST expression.
 ///
 /// May emit C statements into `ctx.emitter` as side effects (for begin blocks,
@@ -938,6 +1043,15 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(id) => ((id.as_str() == "assert") || (id.as_str() == "comptime_assert"))
         )) => handle_assert(args, ctx, indent),
+        // Struct constructor: TypeName(field1: val1, field2: val2)
+        // Detected by: non-infix, uppercase-start name, all args labeled.
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (is_uppercase_start(id) && all_labeled_args(args))
+        )) => match(ident_opt,
+          .None    => Option(String).None,
+          .Some(id) => handle_struct_constructor(id, args, ctx, indent)
+        ),
         // Regular function call: f(args) — identifier func, not a builtin keyword
         // Special case: primitive type cast — i32(x) → (int32_t)(x)
         ((!is_infix) &&
@@ -981,4 +1095,5 @@ export gen_binary_op, gen_unary_op;
 export type_name_to_c, type_expr_to_c, is_builtin_keyword, is_primitive_type_cast;
 export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
 export handle_define, handle_type_cast, handle_assert;
+export is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor;
 export func_box_is_dot, func_box_is_dot_dispatch;

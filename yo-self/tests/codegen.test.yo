@@ -11,7 +11,9 @@ open import "std/error";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { generate_expr, gen_binary_op, gen_unary_op,
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
-  type_name_to_c, gen_arg_list } :: import "../codegen/exprs.yo";
+  type_name_to_c, gen_arg_list,
+  is_labeled_arg, all_labeled_args, is_uppercase_start,
+  handle_struct_constructor } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
@@ -1834,5 +1836,134 @@ test "extract_impl_fns: extracts method as TypeName_method", {
       assert((fd.ret_ty_c == String.from("int32_t")), "return type is int32_t");
       assert((fd.params.len() == usize(1)), "one param");
     }
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Struct constructor — is_labeled_arg, all_labeled_args, is_uppercase_start,
+//                      handle_struct_constructor, generate_expr integration
+// ---------------------------------------------------------------------------
+
+test "is_labeled_arg: colon infix with 2 args is labeled", {
+  name_e := make_atom_expr(TokenKind.Identifier, "value");
+  val_e  := make_atom_expr(TokenKind.Integer, "42");
+  labeled := make_colon_expr(name_e, val_e);
+  assert(is_labeled_arg(labeled), "colon infix should be labeled arg");
+};
+
+test "is_labeled_arg: plain atom is not labeled", {
+  e := make_atom_expr(TokenKind.Identifier, "x");
+  assert((!is_labeled_arg(e)), "atom is not a labeled arg");
+};
+
+test "is_labeled_arg: non-colon infix is not labeled", {
+  lhs := make_atom_expr(TokenKind.Identifier, "a");
+  rhs := make_atom_expr(TokenKind.Integer, "1");
+  args := ArrayList(AstExpr).new();
+  args.push(lhs);
+  args.push(rhs);
+  plus_tok := make_token_raw(TokenKind.Operator, "+");
+  e := AstExpr.FnCall(box(AstExpr.Atom(plus_tok)), args, true, plus_tok);
+  assert((!is_labeled_arg(e)), "plus infix is not a labeled arg");
+};
+
+test "all_labeled_args: all labeled returns true", {
+  f1 := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "1")
+  );
+  f2 := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "y"),
+    make_atom_expr(TokenKind.Integer, "2")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(f1);
+  args.push(f2);
+  assert(all_labeled_args(args), "all labeled args");
+};
+
+test "all_labeled_args: empty list returns false", {
+  empty := ArrayList(AstExpr).new();
+  assert((!all_labeled_args(empty)), "empty list is not all-labeled");
+};
+
+test "all_labeled_args: mixed args returns false", {
+  f1 := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "1")
+  );
+  pos := make_atom_expr(TokenKind.Integer, "2");
+  args := ArrayList(AstExpr).new();
+  args.push(f1);
+  args.push(pos);
+  assert((!all_labeled_args(args)), "mixed args not all labeled");
+};
+
+test "is_uppercase_start: uppercase name returns true", {
+  assert(is_uppercase_start(String.from("Counter")), "Counter starts uppercase");
+  assert(is_uppercase_start(String.from("Point")), "Point starts uppercase");
+};
+
+test "is_uppercase_start: lowercase name returns false", {
+  assert((!is_uppercase_start(String.from("add"))), "add starts lowercase");
+  assert((!is_uppercase_start(String.from("foo"))), "foo starts lowercase");
+};
+
+test "is_uppercase_start: empty string returns false", {
+  assert((!is_uppercase_start(String.from(""))), "empty string has no uppercase start");
+};
+
+test "handle_struct_constructor: single field emits compound literal", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ind  := String.new();
+  field := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "value"),
+    make_atom_expr(TokenKind.Integer, "42")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(field);
+  result := handle_struct_constructor(String.from("Counter"), args, pctx, ind);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(s) => assert((s == String.from("(Counter){.value = 42}")), "single field compound literal")
+  );
+};
+
+test "handle_struct_constructor: two fields", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ind  := String.new();
+  f1 := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "3")
+  );
+  f2 := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "y"),
+    make_atom_expr(TokenKind.Integer, "4")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(f1);
+  args.push(f2);
+  result := handle_struct_constructor(String.from("Point"), args, pctx, ind);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(s) => assert((s == String.from("(Point){.x = 3, .y = 4}")), "two field compound literal")
+  );
+};
+
+test "generate_expr: struct constructor via generate_expr dispatch", {
+  field := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "value"),
+    make_atom_expr(TokenKind.Integer, "99")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(field);
+  ctor_tok := make_token_raw(TokenKind.Identifier, "MyStruct");
+  expr := AstExpr.FnCall(box(AstExpr.Atom(ctor_tok)), args, false, ctor_tok);
+  result := run_gen(expr);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(s) => assert((s == String.from("(MyStruct){.value = 99}")), "struct ctor dispatch")
   );
 };
