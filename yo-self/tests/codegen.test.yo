@@ -24,7 +24,7 @@ open import "std/error";
   emit_match_temp_decl, emit_switch_open, emit_case_open, emit_case_body,
   emit_data_bindings,
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
-{ FnDef, extract_fn_def, compile_module_to_c } :: import "../codegen/driver.yo";
+{ FnDef, extract_fn_def, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -1571,4 +1571,102 @@ test "validation: parse and compile fn with i32 parameter", {
       assert(c.contains(String.from("static int32_t fn_add(")), "fn return type");
     }
   );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
+// ---------------------------------------------------------------------------
+// These tests verify the three new codegen features added for the test runner.
+
+/// Build `FnCall(Atom(":="), [name_atom, rhs], true)` — define expression.
+make_walrus_expr :: (fn(name : str, rhs : AstExpr) -> AstExpr)(
+  make_infix_expr(":=", make_atom_expr(TokenKind.Identifier, name), rhs)
+);
+
+/// Build `FnCall(Atom("assert"), [cond, msg], false)` — assert call.
+make_assert_expr :: (fn(cond_e : AstExpr, msg : str) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(make_atom_expr(TokenKind.StringLit, msg));
+  make_fncall_expr("assert", a)
+});
+
+test "handle_define: x := 42 emits __auto_type x = 42;", {
+  // Build `x := 42`
+  rhs  := make_atom_expr(TokenKind.Integer, "42");
+  expr := make_walrus_expr("x", rhs);
+  ctx  := run_gen_with_ctx(expr);
+  code := generate_c_output(&ctx);
+  assert(code.contains(String.from("__auto_type x = 42;")), "define emits __auto_type");
+};
+
+test "handle_define: returns unit sentinel 0 so no spurious value emitted", {
+  // When used as statement in a begin block, define returns "0" (unit sentinel)
+  rhs  := make_atom_expr(TokenKind.Integer, "5");
+  expr := make_walrus_expr("y", rhs);
+  result := run_gen(expr);
+  match(result,
+    .None    => assert(false, "expected Some"),
+    .Some(v) => assert((v == String.from("0")), "unit sentinel 0")
+  );
+};
+
+test "handle_type_cast: i32(99) emits (int32_t)(99)", {
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Integer, "99"));
+  expr := make_fncall_expr("i32", a);
+  result := run_gen(expr);
+  match(result,
+    .None    => assert(false, "expected Some"),
+    .Some(v) => assert(v.contains(String.from("(int32_t)(99)")), "cast emitted correctly")
+  );
+};
+
+test "handle_type_cast: u8(x) emits (uint8_t)(x)", {
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Identifier, "x"));
+  expr := make_fncall_expr("u8", a);
+  result := run_gen(expr);
+  match(result,
+    .None    => assert(false, "expected Some"),
+    .Some(v) => assert(v.contains(String.from("(uint8_t)(x)")), "u8 cast emitted correctly")
+  );
+};
+
+test "handle_type_cast: bool(x) emits (bool)(x)", {
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Identifier, "x"));
+  expr := make_fncall_expr("bool", a);
+  result := run_gen(expr);
+  match(result,
+    .None    => assert(false, "expected Some"),
+    .Some(v) => assert(v.contains(String.from("(bool)(x)")), "bool cast emitted correctly")
+  );
+};
+
+test "handle_assert: assert(cond, msg) emits if (!cond) { exit(1); }", {
+  cond_e := make_atom_expr(TokenKind.Identifier, "ok");
+  expr   := make_assert_expr(cond_e, "\"check\"");
+  ctx    := run_gen_with_ctx(expr);
+  code   := generate_c_output(&ctx);
+  assert(code.contains(String.from("if (!(ok))")), "if guard");
+  assert(code.contains(String.from("exit(1)")),    "exit(1) on failure");
+};
+
+test "compile_test_body_to_c: empty body compiles to valid C with main wrapper", {
+  body := make_begin_expr(ArrayList(AstExpr).new());
+  c    := compile_test_body_to_c(body, "test_mod");
+  assert(c.contains(String.from("fn_test_body")),  "test body function");
+  assert(c.contains(String.from("int main(void)")), "main wrapper");
+  assert(c.contains(String.from("#include <stdio.h>")), "preamble");
+};
+
+test "compile_test_body_to_c: assert in body emits if guard", {
+  cond_e := make_atom_expr(TokenKind.Identifier, "ok");
+  assert_e := make_assert_expr(cond_e, "\"msg\"");
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(assert_e);
+  body := make_begin_expr(stmts);
+  c    := compile_test_body_to_c(body, "test_mod");
+  assert(c.contains(String.from("if (!(ok))")), "assert guard present in test body C");
 };
