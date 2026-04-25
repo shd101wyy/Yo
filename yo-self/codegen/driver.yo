@@ -501,6 +501,28 @@ compile_module_to_c :: (fn(
 
   n := exprs.len();
   (i : usize) = usize(0);
+
+  // === Pass 1: register all top-level Yo function names ===
+  // This allows forward calls (foo calls bar defined later) to receive the
+  // correct `fn_` prefix in the generated C.
+  while runtime((i < n)), {
+    i = (i + usize(1));
+    match(exprs.get(i - usize(1)),
+      .None => (),
+      .Some(expr) => {
+        match(extract_fn_def(expr),
+          .Some(fd) => {
+            name_copy := String.from(fd.name.as_str());
+            pctx.*.register_fn(name_copy);
+          },
+          .None => ()
+        );
+      }
+    );
+  };
+
+  // === Pass 2: emit structs, functions, and impl methods ===
+  (i = usize(0));
   (main_found : bool) = false;
   (main_c_name : String) = String.new();
 
@@ -613,13 +635,70 @@ export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
 /// `assert(cond, msg)` in the body emits `if (!(cond)) { exit(1); }` via
 /// the `handle_assert` hook in `generate_expr`.
 ///
+/// `module_exprs` should be the full list of top-level AST nodes from the
+/// test file. Any `name :: (fn(...) -> T)(body)` definitions are:
+///   1. Registered so call sites get the `fn_` prefix.
+///   2. Emitted as C functions before the test body so calls can resolve.
+/// Struct definitions and impl methods are also emitted.
+/// Test declarations (`test "name", { body }`) are skipped.
+///
 /// Returns the full C source string.
-compile_test_body_to_c :: (fn(body : AstExpr, module_id : str) -> String)({
+compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : ArrayList(AstExpr)) -> String)({
   ctx := CodegenContext.new();
   (pctx : *(CodegenContext)) = &ctx;
 
+  // === Pass 1: register all top-level function names ===
+  ne := module_exprs.len();
+  (ie : usize) = usize(0);
+  while runtime((ie < ne)), {
+    ie = (ie + usize(1));
+    match(module_exprs.get(ie - usize(1)),
+      .None => (),
+      .Some(mexpr) => match(extract_fn_def(mexpr),
+        .None => (),
+        .Some(fd) => {
+          name_copy := String.from(fd.name.as_str());
+          pctx.*.register_fn(name_copy);
+        }
+      )
+    );
+  };
+
   emit_c_preamble(module_id, pctx);
 
+  // === Pass 2: emit helper structs and functions ===
+  (ie = usize(0));
+  while runtime((ie < ne)), {
+    ie = (ie + usize(1));
+    match(module_exprs.get(ie - usize(1)),
+      .None => (),
+      .Some(mexpr) => {
+        // Emit top-level function definitions (skip test declarations)
+        match(extract_fn_def(mexpr),
+          .Some(fd) => {
+            c_name := `fn_${ fd.name }`;
+            generate_function(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              fd.body,
+              pctx
+            );
+          },
+          .None => {
+            // Emit struct definitions
+            match(extract_struct_def(mexpr),
+              .Some(sd) => { emit_struct_to_c(sd, pctx); },
+              .None => ()
+            );
+          }
+        );
+      }
+    );
+  };
+
+  // === Emit the test body as a standalone function ===
   params    := ArrayList(String).new();
   param_tys := ArrayList(String).new();
   generate_function("fn_test_body", "void", params, param_tys, body, pctx);

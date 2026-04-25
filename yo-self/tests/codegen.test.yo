@@ -13,7 +13,7 @@ open import "std/error";
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
   type_name_to_c, gen_arg_list,
   is_labeled_arg, all_labeled_args, is_uppercase_start,
-  handle_struct_constructor } :: import "../codegen/exprs.yo";
+  handle_struct_constructor, handle_regular_call } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
@@ -1658,7 +1658,7 @@ test "handle_assert: assert(cond, msg) emits if (!cond) { exit(1); }", {
 
 test "compile_test_body_to_c: empty body compiles to valid C with main wrapper", {
   body := make_begin_expr(ArrayList(AstExpr).new());
-  c    := compile_test_body_to_c(body, "test_mod");
+  c    := compile_test_body_to_c(body, "test_mod", ArrayList(AstExpr).new());
   assert(c.contains(String.from("fn_test_body")),  "test body function");
   assert(c.contains(String.from("int main(void)")), "main wrapper");
   assert(c.contains(String.from("#include <stdio.h>")), "preamble");
@@ -1670,7 +1670,7 @@ test "compile_test_body_to_c: assert in body emits if guard", {
   stmts := ArrayList(AstExpr).new();
   stmts.push(assert_e);
   body := make_begin_expr(stmts);
-  c    := compile_test_body_to_c(body, "test_mod");
+  c    := compile_test_body_to_c(body, "test_mod", ArrayList(AstExpr).new());
   assert(c.contains(String.from("if (!(ok))")), "assert guard present in test body C");
 };
 
@@ -1965,5 +1965,74 @@ test "generate_expr: struct constructor via generate_expr dispatch", {
   match(result,
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("(MyStruct){.value = 99}")), "struct ctor dispatch")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Cross-function call: fn_ prefix for registered functions
+// ---------------------------------------------------------------------------
+
+test "handle_regular_call: registered fn gets fn_ prefix", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  pctx.*.register_fn(String.from("helper"));
+  ind  := String.new();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "1"));
+  result := handle_regular_call(.Some(String.from("helper")), args, pctx, ind);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(s) => assert((s == String.from("fn_helper(1)")), "registered fn uses fn_ prefix")
+  );
+};
+
+test "handle_regular_call: unregistered fn has no prefix", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ind  := String.new();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "1"));
+  result := handle_regular_call(.Some(String.from("exit")), args, pctx, ind);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(s) => assert((s == String.from("exit(1)")), "unregistered fn has no prefix")
+  );
+};
+
+test "compile_module_to_c: cross-function call uses fn_ prefix", {
+  // Build: double :: (fn(x : i32) -> i32)(x + x)
+  //        main   :: (fn() -> unit)(double(21))
+  dbl_params := ArrayList(AstExpr).new();
+  dbl_params.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Identifier, "i32")
+  ));
+  dbl_body := make_infix_expr("+",
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Identifier, "x")
+  );
+  dbl_ret  := make_atom_expr(TokenKind.Identifier, "i32");
+  dbl_def  := make_define_expr("double", make_fn_app(dbl_params, dbl_ret, dbl_body));
+
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom_expr(TokenKind.Integer, "21"));
+  call_expr := make_fncall_expr("double", call_args);
+  main_stmts := ArrayList(AstExpr).new();
+  main_stmts.push(call_expr);
+  main_body := make_begin_expr(main_stmts);
+  main_ret  := make_atom_expr(TokenKind.Identifier, "unit");
+  main_def  := make_define_expr("main", make_fn_app(ArrayList(AstExpr).new(), main_ret, main_body));
+
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(dbl_def);
+  exprs.push(main_def);
+
+  opt_c := compile_module_to_c(exprs, "test_cross", "main");
+  match(opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("fn_double(")), "double defined as fn_double");
+      assert(c.contains(String.from("fn_double(21)")), "call site uses fn_double prefix");
+    }
   );
 };

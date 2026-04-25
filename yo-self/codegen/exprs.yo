@@ -658,6 +658,9 @@ handle_regular_call :: (fn(
       .None        => Option(String).None,
       .Some(arg_s) => {
         result := String.new();
+        if(ctx.*.is_defined_fn(id.as_str()), {
+          result.push_str("fn_");
+        });
         result.push_string(id);
         result.push_str("(");
         result.push_string(arg_s);
