@@ -15,6 +15,9 @@ open import "std/string";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
   struct_c_name, enum_c_name, enum_tag_prefix } :: import "../codegen/types.yo";
+{ generate_rc_fns, generate_rc_fns_trivial,
+  rc_dispose_name, rc_drop_name, rc_dup_name,
+  RC_ATTR } :: import "../codegen/rc.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -971,3 +974,109 @@ test "generate_type_decl: unsupported TypeValue returns None", {
     "primitive should return None"
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 4i: RC/GC helper function generation
+// ---------------------------------------------------------------------------
+
+test "rc name builders", {
+  s := "__yo_struct_yomod_id_2";
+  assert((rc_dispose_name(s) == String.from("__yo_struct_yomod_id_2___dispose")), "dispose name");
+  assert((rc_drop_name(s)    == String.from("__yo_struct_yomod_id_2___drop")),    "drop name");
+  assert((rc_dup_name(s)     == String.from("__yo_struct_yomod_id_2___dup")),     "dup name");
+};
+
+test "generate_rc_fns_trivial: struct (has_dispose=true)", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  generate_rc_fns_trivial("__yo_struct_yomod_id_2", true, pctx);
+  output := ctx.emitter.print();
+
+  // Forward declarations for all three
+  assert(output.contains(String.from("__yo_struct_yomod_id_2___dispose")), "dispose present");
+  assert(output.contains(String.from("__yo_struct_yomod_id_2___drop")),    "drop present");
+  assert(output.contains(String.from("__yo_struct_yomod_id_2___dup")),     "dup present");
+
+  // Void signatures for dispose and drop
+  assert(output.contains(String.from("void __yo_struct_yomod_id_2___dispose(")), "dispose void sig");
+  assert(output.contains(String.from("void __yo_struct_yomod_id_2___drop(")),    "drop void sig");
+  // Dup returns the type
+  assert(output.contains(String.from("__yo_struct_yomod_id_2 __yo_struct_yomod_id_2___dup(")), "dup return type");
+
+  // Drop body has return;
+  assert(output.contains(String.from("return;")), "drop return");
+  // Dup body copies __yo_self
+  assert(output.contains(String.from("__yo_struct_yomod_id_2 __yo_dup_tmp = __yo_self;")), "dup copy");
+  assert(output.contains(String.from("return __yo_dup_tmp;")), "dup return tmp");
+};
+
+test "generate_rc_fns_trivial: enum (has_dispose=false)", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  generate_rc_fns_trivial("__yo_enum_yomod_id_5", false, pctx);
+  output := ctx.emitter.print();
+
+  // No dispose for enums
+  assert((!output.contains(String.from("___dispose"))), "no dispose for enum");
+
+  // Drop and dup present
+  assert(output.contains(String.from("__yo_enum_yomod_id_5___drop")), "drop present");
+  assert(output.contains(String.from("__yo_enum_yomod_id_5___dup")),  "dup present");
+
+  // Definitions emitted
+  assert(output.contains(String.from("void __yo_enum_yomod_id_5___drop(")), "drop def");
+  assert(output.contains(String.from("__yo_enum_yomod_id_5 __yo_enum_yomod_id_5___dup(")), "dup def");
+};
+
+test "generate_rc_fns: Struct TypeValue generates all three RC fns", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("x"));
+  field_labels.push(String.from("y"));
+  field_types := ArrayList(TypeValue).new();
+  field_types.push(t_i32());
+  field_types.push(t_i32());
+  tv := TypeValue.Struct(String.from("Point"), field_labels, field_types);
+
+  ok := generate_rc_fns(tv, "yomod0001", usize(2), pctx);
+  assert(ok, "should return true for Struct");
+
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("__yo_struct_yomod0001_id_2___dispose")), "dispose");
+  assert(output.contains(String.from("__yo_struct_yomod0001_id_2___drop")),    "drop");
+  assert(output.contains(String.from("__yo_struct_yomod0001_id_2___dup")),     "dup");
+};
+
+test "generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+
+  variant_names := ArrayList(String).new();
+  variant_names.push(String.from("Red"));
+  variant_names.push(String.from("Green"));
+  variant_names.push(String.from("Blue"));
+  variant_fields := ArrayList(ArrayList(TypeValue)).new();
+  variant_fields.push(ArrayList(TypeValue).new());
+  variant_fields.push(ArrayList(TypeValue).new());
+  variant_fields.push(ArrayList(TypeValue).new());
+  tv := TypeValue.EnumT(String.from("Color"), variant_names, variant_fields);
+
+  ok := generate_rc_fns(tv, "yomod0001", usize(10), pctx);
+  assert(ok, "should return true for EnumT");
+
+  output := ctx.emitter.print();
+  assert((!output.contains(String.from("___dispose"))),                    "no dispose for enum");
+  assert(output.contains(String.from("__yo_enum_yomod0001_id_10___drop")), "drop");
+  assert(output.contains(String.from("__yo_enum_yomod0001_id_10___dup")),  "dup");
+};
+
+test "generate_rc_fns: unsupported TypeValue returns false", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  tv   := TypeValue.Int(u8(32), true);
+  ok   := generate_rc_fns(tv, "yomod0001", usize(1), pctx);
+  assert((!ok), "should return false for non-struct/enum");
+};
+

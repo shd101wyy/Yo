@@ -293,7 +293,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **4f. Async/await state machines** — Future types, SM generation, event loop
 **4g. Platform I/O runtimes** — io_uring (Linux), kqueue (macOS), IOCP (Windows)
 **4h. Effects codegen** — evidence passing, escape detection, handler installation
-**4i. RC/GC codegen** — reference counting, cycle collection, drop generation
+**4i. RC/GC codegen** — reference counting, cycle collection, drop generation ✅ Done (simplified: trivial dispose/drop/dup for primitive-field types)
 
 **Validation milestone**: Compile and run `hello_world.yo` using the Yo-written compiler. Compare C output with the TS compiler's output.
 
