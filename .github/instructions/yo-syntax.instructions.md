@@ -383,8 +383,11 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
-- There is no `loop` function. Use `while runtime(true), body` for runtime, or `while true, body` for comptime.
-- **`while true` is evaluated at compile time!** If the loop body has no runtime values and no `break`/`return`/`escape`, the evaluator will hang or exceed the iteration limit. Always use `while runtime(true), { ... }` for infinite runtime loops (e.g., server accept loops, event loops).
+- There is no `loop` function. Use `while true, body` for a runtime infinite loop.
+- **`while cond, body` is always a runtime loop**, regardless of whether `cond` is compile-time known.
+- **`while comptime(cond), body`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while comptime(true)` with no `break`/`return`/`escape`).
+- If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
+- The old `while runtime(true)` pattern still compiles (backwards compatible) but is no longer necessary — `while true` is now always a runtime loop.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 

@@ -1529,7 +1529,7 @@ test "Test 'while'", {
     sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
       result :: i32(0);
       i :: i32(0);
-      while i <= max, {
+      while comptime(i <= max), {
         result = (result + i);
         i = (i + 1);
       };
@@ -1560,7 +1560,7 @@ test "Test 'while'", {
     sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
       result :: i32(0);
       i :: i32(0);
-      while i <= max, i = (i + 1), {
+      while comptime(i <= max), i = (i + 1), {
         result = (result + i);
         continue;
       };
@@ -1669,10 +1669,23 @@ test "Test 'while'", {
   // Test: infinite comptime while loop (literal true, no terminator) should error
   {
     comptime_expect_error(
-      while true, {
+      while comptime(true), {
         x := 1;
       },
       "Infinite compile-time while loop detected"
+    );
+  };
+
+  // Test: while with comptime-only variable condition without comptime modifier should error
+  {
+    comptime_expect_error(
+      {
+        i :: 0;
+        while (i < 5), {
+          ();
+        };
+      },
+      "while loop condition is compile-time known but the `comptime` modifier is missing"
     );
   };
 
@@ -2403,7 +2416,7 @@ test "Test comptime while loop unrolling with runtime body", {
   {
     sum := 0;
     i :: 0;
-    while (i < 5), {
+    while comptime((i < 5)), {
       sum = (sum + i32(i));
       i = (i + 1);
     };
@@ -2414,7 +2427,7 @@ test "Test comptime while loop unrolling with runtime body", {
   {
     sum := 0;
     i :: 0;
-    while (i < 5), i = (i + 1), {
+    while comptime((i < 5)), i = (i + 1), {
       sum = (sum + i32(i));
     };
     assert((sum == 10), "3-arg unrolled sum should be 10");
@@ -2424,7 +2437,7 @@ test "Test comptime while loop unrolling with runtime body", {
   {
     sum := 0;
     i :: 10;
-    while (i < 5), {
+    while comptime((i < 5)), {
       sum = (sum + i32(i));
       i = (i + 1);
     };
@@ -2435,7 +2448,7 @@ test "Test comptime while loop unrolling with runtime body", {
   {
     sum := 0;
     i :: 0;
-    while (i < 1), {
+    while comptime((i < 1)), {
       sum = (sum + i32(i));
       i = (i + 1);
     };
@@ -2447,7 +2460,7 @@ test "Test comptime while loop unrolling with runtime body", {
     a := 0;
     b := 0;
     i :: 0;
-    while (i < 3), {
+    while comptime((i < 3)), {
       a = (a + i32(i));
       b = (b + i32((i * i)));
       i = (i + 1);

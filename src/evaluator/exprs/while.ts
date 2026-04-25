@@ -12,7 +12,10 @@ import {
 } from "../../expr";
 import { exprContainsLoopTerminator } from "../../expr-traversal";
 import { isBooleanType, isUnitType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import {
+  convertComptimeTypeToRuntimeType,
+  typeToString,
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -67,7 +70,7 @@ function throwMaxIterationsError(
       errorMessage:
         `Compile-time while loop exceeded the maximum iteration count (${MAX_COMPTIME_LOOP_ITERATIONS}). ` +
         `The loop body contains a conditional \`break\`, \`return\`, or \`escape\`, but the loop did not terminate within the limit.\n` +
-        `If this is an infinite runtime loop, use \`while runtime(true), { ... }\` instead.\n` +
+        `If this is an infinite runtime loop, use \`while true, { ... }\` instead.\n` +
         `To increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
     });
   } else {
@@ -76,7 +79,7 @@ function throwMaxIterationsError(
       errorMessage:
         `Infinite compile-time while loop detected. ` +
         `The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\n` +
-        `If you need an infinite runtime loop, use \`while runtime(true), { ... }\` instead of \`while true, { ... }\`.\n` +
+        `If you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\n` +
         `To increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
     });
   }
@@ -107,7 +110,6 @@ export function evaluateWhile({
     });
   }
 
-  const conditionExpr: Expr = expr.args[0]!;
   let stepExpr: Expr | undefined = undefined;
   let bodyExpr: Expr;
 
@@ -120,11 +122,25 @@ export function evaluateWhile({
     bodyExpr = expr.args[1]!;
   }
 
+  // Detect comptime() modifier on the condition. Do NOT mutate expr.args[0].
+  // Re-detected on each recursive call so the AST stays clean across evaluations.
+  const rawConditionExpr: Expr = expr.args[0]!;
+  let isComptimeModifier: boolean;
+  let innerConditionExpr: Expr;
+
+  if (exprIsFunctionCallOf(rawConditionExpr, "comptime", 1)) {
+    isComptimeModifier = true;
+    innerConditionExpr = (rawConditionExpr as FnCallExpr).args[0]!;
+  } else {
+    isComptimeModifier = false;
+    innerConditionExpr = rawConditionExpr;
+  }
+
   // NOTE: It's necessary to use evaluateBeginExpression here,
   // because the condition might contain Rc values that need to be properly managed by `begin` block.
-  // Evaluate the condition expression
+  // Evaluate the inner condition expression (without the comptime() wrapper)
   const evaluatedConditionExpr = evaluateBeginExpression({
-    expr: conditionExpr,
+    expr: innerConditionExpr,
     env,
     context: {
       ...context,
@@ -133,23 +149,87 @@ export function evaluateWhile({
   });
   if (!evaluatedConditionExpr.$) {
     throw formatErrorMessage({
-      token: conditionExpr.token,
-      errorMessage: `Failed to evaluate the condition expression:\n${exprToString(conditionExpr)}`,
+      token: innerConditionExpr.token,
+      errorMessage: `Failed to evaluate the condition expression:\n${exprToString(innerConditionExpr)}`,
     });
   }
   if (!isBooleanType(evaluatedConditionExpr.$.type)) {
     throw formatErrorMessage({
-      token: conditionExpr.token,
+      token: innerConditionExpr.token,
       errorMessage: `Expected bool type for condition expression, got:\n${exprToString(
-        conditionExpr
+        innerConditionExpr
       )}`,
     });
   }
 
   const conditionValue = evaluatedConditionExpr.$.value;
-  const isCompileTime = conditionValue !== undefined;
 
-  if (isBooleanValue(conditionValue) && conditionValue.value === false) {
+  // Enforce comptime() modifier semantics:
+  // - With comptime(): condition MUST be compile-time known; error if runtime.
+  // - Without comptime(): always treat as a runtime loop (ignore comptime-ness of the condition).
+  if (isComptimeModifier && conditionValue === undefined) {
+    throw formatErrorMessage({
+      token: innerConditionExpr.token,
+      errorMessage:
+        `"while comptime(...)" requires a compile-time known condition, but the condition evaluates to a runtime value.\n` +
+        `Remove the "comptime" modifier to use a runtime while loop: \`while cond, body\`.`,
+    });
+  }
+
+  if (!isComptimeModifier && conditionValue !== undefined) {
+    // Condition happens to be compile-time known, but there is no comptime() modifier.
+    // If the condition is NOT a literal `true`/`false`, it means the condition depends on
+    // comptime-only variables. Those variables cannot change inside a runtime loop body,
+    // so the loop condition will never change — this is almost certainly an infinite loop.
+    const isLiteralBool = (() => {
+      if (
+        exprIsAtomOf(innerConditionExpr, "true") ||
+        exprIsAtomOf(innerConditionExpr, "false")
+      )
+        return true;
+      // begin-wrapped literal: begin(true) / begin(false)
+      if (
+        exprIsFunctionCallOf(innerConditionExpr, "begin") &&
+        (innerConditionExpr as FnCallExpr).args.length === 1
+      ) {
+        const arg = (innerConditionExpr as FnCallExpr).args[0]!;
+        if (exprIsAtomOf(arg, "true") || exprIsAtomOf(arg, "false"))
+          return true;
+      }
+      return false;
+    })();
+
+    if (!isLiteralBool) {
+      throw formatErrorMessage({
+        token: innerConditionExpr.token,
+        errorMessage:
+          `while loop condition is compile-time known but the \`comptime\` modifier is missing.\n` +
+          `The condition depends on comptime-only variable(s) that cannot change inside a runtime loop, which will cause an infinite loop.\n` +
+          `Use \`while comptime(cond), body\` to unroll the loop at compile time.`,
+      });
+    }
+
+    // Literal `true`/`false`: allow as a runtime loop (e.g., `while true` for infinite loops).
+    // Convert the type to runtime.
+    const runtimeType = convertComptimeTypeToRuntimeType({
+      type: evaluatedConditionExpr.$.type,
+      expectedType: undefined,
+      expr: innerConditionExpr,
+      env: evaluatedConditionExpr.$.env ?? env,
+    });
+    evaluatedConditionExpr.$.type = runtimeType;
+    evaluatedConditionExpr.$.value = undefined;
+  }
+
+  const effectiveConditionValue = isComptimeModifier
+    ? conditionValue
+    : undefined;
+  const isCompileTime = effectiveConditionValue !== undefined;
+
+  if (
+    isBooleanValue(effectiveConditionValue) &&
+    effectiveConditionValue.value === false
+  ) {
     // Stop the evaluation
     // return the expr
     expr.$ = {
@@ -188,7 +268,10 @@ export function evaluateWhile({
       ) {
         // Guaranteed that we meet "return" or "escape"
         // If the body has a return value, we should return it
-        if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+        if (
+          isBooleanValue(effectiveConditionValue) &&
+          effectiveConditionValue.value === true
+        ) {
           // Only propagate return/escape out of while — clear break/continue
           const propagated: { return?: boolean; escape?: boolean } = {};
           if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "return"))
@@ -242,7 +325,7 @@ export function evaluateWhile({
 
         // If condition has a compile-time known value, we need to re-evaluate the entire loop
         // If condition is runtime, we treat continue as returning unit for this evaluation
-        if (isBooleanValue(conditionValue)) {
+        if (isBooleanValue(effectiveConditionValue)) {
           // Compile-time known condition - re-evaluate the loop
           return evaluateWhile({
             expr: expr,
@@ -279,15 +362,18 @@ export function evaluateWhile({
     // The conditionExpr may be wrapped in a begin() block by evaluateBeginExpression,
     // so we check the inner expression for literal `true`.
     const isCondLiteralTrue = (() => {
-      if (!isBooleanValue(conditionValue) || conditionValue.value !== true)
+      if (
+        !isBooleanValue(effectiveConditionValue) ||
+        effectiveConditionValue.value !== true
+      )
         return false;
       // Direct atom: `true`
-      if (exprIsAtomOf(conditionExpr, "true")) return true;
+      if (exprIsAtomOf(innerConditionExpr, "true")) return true;
       // Wrapped in begin: `begin(true)` — check first arg
       if (
-        exprIsFunctionCallOf(conditionExpr, "begin") &&
-        (conditionExpr as FnCallExpr).args.length === 1 &&
-        exprIsAtomOf((conditionExpr as FnCallExpr).args[0]!, "true")
+        exprIsFunctionCallOf(innerConditionExpr, "begin") &&
+        (innerConditionExpr as FnCallExpr).args.length === 1 &&
+        exprIsAtomOf((innerConditionExpr as FnCallExpr).args[0]!, "true")
       ) {
         return true;
       }
@@ -361,12 +447,12 @@ export function evaluateWhile({
     // If the condition eventually becomes false, we can unroll completely.
     // Otherwise, fall back to a runtime loop.
     if (
-      isBooleanValue(conditionValue) &&
-      conditionValue.value === true &&
+      isBooleanValue(effectiveConditionValue) &&
+      effectiveConditionValue.value === true &&
       bodyHasRuntimeValue
     ) {
       // Re-evaluate the condition with the updated env to check if it will terminate
-      const checkCondClone = cloneExpr(conditionExpr);
+      const checkCondClone = cloneExpr(innerConditionExpr);
       const checkCondResult = evaluateBeginExpression({
         expr: checkCondClone,
         env,
@@ -416,7 +502,7 @@ export function evaluateWhile({
           }
 
           // Re-evaluate the condition with the updated env
-          const condClone = cloneExpr(conditionExpr);
+          const condClone = cloneExpr(innerConditionExpr);
           const condResult = evaluateBeginExpression({
             expr: condClone,
             env: currentEnv,
@@ -460,7 +546,10 @@ export function evaluateWhile({
       throwMaxIterationsError(expr, bodyExpr, evaluatedBodyExpr.$.controlFlow);
     }
 
-    if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+    if (
+      isBooleanValue(effectiveConditionValue) &&
+      effectiveConditionValue.value === true
+    ) {
       // Safety net: check iteration count for non-literal `true` conditions
       const nextCount = _comptimeIterationCount + 1;
       if (nextCount >= MAX_COMPTIME_LOOP_ITERATIONS) {

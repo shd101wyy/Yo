@@ -157,7 +157,11 @@ export function generateWhileLoop(
     // 2-argument form: while(condition, body) -> C while loop
     // We need to re-evaluate the condition on each iteration, so we use while(true)
     // and check the condition inside with a break statement
-    const conditionExpr = args[0]!;
+    const rawConditionExpr = args[0]!;
+    // Strip comptime() wrapper if present — it was for evaluator semantics only
+    const conditionExpr = exprIsFunctionCallOf(rawConditionExpr, "comptime", 1)
+      ? (rawConditionExpr as FnCallExpr).args[0]!
+      : rawConditionExpr;
     const bodyExpr = args[1]!;
 
     // Track that we're in a loop for proper break/continue handling in nested match expressions
@@ -186,7 +190,11 @@ export function generateWhileLoop(
   } else if (args.length === 3) {
     // 3-argument form: while(condition, step, body) -> C for loop
     // We need to re-evaluate the condition on each iteration
-    const conditionExpr = args[0]!;
+    const rawConditionExpr3 = args[0]!;
+    // Strip comptime() wrapper if present — it was for evaluator semantics only
+    const conditionExpr = exprIsFunctionCallOf(rawConditionExpr3, "comptime", 1)
+      ? (rawConditionExpr3 as FnCallExpr).args[0]!
+      : rawConditionExpr3;
     const stepExpr = args[1]!;
     const bodyExpr = args[2]!;
 

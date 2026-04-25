@@ -312,14 +312,21 @@ factorial :: (fn(n : i32) -> i32)(
   )
 );
 
-while runtime(true), {
+// Runtime infinite loop — `while cond` is ALWAYS runtime
+while true, {
   work();
+};
+
+// Compile-time loop unrolling — requires comptime() modifier
+while comptime(i < 10), {
+  // body evaluated/unrolled at compile time
 };
 ```
 
 - Use `recur(...)` for self-recursion
-- `while true` runs at compile time
-- Use `while runtime(true), { ... }` for open-ended runtime loops
+- `while cond` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
+- `while comptime(cond)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
+- Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
 
 ## Return and branch safety
 
