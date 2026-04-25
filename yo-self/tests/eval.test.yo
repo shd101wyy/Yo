@@ -938,7 +938,7 @@ test "evaluate: fn def stores FuncVal", {
   check_some(f_res, "f is bound");
   match(f_res,
     .Some(r) => match(r.value,
-      .FuncVal(ps, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
+      .FuncVal(_, ps, _, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
       _ => assert(false, "expected FuncVal")
     ),
     .None => ()
@@ -1681,5 +1681,214 @@ test "evaluate: unknown identifier not a type name still returns None", {
   match(result,
     .None => (), // expected — unknown ident returns None
     .Some(_) => { assert(false, "unknown ident must return None"); }
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3l helpers — build fn defs with typed / forall params
+// ---------------------------------------------------------------------------
+
+/// Build a typed param `name : type_name` as an infix `:` FnCall.
+make_typed_param :: (fn(name : str, type_name : str) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, ":"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a.push(make_atom(TokenKind.Identifier, type_name));
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, ":")
+  )
+);
+
+/// Build a forall param `forall(name)` as a non-infix FnCall.
+make_forall_param :: (fn(name : str) -> AstExpr)(
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "forall"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a
+    },
+    false,
+    make_token(TokenKind.Identifier, "forall")
+  )
+);
+
+/// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
+/// More general than `make_fn_def` which only accepts bare atom param names.
+make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
+  (fn_expr : AstExpr) = .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(
+    box(.Atom(make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3l — Generic specialization / forall param binding
+// ---------------------------------------------------------------------------
+
+test "evaluate: forall param name is extracted into FuncVal.forall_names", {
+  env := empty_env();
+  // id := (fn(forall(A), x : A) -> unit)(x)
+  param_exprs := ArrayList(AstExpr).new();
+  param_exprs.push(make_forall_param("A"));
+  param_exprs.push(make_typed_param("x", "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
+  define_e := make_infix(":=", make_ident("id"), fn_def);
+  _ := evaluate(define_e, &env);
+  // Look up id — should be FuncVal with forall_names = ["A"], params = ["x"],
+  // param_type_names = ["A"]
+  id_res := evaluate(make_ident("id"), &env);
+  check_some(id_res, "id is bound");
+  match(id_res,
+    .Some(r) => match(r.value,
+      .FuncVal(fnames, ps, ptnames, _, _, _, _) => {
+        assert((fnames.len() == usize(1)), "1 forall name");
+        assert((ps.len() == usize(1)), "1 value param");
+        assert((ptnames.len() == usize(1)), "1 param type name");
+        match(fnames.get(usize(0)),
+          .Some(fn_name) => assert((fn_name.as_str() == "A"), "forall name is A"),
+          .None => assert(false, "expected forall name A")
+        );
+        match(ps.get(usize(0)),
+          .Some(pn) => assert((pn.as_str() == "x"), "param name is x"),
+          .None => assert(false, "expected param x")
+        );
+        match(ptnames.get(usize(0)),
+          .Some(ptn) => assert((ptn.as_str() == "A"), "param type name is A"),
+          .None => assert(false, "expected param type name A")
+        );
+      },
+      _ => assert(false, "expected FuncVal")
+    ),
+    .None => ()
+  );
+};
+
+test "evaluate: generic identity fn call with integer arg", {
+  env := empty_env();
+  // id := (fn(forall(A), x : A) -> unit)(x); id(42) → IntLit("42")
+  param_exprs := ArrayList(AstExpr).new();
+  param_exprs.push(make_forall_param("A"));
+  param_exprs.push(make_typed_param("x", "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
+  _d := evaluate(make_infix(":=", make_ident("id"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "42"));
+  result := evaluate(make_call("id", call_args), &env);
+  check_some(result, "id(42)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("42"))), "identity returns 42"),
+    .None => ()
+  );
+};
+
+test "evaluate: generic identity fn call with bool arg", {
+  env := empty_env();
+  param_exprs := ArrayList(AstExpr).new();
+  param_exprs.push(make_forall_param("A"));
+  param_exprs.push(make_typed_param("x", "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
+  _d := evaluate(make_infix(":=", make_ident("id_b"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Bool, "true"));
+  result := evaluate(make_call("id_b", call_args), &env);
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "identity returns true"),
+    .None => assert(false, "expected Some for id_b(true)")
+  );
+};
+
+test "evaluate: forall TypeVal is bound inside fn body", {
+  env := empty_env();
+  // lookup_type := (fn(forall(A), x : A) -> unit)({ A })
+  // When called with an int, body returns TypeVal(ComptimeInt)
+  param_exprs := ArrayList(AstExpr).new();
+  param_exprs.push(make_forall_param("A"));
+  param_exprs.push(make_typed_param("x", "A"));
+  // Body: just return A (the TypeVal that should be bound)
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("A"));
+  _d := evaluate(make_infix(":=", make_ident("lookup_type"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  result := evaluate(make_call("lookup_type", call_args), &env);
+  check_some(result, "lookup_type(99)");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(ty) =>
+          // arg was IntLit → type is ComptimeInt
+          match(ty.*,
+            .ComptimeInt => (),
+            _ => { assert(false, "A should be TypeVal(ComptimeInt) when called with int"); }
+          ),
+        _ => { assert(false, "A inside body should return TypeVal"); }
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: two forall params both inferred correctly", {
+  env := empty_env();
+  // swap_types := (fn(forall(A), forall(B), x : A, y : B) -> unit)({ A })
+  // When called with (int, bool), A = TypeVal(ComptimeInt)
+  param_exprs := ArrayList(AstExpr).new();
+  param_exprs.push(make_forall_param("A"));
+  param_exprs.push(make_forall_param("B"));
+  param_exprs.push(make_typed_param("x", "A"));
+  param_exprs.push(make_typed_param("y", "B"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("A"));
+  _d := evaluate(make_infix(":=", make_ident("type_of_first"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Bool, "false"));
+  result := evaluate(make_call("type_of_first", call_args), &env);
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(ty) =>
+          match(ty.*,
+            .ComptimeInt => (),
+            _ => { assert(false, "A should be ComptimeInt"); }
+          ),
+        _ => { assert(false, "expected TypeVal for A"); }
+      ),
+    .None => assert(false, "expected Some")
+  );
+};
+
+test "evaluate: bare (untyped) params still work after Phase 3l", {
+  // Ensure existing bare-param functions aren't broken by the new extraction.
+  env := empty_env();
+  params := ArrayList(String).new();
+  params.push(String.from("x"));
+  params.push(String.from("y"));
+  fn_def := make_fn_def(params, make_infix("+", make_ident("x"), make_ident("y")));
+  _d := evaluate(make_infix(":=", make_ident("add_bare"), fn_def), &env);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_args.push(make_atom(TokenKind.Integer, "4"));
+  result := evaluate(make_call("add_bare", call_args), &env);
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("7"))), "3 + 4 = 7"),
+    .None => assert(false, "expected Some for add_bare(3, 4)")
   );
 };

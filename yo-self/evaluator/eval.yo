@@ -162,7 +162,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .StrLit(_)     => true,
     .VarRef(_)     => false,
     .EnumVal(_, _) => true,
-    .FuncVal(_, _, _, _, _, _) => true,
+    .FuncVal(_, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .TypeVal(_)    => true,
     .StructVal(_, _, _) => true
@@ -240,7 +240,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_)       => t_comptime_string(),
     .VarRef(_)       => t_unit(),
     .EnumVal(_, _)   => t_unit(),
-    .FuncVal(_, _, _, _, _, _)   => t_unit(),
+    .FuncVal(_, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .TypeVal(_)      => t_type(),
     .StructVal(_, _, _) => t_unit()
@@ -448,13 +448,13 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
 // ---------------------------------------------------------------------------
 call_funcval_with_args :: (fn(
   fv             : EvalValue,
-  already_evaled : ArrayList(EvalValue)
+  already_evaled : ArrayList(EvalResult)
 ) -> Option(EvalResult))(
   match(g_eval_fn,
     .None => Option(EvalResult).None,
     .Some(ef) =>
       match(fv,
-        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
+        .FuncVal(forall_names_h, params, param_type_names_h, body, cap_names, cap_tys, cap_vals) => {
           n_p := params.len();
           n_a := already_evaled.len();
           cond(
@@ -489,6 +489,47 @@ call_funcval_with_args :: (fn(
               _frr := (&fresh_fn_env).define_val(
                 String.from("__recur_fn"), t_unit(), true, .Some(fv)
               );
+              // Phase 3l: infer forall type params from argument types.
+              // For each forall name F, scan param_type_names_h for a value param
+              // annotated with F; use that argument's type to bind F = TypeVal(ty).
+              n_forall_h := forall_names_h.len();
+              (fa_i_h : usize) = usize(0);
+              while runtime((fa_i_h < n_forall_h)), {
+                match(forall_names_h.get(fa_i_h),
+                  .Some(fa_name) => {
+                    n_ptn_h := param_type_names_h.len();
+                    (ptn_i_h : usize) = usize(0);
+                    (fa_bound_h : bool) = false;
+                    while runtime(((ptn_i_h < n_ptn_h) && (!(fa_bound_h)))), {
+                      match(param_type_names_h.get(ptn_i_h),
+                        .Some(ptn) => {
+                          cond(
+                            (ptn.as_str() == fa_name.as_str()) => {
+                              match(already_evaled.get(ptn_i_h),
+                                .Some(arg_res) => {
+                                  _fa_bind := (&fresh_fn_env).define_val(
+                                    fa_name,
+                                    t_type(),
+                                    true,
+                                    .Some(EvalValue.TypeVal(box(arg_res.ty)))
+                                  );
+                                  fa_bound_h = true;
+                                },
+                                .None => ()
+                              );
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => ()
+                      );
+                      ptn_i_h = (ptn_i_h + usize(1));
+                    };
+                  },
+                  .None => ()
+                );
+                fa_i_h = (fa_i_h + usize(1));
+              };
               (pi : usize) = usize(0);
               while runtime((pi < n_p)), {
                 match(params.get(pi),
@@ -496,7 +537,7 @@ call_funcval_with_args :: (fn(
                     match(already_evaled.get(pi),
                       .Some(pval) => {
                         _dph := (&fresh_fn_env).define_val(
-                          pname, type_of_eval_value(pval), value_is_comptime(pval), .Some(pval)
+                          pname, pval.ty, value_is_comptime(pval.value), .Some(pval.value)
                         );
                       },
                       .None => ()
@@ -553,8 +594,8 @@ handle_method_dispatch :: (fn(
       match(maybe_mval,
         .None => Option(EvalResult).None,
         .Some(mval) => {
-          evaled := ArrayList(EvalValue).new();
-          evaled.push(recv_val);
+          evaled := ArrayList(EvalResult).new();
+          evaled.push(eval_result(recv_val, type_of_eval_value(recv_val)));
           n_ca := method_call_args.len();
           (cai : usize) = usize(0);
           (caok : bool) = true;
@@ -565,7 +606,7 @@ handle_method_dispatch :: (fn(
                   .Some(ef) => ef(aexpr, env),
                   .None => Option(EvalResult).None
                 ),
-                  .Some(ar) => { evaled.push(ar.value); },
+                  .Some(ar) => { evaled.push(ar); },
                   .None => { caok = false; }
                 ),
               .None => { caok = false; }
@@ -736,11 +777,22 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                           cond(
                             (!(ok_fn)) => Option(EvalResult).None,
                             true => {
-                              // Extract param names from param_decls.
-                              // Each is FnCall(Atom(":"), [Atom(name), type], true)
-                              // or a bare Atom(name) for untyped params.
-                              // forall/using/where params are skipped.
-                              params := ArrayList(String).new();
+                              // Extract forall names, param names, and param type
+                              // annotation identifiers from the param list.
+                              //
+                              // Each param is one of:
+                              //   FnCall(Atom("forall"), [Atom("T")], false)
+                              //     → forall name "T"
+                              //   FnCall(Atom("forall"), [FnCall(Atom(":"), [Atom("T"), ...], true)], false)
+                              //     → forall name "T" (constrained forall)
+                              //   FnCall(Atom(":"), [Atom(name), type_expr], true)
+                              //     → value param "name" with type annotation
+                              //   Atom(name)
+                              //     → bare value param (no type annotation)
+                              //   Other (using/where) → skip
+                              forall_names_f    := ArrayList(String).new();
+                              params_f          := ArrayList(String).new();
+                              param_type_names_f := ArrayList(String).new();
                               (pi : usize) = usize(0);
                               n_p := fn_params_list.len();
                               (param_ok : bool) = true;
@@ -748,16 +800,27 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 match(fn_params_list.get(pi),
                                   .Some(pd) =>
                                     match(pd,
-                                      .FnCall(colon_box, colon_args, _, _) =>
-                                        match(colon_box.*,
-                                          .Atom(colon_tok) =>
+                                      .FnCall(kw_box, kw_args, _, _) =>
+                                        match(kw_box.*,
+                                          .Atom(kw_tok) =>
                                             cond(
-                                              (colon_tok.value.as_str() == ":") =>
-                                                match(colon_args.get(usize(0)),
+                                              (kw_tok.value.as_str() == ":") =>
+                                                // Value param: extract name + type annotation
+                                                match(kw_args.get(usize(0)),
                                                   .Some(name_expr) =>
                                                     match(name_expr,
                                                       .Atom(name_tok) => {
-                                                        params.push(name_tok.value);
+                                                        params_f.push(name_tok.value);
+                                                        // Capture simple identifier type annotation
+                                                        ptn_s := match(kw_args.get(usize(1)),
+                                                          .Some(te) =>
+                                                            match(te,
+                                                              .Atom(type_tok) => type_tok.value.as_str(),
+                                                              .FnCall(_, _, _, _) => ""
+                                                            ),
+                                                          .None => ""
+                                                        );
+                                                        param_type_names_f.push(String.from(ptn_s));
                                                       },
                                                       .FnCall(_, _, _, _) => {
                                                         param_ok = false;
@@ -765,13 +828,46 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                                     ),
                                                   .None => { param_ok = false; }
                                                 ),
-                                              // forall/using/where — skip
+                                              (kw_tok.value.as_str() == "forall") =>
+                                                // Forall param: extract generic name
+                                                match(kw_args.get(usize(0)),
+                                                  .Some(fa_expr) =>
+                                                    match(fa_expr,
+                                                      // Simple: forall(T)
+                                                      .Atom(fa_tok) => {
+                                                        forall_names_f.push(fa_tok.value);
+                                                      },
+                                                      // Constrained: forall(T: Constraint)
+                                                      .FnCall(fa_c_box, fa_c_args, _, _) =>
+                                                        match(fa_c_box.*,
+                                                          .Atom(fa_c_tok) =>
+                                                            cond(
+                                                              (fa_c_tok.value.as_str() == ":") =>
+                                                                match(fa_c_args.get(usize(0)),
+                                                                  .Some(fa_name_e) =>
+                                                                    match(fa_name_e,
+                                                                      .Atom(fa_name_tok) => {
+                                                                        forall_names_f.push(fa_name_tok.value);
+                                                                      },
+                                                                      .FnCall(_, _, _, _) => ()
+                                                                    ),
+                                                                  .None => ()
+                                                                ),
+                                                              true => ()
+                                                            ),
+                                                          .FnCall(_, _, _, _) => ()
+                                                        )
+                                                    ),
+                                                  .None => { param_ok = false; }
+                                                ),
+                                              // using/where — skip
                                               true => ()
                                             ),
                                           .FnCall(_, _, _, _) => { param_ok = false; }
                                         ),
                                       .Atom(bare_tok) => {
-                                        params.push(bare_tok.value);
+                                        params_f.push(bare_tok.value);
+                                        param_type_names_f.push(String.from(""));
                                       }
                                     ),
                                   .None => { param_ok = false; }
@@ -784,7 +880,6 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 true =>
                                   match(args.get(usize(0)),
                                     .None => Option(EvalResult).None,
-                                    // NOTE Phase 3f: replace t_unit() with actual fn type
                                     .Some(body_expr) => {
                                       // Capture current env for lexical scoping (Phase 3i).
                                       // __recur_fn is excluded — it is injected at call time.
@@ -823,8 +918,18 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                         );
                                         cfi = (cfi + usize(1));
                                       };
-                                      // NOTE Phase 3f: replace t_unit() with actual fn type
-                                      .Some(eval_result(.FuncVal(params, box(body_expr), cap_names_f, cap_tys_f, cap_vals_f), t_unit()))
+                                      .Some(eval_result(
+                                        .FuncVal(
+                                          forall_names_f,
+                                          params_f,
+                                          param_type_names_f,
+                                          box(body_expr),
+                                          cap_names_f,
+                                          cap_tys_f,
+                                          cap_vals_f
+                                        ),
+                                        t_unit()
+                                      ))
                                     }
                                   )
                               )
@@ -1516,6 +1621,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             // -----------------------------------------------------------------
             // recur — tail/recursive call to the currently-executing FuncVal.
             // Looks up __recur_fn bound when the current function frame was opened.
+            // Delegates to call_funcval_with_args for env setup + forall inference.
             // -----------------------------------------------------------------
             (fval == "recur") => {
               match(env.*.lookup(String.from("__recur_fn")),
@@ -1523,96 +1629,27 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                 .Some(rfv) =>
                   match(rfv.value,
                     .None => Option(EvalResult).None,
-                    .Some(func_val) =>
-                      match(func_val,
-                        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
-                          n_params := params.len();
-                          n_call_args := args.len();
+                    .Some(func_val_r) =>
+                      match(func_val_r,
+                        .FuncVal(_, _, _, _, _, _, _) => {
+                          evaled_r := ArrayList(EvalResult).new();
+                          n_recur_args := args.len();
+                          (ri : usize) = usize(0);
+                          (rok : bool) = true;
+                          while runtime(((ri < n_recur_args) && rok)), {
+                            match(args.get(ri),
+                              .Some(arg_expr) =>
+                                match(recur(arg_expr, env),
+                                  .Some(r) => { evaled_r.push(r); },
+                                  .None    => { rok = false; }
+                                ),
+                              .None => { rok = false; }
+                            );
+                            ri = (ri + usize(1));
+                          };
                           cond(
-                            (n_params != n_call_args) => Option(EvalResult).None,
-                            true => {
-                              evaled := ArrayList(EvalValue).new();
-                              (i : usize) = usize(0);
-                              (ok : bool) = true;
-                              while runtime(((i < n_call_args) && ok)), {
-                                match(args.get(i),
-                                  .Some(arg_expr) =>
-                                    match(recur(arg_expr, env),
-                                      .Some(r) => { evaled.push(r.value); },
-                                      .None    => { ok = false; }
-                                    ),
-                                  .None => { ok = false; }
-                                );
-                                i = (i + usize(1));
-                              };
-                              cond(
-                                (!(ok)) => Option(EvalResult).None,
-                                true => {
-                                  // Build fresh lexical env from captured bindings (Phase 3i)
-                                  fresh_recur_env := Environment.new(String.from(""));
-                                  n_rcap := cap_names.len();
-                                  (rci : usize) = usize(0);
-                                  while runtime((rci < n_rcap)), {
-                                    match(cap_names.get(rci),
-                                      .Some(rcname) =>
-                                        match(cap_tys.get(rci),
-                                          .Some(rcty) =>
-                                            match(cap_vals.get(rci),
-                                              .Some(rcval) => {
-                                                _rdc := cond(
-                                                  (!(value_is_comptime(rcval))) =>
-                                                    (&fresh_recur_env).define_val(rcname, rcty, false, Option(EvalValue).None),
-                                                  true =>
-                                                    (&fresh_recur_env).define_val(rcname, rcty, true, .Some(rcval))
-                                                );
-                                              },
-                                              .None => ()
-                                            ),
-                                          .None => ()
-                                        ),
-                                      .None => ()
-                                    );
-                                    rci = (rci + usize(1));
-                                  };
-                                  // Push param frame for __recur_fn + params
-                                  _rfr := (&fresh_recur_env).push_frame(false);
-                                  // Re-bind __recur_fn to this FuncVal for nested recursion
-                                  _rrr := (&fresh_recur_env).define_val(
-                                    String.from("__recur_fn"),
-                                    t_unit(), true, .Some(func_val)
-                                  );
-                                  (j : usize) = usize(0);
-                                  while runtime((j < n_params)), {
-                                    match(params.get(j),
-                                      .Some(pname) =>
-                                        match(evaled.get(j),
-                                          .Some(pval) => {
-                                            _d := (&fresh_recur_env).define_val(
-                                              pname,
-                                              type_of_eval_value(pval),
-                                              value_is_comptime(pval),
-                                              .Some(pval)
-                                            );
-                                          },
-                                          .None => ()
-                                        ),
-                                      .None => ()
-                                    );
-                                    j = (j + usize(1));
-                                  };
-                                  body_res := recur(body.*, &fresh_recur_env);
-                                  match(body_res,
-                                    .None => Option(EvalResult).None,
-                                    .Some(br) =>
-                                      match(br.value,
-                                        .ReturnVal(ret_val, ret_ty) =>
-                                          .Some(eval_result(ret_val.*, ret_ty)),
-                                        _ => .Some(br)
-                                      )
-                                  )
-                                }
-                              )
-                            }
+                            (!(rok)) => Option(EvalResult).None,
+                            true => call_funcval_with_args(func_val_r, evaled_r)
                           )
                         },
                         _ => Option(EvalResult).None
@@ -1739,94 +1776,25 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(params, body, cap_names, cap_tys, cap_vals) => {
-                          n_params := params.len();
-                          n_call_args := args.len();
+                        .FuncVal(_, _, _, _, _, _, _) => {
+                          evaled_g := ArrayList(EvalResult).new();
+                          n_gargs := args.len();
+                          (gi : usize) = usize(0);
+                          (gok : bool) = true;
+                          while runtime(((gi < n_gargs) && gok)), {
+                            match(args.get(gi),
+                              .Some(arg_expr) =>
+                                match(recur(arg_expr, env),
+                                  .Some(r) => { evaled_g.push(r); },
+                                  .None    => { gok = false; }
+                                ),
+                              .None => { gok = false; }
+                            );
+                            gi = (gi + usize(1));
+                          };
                           cond(
-                            (n_params != n_call_args) => Option(EvalResult).None,
-                            true => {
-                              evaled := ArrayList(EvalValue).new();
-                              (i : usize) = usize(0);
-                              (ok : bool) = true;
-                              while runtime(((i < n_call_args) && ok)), {
-                                match(args.get(i),
-                                  .Some(arg_expr) =>
-                                    match(recur(arg_expr, env),
-                                      .Some(r) => { evaled.push(r.value); },
-                                      .None    => { ok = false; }
-                                    ),
-                                  .None => { ok = false; }
-                                );
-                                i = (i + usize(1));
-                              };
-                              cond(
-                                (!(ok)) => Option(EvalResult).None,
-                                true => {
-                                  // Build fresh lexical env from captured bindings (Phase 3i)
-                                  fresh_env := Environment.new(String.from(""));
-                                  n_cap := cap_names.len();
-                                  (ci : usize) = usize(0);
-                                  while runtime((ci < n_cap)), {
-                                    match(cap_names.get(ci),
-                                      .Some(cname) =>
-                                        match(cap_tys.get(ci),
-                                          .Some(cty) =>
-                                            match(cap_vals.get(ci),
-                                              .Some(cval) => {
-                                                _dc := cond(
-                                                  (!(value_is_comptime(cval))) =>
-                                                    (&fresh_env).define_val(cname, cty, false, Option(EvalValue).None),
-                                                  true =>
-                                                    (&fresh_env).define_val(cname, cty, true, .Some(cval))
-                                                );
-                                              },
-                                              .None => ()
-                                            ),
-                                          .None => ()
-                                        ),
-                                      .None => ()
-                                    );
-                                    ci = (ci + usize(1));
-                                  };
-                                  // Push param frame for __recur_fn + params
-                                  _frame := (&fresh_env).push_frame(false);
-                                  // Bind __recur_fn to this FuncVal for recursive calls
-                                  _rr := (&fresh_env).define_val(
-                                    String.from("__recur_fn"),
-                                    t_unit(), true, .Some(func_val)
-                                  );
-                                  (j : usize) = usize(0);
-                                  while runtime((j < n_params)), {
-                                    match(params.get(j),
-                                      .Some(pname) =>
-                                        match(evaled.get(j),
-                                          .Some(pval) => {
-                                            _d := (&fresh_env).define_val(
-                                              pname,
-                                              type_of_eval_value(pval),
-                                              value_is_comptime(pval),
-                                              .Some(pval)
-                                            );
-                                          },
-                                          .None => ()
-                                        ),
-                                      .None => ()
-                                    );
-                                    j = (j + usize(1));
-                                  };
-                                  body_res := recur(body.*, &fresh_env);
-                                  match(body_res,
-                                    .None => Option(EvalResult).None,
-                                    .Some(br) =>
-                                      match(br.value,
-                                        .ReturnVal(ret_val, ret_ty) =>
-                                          .Some(eval_result(ret_val.*, ret_ty)),
-                                        _ => .Some(br)
-                                      )
-                                  )
-                                }
-                              )
-                            }
+                            (!(gok)) => Option(EvalResult).None,
+                            true => call_funcval_with_args(func_val, evaled_g)
                           )
                         },
                         _ => Option(EvalResult).None

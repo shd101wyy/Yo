@@ -16,15 +16,16 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 3i complete.** Lexical closure capture — function bodies now execute in a fresh env rebuilt from a snapshot of the definition-time bindings.
 ✅ **Phase 3j complete.** `impl(TypeName, method: fn_def, …)` block support and struct method dispatch (`recv.method(args)`) implemented and tested.
 ✅ **Phase 3k complete.** `TypeVal` — type names (`i32`, `bool`, `usize`, …) now evaluate to first-class `TypeVal(Box(TypeValue))` values. Foundation for generic type-param binding.
+✅ **Phase 3l complete.** Generic specialization / forall param binding — `forall(T)` type params are inferred from argument types at call time and bound as `TypeVal` in the function body.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/define/assign, arithmetic, comparison, boolean, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names) (Phases 3a–3k); 69 tests passing
+- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/define/assign, arithmetic, comparison, boolean, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference) (Phases 3a–3l); 75 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Total: ~198 tests passing** under `yo-self/tests/`
+- **Total: ~203 tests passing** under `yo-self/tests/`
 
 Run tests:
 

@@ -274,8 +274,8 @@ The largest and most complex phase (~56K lines). Break into sub-phases:
 **3i. Lexical closure capture** ✅ Done — `FuncVal` now snapshots all visible bindings at definition time; call sites rebuild a fresh env from captures so nested functions see the correct lexical scope.
 **3j. impl + method dispatch** ✅ Done — `impl(TypeName, method: fn_def, …)` registers `TypeName.method` qualified bindings; `recv.method(args)` dispatch looks up by qualified name then falls back to bare name. Stack-frame overhead managed via module-level helper functions and a `g_eval_fn` slot to break the forward-reference cycle.
 **3k. TypeVal — type names as first-class values** ✅ Done — `TypeVal(ty: Box(TypeValue))` added to `EvalValue`; known primitive type names (`i32`, `bool`, `usize`, etc.) now evaluate to `TypeVal` via the identifier lookup fallback (`type_from_name_opt`). Foundation for `forall(T: Type)` param binding and generic type application in Phase 3l.
-**3l. Generic specialization / forall param binding** — monomorphization, SomeType resolution
-**3l. Compile-time evaluation (CTFE)** — constant folding, comptime execution
+**3l. Generic specialization / forall param binding** ✅ Done — `param_type_names` field added to `FuncVal`; forall type params are inferred from argument types at call time and bound as `TypeVal` in the function body; `call_funcval_with_args` refactored to accept `ArrayList(EvalResult)` for type-aware dispatch; `recur` and general fn-call handlers simplified to use the shared helper.
+**3m. Compile-time evaluation (CTFE)** — constant folding, comptime execution
 **3m. Module system** — imports, exports, open imports
 **3n. Effects analysis** — algebraic effects, evidence passing analysis
 

@@ -60,15 +60,20 @@ EvalValue :: enum(
   /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
   ///
   /// Phase 3l: `forall_names` holds the generic type parameter names extracted
-  /// from the function's type. These are bound as `TypeVal` in the fresh env
-  /// **before** value parameters are bound.
+  /// from the function's `forall(T)` parameters. `param_type_names` holds the
+  /// type annotation identifier for each value parameter (empty string if the
+  /// annotation is complex or absent). These are used together at call time to
+  /// infer forall bindings: for each forall name `F`, if any value param has
+  /// type annotation `F`, the corresponding argument's type is bound as
+  /// `TypeVal(arg.ty)` under name `F` before value params are bound.
   FuncVal(
-    forall_names : ArrayList(String),
-    params       : ArrayList(String),
-    body         : Box(AstExpr),
-    cap_names    : ArrayList(String),
-    cap_tys      : ArrayList(TypeValue),
-    cap_vals     : ArrayList(Self)
+    forall_names     : ArrayList(String),
+    params           : ArrayList(String),
+    param_type_names : ArrayList(String),
+    body             : Box(AstExpr),
+    cap_names        : ArrayList(String),
+    cap_tys          : ArrayList(TypeValue),
+    cap_vals         : ArrayList(Self)
   ),
 
   /// Control-flow signal emitted by a `return expr` statement.
@@ -146,7 +151,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-     .FuncVal(_, _, _, _, _, _) => false,
+     .FuncVal(_, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
