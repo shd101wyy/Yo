@@ -341,7 +341,15 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - Both `compile_module_to_c` and `compile_test_body_to_c` process enum defs in Pass 2.
 - 4 new unit tests; 129 codegen tests, 356 yo-self tests pass.
 
-**5f. Error formatting** — colored terminal output, source location display, error notes
+**5f. Pointer types, address-of, dereference, compound LHS assignment** ✅ Done
+
+- `*(T)` type annotations → `T*` in C (handled by `type_expr_to_c`)
+- `&x` (address-of) → `(&x)` in C (added `"&"` to `is_unary_prefix_op`)
+- `c.*` (dereference) → `(*c)` in C (handled by `handle_dot_access` checking for field `"*"`)
+- `c.*.field = val` compound LHS assignment now falls back to `gen_expr(lhs) + " = " + gen_expr(rhs)` in `handle_assignment`
+- 4 new unit tests; 133 codegen tests, 360 yo-self tests pass.
+
+**5g. Error formatting** — colored terminal output, source location display, error notes
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 

@@ -74,6 +74,7 @@ is_unary_prefix_op :: (fn(op : str) -> bool)(
   cond(
     (op == "-") => true,
     (op == "!") => true,
+    (op == "&") => true,
     true        => false
   )
 );
@@ -598,15 +599,42 @@ type_name_to_c :: (fn(name : str) -> String)(
 
 /// Convert a type-annotation AST node to a C type string.
 ///
-/// Only handles simple atomic type names (Identifier atoms).  Complex types
-/// (pointer types, generic applications) return `None`.
+/// Handles:
+///  - Simple atomic type names (`i32` → `int32_t`, `str` → `const char*`, etc.)
+///  - Pointer types (`*(T)` → `T*`, where T is a simple atomic type)
+///
+/// Other complex types (generic applications, slices) return `None`.
 type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
   match(ty_expr,
     .Atom(ttok) => cond(
       (ttok.kind == TokenKind.Identifier) => .Some(type_name_to_c(ttok.value.as_str())),
       true                                => Option(String).None
     ),
-    .FnCall(_, _, _, _) => Option(String).None
+    // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
+    .FnCall(func_box, func_args, is_infix, _) => cond(
+      (is_infix) => Option(String).None,
+      (func_args.len() != usize(1)) => Option(String).None,
+      true => match(func_box.*,
+        .FnCall(_, _, _, _) => Option(String).None,
+        .Atom(ftok) => cond(
+          (!(ftok.value.as_str() == "*")) => Option(String).None,
+          true => match(func_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(inner_ty) => match(inner_ty,
+              .Atom(ittok) => cond(
+                (ittok.kind == TokenKind.Identifier) => {
+                  inner_c := type_name_to_c(ittok.value.as_str());
+                  inner_c.push_str("*");
+                  Option(String).Some(inner_c)
+                },
+                true => Option(String).None
+              ),
+              .FnCall(_, _, _, _) => Option(String).None
+            )
+          )
+        )
+      )
+    )
   )
 );
 
@@ -825,14 +853,30 @@ handle_dot_access :: (fn(
             .None => Option(String).None,
             .Some(fname) => {
               is_enum := ctx.*.is_enum_name(obj_code.as_str());
-              result := String.new();
-              result.push_string(obj_code);
+              is_deref := (fname.as_str() == "*");
               cond(
-                is_enum => result.push_str("_"),
-                true    => result.push_str(".")
-              );
-              result.push_string(fname);
-              .Some(result)
+                is_deref => {
+                  // c.* → (*c) — pointer dereference
+                  result := String.from("(*");
+                  result.push_string(obj_code);
+                  result.push_str(")");
+                  Option(String).Some(result)
+                },
+                is_enum => {
+                  result := String.new();
+                  result.push_string(obj_code);
+                  result.push_str("_");
+                  result.push_string(fname);
+                  Option(String).Some(result)
+                },
+                true => {
+                  result := String.new();
+                  result.push_string(obj_code);
+                  result.push_str(".");
+                  result.push_string(fname);
+                  Option(String).Some(result)
+                }
+              )
             }
           )
         }
@@ -896,13 +940,12 @@ handle_method_call :: (fn(
   )
 });
 
-/// Handle `x = val` (bare assignment) and `(x : T) = val` (typed declaration).
+/// Handle `x = val` (bare assignment), `(x : T) = val` (typed declaration),
+/// and compound LHS assignment like `c.*.field = val` or `arr.data = val`.
 ///
-/// - Bare assignment: returns C expression `"x = val"` (assignment is an
-///   expression in C, so it can be used in-line or as a statement).
-/// - Typed declaration: emits `"T_c x = val;\n"` as a statement into
-///   `ctx.emitter` and returns `"0"`.  Only simple atomic type names are
-///   supported; complex types return `None`.
+/// - Bare assignment: returns C expression `"x = val"`.
+/// - Typed declaration: emits `"T_c x = val;\n"` and returns `"0"`.
+/// - Compound LHS: returns C expression `"lhs_code = val"`.
 handle_assignment :: (fn(
   args   : ArrayList(AstExpr),
   ctx    : *(CodegenContext),
@@ -925,8 +968,9 @@ handle_assignment :: (fn(
             result.push_string(rhs_code);
             Option(String).Some(result)
           },
-          // (x : T) = val — typed variable declaration emitted as a statement
+          // FnCall LHS: either (x : T) = val  OR  compound expr like c.*.field = val
           .FnCall(colon_box, colon_args, colon_infix, _) => cond(
+            // Check if it's a typed declaration: (x : T) = val
             (colon_infix && match(colon_box.*,
               .Atom(ctok)         => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
               .FnCall(_, _, _, _) => false
@@ -960,7 +1004,18 @@ handle_assignment :: (fn(
                 )
               )
             },
-            true => Option(String).None
+            // Compound LHS: e.g. c.*.field = val, arr.data = val
+            // Generate the LHS as an expression and return "lhs = rhs"
+            true => match(call_gen_expr(lhs_expr, ctx, indent),
+              .None => Option(String).None,
+              .Some(lhs_code) => {
+                result := String.new();
+                result.push_string(lhs_code);
+                result.push_str(" = ");
+                result.push_string(rhs_code);
+                Option(String).Some(result)
+              }
+            )
           )
         )
       )

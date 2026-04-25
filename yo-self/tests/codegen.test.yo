@@ -11,7 +11,7 @@ open import "std/error";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { generate_expr, gen_binary_op, gen_unary_op,
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
-  type_name_to_c, gen_arg_list,
+  type_name_to_c, type_expr_to_c, gen_arg_list,
   is_labeled_arg, all_labeled_args, is_uppercase_start,
   handle_struct_constructor, handle_regular_call,
   gen_match_arm, handle_match_value,
@@ -2232,5 +2232,49 @@ test "handle_dot_access: enum name rewritten to underscore", {
   match(result_opt,
     .None => assert(false, "handle_dot_access returned None"),
     .Some(result) => assert(result.contains(String.from("Color_Red")), "enum variant rewritten")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 5f — pointer types, address-of, deref, compound LHS assignment
+// ---------------------------------------------------------------------------
+
+test "type_expr_to_c: *(i32) emits int32_t*", {
+  ptr_ty := make_unary_expr("*", make_atom_expr(TokenKind.Identifier, "i32"));
+  result_opt := type_expr_to_c(ptr_ty);
+  match(result_opt,
+    .None => assert(false, "type_expr_to_c returned None for *(i32)"),
+    .Some(c_ty) => assert((c_ty.as_str() == "int32_t*"), "pointer type string")
+  );
+};
+
+test "is_unary_prefix_op: & is prefix op", {
+  assert(is_unary_prefix_op("&"), "& is unary prefix");
+  assert(is_unary_prefix_op("-"), "- is unary prefix");
+  assert(is_unary_prefix_op("!"), "! is unary prefix");
+};
+
+test "generate_expr: &x emits (&x)", {
+  expr := make_unary_expr("&", make_atom_expr(TokenKind.Identifier, "x"));
+  result_opt := run_gen(expr);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None for &x"),
+    .Some(result) => assert(result.contains(String.from("(&x)")), "address-of emitted")
+  );
+};
+
+test "handle_dot_access: c.* emits (*c)", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  c_expr   := make_atom_expr(TokenKind.Identifier, "c");
+  star_tok := make_token_raw(TokenKind.Operator, "*");
+  star_expr := AstExpr.Atom(star_tok);
+  args := ArrayList(AstExpr).new();
+  _r1 := args.push(c_expr);
+  _r2 := args.push(star_expr);
+  result_opt := handle_dot_access(args, pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "handle_dot_access returned None for c.*"),
+    .Some(result) => assert(result.contains(String.from("(*c)")), "dereference emitted")
   );
 };
