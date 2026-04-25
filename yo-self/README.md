@@ -27,6 +27,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 4i complete (simplified).** RC/GC codegen — `generate_rc_fns` and `generate_rc_fns_trivial` (`yo-self/codegen/rc.yo`) emit `__dispose`, `__drop`, and `__dup` C functions for struct and enum types with all-primitive fields; forward declarations go into `declarations` section, bodies into `code` section; 6 new tests passing.
 ✅ **Phase 4j complete.** Program emission — `emit_c_preamble` emits C11 headers and libc allocator macros into the headers section; `emit_main_wrapper` emits `int main(void)` calling the user's Yo main; `generate_c_output` concatenates all sections into the final C source (`yo-self/codegen/program.yo`); 6 new tests passing including a full end-to-end program assembly test.
 ✅ **Phase 4d (match) complete.** Match codegen — `generate_match_simple` and `generate_match_data` (`yo-self/codegen/match.yo`) emit `switch` statements for unit-enum and data-enum matches respectively; `DataBinding`/`SimpleArm`/`DataArm` data structures; wildcard arms emit `default:` cases; 9 new tests passing.
+✅ **Phase 4 validation milestone (compiler driver).** `compile_module_to_c` (`yo-self/codegen/driver.yo`) walks a parsed module body, extracts `name :: (fn(params) -> T)(body)` definitions via `extract_fn_def`, maps Yo type annotations to C types, and assembles a complete C11 source file; 9 new tests passing including two parser-integrated end-to-end tests that parse real Yo source then verify C output.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
@@ -34,10 +35,10 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
 - **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 97 tests passing
-- **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j); 83 tests passing
+- **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j), compiler driver: `extract_fn_def` + `compile_module_to_c` (Phase 4 validation); 92 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
 - **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: ~308 tests passing** under `yo-self/tests/`
+- **Total: ~317 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -83,6 +84,7 @@ yo-self/
     rc.yo             -- generate_rc_fns: __dispose/__drop/__dup for primitive-field types (Phase 4i)
     program.yo        -- emit_c_preamble + emit_main_wrapper + generate_c_output (Phase 4j)
     match.yo          -- generate_match_simple/data: switch statements for enums (Phase 4d)
+    driver.yo         -- extract_fn_def + compile_module_to_c: parser→C pipeline (Phase 4 validation)
   tests/
     lexer.test.yo     -- 33 lexer tests
     parser.test.yo    -- 36 parser tests

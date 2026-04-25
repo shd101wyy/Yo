@@ -2,6 +2,7 @@
 
 open import "std/fmt";
 open import "std/string";
+open import "std/error";
 { ArrayList } :: import "std/collections/array_list";
 
 { Emitter }          :: import "../codegen/emitter.yo";
@@ -23,6 +24,7 @@ open import "std/string";
   emit_match_temp_decl, emit_switch_open, emit_case_open, emit_case_body,
   emit_data_bindings,
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
+{ FnDef, extract_fn_def, compile_module_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -1340,4 +1342,233 @@ test "generate_match_simple: wildcard arm emits default case", {
   out := ctx.emitter.print();
   assert(out.contains(String.from("case __YO_ENUM_ID_TAG_A: {")), "named case");
   assert(out.contains(String.from("default: {")),                  "wildcard default");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4j+ — Compiler driver helpers
+// ---------------------------------------------------------------------------
+
+/// Build `FnCall(Atom("fn"), params, false)` — fn type prefix.
+make_fn_type_prefix :: (fn(params : ArrayList(AstExpr)) -> AstExpr)(
+  make_fncall_expr("fn", params)
+);
+
+/// Build `FnCall(Atom("->"), [fn_prefix, ret_ty], true)` — fn type with return.
+make_fn_type :: (fn(params : ArrayList(AstExpr), ret_ty : AstExpr) -> AstExpr)({
+  fn_prefix := make_fn_type_prefix(params);
+  make_infix_expr("->", fn_prefix, ret_ty)
+});
+
+/// Build the whole `(fn(params) -> ret_ty)(body)` function literal application.
+make_fn_app :: (fn(params : ArrayList(AstExpr), ret_ty : AstExpr, body : AstExpr) -> AstExpr)({
+  fn_type := make_fn_type(params, ret_ty);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  fn_type_tok := make_token_raw(TokenKind.Operator, "->");
+  .FnCall(box(fn_type), body_args, false, fn_type_tok)
+});
+
+/// Build `FnCall(Atom("::"), [name_atom, fn_app], true)` — named constant define.
+make_define_expr :: (fn(name : str, rhs : AstExpr) -> AstExpr)(
+  make_infix_expr("::", make_atom_expr(TokenKind.Identifier, name), rhs)
+);
+
+/// Build `FnCall(Atom(":"), [name, ty], true)` — typed param (reuses make_colon_expr).
+make_param :: (fn(name : str, ty_name : str) -> AstExpr)(
+  make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, name),
+    make_atom_expr(TokenKind.Identifier, ty_name)
+  )
+);
+
+/// Build a `using(name : Type)` evidence param expression.
+make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
+  inner := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, ev_name),
+    make_atom_expr(TokenKind.Identifier, ty_name)
+  );
+  a := ArrayList(AstExpr).new();
+  a.push(inner);
+  make_fncall_expr("using", a)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4j+ tests — extract_fn_def
+// ---------------------------------------------------------------------------
+
+test "extract_fn_def: simple no-param fn() -> unit", {
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  expr  := make_define_expr("main", rhs);
+
+  fd := extract_fn_def(expr);
+  match(fd,
+    .None    => assert(false, "should extract FnDef"),
+    .Some(d) => {
+      assert((d.name == String.from("main")),    "name = main");
+      assert((d.ret_ty_c == String.from("void")), "ret_ty = void");
+      assert((d.params.len() == usize(0)),        "no params");
+    }
+  );
+};
+
+test "extract_fn_def: fn(x : i32) -> i64", {
+  params := ArrayList(AstExpr).new();
+  params.push(make_param("x", "i32"));
+  body  := make_atom_expr(TokenKind.Identifier, "x");
+  ret   := make_atom_expr(TokenKind.Identifier, "i64");
+  rhs   := make_fn_app(params, ret, body);
+  expr  := make_define_expr("double_it", rhs);
+
+  fd := extract_fn_def(expr);
+  match(fd,
+    .None    => assert(false, "should extract FnDef"),
+    .Some(d) => {
+      assert((d.name == String.from("double_it")),   "name");
+      assert((d.ret_ty_c == String.from("int64_t")), "ret_ty = int64_t");
+      assert((d.params.len() == usize(1)),            "one param");
+      match(d.param_tys.get(usize(0)),
+        .None    => assert(false, "no param ty"),
+        .Some(t) => assert((t == String.from("int32_t")), "param ty = int32_t")
+      );
+    }
+  );
+};
+
+test "extract_fn_def: using evidence param → void*", {
+  params := ArrayList(AstExpr).new();
+  params.push(make_using_param("io", "IO"));
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(params, ret, body);
+  expr  := make_define_expr("run", rhs);
+
+  fd := extract_fn_def(expr);
+  match(fd,
+    .None    => assert(false, "should extract"),
+    .Some(d) => {
+      assert((d.params.len() == usize(1)), "one evidence param");
+      match(d.params.get(usize(0)),
+        .None    => assert(false, "no param name"),
+        .Some(n) => assert((n == String.from("ev_io")), "param name = ev_io")
+      );
+      match(d.param_tys.get(usize(0)),
+        .None    => assert(false, "no param ty"),
+        .Some(t) => assert((t == String.from("void*")), "param ty = void*")
+      );
+    }
+  );
+};
+
+test "extract_fn_def: non-define expr returns None", {
+  expr := make_atom_expr(TokenKind.Identifier, "hello");
+  fd   := extract_fn_def(expr);
+  match(fd,
+    .None    => (),   // expected
+    .Some(_) => assert(false, "should return None for non-define")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4j+ tests — compile_module_to_c
+// ---------------------------------------------------------------------------
+
+test "compile_module_to_c: trivial main() → generates static fn + int main", {
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  expr  := make_define_expr("main", rhs);
+
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(expr);
+
+  result := compile_module_to_c(exprs, "test_module", "main");
+  match(result,
+    .None    => assert(false, "no C output"),
+    .Some(c) => {
+      assert(c.contains(String.from("static void fn_main")), "static fn decl");
+      assert(c.contains(String.from("int main(void)")),       "int main wrapper");
+      assert(c.contains(String.from("fn_main();")),           "call in main wrapper");
+      assert(c.contains(String.from("#include <stdio.h>")),   "preamble included");
+    }
+  );
+};
+
+test "compile_module_to_c: main not found returns None", {
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  expr  := make_define_expr("helper", rhs);   // not "main"
+
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(expr);
+
+  result := compile_module_to_c(exprs, "test_module", "main");
+  match(result,
+    .None    => (),   // expected
+    .Some(_) => assert(false, "should be None when main absent")
+  );
+};
+
+test "compile_module_to_c: fn with i32 param emits correct signature", {
+  params := ArrayList(AstExpr).new();
+  params.push(make_param("n", "i32"));
+  body  := make_atom_expr(TokenKind.Identifier, "n");
+  ret   := make_atom_expr(TokenKind.Identifier, "i32");
+  rhs   := make_fn_app(params, ret, body);
+  expr  := make_define_expr("main", rhs);
+
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(expr);
+
+  result := compile_module_to_c(exprs, "test_module", "main");
+  match(result,
+    .None    => assert(false, "no C output"),
+    .Some(c) => {
+      assert(c.contains(String.from("int32_t n")), "param in signature");
+      assert(c.contains(String.from("static int32_t fn_main")), "return type");
+    }
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4 validation milestone — parse + compile hello_world
+// ---------------------------------------------------------------------------
+// These tests use the self-hosted lexer+parser to parse Yo source, then call
+// compile_module_to_c to produce a complete C11 source file.
+// They are the "Phase 4 validation milestone": compile hello_world.yo end-to-end
+// through the Yo-written compiler.
+
+{ parse, ParseError } :: import "../parser/parser.yo";
+
+test "validation: parse and compile trivial main() -> unit", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+  src := String.from("main :: (fn() -> unit)({ }); export main;");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "hello_module", "main");
+  match(opt_c,
+    .None    => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("static void fn_main(")),   "static fn_main declaration");
+      assert(c.contains(String.from("int main(void)")),          "int main wrapper");
+      assert(c.contains(String.from("fn_main();")),              "call in main");
+      assert(c.contains(String.from("#include <stdio.h>")),      "preamble present");
+    }
+  );
+};
+
+test "validation: parse and compile fn with i32 parameter", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+  src := String.from("add :: (fn(x : i32, y : i32) -> i32)({ x; }); export add;");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arith_module", "add");
+  match(opt_c,
+    .None    => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("int32_t x")),              "param x: i32");
+      assert(c.contains(String.from("int32_t y")),              "param y: i32");
+      assert(c.contains(String.from("static int32_t fn_add(")), "fn return type");
+    }
+  );
 };

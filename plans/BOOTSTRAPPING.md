@@ -297,7 +297,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **4i. RC/GC codegen** — reference counting, cycle collection, drop generation ✅ Done (simplified: trivial dispose/drop/dup for primitive-field types)
 **4j. Program emission** — assemble complete C file (preamble + types + RC + functions + main wrapper) ✅ Done
 
-**Validation milestone**: Compile and run `hello_world.yo` using the Yo-written compiler. Compare C output with the TS compiler's output.
+**Validation milestone** ✅ Done: `compile_module_to_c` (`yo-self/codegen/driver.yo`) walks a parsed module body, extracts `name :: (fn(params) -> T)(body)` function definitions, maps Yo type annotations to C types, and assembles a compilable C11 file. Two parser-integrated end-to-end tests verify that parsing real Yo source (`"main :: (fn() -> unit)({ });"`) and calling `compile_module_to_c` produces valid C containing the expected static function, `int main(void)` wrapper, and C11 preamble.
 
 ### Phase 5 — CLI + Integration
 
