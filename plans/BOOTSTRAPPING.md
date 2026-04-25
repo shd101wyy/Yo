@@ -299,6 +299,11 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 **Validation milestone** ✅ Done: `compile_module_to_c` (`yo-self/codegen/driver.yo`) walks a parsed module body, extracts `name :: (fn(params) -> T)(body)` function definitions, maps Yo type annotations to C types, and assembles a compilable C11 file. Two parser-integrated end-to-end tests verify that parsing real Yo source (`"main :: (fn() -> unit)({ });"`) and calling `compile_module_to_c` produces valid C containing the expected static function, `int main(void)` wrapper, and C11 preamble.
 
+**Integration milestone** ✅ Done: Two end-to-end tests (`yo-self/tests/integration.test.yo`) exercise the full pipeline: parse Yo source with the self-hosted parser → `compile_module_to_c` → write C to a temp file → `cc` compile → run binary → assert exit code 0. Discovered and fixed two bugs:
+
+- **Compiler bug (declarations.ts + generation.ts):** Unspecialized `isModuleEffectMember` forall effect handlers were silently skipped when specializations existed, causing `cc` link errors because the async capture struct (from `emitModuleEffectInjection`) stored the unspecialized function pointer by name. Fixed by: (a) keeping the forward declaration, and (b) emitting a minimal escape-only stub (sets `__yo_effect_escaped = 1`, returns zero value) instead of the full generic body (which lacks sub-expression type annotations).
+- **Self-hosted codegen bug (yo-self/codegen/exprs.yo):** Empty `{ }` blocks are parsed as zero-arg anonymous structs (`FnCall(Atom("_"), [], false)`) because the separator is `None` (empty, no commas or semicolons seen), which defaults to the comma branch. The `generate_expr` function had no case for zero-arg `BK_ANON_STRUCT` or `BK_TUPLE`, so it fell through to the regular function-call emitter and generated `_()` in C. Fixed by returning `Some("0")` (the unit sentinel) for zero-arg anonymous struct or tuple expressions.
+
 ### Phase 5 — CLI + Integration
 
 **5a. CLI entry point** — argument parsing, subcommands (`compile`, `test`, `build`, `init`, …)

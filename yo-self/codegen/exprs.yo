@@ -13,7 +13,7 @@
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
-{ AstExpr, BK_BEGIN } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import "../expr/expr.yo";
 { TokenKind }          :: import "../lexer/token.yo";
 { CodegenContext }     :: import "./context.yo";
 
@@ -490,16 +490,20 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
 /// These names must NOT be treated as regular function calls.
 is_builtin_keyword :: (fn(name : str) -> bool)(
   cond(
-    (name == BK_BEGIN)  => true,
-    (name == "cond")    => true,
-    (name == "while")   => true,
-    (name == "if")      => true,
-    (name == "runtime") => true,
-    (name == "match")   => true,
-    (name == "recur")   => true,
-    (name == "escape")  => true,
-    (name == "return")  => true,
-    true                => false
+    (name == BK_BEGIN)       => true,
+    (name == "cond")         => true,
+    (name == "while")        => true,
+    (name == "if")           => true,
+    (name == "runtime")      => true,
+    (name == "match")        => true,
+    (name == "recur")        => true,
+    (name == "escape")       => true,
+    (name == "return")       => true,
+    // Unit value: FnCall(Atom("tuple"), [], …) — the zero-arg tuple is unit
+    (name == BK_TUPLE)       => true,
+    // Empty anon struct: FnCall(Atom("_"), [], …) from `{ }` — also unit
+    (name == BK_ANON_STRUCT) => true,
+    true                     => false
   )
 );
 
@@ -789,6 +793,15 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => Option(String).None,
           .Some(op) => handle_prefix_op(op, args, ctx, indent)
         ),
+        // Unit value: FnCall(Atom("tuple"), [], …)  ← parser synthesizes this at end of begin
+        // Empty anon struct: FnCall(Atom("_"), [], …) ← parser produces for `{ }` with no args
+        // Both represent Yo unit () — emit the sentinel "0" (void functions skip it).
+        ((!is_infix) &&
+          (args.len() == usize(0)) &&
+          match(ident_opt,
+            .None    => false,
+            .Some(id) => ((id.as_str() == BK_TUPLE) || (id.as_str() == BK_ANON_STRUCT))
+          )) => .Some(String.from("0")),
         // begin block: { stmt1; …; last_expr }
         match(ident_opt,
           .None    => false,

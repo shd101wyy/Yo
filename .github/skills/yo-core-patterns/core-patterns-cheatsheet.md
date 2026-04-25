@@ -33,6 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string`. It does NOT auto-convert to `str`. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if a comptime function needs to return `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns
 
