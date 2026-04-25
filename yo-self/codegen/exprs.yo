@@ -444,6 +444,310 @@ fncall_func_ident :: (fn(func_box : Box(AstExpr)) -> Option(String))(
 );
 
 // ---------------------------------------------------------------------------
+// Phase 4d helpers — type mapping, function calls, dot access, assignment
+// ---------------------------------------------------------------------------
+
+/// Map a simple Yo type name to its C equivalent.
+///
+/// Only handles primitive types.  User-defined names pass through unchanged.
+/// Generic types (e.g. `Option(i32)`) require Phase 4e type codegen.
+type_name_to_c :: (fn(name : str) -> String)(
+  cond(
+    (name == "i8")    => String.from("int8_t"),
+    (name == "i16")   => String.from("int16_t"),
+    (name == "i32")   => String.from("int32_t"),
+    (name == "i64")   => String.from("int64_t"),
+    (name == "u8")    => String.from("uint8_t"),
+    (name == "u16")   => String.from("uint16_t"),
+    (name == "u32")   => String.from("uint32_t"),
+    (name == "u64")   => String.from("uint64_t"),
+    (name == "usize") => String.from("size_t"),
+    (name == "f32")   => String.from("float"),
+    (name == "f64")   => String.from("double"),
+    (name == "bool")  => String.from("bool"),
+    (name == "str")   => String.from("const char*"),
+    (name == "unit")  => String.from("void"),
+    true              => String.from(name)
+  )
+);
+
+/// Convert a type-annotation AST node to a C type string.
+///
+/// Only handles simple atomic type names (Identifier atoms).  Complex types
+/// (pointer types, generic applications) return `None`.
+type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
+  match(ty_expr,
+    .Atom(ttok) => cond(
+      (ttok.kind == TokenKind.Identifier) => .Some(type_name_to_c(ttok.value.as_str())),
+      true                                => Option(String).None
+    ),
+    .FnCall(_, _, _, _) => Option(String).None
+  )
+);
+
+/// True if `name` is a builtin keyword handled specially by `generate_expr`.
+///
+/// These names must NOT be treated as regular function calls.
+is_builtin_keyword :: (fn(name : str) -> bool)(
+  cond(
+    (name == BK_BEGIN)  => true,
+    (name == "cond")    => true,
+    (name == "while")   => true,
+    (name == "if")      => true,
+    (name == "runtime") => true,
+    (name == "match")   => true,
+    (name == "recur")   => true,
+    (name == "escape")  => true,
+    (name == "return")  => true,
+    true                => false
+  )
+);
+
+/// True if `func_box` wraps a `TokenKind.Dot` atom.
+///
+/// Matches field access and enum-dot expressions such as `a.b`.
+func_box_is_dot :: (fn(func_box : Box(AstExpr)) -> bool)(
+  match(func_box.*,
+    .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
+    .FnCall(_, _, _, _) => false
+  )
+);
+
+/// True if `func_box` wraps a FnCall that is itself a dot-access expression.
+///
+/// This pattern identifies method calls of the form `a.method(args)`, which
+/// are parsed as `FnCall(FnCall(Dot, [a, method], true), [args], false)`.
+func_box_is_dot_dispatch :: (fn(func_box : Box(AstExpr)) -> bool)(
+  match(func_box.*,
+    .Atom(_) => false,
+    .FnCall(inner_func, _, inner_infix, _) => (inner_infix && match(inner_func.*,
+      .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
+      .FnCall(_, _, _, _) => false
+    ))
+  )
+);
+
+/// Generate a comma-separated C argument list for `args`.
+///
+/// Returns `Some("")` for zero args.  Returns `None` if any arg fails to
+/// generate.
+gen_arg_list :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n      := args.len();
+  result := String.new();
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while runtime(((i < n) && ok)), {
+    match(args.get(i),
+      .None => { ok = false; },
+      .Some(arg) => match(call_gen_expr(arg, ctx, indent),
+        .None       => { ok = false; },
+        .Some(code) => {
+          if((i > usize(0)), { result.push_str(", "); });
+          result.push_string(code);
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  cond(
+    ok   => .Some(result),
+    true => Option(String).None
+  )
+});
+
+/// Handle regular function call `f(a, b)` → `f(a, b)`.
+handle_regular_call :: (fn(
+  ident_opt : Option(String),
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))(
+  match(ident_opt,
+    .None     => Option(String).None,
+    .Some(id) => match(gen_arg_list(args, ctx, indent),
+      .None        => Option(String).None,
+      .Some(arg_s) => {
+        result := String.new();
+        result.push_string(id);
+        result.push_str("(");
+        result.push_string(arg_s);
+        result.push_str(")");
+        .Some(result)
+      }
+    )
+  )
+);
+
+/// Handle dot field access `obj.field` → `obj.field`.
+///
+/// `args[0]` is the receiver; `args[1]` is expected to be an Atom holding
+/// the field/variant name.
+handle_dot_access :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  obj_opt   := args.get(usize(0));
+  field_opt := args.get(usize(1));
+  match(obj_opt,
+    .None => Option(String).None,
+    .Some(obj_expr) => match(field_opt,
+      .None => Option(String).None,
+      .Some(field_expr) => match(call_gen_expr(obj_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(obj_code) => {
+          field_name_opt := match(field_expr,
+            .Atom(ftok)         => Option(String).Some(ftok.value),
+            .FnCall(_, _, _, _) => Option(String).None
+          );
+          match(field_name_opt,
+            .None => Option(String).None,
+            .Some(fname) => {
+              result := String.new();
+              result.push_string(obj_code);
+              result.push_str(".");
+              result.push_string(fname);
+              .Some(result)
+            }
+          )
+        }
+      )
+    )
+  )
+});
+
+/// Extract the receiver expression from a dot-dispatch `func_box`.
+get_dispatch_receiver :: (fn(func_box : Box(AstExpr)) -> Option(AstExpr))(
+  match(func_box.*,
+    .Atom(_)                   => Option(AstExpr).None,
+    .FnCall(_, dot_args, _, _) => dot_args.get(usize(0))
+  )
+);
+
+/// Extract the method name string from a dot-dispatch `func_box`.
+get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
+  match(func_box.*,
+    .Atom(_) => Option(String).None,
+    .FnCall(_, dot_args, _, _) => match(dot_args.get(usize(1)),
+      .None => Option(String).None,
+      .Some(method_expr) => match(method_expr,
+        .Atom(mtok)         => Option(String).Some(mtok.value),
+        .FnCall(_, _, _, _) => Option(String).None
+      )
+    )
+  )
+);
+
+/// Handle method call `obj.method(args)` → `obj.method(args)`.
+handle_method_call :: (fn(
+  func_box : Box(AstExpr),
+  args     : ArrayList(AstExpr),
+  ctx      : *(CodegenContext),
+  indent   : String
+) -> Option(String))({
+  recv_opt   := get_dispatch_receiver(func_box);
+  method_opt := get_dispatch_method(func_box);
+  match(recv_opt,
+    .None => Option(String).None,
+    .Some(recv_expr) => match(method_opt,
+      .None => Option(String).None,
+      .Some(method_name) => match(call_gen_expr(recv_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(recv_code) => match(gen_arg_list(args, ctx, indent),
+          .None        => Option(String).None,
+          .Some(arg_s) => {
+            result := String.new();
+            result.push_string(recv_code);
+            result.push_str(".");
+            result.push_string(method_name);
+            result.push_str("(");
+            result.push_string(arg_s);
+            result.push_str(")");
+            .Some(result)
+          }
+        )
+      )
+    )
+  )
+});
+
+/// Handle `x = val` (bare assignment) and `(x : T) = val` (typed declaration).
+///
+/// - Bare assignment: returns C expression `"x = val"` (assignment is an
+///   expression in C, so it can be used in-line or as a statement).
+/// - Typed declaration: emits `"T_c x = val;\n"` as a statement into
+///   `ctx.emitter` and returns `"0"`.  Only simple atomic type names are
+///   supported; complex types return `None`.
+handle_assignment :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  lhs_opt := args.get(usize(0));
+  rhs_opt := args.get(usize(1));
+  match(lhs_opt,
+    .None => Option(String).None,
+    .Some(lhs_expr) => match(rhs_opt,
+      .None => Option(String).None,
+      .Some(rhs_expr) => match(call_gen_expr(rhs_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(rhs_code) => match(lhs_expr,
+          // Bare atom: x = val — C assignment expression
+          .Atom(name_tok) => {
+            result := String.new();
+            result.push_string(name_tok.value);
+            result.push_str(" = ");
+            result.push_string(rhs_code);
+            Option(String).Some(result)
+          },
+          // (x : T) = val — typed variable declaration emitted as a statement
+          .FnCall(colon_box, colon_args, colon_infix, _) => cond(
+            (colon_infix && match(colon_box.*,
+              .Atom(ctok)         => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
+              .FnCall(_, _, _, _) => false
+            )) => {
+              name_opt := match(colon_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(ne) => match(ne,
+                  .Atom(ntok)         => Option(String).Some(ntok.value),
+                  .FnCall(_, _, _, _) => Option(String).None
+                )
+              );
+              ty_opt := match(colon_args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(te) => type_expr_to_c(te)
+              );
+              match(name_opt,
+                .None => Option(String).None,
+                .Some(var_name) => match(ty_opt,
+                  .None => Option(String).None,
+                  .Some(c_ty) => {
+                    // Emit: indent + c_ty + " " + var_name + " = " + rhs + ";"
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit_string(c_ty);
+                    ctx.*.emitter.emit(" ");
+                    ctx.*.emitter.emit_string(var_name);
+                    ctx.*.emitter.emit(" = ");
+                    ctx.*.emitter.emit_string(rhs_code);
+                    ctx.*.emitter.emit_line(";");
+                    .Some(String.from("0"))
+                  }
+                )
+              )
+            },
+            true => Option(String).None
+          )
+        )
+      )
+    )
+  )
+});
+
+// ---------------------------------------------------------------------------
 // Core entry point
 // ---------------------------------------------------------------------------
 
@@ -505,6 +809,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(id) => (id.as_str() == "if")
         ) => handle_if(args, ctx, indent),
+        // Dot field access: a.b — infix FnCall with Dot func
+        (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
+        // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
+        func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
+        // Regular function call: f(args) — identifier func, not a builtin keyword
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (!is_builtin_keyword(id.as_str()))
+        )) => handle_regular_call(ident_opt, args, ctx, indent),
+        // Assignment: x = val  OR  typed declaration: (x : T) = val
+        (is_infix && match(op_opt,
+          .None    => false,
+          .Some(op) => (op.as_str() == "=")
+        )) => handle_assignment(args, ctx, indent),
         true => Option(String).None
       )
     }
@@ -520,3 +838,6 @@ _gen_expr_fn_init := (fn() -> bool)({
 export generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op;
 export gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit;
 export gen_binary_op, gen_unary_op;
+export type_name_to_c, type_expr_to_c, is_builtin_keyword;
+export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
+export func_box_is_dot, func_box_is_dot_dispatch;

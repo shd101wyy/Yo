@@ -1,4 +1,4 @@
-/// Tests for the self-hosted C code emitter — Phase 4a/4b/4c.
+/// Tests for the self-hosted C code emitter — Phase 4a/4b/4c/4d.
 
 open import "std/fmt";
 open import "std/string";
@@ -9,7 +9,9 @@ open import "std/string";
 { AstExpr }          :: import "../expr/expr.yo";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { generate_expr, gen_binary_op, gen_unary_op,
-  gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op } :: import "../codegen/exprs.yo";
+  gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
+  type_name_to_c, gen_arg_list } :: import "../codegen/exprs.yo";
+{ generate_function } :: import "../codegen/functions.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -94,6 +96,57 @@ make_runtime_cond :: (fn(inner : AstExpr) -> AstExpr)({
   a.push(inner);
   make_fncall_expr("runtime", a)
 });
+
+// Phase 4d helpers ——————————————————————————————————————————————————————————
+
+/// Build `FnCall(Dot, [lhs, rhs], is_infix=true)` — dot field/variant access.
+make_dot_expr :: (fn(lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(lhs);
+  a.push(rhs);
+  dot_tok := make_token_raw(TokenKind.Dot, ".");
+  .FnCall(box(.Atom(dot_tok)), a, true, dot_tok)
+});
+
+/// Build `FnCall(FnCall(Dot, [obj, method], true), args, false)` — method call.
+make_method_call_expr :: (fn(obj : AstExpr, method : str, args : ArrayList(AstExpr)) -> AstExpr)({
+  dot_tok    := make_token_raw(TokenKind.Dot, ".");
+  method_tok := make_token_raw(TokenKind.Identifier, method);
+  dot_args   := ArrayList(AstExpr).new();
+  dot_args.push(obj);
+  dot_args.push(AstExpr.Atom(method_tok));
+  dot_expr := AstExpr.FnCall(box(AstExpr.Atom(dot_tok)), dot_args, true, dot_tok);
+  AstExpr.FnCall(box(dot_expr), args, false, dot_tok)
+});
+
+/// Build `FnCall(":", [name_expr, ty_expr], is_infix=true)` — type annotation.
+make_colon_expr :: (fn(name_e : AstExpr, ty_e : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(name_e);
+  a.push(ty_e);
+  colon_tok := make_token_raw(TokenKind.Operator, ":");
+  .FnCall(box(.Atom(colon_tok)), a, true, colon_tok)
+});
+
+/// Build `FnCall("=", [lhs, rhs], is_infix=true)` — assignment or typed decl.
+make_assign_expr :: (fn(lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(lhs);
+  a.push(rhs);
+  eq_tok := make_token_raw(TokenKind.Operator, "=");
+  .FnCall(box(.Atom(eq_tok)), a, true, eq_tok)
+});
+
+/// Build a typed declaration `(x : T) = val`.
+make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstExpr)(
+  make_assign_expr(
+    make_colon_expr(
+      make_atom_expr(TokenKind.Identifier, name),
+      make_atom_expr(TokenKind.Identifier, ty_name)
+    ),
+    val_e
+  )
+);
 
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
@@ -601,4 +654,189 @@ test "generate_expr: while emits loop and returns 0", {
     output.contains(String.from("step;")),
     "expected 'step;' emitted inside loop"
   );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4d — type mapping, function calls, dot access, assignment
+// ---------------------------------------------------------------------------
+
+test "type_name_to_c: primitive types", {
+  assert((type_name_to_c("i8")    == String.from("int8_t")),    "i8");
+  assert((type_name_to_c("i16")   == String.from("int16_t")),   "i16");
+  assert((type_name_to_c("i32")   == String.from("int32_t")),   "i32");
+  assert((type_name_to_c("i64")   == String.from("int64_t")),   "i64");
+  assert((type_name_to_c("u8")    == String.from("uint8_t")),   "u8");
+  assert((type_name_to_c("u16")   == String.from("uint16_t")),  "u16");
+  assert((type_name_to_c("u32")   == String.from("uint32_t")),  "u32");
+  assert((type_name_to_c("u64")   == String.from("uint64_t")),  "u64");
+  assert((type_name_to_c("usize") == String.from("size_t")),    "usize");
+  assert((type_name_to_c("f32")   == String.from("float")),     "f32");
+  assert((type_name_to_c("f64")   == String.from("double")),    "f64");
+  assert((type_name_to_c("bool")  == String.from("bool")),      "bool");
+  assert((type_name_to_c("str")   == String.from("const char*")), "str");
+  assert((type_name_to_c("unit")  == String.from("void")),      "unit");
+};
+
+test "type_name_to_c: unknown name passes through unchanged", {
+  assert((type_name_to_c("MyType") == String.from("MyType")), "user-defined type");
+};
+
+test "generate_expr: regular function call no args", {
+  // f()  →  "f()"
+  args := ArrayList(AstExpr).new();
+  expr := make_fncall_expr("f", args);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("f()"))),
+    "expected 'f()'"
+  );
+};
+
+test "generate_expr: regular function call with args", {
+  // foo(1, x)  →  "foo(1, x)"
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "1"));
+  args.push(make_atom_expr(TokenKind.Identifier, "x"));
+  expr := make_fncall_expr("foo", args);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("foo(1, x)"))),
+    "expected 'foo(1, x)'"
+  );
+};
+
+test "generate_expr: dot field access", {
+  // a.b  →  "a.b"
+  lhs  := make_atom_expr(TokenKind.Identifier, "a");
+  rhs  := make_atom_expr(TokenKind.Identifier, "b");
+  expr := make_dot_expr(lhs, rhs);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("a.b"))),
+    "expected 'a.b'"
+  );
+};
+
+test "generate_expr: method call no extra args", {
+  // obj.method()  →  "obj.method()"
+  obj  := make_atom_expr(TokenKind.Identifier, "obj");
+  args := ArrayList(AstExpr).new();
+  expr := make_method_call_expr(obj, "method", args);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("obj.method()"))),
+    "expected 'obj.method()'"
+  );
+};
+
+test "generate_expr: method call with args", {
+  // vec.push(x)  →  "vec.push(x)"
+  obj  := make_atom_expr(TokenKind.Identifier, "vec");
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "x"));
+  expr := make_method_call_expr(obj, "push", args);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("vec.push(x)"))),
+    "expected 'vec.push(x)'"
+  );
+};
+
+test "generate_expr: bare assignment expression", {
+  // x = 5  →  "x = 5"
+  lhs  := make_atom_expr(TokenKind.Identifier, "x");
+  rhs  := make_atom_expr(TokenKind.Integer, "5");
+  expr := make_assign_expr(lhs, rhs);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("x = 5"))),
+    "expected 'x = 5'"
+  );
+};
+
+test "generate_expr: typed declaration emits statement", {
+  // (x : i32) = 42  →  emits "int32_t x = 42;" as statement, returns "0"
+  expr := make_typed_decl_expr("x", "i32", make_atom_expr(TokenKind.Integer, "42"));
+  ctx  := run_gen_with_ctx(expr);
+  output := ctx.emitter.print();
+  assert(
+    output.contains(String.from("int32_t x = 42;")),
+    "expected 'int32_t x = 42;' emitted as statement"
+  );
+};
+
+test "generate_expr: typed declaration returns 0", {
+  // (x : i32) = 42  →  returns "0"
+  expr   := make_typed_decl_expr("x", "i32", make_atom_expr(TokenKind.Integer, "42"));
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("0"))),
+    "typed decl should return '0'"
+  );
+};
+
+test "generate_expr: nested function call in arg", {
+  // f(g(1))  →  "f(g(1))"
+  inner_args := ArrayList(AstExpr).new();
+  inner_args.push(make_atom_expr(TokenKind.Integer, "1"));
+  inner := make_fncall_expr("g", inner_args);
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(inner);
+  expr := make_fncall_expr("f", outer_args);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("f(g(1))"))),
+    "expected 'f(g(1))'"
+  );
+};
+
+test "generate_function: void function with no params", {
+  // static void hello() { return 0; }  — body is just integer 0
+  params    := ArrayList(String).new();
+  param_tys := ArrayList(String).new();
+  body      := make_atom_expr(TokenKind.Integer, "0");
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  generate_function("hello", "void", params, param_tys, body, pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static void hello()")), "expected function signature");
+  assert(output.contains(String.from("{")),  "expected opening brace");
+  assert(output.contains(String.from("}")),  "expected closing brace");
+};
+
+test "generate_function: int function with params", {
+  // static int32_t add(int32_t a, int32_t b) { return (a + b); }
+  params    := ArrayList(String).new();
+  param_tys := ArrayList(String).new();
+  params.push(String.from("a"));
+  params.push(String.from("b"));
+  param_tys.push(String.from("int32_t"));
+  param_tys.push(String.from("int32_t"));
+  body := make_infix_expr("+",
+    make_atom_expr(TokenKind.Identifier, "a"),
+    make_atom_expr(TokenKind.Identifier, "b")
+  );
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  generate_function("add", "int32_t", params, param_tys, body, pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static int32_t add(int32_t a, int32_t b)")), "signature");
+  assert(output.contains(String.from("return")),    "expected return");
+  assert(output.contains(String.from("(a + b)")),   "expected body expression");
+};
+
+test "generate_function: function with begin block body", {
+  // static int32_t const_42() { return 42; }
+  // body is a begin block: { 42 }
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_atom_expr(TokenKind.Integer, "42"));
+  body      := make_begin_expr(stmts);
+  params    := ArrayList(String).new();
+  param_tys := ArrayList(String).new();
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  generate_function("const_42", "int32_t", params, param_tys, body, pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static int32_t const_42()")), "signature");
+  assert(output.contains(String.from("return 42;")), "expected 'return 42;'");
 };

@@ -1,0 +1,96 @@
+//! Function-level C code generation for the self-hosted Yo compiler.
+//!
+//! Phase 4d: generate a complete C function definition from a name,
+//! parameter list, return type, and body expression.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ AstExpr }        :: import "../expr/expr.yo";
+{ CodegenContext } :: import "./context.yo";
+{ generate_expr }  :: import "./exprs.yo";
+
+/// Emit a complete C function definition into `ctx.emitter.code`.
+///
+/// Signature format:
+/// ```c
+///   static ret_type name(ty0 p0, ty1 p1, ...) {
+///     // body statements (emitted as side effects)
+///     return last_expr;   // omitted when ret_type == "void" and last == "0"
+///   }
+/// ```
+///
+/// `params` and `param_tys` are parallel arrays (same length expected).
+/// If they differ, the shorter length is used.
+///
+/// The `body` expression is passed to `generate_expr` with a two-space indent.
+/// Any statements emitted during body codegen accumulate in `ctx.emitter`
+/// directly (they appear between the `{` and `return` lines).
+generate_function :: (fn(
+  name      : str,
+  ret_type  : str,
+  params    : ArrayList(String),
+  param_tys : ArrayList(String),
+  body      : AstExpr,
+  ctx       : *(CodegenContext)
+) -> unit)({
+  // Build parameter list: "ty0 p0, ty1 p1, ..."
+  n_params := cond(
+    (params.len() < param_tys.len()) => params.len(),
+    true                             => param_tys.len()
+  );
+  param_list := {
+    sb := String.new();
+    (i : usize) = usize(0);
+    while runtime((i < n_params)), {
+      if((i > usize(0)), { sb.push_str(", "); });
+      ty_s := match(param_tys.get(i), .Some(s) => s, .None => String.from("void*"));
+      p_s  := match(params.get(i),    .Some(s) => s, .None => String.from("_p"));
+      sb.push_string(ty_s);
+      sb.push_str(" ");
+      sb.push_string(p_s);
+      i = (i + usize(1));
+    };
+    sb
+  };
+
+  // Emit: static ret_type name(params) {
+  ctx.*.emitter.emit("static ");
+  ctx.*.emitter.emit(ret_type);
+  ctx.*.emitter.emit(" ");
+  ctx.*.emitter.emit(name);
+  ctx.*.emitter.emit("(");
+  ctx.*.emitter.emit_string(param_list);
+  ctx.*.emitter.emit_line(") {");
+
+  // Generate body — side-effect statements go into ctx.emitter automatically
+  indent   := String.from("  ");
+  body_val := generate_expr(body, ctx, indent);
+
+  // Emit return (or a void expression as statement)
+  cond(
+    (ret_type == "void") => match(body_val,
+      .None      => (),
+      .Some(last) => cond(
+        // "0" is the sentinel for "nothing meaningful" — skip for void
+        (last == String.from("0")) => (),
+        true => {
+          ctx.*.emitter.emit("  ");
+          ctx.*.emitter.emit_string(last);
+          ctx.*.emitter.emit_line(";");
+        }
+      )
+    ),
+    true => match(body_val,
+      .None      => ctx.*.emitter.emit_line("  /* codegen error: body returned None */"),
+      .Some(last) => {
+        ctx.*.emitter.emit("  return ");
+        ctx.*.emitter.emit_string(last);
+        ctx.*.emitter.emit_line(";");
+      }
+    )
+  );
+
+  ctx.*.emitter.emit_line("}");
+});
+
+export generate_function;

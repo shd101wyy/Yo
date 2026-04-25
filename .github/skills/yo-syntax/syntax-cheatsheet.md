@@ -105,6 +105,7 @@ masked := ((A | B) | C);
 - Yo has no operator precedence; fully parenthesize binary expressions
 - **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Always wrap: `p := &s; func(p, a, b)` or use `func((&s), a, b)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
+- **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
 
 ## Functions and methods
 

@@ -251,6 +251,20 @@ func((&s), label, extra);
 
 This applies to **all** unary operators: `!`, `&`, `-`, `~`. Any of them placed before a comma-separated list will greedily absorb the entire list as a tuple.
 
+**Critical: `!x && y` is parsed as `!(x && y)`**, not `(!x) && y`.
+
+Because prefix `!` is treated as a function call that consumes the entire following expression (parsed by `parseExpression`, which includes all infix operators), `!x && match(...)` is equivalent to `!(x && match(...))`. Always parenthesize the negated operand separately when it must be the left operand of `&&`:
+
+```rust
+// WRONG — `!x && match(...)` parses as `!(x && match(...))`:
+(!is_infix && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+
+// CORRECT — parentheses around `!is_infix` make it a sub-expression:
+((!is_infix) && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+```
+
+This applies at any nesting depth: whenever you write `!expr && rhs`, add an extra layer of parentheses: `((!expr) && rhs)`.
+
 **Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 
 ## Recursion requires `recur`
