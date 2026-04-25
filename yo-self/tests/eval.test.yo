@@ -948,7 +948,7 @@ test "evaluate: fn def stores FuncVal", {
   check_some(f_res, "f is bound");
   match(f_res,
     .Some(r) => match(r.value,
-      .FuncVal(_, ps, _, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
+      .FuncVal(_, ps, _, _, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
       _ => assert(false, "expected FuncVal")
     ),
     .None => ()
@@ -1770,7 +1770,7 @@ test "evaluate: forall param name is extracted into FuncVal.forall_names", {
   check_some(id_res, "id is bound");
   match(id_res,
     .Some(r) => match(r.value,
-      .FuncVal(fnames, ps, ptnames, _, _, _, _) => {
+      .FuncVal(fnames, ps, ptnames, _, _, _, _, _) => {
         assert((fnames.len() == usize(1)), "1 forall name");
         assert((ps.len() == usize(1)), "1 value param");
         assert((ptnames.len() == usize(1)), "1 param type name");
@@ -2324,6 +2324,171 @@ test "evaluate: comptime(Name) param extracted in fn def", {
   check_some(result, "comptime param call");
   match(result,
     .Some(r) => assert((r.value == EvalValue.IntLit(String.from("3"))), "f(3)=3"),
+    .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3o — evidence params / using(name : Type) / evidence passing
+// ---------------------------------------------------------------------------
+
+/// Build `using(inner_expr)` call — used both for param declarations and
+/// call-site evidence passing.
+make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
+  ua := ArrayList(AstExpr).new();
+  ua.push(inner);
+  .FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "using"))),
+    ua,
+    false,
+    make_token(TokenKind.Identifier, "using")
+  )
+});
+
+/// Build `using(name : Type)` param for a function definition.
+make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
+  ca := ArrayList(AstExpr).new();
+  ca.push(make_ident(name));
+  ca.push(make_ident(type_name));
+  colon_expr := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Operator, ":"))),
+    ca,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_using_call(colon_expr)
+});
+
+/// Build `(fn(params…) -> ret_type)(body)` function definition expression.
+make_typed_fn_def :: (fn(
+  fn_params : ArrayList(AstExpr),
+  ret_type  : AstExpr,
+  body      : AstExpr
+) -> AstExpr)({
+  fn_head := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "fn"))),
+    fn_params,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arr_a := ArrayList(AstExpr).new();
+  arr_a.push(fn_head);
+  arr_a.push(ret_type);
+  fn_sig := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Operator, "->"))),
+    arr_a,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  (AstExpr).FnCall(box(fn_sig), body_args, false, make_token(TokenKind.Operator, "->"))
+});
+
+test "evaluate: using param is extracted into FuncVal.evidence_params", {
+  env := empty_env();
+  // Build (fn(using(ev : bool)) -> bool)(ev)
+  params_e := ArrayList(AstExpr).new();
+  params_e.push(make_using_param("ev", "bool"));
+  fn_def_e := make_typed_fn_def(params_e, make_ident("bool"), make_ident("ev"));
+  // f := fn_def_e
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def_e), &env);
+  // Look up f — FuncVal should have evidence_params=["ev"], params=[]
+  f_var := env.lookup(String.from("f"));
+  match(f_var,
+    .Some(v) => match(v.value,
+      .Some(fval) => match(fval,
+        .FuncVal(_, ps, _, ev_ps, _, _, _, _) => {
+          assert((ps.len() == usize(0)), "no regular params");
+          assert((ev_ps.len() == usize(1)), "1 evidence param");
+          match(ev_ps.get(usize(0)),
+            .Some(evn) => assert((evn.as_str() == "ev"), "evidence name is ev"),
+            .None => assert(false, "no evidence name")
+          );
+        },
+        _ => assert(false, "expected FuncVal")
+      ),
+      .None => assert(false, "no value")
+    ),
+    .None => assert(false, "f not found")
+  );
+};
+
+test "evaluate: using(name) at call site evaluates to bound value", {
+  env := empty_env();
+  // Bind: my_ev = BoolVal(false)
+  _d := env.define_val(String.from("my_ev"), t_bool(), true, .Some(EvalValue.BoolVal(false)));
+  // Evaluate using(my_ev) — should look up my_ev and return BoolVal(false)
+  result := evaluate(make_using_call(make_ident("my_ev")), &env);
+  check_some(result, "using(my_ev)");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(false)), "using(my_ev)=false"),
+    .None => ()
+  );
+};
+
+test "evaluate: evidence param is in scope inside function body", {
+  env := empty_env();
+  // Bind: ev_val = BoolVal(true)
+  _dv := env.define_val(String.from("ev_val"), t_bool(), true, .Some(EvalValue.BoolVal(true)));
+  // Build (fn(using(ev : bool)) -> bool)(ev) — body returns ev
+  params_b := ArrayList(AstExpr).new();
+  params_b.push(make_using_param("ev", "bool"));
+  fn_def_b := make_typed_fn_def(params_b, make_ident("bool"), make_ident("ev"));
+  // f := fn_def_b
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def_b), &env);
+  // Call f(using(ev_val)) — evidence passes BoolVal(true) as ev
+  call_args_b := ArrayList(AstExpr).new();
+  call_args_b.push(make_using_call(make_ident("ev_val")));
+  result := evaluate(make_call("f", call_args_b), &env);
+  check_some(result, "evidence in body");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "ev=true in body"),
+    .None => ()
+  );
+};
+
+test "evaluate: evidence param passed alongside regular params", {
+  env := empty_env();
+  // Bind: factor = IntLit("3")
+  _dv := env.define_val(String.from("factor"), t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("3"))));
+  // Build (fn(x : i32, using(m : i32)) -> i32)(x * m)
+  colon_x := make_infix(":", make_ident("x"), make_ident("i32"));
+  params_m := ArrayList(AstExpr).new();
+  params_m.push(colon_x);
+  params_m.push(make_using_param("m", "i32"));
+  fn_def_m := make_typed_fn_def(params_m, make_ident("i32"), make_infix("*", make_ident("x"), make_ident("m")));
+  _d := evaluate(make_infix(":=", make_ident("mul"), fn_def_m), &env);
+  // Call mul(5, using(factor)) — x=5, m=3 → 15
+  call_args_m := ArrayList(AstExpr).new();
+  call_args_m.push(make_atom(TokenKind.Integer, "5"));
+  call_args_m.push(make_using_call(make_ident("factor")));
+  result := evaluate(make_call("mul", call_args_m), &env);
+  check_some(result, "mul with evidence");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("15"))), "5*3=15"),
+    .None => ()
+  );
+};
+
+test "evaluate: function with only using params (no regular params)", {
+  env := empty_env();
+  // Bind: my_flag = BoolVal(true)
+  _dv := env.define_val(String.from("my_flag"), t_bool(), true, .Some(EvalValue.BoolVal(true)));
+  // Build (fn(using(flag : bool)) -> bool)({ flag })
+  params_f2 := ArrayList(AstExpr).new();
+  params_f2.push(make_using_param("flag", "bool"));
+  stmts_f2 := ArrayList(AstExpr).new();
+  stmts_f2.push(make_ident("flag"));
+  fn_def_f2 := make_typed_fn_def(params_f2, make_ident("bool"), make_begin(stmts_f2));
+  _d := evaluate(make_infix(":=", make_ident("get_flag"), fn_def_f2), &env);
+  // Call get_flag(using(my_flag))
+  call_args_f2 := ArrayList(AstExpr).new();
+  call_args_f2.push(make_using_call(make_ident("my_flag")));
+  result := evaluate(make_call("get_flag", call_args_f2), &env);
+  check_some(result, "only-evidence call");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "flag=true"),
     .None => ()
   );
 };

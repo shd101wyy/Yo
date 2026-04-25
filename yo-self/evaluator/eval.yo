@@ -181,7 +181,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .StrLit(_)     => true,
     .VarRef(_)     => false,
     .EnumVal(_, _) => true,
-    .FuncVal(_, _, _, _, _, _, _) => true,
+    .FuncVal(_, _, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .TypeVal(_)    => true,
     .StructVal(_, _, _) => true,
@@ -260,7 +260,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_)       => t_comptime_string(),
     .VarRef(_)       => t_unit(),
     .EnumVal(_, _)   => t_unit(),
-    .FuncVal(_, _, _, _, _, _, _)   => t_unit(),
+    .FuncVal(_, _, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .TypeVal(_)      => t_type(),
     .StructVal(_, _, _) => t_unit(),
@@ -486,11 +486,12 @@ call_funcval_with_args :: (fn(
     .None => Option(EvalResult).None,
     .Some(ef) =>
       match(fv,
-        .FuncVal(forall_names_h, params, param_type_names_h, body, cap_names, cap_tys, cap_vals) => {
-          n_p := params.len();
-          n_a := already_evaled.len();
+        .FuncVal(forall_names_h, params, param_type_names_h, evidence_params_h, body, cap_names, cap_tys, cap_vals) => {
+          n_p  := params.len();
+          n_ev := evidence_params_h.len();
+          n_a  := already_evaled.len();
           cond(
-            (n_p != n_a) => Option(EvalResult).None,
+            ((n_p + n_ev) != n_a) => Option(EvalResult).None,
             true => {
               fresh_fn_env := Environment.new(String.from(""));
               n_cap_h := cap_names.len();
@@ -577,6 +578,23 @@ call_funcval_with_args :: (fn(
                   .None => ()
                 );
                 pi = (pi + usize(1));
+              };
+              // Phase 3o: bind evidence params — args[n_p..n_p+n_ev]
+              (evi : usize) = usize(0);
+              while runtime((evi < n_ev)), {
+                match(evidence_params_h.get(evi),
+                  .Some(ev_pname) =>
+                    match(already_evaled.get((n_p + evi)),
+                      .Some(ev_pval) => {
+                        _dev := (&fresh_fn_env).define_val(
+                          ev_pname, ev_pval.ty, value_is_comptime(ev_pval.value), .Some(ev_pval.value)
+                        );
+                      },
+                      .None => ()
+                    ),
+                  .None => ()
+                );
+                evi = (evi + usize(1));
               };
               body_rh := ef(body.*, &fresh_fn_env);
               match(body_rh,
@@ -949,6 +967,54 @@ extract_comptime_param_name :: (fn(
   )
 });
 
+/// Extract the evidence parameter name from the inner expression of a
+/// `using(...)` parameter declaration.
+///
+/// For `using(name : Type)` the inner expression is
+/// `FnCall(Atom(":"), [Atom("name"), type_expr], true)` → returns `"name"`.
+/// For `using(name)` the inner expression is `Atom("name")` → returns `"name"`.
+extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
+  match(ev_inner,
+    .FnCall(ev_kw_box, ev_kw_args, _, _) =>
+      match(ev_kw_box.*,
+        .Atom(ev_kw_tok) =>
+          cond(
+            (ev_kw_tok.value.as_str() == ":") =>
+              match(ev_kw_args.get(usize(0)),
+                .Some(ev_name_expr) =>
+                  match(ev_name_expr,
+                    .Atom(ev_name_tok) => Option(String).Some(ev_name_tok.value),
+                    .FnCall(_, _, _, _) => Option(String).None
+                  ),
+                .None => Option(String).None
+              ),
+            true => Option(String).None
+          ),
+        .FnCall(_, _, _, _) => Option(String).None
+      ),
+    .Atom(ev_bare_tok) => Option(String).Some(ev_bare_tok.value)
+  )
+);
+
+/// Evaluate a `using(inner_expr)` form at a call site.
+///
+/// `using(name)` passes the value of `name` from the caller's environment as
+/// evidence to the callee.  This allows the evaluator to resolve evidence
+/// params bound by `using(name : Type)` declarations in the callee.
+handle_using_call :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))(
+  match(g_eval_fn,
+    .None => Option(EvalResult).None,
+    .Some(ef) =>
+      match(args.get(usize(0)),
+        .Some(inner_expr) => ef(inner_expr, env),
+        .None => Option(EvalResult).None
+      )
+  )
+);
+
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
@@ -1035,6 +1101,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                               forall_names_f    := ArrayList(String).new();
                               params_f          := ArrayList(String).new();
                               param_type_names_f := ArrayList(String).new();
+                              evidence_params_f := ArrayList(String).new();
                               (pi : usize) = usize(0);
                               n_p := fn_params_list.len();
                               (param_ok : bool) = true;
@@ -1107,7 +1174,20 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                                     ),
                                                   .None => { param_ok = false; }
                                                 ),
-                                              // using/where — skip
+                                              // using param: extract evidence name
+                                              (kw_tok.value.as_str() == "using") =>
+                                                match(kw_args.get(usize(0)),
+                                                  .Some(ev_inner) => {
+                                                    match(extract_evidence_param_name(ev_inner),
+                                                      .Some(ev_name) => {
+                                                        evidence_params_f.push(ev_name);
+                                                      },
+                                                      .None => ()
+                                                    );
+                                                  },
+                                                  .None => ()
+                                                ),
+                                              // where/other — skip
                                               true => ()
                                             ),
                                           .FnCall(_, _, _, _) => { param_ok = false; }
@@ -1170,6 +1250,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                           forall_names_f,
                                           params_f,
                                           param_type_names_f,
+                                          evidence_params_f,
                                           box(body_expr),
                                           cap_names_f,
                                           cap_tys_f,
@@ -1885,7 +1966,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None,
                     .Some(func_val_r) =>
                       match(func_val_r,
-                        .FuncVal(_, _, _, _, _, _, _) => {
+                        .FuncVal(_, _, _, _, _, _, _, _) => {
                           evaled_r := ArrayList(EvalResult).new();
                           n_recur_args := args.len();
                           (ri : usize) = usize(0);
@@ -2017,6 +2098,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None
                   )
               ),
+
+            // -----------------------------------------------------------------
+            // using(name) — Phase 3o
+            // At a call site, `using(name)` passes the value of `name` from
+            // the caller's env as evidence to the callee.
+            // -----------------------------------------------------------------
+            (fval == "using") => handle_using_call(args, env),
 
             // -----------------------------------------------------------------
             // import("path") — Phase 3m
@@ -2184,7 +2272,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(_, _, _, _, _, _, _) => {
+                        .FuncVal(_, _, _, _, _, _, _, _) => {
                           evaled_g := ArrayList(EvalResult).new();
                           n_gargs := args.len();
                           (gi : usize) = usize(0);

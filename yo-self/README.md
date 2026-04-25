@@ -19,15 +19,16 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 3l complete.** Generic specialization / forall param binding — `forall(T)` type params are inferred from argument types at call time and bound as `TypeVal` in the function body.
 ✅ **Phase 3m complete.** Module system — `ModuleVal` added to `EvalValue`; `evaluate_module_body` evaluates a list of top-level exprs and collects `export` declarations; `import "path"` dispatch uses a pluggable `g_module_loader` callback (registered via `set_module_loader`); `open(module)` brings all module fields into scope; `{ A, B } :: module` destructuring binds individual names.
 ✅ **Phase 3n complete.** CTFE basics — `if(cond, then)` / `if(cond, then, else)` conditional expressions; float arithmetic (`+`, `-`, `*`, `/`) and comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`) constant folding via `atof`/`f64.to_string()`; float unary negation; `comptime(Name)` parameter name extraction in function definitions. All new logic factored into helper functions to keep `evaluate()`'s ASAN stack frame within the 8 MB limit.
+✅ **Phase 3o complete.** Effects / evidence passing — `using(name : Type)` evidence parameters extracted from function definitions into `FuncVal.evidence_params`; `using(name)` at call sites evaluates to the named value from the caller's environment; `call_funcval_with_args` binds evidence params from the trailing args after regular params. New helpers `extract_evidence_param_name` and `handle_using_call` factor the logic out of `evaluate()` to keep the ASAN stack frame within the 8 MB limit.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure) (Phases 3a–3n); 91 tests passing
+- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 96 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Total: ~219 tests passing** under `yo-self/tests/`
+- **Total: ~224 tests passing** under `yo-self/tests/`
 
 Run tests:
 

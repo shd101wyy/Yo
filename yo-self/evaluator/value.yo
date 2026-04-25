@@ -66,10 +66,15 @@ EvalValue :: enum(
   /// infer forall bindings: for each forall name `F`, if any value param has
   /// type annotation `F`, the corresponding argument's type is bound as
   /// `TypeVal(arg.ty)` under name `F` before value params are bound.
+  ///
+  /// Phase 3o: `evidence_params` holds the names of `using(name : Type)`
+  /// parameters. At call time these are bound from explicit `using(name)` args
+  /// (which evaluate to the named value from the caller's env).
   FuncVal(
     forall_names     : ArrayList(String),
     params           : ArrayList(String),
     param_type_names : ArrayList(String),
+    evidence_params  : ArrayList(String),
     body             : Box(AstExpr),
     cap_names        : ArrayList(String),
     cap_tys          : ArrayList(TypeValue),
@@ -159,7 +164,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-      .FuncVal(_, _, _, _, _, _, _) => false,
+      .FuncVal(_, _, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
