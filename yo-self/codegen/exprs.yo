@@ -326,7 +326,132 @@ handle_cond :: (fn(
   )
 });
 
-/// Generate a `while runtime(cond), body` loop.
+/// Generate a single `match` arm as: `(temp == pattern ? body : rest)`.
+/// Wildcard pattern `_` skips the condition: returns body directly.
+gen_match_arm :: (fn(
+  arm_args   : ArrayList(AstExpr),
+  scrut_temp : String,
+  rest       : String,
+  ctx        : *(CodegenContext),
+  indent     : String
+) -> Option(String))({
+  pat_opt  := arm_args.get(usize(0));
+  body_opt := arm_args.get(usize(1));
+  match(pat_opt,
+    .None => Option(String).None,
+    .Some(pat_expr) => match(body_opt,
+      .None => Option(String).None,
+      .Some(body_expr) => {
+        is_wild := match(pat_expr,
+          .Atom(ptok) => (ptok.value.as_str() == "_"),
+          .FnCall(_, _, _, _) => false
+        );
+        match(call_gen_expr(body_expr, ctx, indent),
+          .None => Option(String).None,
+          .Some(b) => cond(
+            is_wild => .Some(b),
+            true => match(call_gen_expr(pat_expr, ctx, indent),
+              .None => Option(String).None,
+              .Some(p) => {
+                result := String.from("(");
+                result.push_string(scrut_temp);
+                result.push_str(" == ");
+                result.push_string(p);
+                result.push_str(" ? ");
+                result.push_string(b);
+                result.push_str(" : ");
+                result.push_string(rest);
+                result.push_str(")");
+                .Some(result)
+              }
+            )
+          )
+        )
+      }
+    )
+  )
+});
+
+/// Generate a `match(scrut, pat => body, ...)` expression as a ternary chain.
+///
+/// The scrutinee is emitted into a `__auto_type` temp variable first to
+/// avoid repeated evaluation. Arms are processed right-to-left into a nested
+/// ternary: `(temp == pat1 ? b1 : (temp == pat2 ? b2 : ... default))`.
+/// A `_` wildcard arm becomes the default (outermost else).
+///
+/// Only handles simple value patterns. Data-enum arms (`.Variant(bindings)`)
+/// are not yet supported and fall through to `None`.
+handle_match_value :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n := args.len();
+  cond(
+    (n < usize(2)) => Option(String).None,
+    true => {
+      scrut_opt := args.get(usize(0));
+      match(scrut_opt,
+        .None => Option(String).None,
+        .Some(scrut_expr) => match(call_gen_expr(scrut_expr, ctx, indent),
+          .None => Option(String).None,
+          .Some(scrut_code) => {
+            // Emit scrutinee into a temp to avoid re-evaluation
+            temp := ctx.*.fresh_temp();
+            ctx.*.emitter.emit_string(indent);
+            ctx.*.emitter.emit("__auto_type ");
+            ctx.*.emitter.emit_string(temp);
+            ctx.*.emitter.emit(" = ");
+            ctx.*.emitter.emit_string(scrut_code);
+            ctx.*.emitter.emit_line(";");
+
+            // Build ternary chain right-to-left (arms are args[1..])
+            arm_count := (n - usize(1));
+            last_arm_opt := args.get((n - usize(1)));
+            (acc : Option(String)) = match(last_arm_opt,
+              .None => Option(String).None,
+              .Some(last_arm) => match(get_arm_args(last_arm),
+                .None => Option(String).None,
+                .Some(la) => match(la.get(usize(1)),
+                  .None => Option(String).None,
+                  .Some(body) => call_gen_expr(body, ctx, indent)
+                )
+              )
+            );
+            (i : usize) = cond(
+              (arm_count > usize(1)) => (arm_count - usize(2)),
+              true => usize(0)
+            );
+            (done : bool) = (arm_count <= usize(1));
+            while runtime((!done)), {
+              match(acc,
+                .None => { done = true; },
+                .Some(rest_str) => {
+                  match(args.get((i + usize(1))),
+                    .None => { done = true; },
+                    .Some(arm) => {
+                      match(get_arm_args(arm),
+                        .None => { done = true; },
+                        .Some(arm_args) => {
+                          acc = gen_match_arm(arm_args, temp, rest_str, ctx, indent);
+                        }
+                      );
+                    }
+                  );
+                  cond(
+                    (i == usize(0)) => { done = true; },
+                    true => { i = (i - usize(1)); }
+                  )
+                }
+              );
+            };
+            acc
+          }
+        )
+      )
+    }
+  )
+});
 ///
 /// Emits a C `while` loop into `ctx.emitter` and returns `"0"` (void result).
 handle_while :: (fn(
@@ -1027,6 +1152,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(id) => (id.as_str() == "cond")
         ) => handle_cond(args, ctx, indent),
+        // match(scrut, pat => body, …) — value-pattern ternary chain
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "match")
+        ) => handle_match_value(args, ctx, indent),
         // while runtime(cond), body
         match(ident_opt,
           .None    => false,
@@ -1099,4 +1229,5 @@ export type_name_to_c, type_expr_to_c, is_builtin_keyword, is_primitive_type_cas
 export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
 export handle_define, handle_type_cast, handle_assert;
 export is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor;
+export gen_match_arm, handle_match_value;
 export func_box_is_dot, func_box_is_dot_dispatch;

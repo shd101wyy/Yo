@@ -13,7 +13,8 @@ open import "std/error";
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
   type_name_to_c, gen_arg_list,
   is_labeled_arg, all_labeled_args, is_uppercase_start,
-  handle_struct_constructor, handle_regular_call } :: import "../codegen/exprs.yo";
+  handle_struct_constructor, handle_regular_call,
+  gen_match_arm, handle_match_value } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
@@ -2034,5 +2035,98 @@ test "compile_module_to_c: cross-function call uses fn_ prefix", {
       assert(c.contains(String.from("fn_double(")), "double defined as fn_double");
       assert(c.contains(String.from("fn_double(21)")), "call site uses fn_double prefix");
     }
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 5d — handle_match_value, gen_match_arm
+// ---------------------------------------------------------------------------
+
+/// Build a `=>` infix arm: `pat => body`.
+make_arm_expr :: (fn(pat : AstExpr, body : AstExpr) -> AstExpr)(
+  make_infix_expr("=>", pat, body)
+);
+
+/// Build a wildcard `_` atom.
+make_wildcard_expr :: (fn() -> AstExpr)(
+  make_atom_expr(TokenKind.Identifier, "_")
+);
+
+test "gen_match_arm: integer pattern emits ternary", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  pat := make_atom_expr(TokenKind.Integer, "5");
+  body := make_atom_expr(TokenKind.Integer, "10");
+  arm_args := ArrayList(AstExpr).new();
+  arm_args.push(pat);
+  arm_args.push(body);
+  result_opt := gen_match_arm(arm_args, String.from("__m0"), String.from("0"), pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "gen_match_arm returned None"),
+    .Some(result) => {
+      assert(result.contains(String.from("__m0 == 5")), "condition uses temp var");
+      assert(result.contains(String.from("10")), "body present");
+      assert(result.contains(String.from("0")), "fallback present");
+    }
+  );
+};
+
+test "gen_match_arm: wildcard arm emits body only", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  wildcard := make_wildcard_expr();
+  body := make_atom_expr(TokenKind.Integer, "42");
+  arm_args := ArrayList(AstExpr).new();
+  arm_args.push(wildcard);
+  arm_args.push(body);
+  result_opt := gen_match_arm(arm_args, String.from("__m0"), String.from("0"), pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "gen_match_arm wildcard returned None"),
+    .Some(result) => assert(result.contains(String.from("42")), "wildcard body emitted")
+  );
+};
+
+test "handle_match_value: two-arm match with wildcard", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  scrut := make_atom_expr(TokenKind.Identifier, "x");
+  arm1 := make_arm_expr(
+    make_atom_expr(TokenKind.Integer, "5"),
+    make_atom_expr(TokenKind.Integer, "10")
+  );
+  wildcard_arm := make_arm_expr(
+    make_wildcard_expr(),
+    make_atom_expr(TokenKind.Integer, "0")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(scrut);
+  args.push(arm1);
+  args.push(wildcard_arm);
+  result_opt := handle_match_value(args, pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "handle_match_value returned None"),
+    .Some(result) => {
+      assert(result.contains(String.from("_yo_t")), "temp var declared");
+      assert(result.contains(String.from("10")), "arm1 body present");
+      assert(result.contains(String.from("0")), "wildcard body present");
+    }
+  );
+};
+
+test "handle_match_value: single wildcard arm emits body", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  scrut := make_atom_expr(TokenKind.Identifier, "y");
+  wildcard_arm := make_arm_expr(
+    make_wildcard_expr(),
+    make_atom_expr(TokenKind.Integer, "99")
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(scrut);
+  args.push(wildcard_arm);
+  result_opt := handle_match_value(args, pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "single wildcard returned None"),
+    .Some(result) => assert(result.contains(String.from("99")), "wildcard body emitted")
   );
 };
