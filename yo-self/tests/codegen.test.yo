@@ -1,11 +1,12 @@
-/// Tests for the self-hosted C code emitter — Phase 4a/4b.
+/// Tests for the self-hosted C code emitter — Phase 4a/4b/4c.
 
 open import "std/fmt";
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
-{ Emitter }       :: import "../codegen/emitter.yo";
-{ AstExpr }       :: import "../expr/expr.yo";
+{ Emitter }          :: import "../codegen/emitter.yo";
+{ CodegenContext }   :: import "../codegen/context.yo";
+{ AstExpr }          :: import "../expr/expr.yo";
 { TokenKind, Token } :: import "../lexer/token.yo";
 { generate_expr, gen_binary_op, gen_unary_op,
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op } :: import "../codegen/exprs.yo";
@@ -43,6 +44,72 @@ make_unary_expr :: (fn(op : str, operand : AstExpr) -> AstExpr)({
   args.push(operand);
   op_tok := make_token_raw(TokenKind.Operator, op);
   .FnCall(box(.Atom(op_tok)), args, false, op_tok)
+});
+
+make_fncall_expr :: (fn(name : str, args : ArrayList(AstExpr)) -> AstExpr)({
+  name_tok := make_token_raw(TokenKind.Identifier, name);
+  .FnCall(box(.Atom(name_tok)), args, false, name_tok)
+});
+
+make_begin_expr :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
+  make_fncall_expr("begin", stmts)
+);
+
+make_cond_expr :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
+  make_fncall_expr("cond", arms)
+);
+
+make_cond_arm :: (fn(cond_e : AstExpr, body_e : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(body_e);
+  op_tok := make_token_raw(TokenKind.Operator, "=>");
+  .FnCall(box(.Atom(op_tok)), a, true, op_tok)
+});
+
+make_if_expr :: (fn(cond_e : AstExpr, then_e : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(then_e);
+  make_fncall_expr("if", a)
+});
+
+make_if_else_expr :: (fn(cond_e : AstExpr, then_e : AstExpr, else_e : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(then_e);
+  a.push(else_e);
+  make_fncall_expr("if", a)
+});
+
+make_while_expr :: (fn(cond_e : AstExpr, body_e : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(body_e);
+  make_fncall_expr("while", a)
+});
+
+make_runtime_cond :: (fn(inner : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(inner);
+  make_fncall_expr("runtime", a)
+});
+
+/// Convenience: run generate_expr with a fresh context and empty indent.
+run_gen :: (fn(expr : AstExpr) -> Option(String))({
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ind := String.new();
+  generate_expr(expr, pctx, ind)
+});
+
+/// Convenience: run generate_expr and also return the emitted code.
+run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ind := String.new();
+  _r := generate_expr(expr, pctx, ind);
+  ctx
 });
 
 // ---------------------------------------------------------------------------
@@ -181,7 +248,7 @@ test "Emitter: multiple emit calls accumulate in code", {
 
 test "generate_expr: integer literal", {
   expr := make_atom_expr(TokenKind.Integer, "42");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("42"))),
     "expected '42'"
@@ -190,7 +257,7 @@ test "generate_expr: integer literal", {
 
 test "generate_expr: float literal", {
   expr := make_atom_expr(TokenKind.Float, "3.14");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("3.14"))),
     "expected '3.14'"
@@ -199,7 +266,7 @@ test "generate_expr: float literal", {
 
 test "generate_expr: bool literal true", {
   expr := make_atom_expr(TokenKind.Bool, "true");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("1"))),
     "expected '1' for true"
@@ -208,7 +275,7 @@ test "generate_expr: bool literal true", {
 
 test "generate_expr: bool literal false", {
   expr := make_atom_expr(TokenKind.Bool, "false");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("0"))),
     "expected '0' for false"
@@ -217,7 +284,7 @@ test "generate_expr: bool literal false", {
 
 test "generate_expr: string literal", {
   expr := make_atom_expr(TokenKind.StringLit, "\"hello\"");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("\"hello\""))),
     "expected string literal verbatim"
@@ -226,7 +293,7 @@ test "generate_expr: string literal", {
 
 test "generate_expr: identifier reference", {
   expr := make_atom_expr(TokenKind.Identifier, "my_var");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("my_var"))),
     "expected identifier name"
@@ -237,7 +304,7 @@ test "generate_expr: binary addition", {
   lhs  := make_atom_expr(TokenKind.Integer, "1");
   rhs  := make_atom_expr(TokenKind.Integer, "2");
   expr := make_infix_expr("+", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(1 + 2)"))),
     "expected '(1 + 2)'"
@@ -248,7 +315,7 @@ test "generate_expr: binary subtraction", {
   lhs  := make_atom_expr(TokenKind.Integer, "10");
   rhs  := make_atom_expr(TokenKind.Integer, "3");
   expr := make_infix_expr("-", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(10 - 3)"))),
     "expected '(10 - 3)'"
@@ -259,7 +326,7 @@ test "generate_expr: binary multiplication", {
   lhs  := make_atom_expr(TokenKind.Integer, "4");
   rhs  := make_atom_expr(TokenKind.Integer, "5");
   expr := make_infix_expr("*", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(4 * 5)"))),
     "expected '(4 * 5)'"
@@ -270,7 +337,7 @@ test "generate_expr: equality comparison", {
   lhs  := make_atom_expr(TokenKind.Identifier, "x");
   rhs  := make_atom_expr(TokenKind.Integer, "0");
   expr := make_infix_expr("==", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(x == 0)"))),
     "expected '(x == 0)'"
@@ -281,7 +348,7 @@ test "generate_expr: less-than comparison", {
   lhs  := make_atom_expr(TokenKind.Identifier, "n");
   rhs  := make_atom_expr(TokenKind.Integer, "10");
   expr := make_infix_expr("<", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(n < 10)"))),
     "expected '(n < 10)'"
@@ -292,7 +359,7 @@ test "generate_expr: logical and", {
   lhs  := make_atom_expr(TokenKind.Identifier, "a");
   rhs  := make_atom_expr(TokenKind.Identifier, "b");
   expr := make_infix_expr("&&", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(a && b)"))),
     "expected '(a && b)'"
@@ -303,7 +370,7 @@ test "generate_expr: logical or", {
   lhs  := make_atom_expr(TokenKind.Identifier, "x");
   rhs  := make_atom_expr(TokenKind.Identifier, "y");
   expr := make_infix_expr("||", lhs, rhs);
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(x || y)"))),
     "expected '(x || y)'"
@@ -313,7 +380,7 @@ test "generate_expr: logical or", {
 test "generate_expr: unary negation", {
   operand := make_atom_expr(TokenKind.Integer, "5");
   expr    := make_unary_expr("-", operand);
-  result  := generate_expr(expr);
+  result  := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(-5)"))),
     "expected '(-5)'"
@@ -323,7 +390,7 @@ test "generate_expr: unary negation", {
 test "generate_expr: unary boolean not", {
   operand := make_atom_expr(TokenKind.Identifier, "flag");
   expr    := make_unary_expr("!", operand);
-  result  := generate_expr(expr);
+  result  := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("(!flag)"))),
     "expected '(!flag)'"
@@ -337,7 +404,7 @@ test "generate_expr: nested binary ops", {
     make_atom_expr(TokenKind.Integer, "2")
   );
   expr := make_infix_expr("*", inner, make_atom_expr(TokenKind.Integer, "3"));
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("((1 + 2) * 3)"))),
     "expected '((1 + 2) * 3)'"
@@ -347,7 +414,7 @@ test "generate_expr: nested binary ops", {
 test "generate_expr: unsupported expr returns None", {
   // An operator Atom (not an identifier or literal) should return None
   expr := make_atom_expr(TokenKind.Operator, "+");
-  result := generate_expr(expr);
+  result := run_gen(expr);
   assert(
     match(result, .None => true, .Some(_) => false),
     "expected None for unsupported operator atom"
@@ -398,4 +465,140 @@ test "is_unary_prefix_op: recognises - and !", {
 test "sanitize_c_ident: simple names pass through unchanged", {
   assert((sanitize_c_ident("foo") == String.from("foo")), "foo -> foo");
   assert((sanitize_c_ident("my_var_123") == String.from("my_var_123")), "my_var_123 ok");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4c — control flow codegen tests
+// ---------------------------------------------------------------------------
+
+test "generate_expr: begin block single expr", {
+  // { 42 }  →  "42"
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_atom_expr(TokenKind.Integer, "42"));
+  expr := make_begin_expr(stmts);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("42"))),
+    "expected '42' as last expr of begin"
+  );
+};
+
+test "generate_expr: begin block emits non-last stmts", {
+  // { 1; x }  →  emitter has "1;\n", result is "x"
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_atom_expr(TokenKind.Integer, "1"));
+  stmts.push(make_atom_expr(TokenKind.Identifier, "x"));
+  expr := make_begin_expr(stmts);
+  ctx := run_gen_with_ctx(expr);
+  output := ctx.emitter.print();
+  assert(
+    output.contains(String.from("1;")),
+    "expected '1;' emitted for first stmt"
+  );
+};
+
+test "generate_expr: empty begin block", {
+  stmts := ArrayList(AstExpr).new();
+  expr := make_begin_expr(stmts);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("0"))),
+    "empty begin block should return '0'"
+  );
+};
+
+test "generate_expr: cond two arms", {
+  // cond(true => 1, true => 2)  →  "(1 ? 1 : 2)"
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_cond_arm(
+    make_atom_expr(TokenKind.Bool, "true"),
+    make_atom_expr(TokenKind.Integer, "1")
+  ));
+  arms.push(make_cond_arm(
+    make_atom_expr(TokenKind.Bool, "true"),
+    make_atom_expr(TokenKind.Integer, "2")
+  ));
+  expr := make_cond_expr(arms);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(1 ? 1 : 2)"))),
+    "expected '(1 ? 1 : 2)'"
+  );
+};
+
+test "generate_expr: cond three arms", {
+  // cond(a => 10, b => 20, true => 30)  →  "(a ? 10 : (b ? 20 : 30))"
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_cond_arm(
+    make_atom_expr(TokenKind.Identifier, "a"),
+    make_atom_expr(TokenKind.Integer, "10")
+  ));
+  arms.push(make_cond_arm(
+    make_atom_expr(TokenKind.Identifier, "b"),
+    make_atom_expr(TokenKind.Integer, "20")
+  ));
+  arms.push(make_cond_arm(
+    make_atom_expr(TokenKind.Bool, "true"),
+    make_atom_expr(TokenKind.Integer, "30")
+  ));
+  expr := make_cond_expr(arms);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(a ? 10 : (b ? 20 : 30))"))),
+    "expected '(a ? 10 : (b ? 20 : 30))'"
+  );
+};
+
+test "generate_expr: empty cond", {
+  arms := ArrayList(AstExpr).new();
+  expr := make_cond_expr(arms);
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("0"))),
+    "empty cond should return '0'"
+  );
+};
+
+test "generate_expr: if two-branch", {
+  // if(c, t, e)  →  "(c ? t : e)"
+  expr := make_if_else_expr(
+    make_atom_expr(TokenKind.Identifier, "c"),
+    make_atom_expr(TokenKind.Identifier, "t"),
+    make_atom_expr(TokenKind.Identifier, "e")
+  );
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(c ? t : e)"))),
+    "expected '(c ? t : e)'"
+  );
+};
+
+test "generate_expr: if one-branch", {
+  // if(c, t)  →  "(c ? t : 0)"
+  expr := make_if_expr(
+    make_atom_expr(TokenKind.Identifier, "c"),
+    make_atom_expr(TokenKind.Integer, "42")
+  );
+  result := run_gen(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(c ? 42 : 0)"))),
+    "expected '(c ? 42 : 0)'"
+  );
+};
+
+test "generate_expr: while emits loop and returns 0", {
+  // while runtime(x), y  →  emits "while (x) {\n  y;\n}\n", result is "0"
+  cond_e := make_runtime_cond(make_atom_expr(TokenKind.Identifier, "running"));
+  body_e := make_atom_expr(TokenKind.Identifier, "step");
+  expr   := make_while_expr(cond_e, body_e);
+  ctx    := run_gen_with_ctx(expr);
+  output := ctx.emitter.print();
+  assert(
+    output.contains(String.from("while (running)")),
+    "expected 'while (running)' in output"
+  );
+  assert(
+    output.contains(String.from("step;")),
+    "expected 'step;' emitted inside loop"
+  );
 };

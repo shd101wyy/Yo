@@ -1,0 +1,35 @@
+//! Minimal code-generation context for the self-hosted Yo C code generator.
+//!
+//! Holds the `Emitter` and any mutable state that expression/statement
+//! generators need to share.  More fields will be added in Phases 4c–4i.
+
+open import "std/string";
+{ Emitter } :: import "./emitter.yo";
+
+/// Shared mutable context passed to every `generate_*` function.
+///
+/// Phase 4b/4c fields:
+///   `emitter`    — the three-section C output accumulator
+///   `temp_count` — counter used to generate unique temp variable names
+CodegenContext :: object(
+  emitter    : Emitter,
+  temp_count : usize
+);
+
+impl(CodegenContext,
+  /// Create a new empty context.
+  new : (fn() -> Self)(
+    Self(emitter: Emitter.new(), temp_count: usize(0))
+  ),
+
+  /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
+  fresh_temp : (fn(self : *(Self)) -> String)({
+    n := self.*.temp_count;
+    self.*.temp_count = (n + usize(1));
+    result := String.from("_yo_t");
+    result.push_string(n.to_string());
+    result
+  })
+);
+
+export CodegenContext;
