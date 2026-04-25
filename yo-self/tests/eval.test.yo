@@ -7,14 +7,14 @@ open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_i32, t_bool, t_u32, t_f32, t_type,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult } :: import "../evaluator/value.yo";
-{ evaluate, parse_raw_int } :: import "../evaluator/eval.yo";
+{ evaluate, parse_raw_int, evaluate_module_body, set_module_loader } :: import "../evaluator/eval.yo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +118,16 @@ check_none :: (fn(result : Option(EvalResult), label : str) -> unit)(
       assert(false, label);
     },
     .None => ()
+  )
+);
+
+check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
+  match(result,
+    .Some(_) => (),
+    .None => {
+      println(`FAIL [${label}]: expected Some(EvalValue), got None`);
+      assert(false, label);
+    }
   )
 );
 
@@ -1890,5 +1900,225 @@ test "evaluate: bare (untyped) params still work after Phase 3l", {
   match(result,
     .Some(r) => assert((r.value == EvalValue.IntLit(String.from("7"))), "3 + 4 = 7"),
     .None => assert(false, "expected Some for add_bare(3, 4)")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3m helpers — build export, open, and import AST nodes
+// ---------------------------------------------------------------------------
+
+/// Build `export(names…)` as a non-infix FnCall.
+make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
+  export_tok := make_token(TokenKind.Identifier, BK_EXPORT);
+  args := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(name) => { args.push(make_ident(name)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(box(.Atom(export_tok)), args, false, export_tok)
+});
+
+/// Build `open(expr)` as a non-infix FnCall.
+make_open :: (fn(expr : AstExpr) -> AstExpr)({
+  open_tok := make_token(TokenKind.Identifier, BK_OPEN);
+  args := ArrayList(AstExpr).new();
+  args.push(expr);
+  .FnCall(box(.Atom(open_tok)), args, false, open_tok)
+});
+
+/// Build `import("path")` as a non-infix FnCall (path is a string literal).
+make_import_expr :: (fn(path : str) -> AstExpr)({
+  import_tok := make_token(TokenKind.Identifier, BK_IMPORT);
+  path_lit   := `"${String.from(path)}"`;
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.StringLit, path_lit.as_str()));
+  .FnCall(box(.Atom(import_tok)), args, false, import_tok)
+});
+
+/// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
+make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
+  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+  name_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(nm) => { name_exprs.push(make_ident(nm)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  lhs := (AstExpr).FnCall(box(.Atom(anon_tok)), name_exprs, false, anon_tok);
+  rhs := make_import_expr(path);
+  make_infix("::", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3m — Module system
+// ---------------------------------------------------------------------------
+
+test "evaluate_module_body: exports two bindings into ModuleVal", {
+  env := empty_env();
+  // Body: x := 42; y := true; export x, y;
+  define_x := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "42"));
+  define_y := make_infix(":=", make_ident("y"), make_atom(TokenKind.Bool, "true"));
+  export_names := ArrayList(str).new();
+  export_names.push("x");
+  export_names.push("y");
+  export_expr := make_export(export_names);
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(define_x);
+  exprs.push(define_y);
+  exprs.push(export_expr);
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .Some(mv) =>
+      match(mv,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(2)), "2 exported names");
+          assert((vals.len() == usize(2)), "2 exported values");
+          match(names.get(usize(0)),
+            .Some(n0) => assert((n0.as_str() == "x"), "first export is x"),
+            .None => assert(false, "missing first export name")
+          );
+          match(vals.get(usize(0)),
+            .Some(v0) => assert((v0 == EvalValue.IntLit(String.from("42"))), "x == 42"),
+            .None => assert(false, "missing first export value")
+          );
+          match(names.get(usize(1)),
+            .Some(n1) => assert((n1.as_str() == "y"), "second export is y"),
+            .None => assert(false, "missing second export name")
+          );
+          match(vals.get(usize(1)),
+            .Some(v1) => assert((v1 == EvalValue.BoolVal(true)), "y == true"),
+            .None => assert(false, "missing second export value")
+          );
+        },
+        _ => assert(false, "expected ModuleVal")
+      ),
+    .None => assert(false, "evaluate_module_body returned None")
+  );
+};
+
+test "evaluate: open(ModuleVal) brings all fields into scope", {
+  env := empty_env();
+  // Build a module body that exports x = 10 and y = false
+  define_x := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
+  define_y := make_infix(":=", make_ident("y"), make_atom(TokenKind.Bool, "false"));
+  export_names := ArrayList(str).new();
+  export_names.push("x");
+  export_names.push("y");
+  export_expr := make_export(export_names);
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(define_x);
+  exprs.push(define_y);
+  exprs.push(export_expr);
+  mod_env := empty_env();
+  mod_val_opt := evaluate_module_body(exprs, &mod_env);
+  assert(match(mod_val_opt, .Some(_) => true, .None => false), "module body evaluated");
+  // Bind the module into a variable, then open it
+  mod_val := match(mod_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
+  _def := env.define_val(String.from("m"), t_i32(), true, .Some(mod_val));
+  open_expr := make_open(make_ident("m"));
+  open_res := evaluate(open_expr, &env);
+  check_some(open_res, "open returned Some");
+  // Now x and y should be in scope
+  x_res := evaluate(make_ident("x"), &env);
+  y_res := evaluate(make_ident("y"), &env);
+  check_some(x_res, "x is in scope after open");
+  check_some(y_res, "y is in scope after open");
+  match(x_res,
+    .Some(xr) => assert((xr.value == EvalValue.IntLit(String.from("10"))), "x == 10"),
+    .None => ()
+  );
+  match(y_res,
+    .Some(yr) => assert((yr.value == EvalValue.BoolVal(false)), "y == false"),
+    .None => ()
+  );
+};
+
+test "evaluate: { A, B } :: ModuleVal destructures correctly", {
+  env := empty_env();
+  // Build a module val with exports a = 1, b = 2
+  define_a := make_infix(":=", make_ident("a"), make_atom(TokenKind.Integer, "1"));
+  define_b := make_infix(":=", make_ident("b"), make_atom(TokenKind.Integer, "2"));
+  export_names := ArrayList(str).new();
+  export_names.push("a");
+  export_names.push("b");
+  export_expr := make_export(export_names);
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(define_a);
+  exprs.push(define_b);
+  exprs.push(export_expr);
+  mod_env := empty_env();
+  mod_val_opt := evaluate_module_body(exprs, &mod_env);
+  check_some_eval_val(mod_val_opt, "module body");
+  mod_val := match(mod_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
+  // Bind module as a constant and then destructure: { a, b } :: m
+  _def := env.define_val(String.from("m"), t_i32(), true, .Some(mod_val));
+  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+  a_arg_list := ArrayList(AstExpr).new();
+  a_arg_list.push(make_ident("a"));
+  a_arg_list.push(make_ident("b"));
+  lhs := (AstExpr).FnCall(box(.Atom(anon_tok)), a_arg_list, false, anon_tok);
+  destr_expr := make_infix("::", lhs, make_ident("m"));
+  destr_res := evaluate(destr_expr, &env);
+  check_some(destr_res, "destructure result");
+  // a and b should now be bound in env
+  a_res := evaluate(make_ident("a"), &env);
+  b_res := evaluate(make_ident("b"), &env);
+  check_some(a_res, "a is bound after destructure");
+  check_some(b_res, "b is bound after destructure");
+  match(a_res,
+    .Some(ar) => assert((ar.value == EvalValue.IntLit(String.from("1"))), "a == 1"),
+    .None => ()
+  );
+  match(b_res,
+    .Some(br) => assert((br.value == EvalValue.IntLit(String.from("2"))), "b == 2"),
+    .None => ()
+  );
+};
+
+test "evaluate: import uses module loader callback", {
+  env := empty_env();
+  // Register a mock loader that builds the module inline (no closure capture needed)
+  set_module_loader((fn(path : String) -> Option(EvalValue))({
+    cond(
+      (path.as_str() == "test/my_module") => {
+        mock_names_l := ArrayList(String).new();
+        mock_names_l.push(String.from("val"));
+        mock_vals_l := ArrayList(EvalValue).new();
+        mock_vals_l.push(EvalValue.IntLit(String.from("77")));
+        .Some(EvalValue.ModuleVal(mock_names_l, mock_vals_l))
+      },
+      true => Option(EvalValue).None
+    )
+  }));
+  // Evaluate import("test/my_module") and check we get back the module
+  import_expr := make_import_expr("test/my_module");
+  result := evaluate(import_expr, &env);
+  check_some(result, "import returned Some");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(1)), "module has 1 export");
+          match(names.get(usize(0)),
+            .Some(n) => assert((n.as_str() == "val"), "export name is val"),
+            .None => assert(false, "missing export name")
+          );
+          match(vals.get(usize(0)),
+            .Some(v) => assert((v == EvalValue.IntLit(String.from("77"))), "val == 77"),
+            .None => assert(false, "missing export value")
+          );
+        },
+        _ => assert(false, "expected ModuleVal from import")
+      ),
+    .None => ()
   );
 };

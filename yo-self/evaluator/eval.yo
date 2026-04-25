@@ -48,7 +48,7 @@ open import "std/fmt";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_IMPORT, BK_EXPORT, BK_OPEN } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_unit, t_bool, t_void,
   t_i8, t_i16, t_i32, t_i64,
@@ -68,6 +68,14 @@ open import "std/fmt";
 // can invoke evaluate without a forward reference.
 // ---------------------------------------------------------------------------
 (g_eval_fn : Option((fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult)))) = .None;
+
+// ---------------------------------------------------------------------------
+// Module loader callback slot (Phase 3m).
+// When set, `import "path"` looks up the path via this callback and returns
+// the resulting `ModuleVal`.  Tests register a mock loader; the CLI phase
+// will provide the real file-based loader.
+// ---------------------------------------------------------------------------
+(g_module_loader : Option((fn(path : String) -> Option(EvalValue)))) = .None;
 
 // ---------------------------------------------------------------------------
 // Helpers (must precede evaluate — no back-references to evaluate)
@@ -165,7 +173,8 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .FuncVal(_, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .TypeVal(_)    => true,
-    .StructVal(_, _, _) => true
+    .StructVal(_, _, _) => true,
+    .ModuleVal(_, _) => true
   )
 );
 
@@ -243,7 +252,8 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .FuncVal(_, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .TypeVal(_)      => t_type(),
-    .StructVal(_, _, _) => t_unit()
+    .StructVal(_, _, _) => t_unit(),
+    .ModuleVal(_, _) => t_unit()
   )
 );
 
@@ -706,6 +716,99 @@ handle_impl_form :: (fn(
       )
   )
 );
+
+/// Evaluate a list of top-level module expressions and collect exports.
+///
+/// Iterates `exprs`, evaluating each one through `g_eval_fn`. When an
+/// `export(name1, name2, …)` call is encountered the named variables are
+/// looked up in `env` and appended to the result `ModuleVal`.
+///
+/// Returns `Some(ModuleVal(names, values))` on success, or `None` if
+/// `g_eval_fn` is not set or any expression fails to evaluate.
+evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) -> Option(EvalValue))({
+  names  := ArrayList(String).new();
+  values := ArrayList(EvalValue).new();
+  n      := exprs.len();
+  (i   : usize) = usize(0);
+  (ok  : bool)  = true;
+  while runtime(((i < n) && ok)), {
+    match(exprs.get(i),
+      .Some(expr) =>
+        match(expr,
+          // export(name1, name2, …) — collect exported bindings
+          .FnCall(fb, fargs, _, _) =>
+            match(fb.*,
+              .Atom(ftok) =>
+                cond(
+                  (ftok.value.as_str() == BK_EXPORT) => {
+                    j  := usize(0);
+                    nj := fargs.len();
+                    while runtime(((j < nj) && ok)), {
+                      match(fargs.get(j),
+                        .Some(export_expr) =>
+                          match(export_expr,
+                            .Atom(name_tok) => {
+                              match(env.*.lookup(String.from(name_tok.value.as_str())),
+                                .Some(var) => {
+                                  exported_val := match(var.value,
+                                    .Some(v) => v,
+                                    .None    => EvalValue.VarRef(String.from(name_tok.value.as_str()))
+                                  );
+                                  names.push(String.from(name_tok.value.as_str()));
+                                  values.push(exported_val);
+                                },
+                                .None => { ok = false; }
+                              );
+                            },
+                            .FnCall(_, _, _, _) => { ok = false; }
+                          ),
+                        .None => { ok = false; }
+                      );
+                      j = (j + usize(1));
+                    };
+                  },
+                  // Regular expression — evaluate normally
+                  true =>
+                    match(g_eval_fn,
+                      .Some(eval_fn) =>
+                        match(eval_fn(expr, env),
+                          .Some(_) => (),
+                          .None    => { ok = false; }
+                        ),
+                      .None => { ok = false; }
+                    )
+                ),
+              .FnCall(_, _, _, _) =>
+                // Complex func head — evaluate normally
+                match(g_eval_fn,
+                  .Some(eval_fn) =>
+                    match(eval_fn(expr, env),
+                      .Some(_) => (),
+                      .None    => { ok = false; }
+                    ),
+                  .None => { ok = false; }
+                )
+            ),
+          // Atom at module level — evaluate normally
+          .Atom(_) =>
+            match(g_eval_fn,
+              .Some(eval_fn) =>
+                match(eval_fn(expr, env),
+                  .Some(_) => (),
+                  .None    => { ok = false; }
+                ),
+              .None => { ok = false; }
+            )
+        ),
+      .None => { ok = false; }
+    );
+    i = (i + usize(1));
+  };
+  cond(
+    ok => .Some(.ModuleVal(names, values)),
+    true => Option(EvalValue).None
+  )
+});
 
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
@@ -1659,8 +1762,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             },
 
             // -----------------------------------------------------------------
-            // :: constant declaration — same semantics as := for now.
-            // name :: expr defines a compile-time constant binding.
+            // :: constant declaration.
+            // name :: expr  — simple binding.
+            // { A, B } :: expr — destructuring binding (from Module or Struct).
             // -----------------------------------------------------------------
             (is_infix && (fval == "::")) =>
               cond(
@@ -1671,6 +1775,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       match(args.get(usize(1)),
                         .Some(rhs) =>
                           match(lhs,
+                            // Simple: name :: rhs
                             .Atom(name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
@@ -1684,12 +1789,156 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 },
                                 .None => Option(EvalResult).None
                               ),
-                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                            // Destructuring: { A, B, … } :: rhs (anon-struct LHS)
+                            .FnCall(lhs_fb, lhs_args, _, _) =>
+                              match(lhs_fb.*,
+                                .Atom(lhs_tok) =>
+                                  cond(
+                                    (lhs_tok.value.as_str() == BK_ANON_STRUCT) =>
+                                      match(recur(rhs, env),
+                                        .Some(rhs_res) =>
+                                          match(rhs_res.value,
+                                            // Destructure a ModuleVal
+                                            .ModuleVal(mnames, mvals) => {
+                                              (di : usize) = usize(0);
+                                              dn := lhs_args.len();
+                                              (dok : bool) = true;
+                                              while runtime(((di < dn) && dok)), {
+                                                match(lhs_args.get(di),
+                                                  .Some(name_expr) =>
+                                                    match(name_expr,
+                                                      .Atom(req_tok) => {
+                                                        // Find the requested name in the module
+                                                        (dj : usize) = usize(0);
+                                                        dm := mnames.len();
+                                                        (dfound : bool) = false;
+                                                        while runtime(((dj < dm) && (!dfound))), {
+                                                          match(mnames.get(dj),
+                                                            .Some(mname) =>
+                                                              cond(
+                                                                (mname.as_str() == req_tok.value.as_str()) => {
+                                                                  match(mvals.get(dj),
+                                                                    .Some(mval) => {
+                                                                      _didx := env.define_val(
+                                                                        req_tok.value,
+                                                                        type_of_eval_value(mval),
+                                                                        true,
+                                                                        .Some(mval)
+                                                                      );
+                                                                      dfound = true;
+                                                                    },
+                                                                    .None => { dok = false; }
+                                                                  );
+                                                                },
+                                                                true => ()
+                                                              ),
+                                                            .None => ()
+                                                          );
+                                                          dj = (dj + usize(1));
+                                                        };
+                                                        cond(
+                                                          (!dfound) => { dok = false; },
+                                                          true => ()
+                                                        );
+                                                      },
+                                                      .FnCall(_, _, _, _) => { dok = false; }
+                                                    ),
+                                                  .None => { dok = false; }
+                                                );
+                                                di = (di + usize(1));
+                                              };
+                                              cond(
+                                                dok  => .Some(eval_result(.UnitVal, t_unit())),
+                                                true => Option(EvalResult).None
+                                              )
+                                            },
+                                            _ => Option(EvalResult).None
+                                          ),
+                                        .None => Option(EvalResult).None
+                                      ),
+                                    true => Option(EvalResult).None
+                                  ),
+                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                              )
                           ),
                         .None => Option(EvalResult).None
                       ),
                     .None => Option(EvalResult).None
                   )
+              ),
+
+            // -----------------------------------------------------------------
+            // import("path") — Phase 3m
+            // Calls g_module_loader with the path string (stripped of quotes).
+            // Returns the ModuleVal provided by the loader.
+            // -----------------------------------------------------------------
+            (fval == BK_IMPORT) =>
+              match(args.get(usize(0)),
+                .Some(path_expr) =>
+                  match(path_expr,
+                    .Atom(path_tok) => {
+                      raw := path_tok.value.as_str();
+                      rn  := raw.len();
+                      cond(
+                        (rn < usize(2)) => Option(EvalResult).None,
+                        true => {
+                          path_str := String.from(raw).substring(usize(1), (rn - usize(1)));
+                          match(g_module_loader,
+                            .None => Option(EvalResult).None,
+                            .Some(loader) =>
+                              match(loader(path_str),
+                                .None => Option(EvalResult).None,
+                                .Some(mod_val) =>
+                                  .Some(eval_result(mod_val, t_unit()))
+                              )
+                          )
+                        }
+                      )
+                    },
+                    .FnCall(_, _, _, _) => Option(EvalResult).None
+                  ),
+                .None => Option(EvalResult).None
+              ),
+
+            // -----------------------------------------------------------------
+            // open(module_expr) — Phase 3m
+            // Evaluates its argument to a ModuleVal, then binds every exported
+            // name into the current environment as a comptime constant.
+            // -----------------------------------------------------------------
+            (fval == BK_OPEN) =>
+              match(args.get(usize(0)),
+                .Some(mod_expr) =>
+                  match(recur(mod_expr, env),
+                    .Some(mod_res) =>
+                      match(mod_res.value,
+                        .ModuleVal(mnames, mvals) => {
+                          (oi : usize) = usize(0);
+                          on := mnames.len();
+                          while runtime((oi < on)), {
+                            match(mnames.get(oi),
+                              .Some(mname) =>
+                                match(mvals.get(oi),
+                                  .Some(mval) => {
+                                    _oidx := env.define_val(
+                                      mname,
+                                      type_of_eval_value(mval),
+                                      true,
+                                      .Some(mval)
+                                    );
+                                  },
+                                  .None => ()
+                                ),
+                              .None => ()
+                            );
+                            oi = (oi + usize(1));
+                          };
+                          .Some(eval_result(.UnitVal, t_unit()))
+                        },
+                        _ => Option(EvalResult).None
+                      ),
+                    .None => Option(EvalResult).None
+                  ),
+                .None => Option(EvalResult).None
               ),
 
             // -----------------------------------------------------------------
@@ -1818,6 +2067,14 @@ _eval_fn_init := (fn() -> bool)({
   true
 })();
 
-export evaluate, eval_atom, eval_identifier, parse_raw_int;
+/// Register a module loader callback for `import "path"` expressions (Phase 3m).
+/// When set, `import "path"` will call `loader(path)` and return the result.
+/// Call this before evaluating any module that uses imports.
+/// Typically called once at program startup (or in tests for mocking).
+set_module_loader :: (fn(loader : (fn(path : String) -> Option(EvalValue))) -> unit)({
+  g_module_loader = .Some(loader);
+});
+
+export evaluate, eval_atom, eval_identifier, parse_raw_int, evaluate_module_body, set_module_loader;
 
 

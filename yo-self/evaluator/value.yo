@@ -99,7 +99,15 @@ EvalValue :: enum(
   ///
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
   /// `field_names` and `field_values` are parallel arrays in field-declaration order.
-  StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self))
+  StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
+
+  /// A module value produced by evaluating a module body (Phase 3m).
+  ///
+  /// `names` and `values` are parallel arrays of exported identifiers and
+  /// their compile-time values, in export-statement order. When a module
+  /// exports a runtime variable the corresponding `values` entry is
+  /// `VarRef(name)` (comptime value unknown).
+  ModuleVal(names : ArrayList(String), values : ArrayList(Self))
 );
 
 /// Element-wise equality for `EvalValue`.
@@ -151,7 +159,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-     .FuncVal(_, _, _, _, _, _, _) => false,
+      .FuncVal(_, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
@@ -196,6 +204,50 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                 sf_i = (sf_i + usize(1));
               };
               sf_ok
+            }
+          ),
+        _ => false
+      ),
+    .ModuleVal(an, av) =>
+      match(b,
+        .ModuleVal(bn, bv) =>
+          cond(
+            (an.len() != bn.len()) => false,
+            (av.len() != bv.len()) => false,
+            true => {
+              n_m := an.len();
+              (m_i : usize) = usize(0);
+              (m_ok : bool) = true;
+              while runtime(((m_i < n_m) && m_ok)), {
+                match(an.get(m_i),
+                  .Some(an_s) =>
+                    match(bn.get(m_i),
+                      .Some(bn_s) => {
+                        cond(
+                          (!(an_s.as_str() == bn_s.as_str())) => { m_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { m_ok = false; }
+                    ),
+                  .None => { m_ok = false; }
+                );
+                match(av.get(m_i),
+                  .Some(av_v) =>
+                    match(bv.get(m_i),
+                      .Some(bv_v) => {
+                        cond(
+                          (!(recur(av_v, bv_v))) => { m_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { m_ok = false; }
+                    ),
+                  .None => { m_ok = false; }
+                );
+                m_i = (m_i + usize(1));
+              };
+              m_ok
             }
           ),
         _ => false
