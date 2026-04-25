@@ -285,8 +285,8 @@ The largest and most complex phase (~56K lines). Break into sub-phases:
 
 Second largest subsystem (~40K lines). Break into sub-phases:
 
-**4a. Core emission framework** — `Emitter`, `CodegenContext`, declaration ordering
-**4b. Expression codegen** — literals, variables, function calls, operators
+**4a. Core emission framework** — `Emitter`, `CodegenContext`, declaration ordering ✅ Done
+**4b. Expression codegen** — literals, variables, function calls, operators ✅ Done
 **4c. Control flow codegen** — cond, match, while, begin blocks
 **4d. Function codegen** — function definitions, closures, generic specialization
 **4e. Type codegen** — struct/enum/union layouts, RC headers, type declarations

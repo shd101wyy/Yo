@@ -1,0 +1,221 @@
+//! Expression code generation for the self-hosted Yo C code generator.
+//!
+//! Phase 4b: literals (integer, float, bool, string), variable references,
+//! binary infix operators, and unary prefix operators.
+//!
+//! Mirrors relevant portions of `src/codegen/exprs/atom.ts` and
+//! `src/codegen/exprs/generation.ts`, but scoped to the constructs
+//! needed for simple arithmetic/comparison expressions.
+//!
+//! ASAN note: `generate_expr` is large but far below the ~700-variable
+//! threshold that forced `evaluate()` to use the `g_eval_fn` pointer trick.
+//! Still, helpers are factored out to keep each function's frame small.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ AstExpr, make_err_expr } :: import "../expr/expr.yo";
+{ TokenKind }              :: import "../lexer/token.yo";
+
+// ---------------------------------------------------------------------------
+// Helpers — one per kind of C literal/expression
+// ---------------------------------------------------------------------------
+
+/// Generate C code for an integer literal: emit the numeric string as-is.
+gen_integer_lit :: (fn(value : String) -> String)(value);
+
+/// Generate C code for a float literal: emit the numeric string as-is.
+gen_float_lit :: (fn(value : String) -> String)(value);
+
+/// Generate C code for a bool literal: `true` → `1`, `false` → `0`.
+gen_bool_lit :: (fn(value : str) -> String)(
+  cond(
+    (value == "true")  => String.from("1"),
+    (value == "false") => String.from("0"),
+    true               => String.from(value)
+  )
+);
+
+/// Generate C code for a string literal.
+///
+/// The Yo lexer stores StringLit token values with the surrounding quotes
+/// intact and uses the same escape sequences as C, so we emit them verbatim.
+gen_string_lit :: (fn(value : String) -> String)(value);
+
+/// Produce a valid C identifier from a Yo name.
+///
+/// Most Yo identifiers are already valid C names.  Future phases will need
+/// to handle names that clash with C keywords or contain special characters;
+/// for now we return the name unchanged.
+sanitize_c_ident :: (fn(name : str) -> String)(String.from(name));
+
+/// True iff `op` is a supported binary infix operator (arithmetic,
+/// comparison, or logical).
+is_binary_op :: (fn(op : str) -> bool)(
+  cond(
+    (op == "+")  => true,
+    (op == "-")  => true,
+    (op == "*")  => true,
+    (op == "/")  => true,
+    (op == "%")  => true,
+    (op == "==") => true,
+    (op == "!=") => true,
+    (op == "<")  => true,
+    (op == ">")  => true,
+    (op == "<=") => true,
+    (op == ">=") => true,
+    (op == "&&") => true,
+    (op == "||") => true,
+    true         => false
+  )
+);
+
+/// True iff `op` is a supported unary prefix operator.
+is_unary_prefix_op :: (fn(op : str) -> bool)(
+  cond(
+    (op == "-") => true,
+    (op == "!") => true,
+    true        => false
+  )
+);
+
+/// Emit `(lhs OP rhs)`.
+gen_binary_op :: (fn(op : String, lhs : String, rhs : String) -> String)({
+  result := String.from("(");
+  result.push_string(lhs);
+  result.push_str(" ");
+  result.push_string(op);
+  result.push_str(" ");
+  result.push_string(rhs);
+  result.push_str(")");
+  result
+});
+
+/// Emit `(OP operand)`.
+gen_unary_op :: (fn(op : String, operand : String) -> String)({
+  result := String.from("(");
+  result.push_string(op);
+  result.push_string(operand);
+  result.push_str(")");
+  result
+});
+
+// ---------------------------------------------------------------------------
+// Module-level function pointer — avoids direct recursion in generate_expr
+// ---------------------------------------------------------------------------
+//
+// Yo standalone functions cannot call themselves directly (no forward
+// declarations).  We store a pointer to generate_expr and route recursive
+// calls through call_gen_expr, mirroring the g_eval_fn trick in eval.yo.
+
+(g_gen_expr_fn : Option(fn(expr : AstExpr) -> Option(String))) = .None;
+
+call_gen_expr :: (fn(expr : AstExpr) -> Option(String))(
+  match(g_gen_expr_fn,
+    .None   => Option(String).None,
+    .Some(f) => f(expr)
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Helpers for infix and prefix sub-expression generation
+// ---------------------------------------------------------------------------
+
+/// Generate C for one side of a binary infix operation.
+/// Returns None if the sub-expression is not supported.
+gen_infix_side :: (fn(args : ArrayList(AstExpr), idx : usize) -> Option(String))(
+  match(args.get(idx),
+    .None    => Option(String).None,
+    .Some(e) => call_gen_expr(e)
+  )
+);
+
+/// Handle a binary infix FnCall: `(a OP b)`.
+handle_infix_op :: (fn(
+  op   : String,
+  args : ArrayList(AstExpr)
+) -> Option(String))({
+  lhs := gen_infix_side(args, usize(0));
+  rhs := gen_infix_side(args, usize(1));
+  match(lhs,
+    .None    => Option(String).None,
+    .Some(l) => match(rhs,
+      .None    => Option(String).None,
+      .Some(r) => .Some(gen_binary_op(op, l, r))
+    )
+  )
+});
+
+/// Handle a unary prefix FnCall: `(OP a)`.
+handle_prefix_op :: (fn(
+  op   : String,
+  args : ArrayList(AstExpr)
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None    => Option(String).None,
+    .Some(e) => match(call_gen_expr(e),
+      .None    => Option(String).None,
+      .Some(a) => .Some(gen_unary_op(op, a))
+    )
+  )
+);
+
+/// Extract the operator string from a FnCall func expression.
+/// Returns an empty string if the func is not a simple Operator atom.
+extract_op :: (fn(func_box : Box(AstExpr)) -> Option(String))(
+  match(func_box.*,
+    .Atom(ftok) => cond(
+      (ftok.kind == TokenKind.Operator) => .Some(ftok.value),
+      true                              => Option(String).None
+    ),
+    .FnCall(_, _, _, _) => Option(String).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Core entry point
+// ---------------------------------------------------------------------------
+
+/// Generate a C expression string for a Yo AST expression.
+///
+/// Returns `.Some(c_code)` for supported expressions, `.None` for constructs
+/// that are not yet handled in Phase 4b (control flow, function calls, etc.).
+generate_expr :: (fn(expr : AstExpr) -> Option(String))(
+  match(expr,
+    // --- Atom expressions ---
+    .Atom(tok) => cond(
+      (tok.kind == TokenKind.Integer)    => .Some(gen_integer_lit(tok.value)),
+      (tok.kind == TokenKind.Float)      => .Some(gen_float_lit(tok.value)),
+      (tok.kind == TokenKind.Bool)       => .Some(gen_bool_lit(tok.value.as_str())),
+      (tok.kind == TokenKind.StringLit)  => .Some(gen_string_lit(tok.value)),
+      (tok.kind == TokenKind.Identifier) => .Some(sanitize_c_ident(tok.value.as_str())),
+      true                               => Option(String).None
+    ),
+
+    // --- FnCall expressions ---
+    .FnCall(func_box, args, is_infix, _) => {
+      op_opt := extract_op(func_box);
+      match(op_opt,
+        .None => Option(String).None,
+        .Some(op) => cond(
+          // Binary infix: (a OP b)
+          (is_infix && ((args.len() == usize(2)) && is_binary_op(op.as_str()))) =>
+            handle_infix_op(op, args),
+          // Unary prefix: (OP a)
+          ((!is_infix) && ((args.len() == usize(1)) && is_unary_prefix_op(op.as_str()))) =>
+            handle_prefix_op(op, args),
+          true => Option(String).None
+        )
+      )
+    }
+  )
+);
+
+// Initialize the g_gen_expr_fn pointer after generate_expr is defined.
+_gen_expr_fn_init := (fn() -> bool)({
+  g_gen_expr_fn = .Some(generate_expr);
+  true
+})();
+
+export generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op;
+export gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit;
+export gen_binary_op, gen_unary_op;

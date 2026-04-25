@@ -1,0 +1,401 @@
+/// Tests for the self-hosted C code emitter — Phase 4a/4b.
+
+open import "std/fmt";
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ Emitter }       :: import "../codegen/emitter.yo";
+{ AstExpr }       :: import "../expr/expr.yo";
+{ TokenKind, Token } :: import "../lexer/token.yo";
+{ generate_expr, gen_binary_op, gen_unary_op,
+  gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op } :: import "../codegen/exprs.yo";
+
+// ---------------------------------------------------------------------------
+// AST construction helpers
+// ---------------------------------------------------------------------------
+
+make_token_raw :: (fn(kind : TokenKind, value : str) -> Token)(
+  Token(
+    kind:        kind,
+    value:       String.from(value),
+    row:         usize(0),
+    column:      usize(0),
+    character:   usize(0),
+    module_path: String.from(""),
+    input:       String.from("")
+  )
+);
+
+make_atom_expr :: (fn(kind : TokenKind, value : str) -> AstExpr)(
+  .Atom(make_token_raw(kind, value))
+);
+
+make_infix_expr :: (fn(op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(lhs);
+  args.push(rhs);
+  op_tok := make_token_raw(TokenKind.Operator, op);
+  .FnCall(box(.Atom(op_tok)), args, true, op_tok)
+});
+
+make_unary_expr :: (fn(op : str, operand : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(operand);
+  op_tok := make_token_raw(TokenKind.Operator, op);
+  .FnCall(box(.Atom(op_tok)), args, false, op_tok)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4a — Emitter tests
+// ---------------------------------------------------------------------------
+
+test "Emitter: new creates empty buffers", {
+  e := Emitter.new();
+  output := e.print();
+  // headers="", decls="", code="" => "\n\n"
+  assert(
+    (output == String.from("\n\n")),
+    "expected two newlines for empty emitter"
+  );
+};
+
+test "Emitter: emit appends to code without newline", {
+  e := Emitter.new();
+  e.emit("int x = 42;");
+  output := e.print();
+  // code section should end with "int x = 42;" (no extra newline)
+  assert(
+    output.contains(String.from("int x = 42;")),
+    "expected emit to add code"
+  );
+};
+
+test "Emitter: emit_line appends to code with newline", {
+  e := Emitter.new();
+  e.emit_line("int x = 1;");
+  e.emit_line("int y = 2;");
+  output := e.print();
+  assert(
+    output.contains(String.from("int x = 1;\n")),
+    "expected first line with newline"
+  );
+  assert(
+    output.contains(String.from("int y = 2;\n")),
+    "expected second line with newline"
+  );
+};
+
+test "Emitter: emit_header_line appends to headers", {
+  e := Emitter.new();
+  e.emit_header_line("#include <stdio.h>");
+  output := e.print();
+  assert(
+    output.contains(String.from("#include <stdio.h>")),
+    "expected header line in output"
+  );
+};
+
+test "Emitter: emit_declaration_line appends to declarations", {
+  e := Emitter.new();
+  e.emit_declaration_line("typedef struct Foo Foo;");
+  output := e.print();
+  assert(
+    output.contains(String.from("typedef struct Foo Foo;")),
+    "expected declaration in output"
+  );
+};
+
+test "Emitter: print preserves section ordering", {
+  e := Emitter.new();
+  e.emit_header_line("#include <stdint.h>");
+  e.emit_declaration_line("typedef int32_t i32;");
+  e.emit_line("int main(void) { return 0; }");
+  output := e.print();
+  // Find positions of each section marker to verify ordering
+  h_pos := output.index_of(String.from("#include"), usize(0));
+  d_pos := output.index_of(String.from("typedef"), usize(0));
+  c_pos := output.index_of(String.from("int main"), usize(0));
+  assert(
+    match(h_pos,
+      .None => false,
+      .Some(_) => true
+    ),
+    "header should be present"
+  );
+  assert(
+    match(d_pos,
+      .None => false,
+      .Some(_) => true
+    ),
+    "declaration should be present"
+  );
+  assert(
+    match(c_pos,
+      .None => false,
+      .Some(_) => true
+    ),
+    "code should be present"
+  );
+  match(h_pos,
+    .None => assert(false, "unreachable"),
+    .Some(h) => match(d_pos,
+      .None => assert(false, "unreachable"),
+      .Some(d) => match(c_pos,
+        .None => assert(false, "unreachable"),
+        .Some(c) => {
+          assert((h < d), "headers must precede declarations");
+          assert((d < c), "declarations must precede code");
+        }
+      )
+    )
+  );
+};
+
+test "Emitter: emit_string appends String to code", {
+  e := Emitter.new();
+  e.emit_string(String.from("return 0;"));
+  output := e.print();
+  assert(
+    output.contains(String.from("return 0;")),
+    "expected emitted string in output"
+  );
+};
+
+test "Emitter: multiple emit calls accumulate in code", {
+  e := Emitter.new();
+  e.emit("foo(");
+  e.emit("1");
+  e.emit(", ");
+  e.emit("2");
+  e.emit(")");
+  output := e.print();
+  assert(
+    output.contains(String.from("foo(1, 2)")),
+    "expected concatenated code"
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4b — generate_expr tests
+// ---------------------------------------------------------------------------
+
+test "generate_expr: integer literal", {
+  expr := make_atom_expr(TokenKind.Integer, "42");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("42"))),
+    "expected '42'"
+  );
+};
+
+test "generate_expr: float literal", {
+  expr := make_atom_expr(TokenKind.Float, "3.14");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("3.14"))),
+    "expected '3.14'"
+  );
+};
+
+test "generate_expr: bool literal true", {
+  expr := make_atom_expr(TokenKind.Bool, "true");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("1"))),
+    "expected '1' for true"
+  );
+};
+
+test "generate_expr: bool literal false", {
+  expr := make_atom_expr(TokenKind.Bool, "false");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("0"))),
+    "expected '0' for false"
+  );
+};
+
+test "generate_expr: string literal", {
+  expr := make_atom_expr(TokenKind.StringLit, "\"hello\"");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("\"hello\""))),
+    "expected string literal verbatim"
+  );
+};
+
+test "generate_expr: identifier reference", {
+  expr := make_atom_expr(TokenKind.Identifier, "my_var");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("my_var"))),
+    "expected identifier name"
+  );
+};
+
+test "generate_expr: binary addition", {
+  lhs  := make_atom_expr(TokenKind.Integer, "1");
+  rhs  := make_atom_expr(TokenKind.Integer, "2");
+  expr := make_infix_expr("+", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(1 + 2)"))),
+    "expected '(1 + 2)'"
+  );
+};
+
+test "generate_expr: binary subtraction", {
+  lhs  := make_atom_expr(TokenKind.Integer, "10");
+  rhs  := make_atom_expr(TokenKind.Integer, "3");
+  expr := make_infix_expr("-", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(10 - 3)"))),
+    "expected '(10 - 3)'"
+  );
+};
+
+test "generate_expr: binary multiplication", {
+  lhs  := make_atom_expr(TokenKind.Integer, "4");
+  rhs  := make_atom_expr(TokenKind.Integer, "5");
+  expr := make_infix_expr("*", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(4 * 5)"))),
+    "expected '(4 * 5)'"
+  );
+};
+
+test "generate_expr: equality comparison", {
+  lhs  := make_atom_expr(TokenKind.Identifier, "x");
+  rhs  := make_atom_expr(TokenKind.Integer, "0");
+  expr := make_infix_expr("==", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(x == 0)"))),
+    "expected '(x == 0)'"
+  );
+};
+
+test "generate_expr: less-than comparison", {
+  lhs  := make_atom_expr(TokenKind.Identifier, "n");
+  rhs  := make_atom_expr(TokenKind.Integer, "10");
+  expr := make_infix_expr("<", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(n < 10)"))),
+    "expected '(n < 10)'"
+  );
+};
+
+test "generate_expr: logical and", {
+  lhs  := make_atom_expr(TokenKind.Identifier, "a");
+  rhs  := make_atom_expr(TokenKind.Identifier, "b");
+  expr := make_infix_expr("&&", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(a && b)"))),
+    "expected '(a && b)'"
+  );
+};
+
+test "generate_expr: logical or", {
+  lhs  := make_atom_expr(TokenKind.Identifier, "x");
+  rhs  := make_atom_expr(TokenKind.Identifier, "y");
+  expr := make_infix_expr("||", lhs, rhs);
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(x || y)"))),
+    "expected '(x || y)'"
+  );
+};
+
+test "generate_expr: unary negation", {
+  operand := make_atom_expr(TokenKind.Integer, "5");
+  expr    := make_unary_expr("-", operand);
+  result  := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(-5)"))),
+    "expected '(-5)'"
+  );
+};
+
+test "generate_expr: unary boolean not", {
+  operand := make_atom_expr(TokenKind.Identifier, "flag");
+  expr    := make_unary_expr("!", operand);
+  result  := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("(!flag)"))),
+    "expected '(!flag)'"
+  );
+};
+
+test "generate_expr: nested binary ops", {
+  // (1 + 2) * 3
+  inner := make_infix_expr("+",
+    make_atom_expr(TokenKind.Integer, "1"),
+    make_atom_expr(TokenKind.Integer, "2")
+  );
+  expr := make_infix_expr("*", inner, make_atom_expr(TokenKind.Integer, "3"));
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => false, .Some(s) => (s == String.from("((1 + 2) * 3)"))),
+    "expected '((1 + 2) * 3)'"
+  );
+};
+
+test "generate_expr: unsupported expr returns None", {
+  // An operator Atom (not an identifier or literal) should return None
+  expr := make_atom_expr(TokenKind.Operator, "+");
+  result := generate_expr(expr);
+  assert(
+    match(result, .None => true, .Some(_) => false),
+    "expected None for unsupported operator atom"
+  );
+};
+
+test "gen_bool_lit: true maps to 1", {
+  assert((gen_bool_lit("true") == String.from("1")), "true -> 1");
+};
+
+test "gen_bool_lit: false maps to 0", {
+  assert((gen_bool_lit("false") == String.from("0")), "false -> 0");
+};
+
+test "gen_binary_op: produces parenthesised output", {
+  result := gen_binary_op(String.from("+"), String.from("a"), String.from("b"));
+  assert((result == String.from("(a + b)")), "expected '(a + b)'");
+};
+
+test "gen_unary_op: produces parenthesised output", {
+  result := gen_unary_op(String.from("-"), String.from("x"));
+  assert((result == String.from("(-x)")), "expected '(-x)'");
+};
+
+test "is_binary_op: recognises all supported ops", {
+  assert(is_binary_op("+"),  "+ should be binary");
+  assert(is_binary_op("-"),  "- should be binary");
+  assert(is_binary_op("*"),  "* should be binary");
+  assert(is_binary_op("/"),  "/ should be binary");
+  assert(is_binary_op("%"),  "% should be binary");
+  assert(is_binary_op("=="), "== should be binary");
+  assert(is_binary_op("!="), "!= should be binary");
+  assert(is_binary_op("<"),  "< should be binary");
+  assert(is_binary_op(">"),  "> should be binary");
+  assert(is_binary_op("<="), "<= should be binary");
+  assert(is_binary_op(">="), ">= should be binary");
+  assert(is_binary_op("&&"), "&& should be binary");
+  assert(is_binary_op("||"), "|| should be binary");
+  assert((!is_binary_op("=")), "= is not a supported binary op here");
+};
+
+test "is_unary_prefix_op: recognises - and !", {
+  assert(is_unary_prefix_op("-"),    "- is a unary op");
+  assert(is_unary_prefix_op("!"),    "! is a unary op");
+  assert((!is_unary_prefix_op("+")), "+ is not a unary op");
+};
+
+test "sanitize_c_ident: simple names pass through unchanged", {
+  assert((sanitize_c_ident("foo") == String.from("foo")), "foo -> foo");
+  assert((sanitize_c_ident("my_var_123") == String.from("my_var_123")), "my_var_123 ok");
+};

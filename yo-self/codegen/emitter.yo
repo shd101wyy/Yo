@@ -1,0 +1,73 @@
+//! Core code emitter for the self-hosted Yo C code generator.
+//!
+//! Mirrors `src/emitter.ts`. Accumulates C source text in three separate
+//! string buffers that are concatenated by `print()`:
+//!
+//!   headers      — #include directives and forward declarations
+//!   declarations — struct/enum/typedef declarations
+//!   code         — function definitions and other body code
+
+open import "std/string";
+
+/// Simple string emitter with three output sections.
+///
+/// Three buffers are maintained separately so that forward declarations
+/// and type definitions can be emitted out-of-order and still appear
+/// before function bodies in the final output.
+Emitter :: object(
+  headers      : String,
+  declarations : String,
+  code         : String
+);
+
+impl(Emitter,
+  /// Create a new empty emitter.
+  new : (fn() -> Self)(
+    Self(
+      headers:      String.new(),
+      declarations: String.new(),
+      code:         String.new()
+    )
+  ),
+
+  /// Append text to the code section (no trailing newline).
+  emit : (fn(self : *(Self), c : str) -> unit)(
+    self.*.code.push_str(c)
+  ),
+
+  /// Append text + newline to the code section.
+  emit_line : (fn(self : *(Self), c : str) -> unit)({
+    self.*.code.push_str(c);
+    self.*.code.push_str("\n");
+  }),
+
+  /// Append text + newline to the headers section.
+  emit_header_line : (fn(self : *(Self), c : str) -> unit)({
+    self.*.headers.push_str(c);
+    self.*.headers.push_str("\n");
+  }),
+
+  /// Append text + newline to the declarations section.
+  emit_declaration_line : (fn(self : *(Self), c : str) -> unit)({
+    self.*.declarations.push_str(c);
+    self.*.declarations.push_str("\n");
+  }),
+
+  /// Append a raw `String` value to the code section.
+  emit_string : (fn(self : *(Self), c : String) -> unit)(
+    self.*.code.push_string(c)
+  ),
+
+  /// Return the full C source: headers + "\n" + declarations + "\n" + code.
+  print : (fn(self : *(Self)) -> String)({
+    result := String.new();
+    result.push_string(self.*.headers);
+    result.push_str("\n");
+    result.push_string(self.*.declarations);
+    result.push_str("\n");
+    result.push_string(self.*.code);
+    result
+  })
+);
+
+export Emitter;
