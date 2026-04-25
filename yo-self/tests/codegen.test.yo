@@ -14,7 +14,8 @@ open import "std/error";
   type_name_to_c, gen_arg_list,
   is_labeled_arg, all_labeled_args, is_uppercase_start,
   handle_struct_constructor, handle_regular_call,
-  gen_match_arm, handle_match_value } :: import "../codegen/exprs.yo";
+  gen_match_arm, handle_match_value,
+  handle_dot_access } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
@@ -28,6 +29,7 @@ open import "std/error";
   emit_data_bindings,
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
 { FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
+  EnumDef, extract_enum_def, emit_enum_to_c,
   extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
@@ -2128,5 +2130,107 @@ test "handle_match_value: single wildcard arm emits body", {
   match(result_opt,
     .None => assert(false, "single wildcard returned None"),
     .Some(result) => assert(result.contains(String.from("99")), "wildcard body emitted")
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 5e — enum type declarations + variant access
+// ---------------------------------------------------------------------------
+
+/// Build `Name :: enum(V1, V2, ...)` — enum definition expression.
+make_enum_def_expr :: (fn(name : str, variants : ArrayList(str)) -> AstExpr)({
+  variant_exprs := ArrayList(AstExpr).new();
+  n := variants.len();
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    i = (i + usize(1));
+    match(variants.get(i - usize(1)),
+      .None => (),
+      .Some(vname) => {
+        _r := variant_exprs.push(make_atom_expr(TokenKind.Identifier, vname));
+        ()
+      }
+    );
+  };
+  enum_call := make_fncall_expr("enum", variant_exprs);
+  make_infix_expr("::", make_atom_expr(TokenKind.Identifier, name), enum_call)
+});
+
+test "extract_enum_def: Color :: enum(Red, Green, Blue)", {
+  variants := ArrayList(str).new();
+  _r1 := variants.push("Red");
+  _r2 := variants.push("Green");
+  _r3 := variants.push("Blue");
+  expr := make_enum_def_expr("Color", variants);
+  ed_opt := extract_enum_def(expr);
+  match(ed_opt,
+    .None => assert(false, "extract_enum_def returned None"),
+    .Some(ed) => {
+      assert((ed.name.as_str() == "Color"), "enum name");
+      assert((ed.variants.len() == usize(3)), "3 variants");
+    }
+  );
+};
+
+test "emit_enum_to_c: typedef enum emitted correctly", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  variants := ArrayList(str).new();
+  _r1 := variants.push("Red");
+  _r2 := variants.push("Green");
+  ed := EnumDef(name: String.from("Color"), variants: ArrayList(String).new());
+  _ra := ed.variants.push(String.from("Red"));
+  _rb := ed.variants.push(String.from("Green"));
+  emit_enum_to_c(ed, pctx);
+  c := generate_c_output(pctx);
+  assert(c.contains(String.from("typedef enum")), "typedef enum keyword");
+  assert(c.contains(String.from("Color_Red")), "Color_Red variant");
+  assert(c.contains(String.from("Color_Green")), "Color_Green variant");
+  assert(c.contains(String.from("} Color;")), "closing Color typedef");
+};
+
+test "compile_module_to_c: enum type is declared before functions", {
+  // Build: Color :: enum(Red, Green)
+  ev := ArrayList(str).new();
+  _ra := ev.push("Red");
+  _rb := ev.push("Green");
+  enum_expr := make_enum_def_expr("Color", ev);
+
+  // Build: main :: (fn() -> unit)({ 0 })
+  empty_params := ArrayList(AstExpr).new();
+  main_ret  := make_atom_expr(TokenKind.Identifier, "unit");
+  stmts     := ArrayList(AstExpr).new();
+  _rs := stmts.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_body := make_begin_expr(stmts);
+  main_def  := make_define_expr("main", make_fn_app(empty_params, main_ret, main_body));
+
+  exprs := ArrayList(AstExpr).new();
+  _re := exprs.push(enum_expr);
+  _rm := exprs.push(main_def);
+
+  opt_c := compile_module_to_c(exprs, "test_enum", "main");
+  match(opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef enum")), "typedef enum in output");
+      assert(c.contains(String.from("Color_Red")), "Color_Red in output");
+    }
+  );
+};
+
+test "handle_dot_access: enum name rewritten to underscore", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  pctx.*.register_enum(String.from("Color"));
+  // Build Color.Red
+  color_expr := make_atom_expr(TokenKind.Identifier, "Color");
+  red_expr   := make_atom_expr(TokenKind.Identifier, "Red");
+  args := ArrayList(AstExpr).new();
+  _r1 := args.push(color_expr);
+  _r2 := args.push(red_expr);
+  result_opt := handle_dot_access(args, pctx, String.from(""));
+  match(result_opt,
+    .None => assert(false, "handle_dot_access returned None"),
+    .Some(result) => assert(result.contains(String.from("Color_Red")), "enum variant rewritten")
   );
 };

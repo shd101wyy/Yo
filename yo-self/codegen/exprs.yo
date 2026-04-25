@@ -796,10 +796,13 @@ handle_regular_call :: (fn(
   )
 );
 
-/// Handle dot field access `obj.field` → `obj.field`.
+/// Handle dot field access `obj.field` → `obj.field` (struct) or `Enum_Variant` (enum).
 ///
 /// `args[0]` is the receiver; `args[1]` is expected to be an Atom holding
 /// the field/variant name.
+///
+/// If the object is an enum type registered in `ctx` (e.g. `Color`), emits
+/// `Color_Red` instead of `Color.Red` to match the C enum constant convention.
 handle_dot_access :: (fn(
   args   : ArrayList(AstExpr),
   ctx    : *(CodegenContext),
@@ -821,9 +824,13 @@ handle_dot_access :: (fn(
           match(field_name_opt,
             .None => Option(String).None,
             .Some(fname) => {
+              is_enum := ctx.*.is_enum_name(obj_code.as_str());
               result := String.new();
               result.push_string(obj_code);
-              result.push_str(".");
+              cond(
+                is_enum => result.push_str("_"),
+                true    => result.push_str(".")
+              );
               result.push_string(fname);
               .Some(result)
             }

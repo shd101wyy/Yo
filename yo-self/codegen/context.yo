@@ -15,16 +15,20 @@ open import "std/string";
 /// Phase 5c fields:
 ///   `defined_fns` — Yo names of user-defined functions in the current module.
 ///                   Call sites check this to decide whether to add `fn_` prefix.
+/// Phase 5e fields:
+///   `defined_enums` — Yo names of enum types declared in this module.
+///                     Dot-access `EnumName.Variant` is rewritten to `EnumName_Variant`.
 CodegenContext :: object(
-  emitter     : Emitter,
-  temp_count  : usize,
-  defined_fns : ArrayList(String)
+  emitter      : Emitter,
+  temp_count   : usize,
+  defined_fns  : ArrayList(String),
+  defined_enums : ArrayList(String)
 );
 
 impl(CodegenContext,
   /// Create a new empty context.
   new : (fn() -> Self)(
-    Self(emitter: Emitter.new(), temp_count: usize(0), defined_fns: ArrayList(String).new())
+    Self(emitter: Emitter.new(), temp_count: usize(0), defined_fns: ArrayList(String).new(), defined_enums: ArrayList(String).new())
   ),
 
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
@@ -49,6 +53,28 @@ impl(CodegenContext,
     (found : bool) = false;
     while runtime(((i < n) && (!found))), {
       match(self.*.defined_fns.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register a Yo-level enum name as declared in this module.
+  register_enum : (fn(self : *(Self), name : String) -> unit)({
+    self.*.defined_enums.push(name);
+  }),
+
+  /// True if `name` was registered via `register_enum`.
+  is_enum_name : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.defined_enums.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.defined_enums.get(i),
         .None => (),
         .Some(s) => {
           if((s.as_str() == name), { found = true; });

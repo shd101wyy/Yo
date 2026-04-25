@@ -57,6 +57,18 @@ StructDef :: struct(
 );
 
 // ---------------------------------------------------------------------------
+// EnumDef — extracted enum definition record
+// ---------------------------------------------------------------------------
+
+/// A unit enum definition extracted from a `Name :: enum(Var1, Var2, ...)` node.
+EnumDef :: struct(
+  /// Yo-level enum name (e.g. "Color").
+  name     : String,
+  /// Variant names (e.g. ["Red", "Green", "Blue"]).
+  variants : ArrayList(String)
+);
+
+// ---------------------------------------------------------------------------
 // Helpers — AST pattern recognisers
 // ---------------------------------------------------------------------------
 
@@ -409,8 +421,98 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
 });
 
 // ---------------------------------------------------------------------------
-// extract_impl_fns
+// extract_enum_def / emit_enum_to_c
 // ---------------------------------------------------------------------------
+
+/// Try to extract an `EnumDef` from a top-level expression.
+///
+/// Recognises:
+/// ```
+///   FnCall(Atom("::"), [Atom(Name), FnCall(Atom("enum"), [...variants...])], is_infix=true)
+/// ```
+/// where each variant is an Identifier Atom.
+extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))({
+  match(expr,
+    .Atom(_) => Option(EnumDef).None,
+    .FnCall(top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(EnumDef).None,
+      (top_args.len() < usize(2)) => Option(EnumDef).None,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _) => Option(EnumDef).None,
+        .Atom(op_tok) => cond(
+          (!(op_tok.value.as_str() == "::")) => Option(EnumDef).None,
+          true => match(top_args.get(usize(0)),
+            .None => Option(EnumDef).None,
+            .Some(name_expr) => match(atom_ident(name_expr),
+              .None => Option(EnumDef).None,
+              .Some(name_str) => match(top_args.get(usize(1)),
+                .None => Option(EnumDef).None,
+                .Some(rhs) => match(rhs,
+                  .Atom(_) => Option(EnumDef).None,
+                  .FnCall(rhs_func, rhs_args, rhs_infix, _) => cond(
+                    (rhs_infix) => Option(EnumDef).None,
+                    true => match(rhs_func.*,
+                      .FnCall(_, _, _, _) => Option(EnumDef).None,
+                      .Atom(rhs_tok) => cond(
+                        (!(rhs_tok.value.as_str() == "enum")) => Option(EnumDef).None,
+                        true => {
+                          variants := ArrayList(String).new();
+                          nv := rhs_args.len();
+                          (vi : usize) = usize(0);
+                          while runtime((vi < nv)), {
+                            vi = (vi + usize(1));
+                            match(rhs_args.get(vi - usize(1)),
+                              .None => (),
+                              .Some(v_expr) => match(atom_ident(v_expr),
+                                .None => (),
+                .Some(vname) => { _r := variants.push(String.from(vname)); () }
+                              )
+                            );
+                          };
+                          Option(EnumDef).Some(EnumDef(name: String.from(name_str), variants: variants))
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+});
+
+/// Emit a C typedef enum for an `EnumDef` into the context's declarations buffer.
+///
+/// For `Color :: enum(Red, Green, Blue)`, emits:
+/// ```c
+/// typedef enum { Color_Red, Color_Green, Color_Blue } Color;
+/// ```
+/// Also registers the enum name in the context so dot-access is rewritten.
+emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.register_enum(String.from(ed.name.as_str()));
+  line := String.from("typedef enum { ");
+  nv := ed.variants.len();
+  (vi : usize) = usize(0);
+  while runtime((vi < nv)), {
+    vi = (vi + usize(1));
+    match(ed.variants.get(vi - usize(1)),
+      .None => (),
+      .Some(vname) => {
+        line.push_string(ed.name);
+        line.push_str("_");
+        line.push_string(vname);
+        if((vi < nv), { line.push_str(", "); });
+      }
+    );
+  };
+  line.push_str(" } ");
+  line.push_string(ed.name);
+  line.push_str(";");
+  ctx.*.emitter.emit_declaration_string_line(line);
+});
 
 /// Try to extract function definitions from an `impl(TypeName, { ... })` block.
 ///
@@ -551,14 +653,21 @@ compile_module_to_c :: (fn(
             );
           },
           .None => {
-            // Second: try to extract a struct definition.
+            // Second: try to extract an enum definition.
+            ed_opt := extract_enum_def(expr);
+            match(ed_opt,
+              .Some(ed) => {
+                emit_enum_to_c(ed, pctx);
+              },
+              .None => {
+            // Third: try to extract a struct definition.
             sd_opt := extract_struct_def(expr);
             match(sd_opt,
               .Some(sd) => {
                 emit_struct_to_c(sd, pctx);
               },
               .None => {
-                // Third: try to extract impl methods.
+                // Fourth: try to extract impl methods.
                 // We detect `impl(TypeName, { ... })` by checking if the
                 // expression starts with `impl` and has 2 args.
                 impl_fns := match(expr,
@@ -605,6 +714,8 @@ compile_module_to_c :: (fn(
                 };
               }
             )
+              }
+            )
           }
         );
       }
@@ -621,6 +732,7 @@ compile_module_to_c :: (fn(
 });
 
 export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
+       EnumDef, extract_enum_def, emit_enum_to_c,
        extract_impl_fns, compile_module_to_c;
 
 // ---------------------------------------------------------------------------
@@ -687,10 +799,16 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             );
           },
           .None => {
+            // Emit enum definitions
+            match(extract_enum_def(mexpr),
+              .Some(ed) => { emit_enum_to_c(ed, pctx); },
+              .None => {
             // Emit struct definitions
             match(extract_struct_def(mexpr),
               .Some(sd) => { emit_struct_to_c(sd, pctx); },
               .None => ()
+            );
+              }
             );
           }
         );
