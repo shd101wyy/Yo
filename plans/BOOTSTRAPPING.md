@@ -318,7 +318,15 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - _Type casts emitted as C function calls_: `handle_type_cast` now emits `(int32_t)(x)` for `i32(x)` style casts.
 - _`assert`/`comptime_assert` not handled_: now handled as `if (!(cond)) { exit(1); }` in generated C.
 
-**5c. Error formatting** — colored terminal output, source location display, error notes
+**5c. Cross-function calls + struct constructors** ✅ Done (partial — error formatting still pending):
+
+- _Struct constructors_ (`TypeName(field: val, ...)`): `handle_struct_constructor` in `exprs.yo` emits C compound literals `(TypeName){.field = val}`. Detection heuristic: non-infix call with uppercase-start name and all args labeled. New helpers: `is_labeled_arg`, `all_labeled_args`, `is_uppercase_start`.
+
+- _Cross-function call `fn_`prefix_:`CodegenContext` now tracks registered function names (`defined*fns: ArrayList(String)`, `register_fn`, `is_defined_fn`). `compile_module_to_c`does a two-pass approach — Pass 1 registers all top-level function names, Pass 2 emits code.`handle_regular_call`checks`is_defined_fn`: registered user-defined functions get `fn*` prefix; stdlib/extern calls (`exit`, `printf`, etc.) are unchanged.
+
+- _Test bodies can call module-level helpers_: `compile_test_body_to_c` now accepts `module_exprs`. It registers all function names (Pass 1), emits helper function bodies and struct typedefs (Pass 2), then emits the test body. Test files with `helper :: (fn(...) -> T)(...)` definitions can be called from test bodies.
+
+**5d. Error formatting** — colored terminal output, source location display, error notes
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 
