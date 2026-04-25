@@ -18,6 +18,7 @@ open import "std/string";
 { generate_rc_fns, generate_rc_fns_trivial,
   rc_dispose_name, rc_drop_name, rc_dup_name,
   RC_ATTR } :: import "../codegen/rc.yo";
+{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import "../codegen/program.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -1080,3 +1081,92 @@ test "generate_rc_fns: unsupported TypeValue returns false", {
   assert((!ok), "should return false for non-struct/enum");
 };
 
+
+// ---------------------------------------------------------------------------
+// Phase 4j: Program emission
+// ---------------------------------------------------------------------------
+
+test "emit_c_preamble: has standard includes", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  emit_c_preamble("yomod0001", pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("#define _DEFAULT_SOURCE")), "_DEFAULT_SOURCE");
+  assert(output.contains(String.from("#include <stdbool.h>")),    "stdbool.h");
+  assert(output.contains(String.from("#include <stdint.h>")),     "stdint.h");
+  assert(output.contains(String.from("#include <stdio.h>")),      "stdio.h");
+  assert(output.contains(String.from("#include <string.h>")),     "string.h");
+};
+
+test "emit_c_preamble: has allocator macros", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  emit_c_preamble("yomod0001", pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("#define __yo_malloc")),  "malloc macro");
+  assert(output.contains(String.from("#define __yo_free")),    "free macro");
+};
+
+test "emit_c_preamble: has module ID comment", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  emit_c_preamble("yoabc999", pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("// Module ID: yoabc999")), "module id comment");
+};
+
+test "emit_main_wrapper: emits int main with user fn call", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  emit_main_wrapper("__yo_user_main", pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("int main(void) {")),   "main signature");
+  assert(output.contains(String.from("__yo_user_main();")), "user fn call");
+  assert(output.contains(String.from("return 0;")),         "return 0");
+};
+
+test "generate_c_output: combines headers + declarations + code", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  ctx.emitter.emit_header_line("// header");
+  ctx.emitter.emit_declaration_line("// decl");
+  ctx.emitter.emit_line("// code");
+  out := generate_c_output(pctx);
+  assert(out.contains(String.from("// header")),  "header present");
+  assert(out.contains(String.from("// decl")),    "decl present");
+  assert(out.contains(String.from("// code")),    "code present");
+};
+
+test "full program: preamble + type + RC + function + main wrapper", {
+  ctx  := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+
+  // 1. Preamble
+  emit_c_preamble("yomod0001", pctx);
+
+  // 2. Type declaration for Point struct
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("x"));
+  field_labels.push(String.from("y"));
+  field_types := ArrayList(TypeValue).new();
+  field_types.push(t_i32());
+  field_types.push(t_i32());
+  tv := TypeValue.Struct(String.from("Point"), field_labels, field_types);
+  _c_name := generate_type_decl(tv, "yomod0001", usize(2), pctx);
+
+  // 3. RC functions for Point
+  tv2 := TypeValue.Struct(String.from("Point"), field_labels, field_types);
+  _ok := generate_rc_fns(tv2, "yomod0001", usize(2), pctx);
+
+  // 4. Main wrapper
+  emit_main_wrapper("fn_yomod0001_id_0___main", pctx);
+
+  // 5. Get output
+  out := generate_c_output(pctx);
+
+  // Verify structure: preamble in headers, type in decls, RC + main in code
+  assert(out.contains(String.from("#include <stdio.h>")), "preamble in output");
+  assert(out.contains(String.from("__yo_struct_yomod0001_id_2")), "type in output");
+  assert(out.contains(String.from("___dispose")), "RC dispose in output");
+  assert(out.contains(String.from("int main(void)")), "main wrapper in output");
+};

@@ -294,6 +294,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **4g. Platform I/O runtimes** — io_uring (Linux), kqueue (macOS), IOCP (Windows)
 **4h. Effects codegen** — evidence passing, escape detection, handler installation
 **4i. RC/GC codegen** — reference counting, cycle collection, drop generation ✅ Done (simplified: trivial dispose/drop/dup for primitive-field types)
+**4j. Program emission** — assemble complete C file (preamble + types + RC + functions + main wrapper) ✅ Done
 
 **Validation milestone**: Compile and run `hello_world.yo` using the Yo-written compiler. Compare C output with the TS compiler's output.
 
