@@ -2122,3 +2122,208 @@ test "evaluate: import uses module loader callback", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3n — if expressions, float arithmetic, comptime param names
+// ---------------------------------------------------------------------------
+
+test "evaluate: if true takes then branch", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Bool, "true"));
+  args.push(make_atom(TokenKind.Integer, "42"));
+  result := evaluate(make_call("if", args), &env);
+  check_some(result, "if true then");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("42"))), "if(true,42)=42"),
+    .None => ()
+  );
+};
+
+test "evaluate: if false returns unit (2-arg form)", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Bool, "false"));
+  args.push(make_atom(TokenKind.Integer, "42"));
+  result := evaluate(make_call("if", args), &env);
+  check_some(result, "if false unit");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "if(false,42)=unit"),
+    .None => ()
+  );
+};
+
+test "evaluate: if false takes else branch (3-arg form)", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Bool, "false"));
+  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Integer, "99"));
+  result := evaluate(make_call("if", args), &env);
+  check_some(result, "if false else");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("99"))), "if(false,42,99)=99"),
+    .None => ()
+  );
+};
+
+test "evaluate: if non-bool condition returns None", {
+  env := empty_env();
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.Integer, "1"));
+  args.push(make_atom(TokenKind.Integer, "42"));
+  result := evaluate(make_call("if", args), &env);
+  check_none(result, "if non-bool returns None");
+};
+
+test "evaluate: float addition", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("+", make_atom(TokenKind.Float, "1.5"), make_atom(TokenKind.Float, "2.5")),
+    &env
+  );
+  check_some(result, "float +");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.FloatLit(String.from("4"))), "1.5+2.5=4"),
+    .None => ()
+  );
+};
+
+test "evaluate: float subtraction", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("-", make_atom(TokenKind.Float, "3.0"), make_atom(TokenKind.Float, "1.5")),
+    &env
+  );
+  check_some(result, "float -");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.FloatLit(String.from("1.5"))), "3.0-1.5=1.5"),
+    .None => ()
+  );
+};
+
+test "evaluate: float multiplication", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("*", make_atom(TokenKind.Float, "2.0"), make_atom(TokenKind.Float, "3.0")),
+    &env
+  );
+  check_some(result, "float *");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.FloatLit(String.from("6"))), "2.0*3.0=6"),
+    .None => ()
+  );
+};
+
+test "evaluate: float division", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("/", make_atom(TokenKind.Float, "10.0"), make_atom(TokenKind.Float, "4.0")),
+    &env
+  );
+  check_some(result, "float /");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.FloatLit(String.from("2.5"))), "10.0/4.0=2.5"),
+    .None => ()
+  );
+};
+
+test "evaluate: float comparison less-than", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("<", make_atom(TokenKind.Float, "1.5"), make_atom(TokenKind.Float, "2.5")),
+    &env
+  );
+  check_some(result, "float <");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "1.5<2.5=true"),
+    .None => ()
+  );
+};
+
+test "evaluate: float equality", {
+  env := empty_env();
+  result := evaluate(
+    make_infix("==", make_atom(TokenKind.Float, "2.5"), make_atom(TokenKind.Float, "2.5")),
+    &env
+  );
+  check_some(result, "float ==");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.BoolVal(true)), "2.5==2.5=true"),
+    .None => ()
+  );
+};
+
+test "evaluate: float unary negation", {
+  env := empty_env();
+  neg_args := ArrayList(AstExpr).new();
+  neg_args.push(make_atom(TokenKind.Float, "1.5"));
+  result := evaluate(
+    .FnCall(
+      box(.Atom(make_token(TokenKind.Operator, "-"))),
+      neg_args,
+      false,
+      make_token(TokenKind.Operator, "-")
+    ),
+    &env
+  );
+  check_some(result, "float neg");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.FloatLit(String.from("-1.5"))), "-(1.5)=-1.5"),
+    .None => ()
+  );
+};
+
+test "evaluate: comptime(Name) param extracted in fn def", {
+  env := empty_env();
+  // Build param: `comptime(T) : Type` (infix colon with comptime(T) as name)
+  ct_inner_args := ArrayList(AstExpr).new();
+  ct_inner_args.push(make_ident("T"));
+  ct_param_name := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "comptime"))),
+    ct_inner_args,
+    false,
+    make_token(TokenKind.Identifier, "comptime")
+  );
+  colon_args := ArrayList(AstExpr).new();
+  colon_args.push(ct_param_name);
+  colon_args.push(make_ident("Type"));
+  colon_param := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Operator, ":"))),
+    colon_args,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  // Build (fn(colon_param) -> unit)(T) — body just returns T
+  param_list := ArrayList(AstExpr).new();
+  param_list.push(colon_param);
+  fn_head := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Identifier, "fn"))),
+    param_list,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_head);
+  arrow_args.push(make_ident("unit"));
+  fn_sig := (AstExpr).FnCall(
+    box(.Atom(make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(make_ident("T"));
+  fn_def := (AstExpr).FnCall(box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  // f := fn_def
+  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), &env);
+  // Call f(3) — T should be bound to IntLit("3"), body returns T
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  result := evaluate(make_call("f", call_args), &env);
+  check_some(result, "comptime param call");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("3"))), "f(3)=3"),
+    .None => ()
+  );
+};

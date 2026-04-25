@@ -1,4 +1,4 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j + 3n.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
@@ -7,16 +7,18 @@
 //!   - Unit expression `()`
 //!   - Begin blocks `{ stmts… }`
 //!   - `cond(cond1 => body1, …)` conditional expressions
+//!   - `if(cond, then)` / `if(cond, then, else)` conditional expressions
 //!   - Variable define `name := expr`, typed `(name : T) := expr`, constant `name :: expr`
 //!   - Variable assign `name = expr` and typed declaration `(name : T) = expr`
-//!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int only)
-//!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=` (int, bool, str)
+//!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int and float)
+//!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=` (int, bool, str, float)
 //!   - Boolean operators `&&`, `||` (short-circuit), unary `!`
-//!   - Unary negation `-`
+//!   - Unary negation `-` (int and float)
 //!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
 //!   - `match(scrutinee, arm1, …)` pattern matching on compile-time enum values
 //!   - `while condition, body` compile-time while loops (condition must fold to bool)
-//!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal with closure capture
+//!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal with closure capture;
+//!     `comptime(Name)` parameter annotations are supported
 //!   - Function calls `name(args…)` where `name` is bound to a FuncVal
 //!   - `return expr` — emits a ReturnVal signal propagated to the call boundary
 //!   - `recur(args…)` — recursive call to the currently-executing function
@@ -46,6 +48,7 @@
 open import "std/string";
 open import "std/fmt";
 { ArrayList } :: import "std/collections/array_list";
+{ atof } :: import "std/libc/stdlib";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_IMPORT, BK_EXPORT, BK_OPEN } :: import "../expr/expr.yo";
@@ -157,6 +160,14 @@ is_eval_int_type :: (fn(t : TypeValue) -> bool)(
     .Isize       => true,
     .ComptimeInt => true,
     _            => false
+  )
+);
+
+is_eval_float_type :: (fn(t : TypeValue) -> bool)(
+  match(t,
+    .Float(_)      => true,
+    .ComptimeFloat => true,
+    _              => false
   )
 );
 
@@ -441,6 +452,17 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
     ((stripped.starts_with(`0o`)) || (stripped.starts_with(`0O`))) =>
       parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
     true => stripped.parse_i64()
+  )
+});
+
+/// Parse a raw float string (e.g. `"3.14"`, `"1e-5"`) into an `f64`.
+/// Uses `atof` from the C standard library.
+/// Returns `None` if the string has no valid C-string representation.
+parse_raw_float :: (fn(raw : String) -> Option(f64))({
+  cs := raw.to_cstr();
+  match(cs.ptr(),
+    .Some(ptr) => .Some(atof(*(char)(ptr))),
+    .None       => .None
   )
 });
 
@@ -810,6 +832,123 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
   )
 });
 
+// ---------------------------------------------------------------------------
+// Phase 3n helpers — factored out of evaluate to keep its ASAN frame small.
+// ---------------------------------------------------------------------------
+
+/// Handle `if(cond, then)` or `if(cond, then, else)`.
+/// Uses g_eval_fn for recursive evaluation.
+handle_if_form :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))({
+  n_if := args.len();
+  match(args.get(usize(0)),
+    .None => Option(EvalResult).None,
+    .Some(cond_expr) =>
+      match(match(g_eval_fn,
+        .Some(ef) => ef(cond_expr, env),
+        .None => Option(EvalResult).None
+      ),
+        .None => Option(EvalResult).None,
+        .Some(cond_r) =>
+          match(cond_r.value,
+            .BoolVal(b) =>
+              cond(
+                b =>
+                  match(args.get(usize(1)),
+                    .Some(then_e) =>
+                      match(g_eval_fn, .Some(ef) => ef(then_e, env), .None => Option(EvalResult).None),
+                    .None => Option(EvalResult).None
+                  ),
+                (n_if >= usize(3)) =>
+                  match(args.get(usize(2)),
+                    .Some(else_e) =>
+                      match(g_eval_fn, .Some(ef) => ef(else_e, env), .None => Option(EvalResult).None),
+                    .None => Option(EvalResult).None
+                  ),
+                true => .Some(eval_result(.UnitVal, t_unit()))
+              ),
+            _ => Option(EvalResult).None
+          )
+      )
+  )
+});
+
+/// Fold `lv op rv` where both sides are float.  `fval` is "+", "-", "*", "/".
+eval_float_arith :: (fn(fval : str, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
+  lv_ty := lv.ty;
+  a_raw := match(lv.value, .FloatLit(raw) => raw, _ => { return Option(EvalResult).None; });
+  b_raw := match(rv.value, .FloatLit(raw) => raw, _ => { return Option(EvalResult).None; });
+  a := match(parse_raw_float(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+  b := match(parse_raw_float(b_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+  res_opt := cond(
+    (fval == "+") => Option(f64).Some((a + b)),
+    (fval == "-") => Option(f64).Some((a - b)),
+    (fval == "*") => Option(f64).Some((a * b)),
+    (fval == "/") => cond((b == f64(0)) => Option(f64).None, true => Option(f64).Some((a / b))),
+    true => Option(f64).None
+  );
+  match(res_opt,
+    .Some(res) => .Some(eval_result(.FloatLit(res.to_string()), lv_ty)),
+    .None => Option(EvalResult).None
+  )
+});
+
+/// Compare two float EvalResults with operator `fval` (==, !=, <, >, <=, >=).
+eval_float_cmp :: (fn(fval : str, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
+  a_raw := match(lv.value, .FloatLit(raw) => raw, _ => { return Option(EvalResult).None; });
+  b_raw := match(rv.value, .FloatLit(raw) => raw, _ => { return Option(EvalResult).None; });
+  a := match(parse_raw_float(a_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+  b := match(parse_raw_float(b_raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+  res := cond(
+    (fval == "==") => (a == b),
+    (fval == "!=") => (!(a == b)),
+    (fval == "<")  => (a < b),
+    (fval == ">")  => (a > b),
+    (fval == "<=") => (a <= b),
+    (fval == ">=") => (a >= b),
+    true           => { return Option(EvalResult).None; }
+  );
+  .Some(eval_result(.BoolVal(res), t_bool()))
+});
+
+/// Negate a float EvalResult.
+eval_float_neg :: (fn(v : EvalResult) -> Option(EvalResult))({
+  v_ty := v.ty;
+  match(v.value,
+    .FloatLit(raw) => {
+      a := match(parse_raw_float(raw), .Some(x) => x, .None => { return Option(EvalResult).None; });
+      .Some(eval_result(.FloatLit((f64(0.0) - a).to_string()), v_ty))
+    },
+    _ => Option(EvalResult).None
+  )
+});
+
+/// Extract the parameter name from `comptime(Name)` form.
+/// Returns `Some(name)` when the box is `comptime(Atom(name))`, else `None`.
+extract_comptime_param_name :: (fn(
+  ct_box  : Box(AstExpr),
+  ct_args : ArrayList(AstExpr)
+) -> Option(String))({
+  match(ct_box.*,
+    .Atom(ct_tok) =>
+      cond(
+        (ct_tok.value.as_str() == "comptime") =>
+          match(ct_args.get(usize(0)),
+            .Some(ct_name_e) =>
+              match(ct_name_e,
+                .Atom(ct_name_tok) => .Some(ct_name_tok.value),
+                .FnCall(_, _, _, _) => Option(String).None
+              ),
+            .None => Option(String).None
+          ),
+        true => Option(String).None
+      ),
+    .FnCall(_, _, _, _) => Option(String).None
+  )
+});
+
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
@@ -925,9 +1064,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                                         );
                                                         param_type_names_f.push(String.from(ptn_s));
                                                       },
-                                                      .FnCall(_, _, _, _) => {
-                                                        param_ok = false;
-                                                      }
+                                                      .FnCall(ct_box, ct_args, _, _) =>
+                                                        match(extract_comptime_param_name(ct_box, ct_args),
+                                                          .Some(ct_name) => {
+                                                            params_f.push(ct_name);
+                                                            param_type_names_f.push(String.from(""));
+                                                          },
+                                                          .None => { param_ok = false; }
+                                                        )
                                                     ),
                                                   .None => { param_ok = false; }
                                                 ),
@@ -1295,6 +1439,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     .None => Option(EvalResult).None
                   )
                 },
+                // Fold float × float (comptime or typed); result preserves lv type
+                (is_eval_float_type(lv.ty) && is_eval_float_type(rv.ty)) =>
+                  eval_float_arith(fval, lv, rv),
                 true => Option(EvalResult).None
               )
             },
@@ -1340,6 +1487,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                   res := cond((fval == "==") => (la_str.as_str() == rb_str.as_str()), true => (!(la_str.as_str() == rb_str.as_str())));
                   .Some(eval_result(.BoolVal(res), t_bool()))
                 },
+                // float × float
+                (is_eval_float_type(lv.ty) && is_eval_float_type(rv.ty)) =>
+                  eval_float_cmp(fval, lv, rv),
                 true => Option(EvalResult).None
               )
             },
@@ -1419,6 +1569,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     _ => Option(EvalResult).None
                   )
                 },
+                is_eval_float_type(v.ty) => eval_float_neg(v),
                 true => Option(EvalResult).None
               )
             },
@@ -1950,6 +2101,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             // FuncVal call: look up identifier, check arity, run body.
             // Arity mismatch or unbound identifier → None.
             // -----------------------------------------------------------------
+
+            // -----------------------------------------------------------------
+            // `if(cond, then)` or `if(cond, then, else)` — conditional expr.
+            // 2-arg: returns UnitVal when condition is false.
+            // 3-arg: evaluates else branch when condition is false.
+            // Returns None when the condition does not fold to a Bool.
+            // -----------------------------------------------------------------
+            (fval == "if") => handle_if_form(args, env),
 
             // -----------------------------------------------------------------
             // impl(TypeName, method_name : fn_def, …) — Phase 3j
