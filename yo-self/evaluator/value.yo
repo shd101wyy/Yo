@@ -58,12 +58,17 @@ EvalValue :: enum(
   /// correct lexical scope instead of the caller's dynamic env.
   /// Runtime variables (no comptime value) are stored as `VarRef(name)` in
   /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
+  ///
+  /// Phase 3l: `forall_names` holds the generic type parameter names extracted
+  /// from the function's type. These are bound as `TypeVal` in the fresh env
+  /// **before** value parameters are bound.
   FuncVal(
-    params    : ArrayList(String),
-    body      : Box(AstExpr),
-    cap_names : ArrayList(String),
-    cap_tys   : ArrayList(TypeValue),
-    cap_vals  : ArrayList(Self)
+    forall_names : ArrayList(String),
+    params       : ArrayList(String),
+    body         : Box(AstExpr),
+    cap_names    : ArrayList(String),
+    cap_tys      : ArrayList(TypeValue),
+    cap_vals     : ArrayList(Self)
   ),
 
   /// Control-flow signal emitted by a `return expr` statement.
@@ -141,7 +146,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal(_, _, _, _, _) => false,
+     .FuncVal(_, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
