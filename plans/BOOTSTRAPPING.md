@@ -349,7 +349,16 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `c.*.field = val` compound LHS assignment now falls back to `gen_expr(lhs) + " = " + gen_expr(rhs)` in `handle_assignment`
 - 4 new unit tests; 133 codegen tests, 360 yo-self tests pass.
 
-**5g. Error formatting** — colored terminal output, source location display, error notes
+**5g. Error formatting** ✅ Done
+
+- Added `source_line: String` field to `ParseError` struct
+- Added `extract_source_line(input, row)` helper — extracts source line by 0-indexed row
+- Added `make_parse_error(tok, msg)` factory — builds `ParseError` from a `Token` (uses `tok.input`, `tok.row`, `tok.column`, `tok.module_path`)
+- Added `make_parse_error_raw(module_path, msg)` factory — for end-of-input/internal errors with no source context
+- Replaced all 29 `exn.throw(dyn ParseError(...))` sites in `parser.yo` to use the factory functions
+- Updated `ParseError.to_string()` to emit multi-line format with `-->`, `|`, source line, and `^` caret
+- Row display is corrected: lexer rows are 0-indexed so `row + 1` is shown as the 1-indexed line number
+- 4 new unit tests in `parser.test.yo`; 40 parser tests, 364 yo-self tests pass.
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 

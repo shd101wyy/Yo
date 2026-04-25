@@ -35,9 +35,10 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 5d Match value codegen.** `match(scrut, pat => body, ..., _ => default)` emits a ternary chain via `handle_match_value`. `gen_match_arm` builds one arm as `(temp == pat ? body : rest)`. A wildcard `_` arm becomes the default branch. 4 new unit tests; 125 codegen tests, 352 yo-self tests pass.
 ✅ **Phase 5e Enum type declarations + variant access.** `Name :: enum(V1, V2, ...)` now emits `typedef enum { Name_V1, ... } Name;`. `CodegenContext` tracks registered enums; `handle_dot_access` rewrites `Color.Red` → `Color_Red` when the object is a registered enum. 4 new unit tests; 129 codegen tests, 356 yo-self tests pass.
 ✅ **Phase 5f Pointer types, address-of, dereference, compound LHS assignment.** `*(T)` → `T*` (in `type_expr_to_c`); `&x` → `(&x)` (added to `is_unary_prefix_op`); `c.*` → `(*c)` (via `handle_dot_access`); compound LHS like `c.*.field = val` now handled by `handle_assignment` fallback. 4 new unit tests; 133 codegen tests, 360 yo-self tests pass.
+✅ **Phase 5g Error formatting.** `ParseError` gains a `source_line: String` field. Added `extract_source_line(input, row)`, `make_parse_error(tok, msg)`, and `make_parse_error_raw(module_path, msg)` factory helpers. All 29 `exn.throw(dyn ParseError(...))` sites in `parser.yo` replaced with factory calls. `ParseError.to_string()` now emits a multi-line message with `-->`, `|`, source line, and `^` caret; 0-indexed lexer rows are displayed as 1-indexed. 4 new unit tests; 40 parser tests, 364 yo-self tests pass.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
-- **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
+- **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 40 tests passing
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
@@ -45,7 +46,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j), compiler driver: `extract_fn_def` + `compile_module_to_c` (Phase 4 validation), integration tests: parse→C→cc→run binary (Phase 4 integration milestone), struct constructors + cross-function calls (Phase 5c), match value ternary codegen (Phase 5d), enum type declarations + variant access (Phase 5e), pointer types/address-of/deref/compound LHS assignment (Phase 5f); 133 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
 - **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: 360 tests passing** under `yo-self/tests/`
+- **Total: 364 tests passing** under `yo-self/tests/`
 
 Run tests:
 
@@ -94,7 +95,7 @@ yo-self/
     driver.yo         -- extract_fn_def + compile_module_to_c: parser→C pipeline (Phase 4 validation)
   tests/
     lexer.test.yo     -- 33 lexer tests
-    parser.test.yo    -- 36 parser tests
+    parser.test.yo    -- 40 parser tests
     types_string_compat.test.yo  -- 6 type system foundation tests
     types_compound.test.yo       -- 29 compound type + substitution tests
     env.test.yo       -- 3 environment tests

@@ -3,7 +3,7 @@ open import "std/fmt";
 open import "std/error";
 { ArrayList } :: import "std/collections/array_list";
 { AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import "../expr/expr.yo";
-{ ParseError, parse } :: import "../parser/parser.yo";
+{ ParseError, parse, extract_source_line } :: import "../parser/parser.yo";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -338,4 +338,38 @@ test "Parse function call with multiple args and nested call", {
   prog := parse(`f(g(a), h(b, c))`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `f(g(a), h(b, c))`, "nested calls as args");
+};
+
+// ─── Phase 5g: Error formatting ──────────────────────────────────────────────
+
+test "extract_source_line: row 0 returns first line", {
+  src := String.from("hello\nworld\nfoo");
+  result := extract_source_line(src, usize(0));
+  assert_str_eq(result, String.from("hello"), "row 0 should return first line");
+};
+
+test "extract_source_line: row 1 returns second line", {
+  src := String.from("hello\nworld\nfoo");
+  result := extract_source_line(src, usize(1));
+  assert_str_eq(result, String.from("world"), "row 1 should return second line");
+};
+
+test "extract_source_line: out-of-range returns empty string", {
+  src := String.from("hello\nworld");
+  result := extract_source_line(src, usize(99));
+  assert_str_eq(result, String.from(""), "out-of-range row should return empty string");
+};
+
+test "ParseError.to_string: format with source line", {
+  err := ParseError(
+    message:     String.from("unexpected token: }"),
+    row:         usize(3),
+    column:      usize(0),
+    module_path: String.from("test.yo"),
+    source_line: String.from("}")
+  );
+  s := err.to_string();
+  assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
+  assert(s.contains(String.from("--> test.yo:4:0")), "should show row+1=4 in location");
+  assert(s.contains(String.from("4 | }")), "should show source line with row+1");
 };
