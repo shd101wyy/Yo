@@ -290,7 +290,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **4c. Control flow codegen** — cond, while, begin blocks ✅ Done
 **4d. Match codegen** — switch statements for simple and data enums (`generate_match_simple`, `generate_match_data`) ✅ Done
 **4e. Function codegen** — function definitions, closures, generic specialization ✅ Done
-**4f. Type codegen** — struct/enum/union layouts, RC headers, type declarations ✅ Done
+**4f. Type codegen** — struct/enum/union layouts, RC headers, type declarations ✅ Done. Extended in Phase 5b/5c: `compile_module_to_c` in `driver.yo` now also processes `Name :: struct(field : Type, ...)` top-level definitions (emitted as `typedef struct { ... } Name;`) and `impl(TypeName, { methods... })` blocks (methods extracted as `TypeName_method` C functions). `extract_struct_def`, `emit_struct_to_c`, and `extract_impl_fns` added to driver.yo.
 **4g. Async/await state machines** — Future types, SM generation, event loop
 **4h. Platform I/O runtimes** — io_uring (Linux), kqueue (macOS), IOCP (Windows)
 **4k. Effects codegen** — evidence passing, escape detection, handler installation

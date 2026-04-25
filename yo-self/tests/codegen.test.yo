@@ -24,7 +24,8 @@ open import "std/error";
   emit_match_temp_decl, emit_switch_open, emit_case_open, emit_case_body,
   emit_data_bindings,
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
-{ FnDef, extract_fn_def, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
+{ FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
+  extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -1669,4 +1670,169 @@ test "compile_test_body_to_c: assert in body emits if guard", {
   body := make_begin_expr(stmts);
   c    := compile_test_body_to_c(body, "test_mod");
   assert(c.contains(String.from("if (!(ok))")), "assert guard present in test body C");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 4f+ — struct/impl support in compile_module_to_c
+// ---------------------------------------------------------------------------
+
+/// Build `FnCall(Atom("struct"), [field1, field2, ...], false)` — struct type literal.
+make_struct_type_expr :: (fn(fields : ArrayList(AstExpr)) -> AstExpr)(
+  make_fncall_expr("struct", fields)
+);
+
+/// Build a `Name :: struct(fields...)` definition expression.
+make_struct_def_expr :: (fn(name : str, fields : ArrayList(AstExpr)) -> AstExpr)(
+  make_infix_expr("::", make_atom_expr(TokenKind.Identifier, name), make_struct_type_expr(fields))
+);
+
+/// Build an `impl(TypeName, begin_expr)` expression.
+make_impl_expr :: (fn(type_name : str, body : AstExpr) -> AstExpr)({
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Identifier, type_name));
+  a.push(body);
+  make_fncall_expr("impl", a)
+});
+
+test "extract_struct_def: simple struct with i32 field", {
+  // Counter :: struct(value : i32)
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "value"),
+    make_atom_expr(TokenKind.Identifier, "i32")
+  ));
+  expr := make_struct_def_expr("Counter", fields);
+  result := extract_struct_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(StructDef)"),
+    .Some(sd) => {
+      assert((sd.name == String.from("Counter")), "struct name");
+      assert((sd.field_names.len() == usize(1)), "one field");
+      match(sd.field_names.get(usize(0)),
+        .None  => assert(false, "field name missing"),
+        .Some(n) => assert((n == String.from("value")), "field name is 'value'")
+      );
+      match(sd.field_tys.get(usize(0)),
+        .None  => assert(false, "field type missing"),
+        .Some(t) => assert((t == String.from("int32_t")), "field type is int32_t")
+      );
+    }
+  );
+};
+
+test "extract_struct_def: two fields i32 and bool", {
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Identifier, "i32")
+  ));
+  fields.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "enabled"),
+    make_atom_expr(TokenKind.Identifier, "bool")
+  ));
+  expr := make_struct_def_expr("Config", fields);
+  result := extract_struct_def(expr);
+  match(result,
+    .None => assert(false, "expected Some"),
+    .Some(sd) => {
+      assert((sd.field_names.len() == usize(2)), "two fields");
+      match(sd.field_tys.get(usize(1)),
+        .None  => assert(false, "second field type missing"),
+        .Some(t) => assert((t == String.from("bool")), "second field is bool")
+      );
+    }
+  );
+};
+
+test "extract_struct_def: non-struct expr returns None", {
+  // A regular function def should not be recognised as a struct.
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  expr  := make_define_expr("main", rhs);
+  result := extract_struct_def(expr);
+  match(result,
+    .None    => (),   // expected
+    .Some(_) => assert(false, "function def should not be a struct")
+  );
+};
+
+test "emit_struct_to_c: single field emits typedef struct", {
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "value"),
+    make_atom_expr(TokenKind.Identifier, "i32")
+  ));
+  expr := make_struct_def_expr("Counter", fields);
+  match(extract_struct_def(expr),
+    .None => assert(false, "extract failed"),
+    .Some(sd) => {
+      ctx := CodegenContext.new();
+      (pctx : *(CodegenContext)) = &ctx;
+      emit_struct_to_c(sd, pctx);
+      c := generate_c_output(&ctx);
+      assert(c.contains(String.from("typedef struct")), "typedef struct keyword");
+      assert(c.contains(String.from("int32_t value")), "field emitted");
+      assert(c.contains(String.from("} Counter;")), "struct name in typedef");
+    }
+  );
+};
+
+test "compile_module_to_c: struct definition emits typedef before functions", {
+  // Point :: struct(x : i32, y : i32);  add_pt :: (fn(p : Point) -> i32)(p.x);  main :: ...
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_colon_expr(make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fields.push(make_colon_expr(make_atom_expr(TokenKind.Identifier, "y"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_expr := make_struct_def_expr("Point", fields);
+
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  main_expr := make_define_expr("main", rhs);
+
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(struct_expr);
+  exprs.push(main_expr);
+
+  opt_c := compile_module_to_c(exprs, "test_mod", "main");
+  match(opt_c,
+    .None    => assert(false, "expected Some"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct")),     "struct typedef present");
+      assert(c.contains(String.from("} Point;")),           "Point typedef name");
+      assert(c.contains(String.from("int32_t x")),          "field x in struct");
+      assert(c.contains(String.from("int32_t y")),          "field y in struct");
+      assert(c.contains(String.from("static void fn_main")), "main function");
+    }
+  );
+};
+
+test "extract_impl_fns: extracts method as TypeName_method", {
+  // impl(Counter, { get :: (fn(self : Counter) -> i32)(self.value); });
+  self_param := make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "self"),
+    make_atom_expr(TokenKind.Identifier, "Counter")
+  );
+  params := ArrayList(AstExpr).new();
+  params.push(self_param);
+  body  := make_atom_expr(TokenKind.Identifier, "0");
+  ret   := make_atom_expr(TokenKind.Identifier, "i32");
+  rhs   := make_fn_app(params, ret, body);
+  method_expr := make_define_expr("get", rhs);
+
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(method_expr);
+  stmts.push(make_atom_expr(TokenKind.Identifier, "unit")); // trailing unit in begin
+  impl_expr := make_impl_expr("Counter", make_begin_expr(stmts));
+
+  fns := extract_impl_fns(impl_expr, "Counter");
+  assert((fns.len() == usize(1)), "one method extracted");
+  match(fns.get(usize(0)),
+    .None => assert(false, "method missing"),
+    .Some(fd) => {
+      assert((fd.name == String.from("Counter_get")), "method C name is Counter_get");
+      assert((fd.ret_ty_c == String.from("int32_t")), "return type is int32_t");
+      assert((fd.params.len() == usize(1)), "one param");
+    }
+  );
 };

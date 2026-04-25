@@ -43,6 +43,20 @@ FnDef :: struct(
 );
 
 // ---------------------------------------------------------------------------
+// StructDef — extracted struct definition record
+// ---------------------------------------------------------------------------
+
+/// A struct definition extracted from a `Name :: struct(field : Type, ...)` node.
+StructDef :: struct(
+  /// Yo-level struct name (e.g. "Counter").
+  name        : String,
+  /// Field names (parallel to `field_tys`).
+  field_names : ArrayList(String),
+  /// C type strings for each field (parallel to `field_names`).
+  field_tys   : ArrayList(String)
+);
+
+// ---------------------------------------------------------------------------
 // Helpers — AST pattern recognisers
 // ---------------------------------------------------------------------------
 
@@ -265,6 +279,206 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))({
 });
 
 // ---------------------------------------------------------------------------
+// extract_struct_def
+// ---------------------------------------------------------------------------
+
+/// Try to extract a `StructDef` from a top-level expression.
+///
+/// Recognises the pattern:
+/// ```
+///   FnCall(Atom("::"), [Atom(Name), FnCall(Atom("struct"), [...fields...])], is_infix=true)
+/// ```
+/// where each field is:
+/// ```
+///   FnCall(Atom(":"), [Atom(field_name), type_expr], is_infix=true)
+/// ```
+extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))({
+  match(expr,
+    .Atom(_) => Option(StructDef).None,
+    .FnCall(top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(StructDef).None,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _) => Option(StructDef).None,
+        .Atom(op_tok) => cond(
+          (!(op_tok.value.as_str() == "::")) => Option(StructDef).None,
+          (top_args.len() < usize(2)) => Option(StructDef).None,
+          true => match(top_args.get(usize(0)),
+            .None => Option(StructDef).None,
+            .Some(name_expr) => match(atom_ident(name_expr),
+              .None => Option(StructDef).None,
+              .Some(name_str) => match(top_args.get(usize(1)),
+                .None => Option(StructDef).None,
+                .Some(rhs) => match(rhs,
+                  .Atom(_) => Option(StructDef).None,
+                  .FnCall(rhs_func, rhs_args, rhs_infix, _) => cond(
+                    // rhs must be a non-infix call to "struct"
+                    (rhs_infix) => Option(StructDef).None,
+                    true => match(rhs_func.*,
+                      .FnCall(_, _, _, _) => Option(StructDef).None,
+                      .Atom(rhs_tok) => cond(
+                        (!(rhs_tok.value.as_str() == "struct")) => Option(StructDef).None,
+                        true => {
+                          // Extract field names and C types from the struct args.
+                          out_names := ArrayList(String).new();
+                          out_tys   := ArrayList(String).new();
+                          nf := rhs_args.len();
+                          (fi : usize) = usize(0);
+                          while runtime((fi < nf)), {
+                            fi = (fi + usize(1));
+                            match(rhs_args.get(fi - usize(1)),
+                              .None => (),
+                              .Some(field_expr) => match(field_expr,
+                                .Atom(_) => (),
+                                .FnCall(ff, fa, f_infix, _) => cond(
+                                  (!(f_infix)) => (),
+                                  true => match(ff.*,
+                                    .FnCall(_, _, _, _) => (),
+                                    .Atom(ftok) => cond(
+                                      (!(ftok.value.as_str() == ":")) => (),
+                                      (fa.len() < usize(2)) => (),
+                                      true => match(fa.get(usize(0)),
+                                        .None => (),
+                                        .Some(field_name_e) => match(atom_ident(field_name_e),
+                                          .None => (),
+                                          .Some(fname) => match(fa.get(usize(1)),
+                                            .None => (),
+                                            .Some(ty_e) => match(type_expr_to_c(ty_e),
+                                              .None => (),
+                                              .Some(c_ty) => {
+                                                out_names.push(String.from(fname));
+                                                out_tys.push(c_ty);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            );
+                          };
+                          .Some(StructDef(
+                            name:        String.from(name_str),
+                            field_names: out_names,
+                            field_tys:   out_tys
+                          ))
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+});
+
+/// Emit a C typedef struct for a `StructDef` into the context's declarations buffer.
+///
+/// For `Counter` with fields `value: i32, name: str`, emits:
+/// ```c
+/// typedef struct { int32_t value; const char* name; } Counter;
+/// ```
+emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
+  line := String.from("typedef struct { ");
+  nf := sd.field_names.len();
+  (fi : usize) = usize(0);
+  while runtime((fi < nf)), {
+    fi = (fi + usize(1));
+    match(sd.field_names.get(fi - usize(1)),
+      .None => (),
+      .Some(fname) => match(sd.field_tys.get(fi - usize(1)),
+        .None => (),
+        .Some(fty) => {
+          line.push_string(fty);
+          line.push_str(" ");
+          line.push_string(fname);
+          line.push_str("; ");
+        }
+      )
+    );
+  };
+  line.push_str("} ");
+  line.push_string(sd.name);
+  line.push_str(";");
+  ctx.*.emitter.emit_declaration_string_line(line);
+});
+
+// ---------------------------------------------------------------------------
+// extract_impl_fns
+// ---------------------------------------------------------------------------
+
+/// Try to extract function definitions from an `impl(TypeName, { ... })` block.
+///
+/// Recognises:
+/// ```
+///   FnCall(Atom("impl"), [Atom(TypeName), begin_expr], is_infix=false)
+/// ```
+/// where `begin_expr` contains `method_name :: (fn(...) -> T)(body)` definitions.
+///
+/// Methods are renamed to `TypeName_method_name` in C to avoid collisions.
+/// Returns a list of `FnDef` entries extracted from the impl body.
+extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))({
+  results := ArrayList(FnDef).new();
+  match(expr,
+    .Atom(_) => results,
+    .FnCall(top_func, top_args, top_infix, _) => cond(
+      (top_infix) => results,
+      (top_args.len() < usize(2)) => results,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _) => results,
+        .Atom(ftok) => cond(
+          (!(ftok.value.as_str() == "impl")) => results,
+          true => match(top_args.get(usize(1)),
+            .None => results,
+            .Some(body_expr) => match(body_expr,
+              .Atom(_) => results,
+              .FnCall(bf, ba, _, _) => match(bf.*,
+                .FnCall(_, _, _, _) => results,
+                .Atom(btok) => cond(
+                  (!(btok.value.as_str() == "begin")) => results,
+                  true => {
+                    nm := ba.len();
+                    (mi : usize) = usize(0);
+                    while runtime((mi < nm)), {
+                      mi = (mi + usize(1));
+                      match(ba.get(mi - usize(1)),
+                        .None => (),
+                        .Some(method_expr) => match(extract_fn_def(method_expr),
+                          .None => (),
+                          .Some(fd) => {
+                            // Prefix the method C name: TypeName_method
+                            c_name := String.from(type_prefix);
+                            c_name.push_str("_");
+                            c_name.push_string(fd.name);
+                            results.push(FnDef(
+                              name:      c_name,
+                              ret_ty_c:  fd.ret_ty_c,
+                              params:    fd.params,
+                              param_tys: fd.param_tys,
+                              body:      fd.body
+                            ));
+                          }
+                        )
+                      );
+                    };
+                    results
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+});
+
+// ---------------------------------------------------------------------------
 // compile_module_to_c
 // ---------------------------------------------------------------------------
 
@@ -294,25 +508,84 @@ compile_module_to_c :: (fn(
     i = (i + usize(1));
     match(exprs.get(i - usize(1)),
       .None => (),
-      .Some(expr) => match(extract_fn_def(expr),
-        .None => (),
-        .Some(fd) => {
-          // Build C function name: fn_<yo_name> (simple convention)
-          c_name := `fn_${ fd.name }`;
-          if((fd.name.as_str() == main_name), {
-            main_found = true;
-            main_c_name = c_name;
-          });
-          generate_function(
-            c_name.as_str(),
-            fd.ret_ty_c.as_str(),
-            fd.params,
-            fd.param_tys,
-            fd.body,
-            pctx
-          );
-        }
-      )
+      .Some(expr) => {
+        // First: try to extract a function definition.
+        fn_opt := extract_fn_def(expr);
+        match(fn_opt,
+          .Some(fd) => {
+            // Build C function name: fn_<yo_name> (simple convention)
+            c_name := `fn_${ fd.name }`;
+            if((fd.name.as_str() == main_name), {
+              main_found = true;
+              main_c_name = c_name;
+            });
+            generate_function(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              fd.body,
+              pctx
+            );
+          },
+          .None => {
+            // Second: try to extract a struct definition.
+            sd_opt := extract_struct_def(expr);
+            match(sd_opt,
+              .Some(sd) => {
+                emit_struct_to_c(sd, pctx);
+              },
+              .None => {
+                // Third: try to extract impl methods.
+                // We detect `impl(TypeName, { ... })` by checking if the
+                // expression starts with `impl` and has 2 args.
+                impl_fns := match(expr,
+                  .Atom(_) => ArrayList(FnDef).new(),
+                  .FnCall(imp_func, imp_args, imp_infix, _) => cond(
+                    (imp_infix) => ArrayList(FnDef).new(),
+                    (imp_args.len() < usize(2)) => ArrayList(FnDef).new(),
+                    true => match(imp_func.*,
+                      .FnCall(_, _, _, _) => ArrayList(FnDef).new(),
+                      .Atom(itok) => cond(
+                        (!(itok.value.as_str() == "impl")) => ArrayList(FnDef).new(),
+                        true => match(imp_args.get(usize(0)),
+                          .None => ArrayList(FnDef).new(),
+                          .Some(tn_e) => match(atom_ident(tn_e),
+                            .None => ArrayList(FnDef).new(),
+                            .Some(type_name) => extract_impl_fns(expr, type_name)
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
+                nm := impl_fns.len();
+                (mi : usize) = usize(0);
+                while runtime((mi < nm)), {
+                  mi = (mi + usize(1));
+                  match(impl_fns.get(mi - usize(1)),
+                    .None => (),
+                    .Some(fd) => {
+                      if((fd.name.as_str() == main_name), {
+                        main_found = true;
+                        main_c_name = fd.name;
+                      });
+                      generate_function(
+                        fd.name.as_str(),
+                        fd.ret_ty_c.as_str(),
+                        fd.params,
+                        fd.param_tys,
+                        fd.body,
+                        pctx
+                      );
+                    }
+                  );
+                };
+              }
+            )
+          }
+        );
+      }
     );
   };
 
@@ -325,7 +598,8 @@ compile_module_to_c :: (fn(
   )
 });
 
-export FnDef, extract_fn_def, compile_module_to_c;
+export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
+       extract_impl_fns, compile_module_to_c;
 
 // ---------------------------------------------------------------------------
 // Test body compilation
