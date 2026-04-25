@@ -333,7 +333,15 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - Added `match` dispatch to `generate_expr` (was missing despite `match` being listed as a builtin keyword).
 - 4 new unit tests; 125 codegen tests, 352 yo-self tests pass.
 
-**5e. Error formatting** — colored terminal output, source location display, error notes
+**5e. Enum type declarations + variant access** ✅ Done
+
+- `Name :: enum(V1, V2, ...)` top-level expressions are now extracted (`extract_enum_def`) and emitted as `typedef enum { Name_V1, Name_V2, ... } Name;` (`emit_enum_to_c`) in the declarations section.
+- `CodegenContext` now tracks registered enum names (`defined_enums`, `register_enum`, `is_enum_name`).
+- `handle_dot_access` rewritten: if the object is a registered enum name, emits `Color_Red` instead of `Color.Red` (which is invalid C).
+- Both `compile_module_to_c` and `compile_test_body_to_c` process enum defs in Pass 2.
+- 4 new unit tests; 129 codegen tests, 356 yo-self tests pass.
+
+**5f. Error formatting** — colored terminal output, source location display, error notes
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 

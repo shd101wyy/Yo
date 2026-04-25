@@ -33,6 +33,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 ✅ **Phase 5b Test runner.** `yo-self test <file.test.yo> [--test-name-pattern <pattern>]` parses a `.test.yo` file, finds all `test "name", { body }` declarations, compiles each to a standalone C program via `compile_test_body_to_c`, and reports pass/fail/skipped with proper exit codes. Also fixed three self-hosted codegen gaps: `:=` define now emits `__auto_type name = val;`; type casts `i32(x)` now emit `(int32_t)(x)`; `assert`/`comptime_assert` now emit `if (!(cond)) { exit(1); }`.
 ✅ **Phase 5c Struct constructors + cross-function calls.** `TypeName(field: val, ...)` now emits C compound literals `(TypeName){.field = val}` via `handle_struct_constructor`. `CodegenContext` tracks registered user-defined function names; `compile_module_to_c` uses a two-pass approach (register then emit); `handle_regular_call` adds `fn_` prefix only for registered functions. `compile_test_body_to_c` now emits helper function bodies into the same C file so test bodies can call module-level helpers.
 ✅ **Phase 5d Match value codegen.** `match(scrut, pat => body, ..., _ => default)` emits a ternary chain via `handle_match_value`. `gen_match_arm` builds one arm as `(temp == pat ? body : rest)`. A wildcard `_` arm becomes the default branch. 4 new unit tests; 125 codegen tests, 352 yo-self tests pass.
+✅ **Phase 5e Enum type declarations + variant access.** `Name :: enum(V1, V2, ...)` now emits `typedef enum { Name_V1, ... } Name;`. `CodegenContext` tracks registered enums; `handle_dot_access` rewrites `Color.Red` → `Color_Red` when the object is a registered enum. 4 new unit tests; 129 codegen tests, 356 yo-self tests pass.
 
 - **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
 - **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 36 tests passing
@@ -43,7 +44,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j), compiler driver: `extract_fn_def` + `compile_module_to_c` (Phase 4 validation), integration tests: parse→C→cc→run binary (Phase 4 integration milestone), struct constructors + cross-function calls (Phase 5c), match value ternary codegen (Phase 5d); 125 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
 - **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: 352 tests passing** under `yo-self/tests/`
+- **Total: 356 tests passing** under `yo-self/tests/`
 
 Run tests:
 
