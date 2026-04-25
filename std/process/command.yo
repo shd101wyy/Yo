@@ -163,7 +163,7 @@ _spawn_with_fds :: (fn(
   stdout_fd: i32,
   stderr_fd: i32,
   using(io : IO, exn : Exception)
-) -> Impl(Future(i32, IO, Exception)))({
+) -> Impl(Future(i32, IO, Exception)))(
   io.async((using(io, exn)) => {
     storage := _build_cstr_storage(self);
     argc := storage.len();
@@ -197,11 +197,11 @@ _spawn_with_fds :: (fn(
 
     IOError.check(pid)
   })
-});
+);
 
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
-_drain_fd :: (fn(fd: i32, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
+_drain_fd :: (fn(fd: i32, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
   io.async((using(io, exn)) => {
     buf_size := usize(4096);
     buf := *(u8)(malloc(buf_size).unwrap());
@@ -226,7 +226,7 @@ _drain_fd :: (fn(fd: i32, using(io : IO, exn : Exception)) -> Impl(Future(ArrayL
     free(.Some(*(void)(buf)));
     out
   })
-});
+);
 
 // ============================================================================
 // Public Command methods (status / output)
@@ -235,18 +235,18 @@ _drain_fd :: (fn(fd: i32, using(io : IO, exn : Exception)) -> Impl(Future(ArrayL
 impl(Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(self: *(Self), using(io : IO)) -> Impl(Future(ExitStatus, IO, Exception)))({
+  status : (fn(self: *(Self), using(io : IO)) -> Impl(Future(ExitStatus, IO, Exception)))(
     io.async((using(io, exn)) => {
       pid := io.await(_spawn_with_fds(self, i32(-1), i32(-1), i32(-1)));
       raw := io.await(IO_process.waitpid(pid, i32(0)));
       IOError.check(raw);
       ExitStatus(raw: raw)
     })
-  }),
+  ),
 
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(self: *(Self), using(io : IO)) -> Impl(Future(Output, IO, Exception)))({
+  output : (fn(self: *(Self), using(io : IO)) -> Impl(Future(Output, IO, Exception)))(
     io.async((using(io, exn)) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
@@ -295,7 +295,7 @@ impl(Command,
         stderr: stderr_buf
       )
     })
-  })
+  )
 );
 
 export

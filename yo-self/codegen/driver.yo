@@ -112,7 +112,7 @@ atom_ident :: (fn(expr : AstExpr) -> Option(str))(
 ///   FnCall(fn_type, [body], is_infix=false)
 ///   fn_type = FnCall(Atom("->"), [FnCall(Atom("fn"), params), ret_ty], is_infix=true)
 /// ```
-extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))({
+extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
   // Step 1: must be an infix `::` FnCall with exactly 2 args.
   match(expr,
     .Atom(_) => Option(FnDef).None,
@@ -288,7 +288,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))({
       )
     )
   )
-});
+);
 
 // ---------------------------------------------------------------------------
 // extract_struct_def
@@ -304,7 +304,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))({
 /// ```
 ///   FnCall(Atom(":"), [Atom(field_name), type_expr], is_infix=true)
 /// ```
-extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))({
+extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
   match(expr,
     .Atom(_) => Option(StructDef).None,
     .FnCall(top_func, top_args, top_infix, _) => cond(
@@ -387,7 +387,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))({
       )
     )
   )
-});
+);
 
 /// Emit a C typedef struct for a `StructDef` into the context's declarations buffer.
 ///
@@ -431,7 +431,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
 ///   FnCall(Atom("::"), [Atom(Name), FnCall(Atom("enum"), [...variants...])], is_infix=true)
 /// ```
 /// where each variant is an Identifier Atom.
-extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))({
+extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
   match(expr,
     .Atom(_) => Option(EnumDef).None,
     .FnCall(top_func, top_args, top_infix, _) => cond(
@@ -482,7 +482,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))({
       )
     )
   )
-});
+);
 
 /// Emit a C typedef enum for an `EnumDef` into the context's declarations buffer.
 ///

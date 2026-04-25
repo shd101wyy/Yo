@@ -201,7 +201,7 @@ impl(Step,
     __yo_build_add_import(self.name, entry.name, entry.module.name, entry.module._dep);
   }),
   /// Add a list of module imports to this step.
-  add_import_list : (fn(comptime(self) : Self, comptime(entries) : ComptimeList(ImportEntry)) -> comptime(unit))({
+  add_import_list : (fn(comptime(self) : Self, comptime(entries) : ComptimeList(ImportEntry)) -> comptime(unit))(
     cond(
       (entries.len() == usize(0)) => (),
       true => {
@@ -209,7 +209,7 @@ impl(Step,
         recur(self, entries.cdr())
       }
     )
-  }),
+  ),
   /// Add extra C compiler flags to this step.
   add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_string) -> comptime(unit))({
     __yo_build_add_cflags(self.name, flags);

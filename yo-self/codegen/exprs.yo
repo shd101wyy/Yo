@@ -206,12 +206,12 @@ handle_begin :: (fn(
       while runtime((i < (n - usize(1)))), {
         match(args.get(i),
           .None => (),
-          .Some(s) => {
+          .Some(s) => 
             match(call_gen_expr(s, ctx, inner), // use deeper indent for nested emit
               .None => (),
               .Some(code) => emit_as_stmt(code, ctx, indent)
             )
-          }
+
         );
         i = (i + usize(1));
       };
@@ -494,12 +494,12 @@ handle_while :: (fn(
           ctx.*.emitter.emit_line(") {");
           match(body_arg_opt,
             .None => (),
-            .Some(body_expr) => {
+            .Some(body_expr) => 
               match(call_gen_expr(body_expr, ctx, inner),
                 .None => (),
                 .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
               )
-            }
+
           );
           ctx.*.emitter.emit_string(indent);
           ctx.*.emitter.emit_line("}");

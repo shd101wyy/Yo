@@ -51,7 +51,7 @@ total := {
 };
 ```
 
-Remember: `{ expr }` without semicolons is a struct literal, not a block.
+Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
 
 ## Control flow
 

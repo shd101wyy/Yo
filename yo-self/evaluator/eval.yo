@@ -278,7 +278,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
 ///   - `ident`        — bare identifier (no dot), binds the whole scrutinee
 ///   - `.None`        — fieldless enum variant `FnCall(Atom(Dot), [Atom("None")], _)`
 ///   - `.Some(x, …)` — variant with positional bindings
-try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty : TypeValue, env : *(Environment)) -> bool)({
+try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty : TypeValue, env : *(Environment)) -> bool)(
   match(pattern,
     // -----------------------------------------------------------------------
     // Atom patterns: wildcard `_` or bare variable binding
@@ -380,7 +380,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
         }
       )
   )
-});
+);
 
 // ---------------------------------------------------------------------------
 // Integer parsing helpers (Phase 3c — comptime integer folding)
@@ -948,7 +948,7 @@ eval_float_neg :: (fn(v : EvalResult) -> Option(EvalResult))({
 extract_comptime_param_name :: (fn(
   ct_box  : Box(AstExpr),
   ct_args : ArrayList(AstExpr)
-) -> Option(String))({
+) -> Option(String))(
   match(ct_box.*,
     .Atom(ct_tok) =>
       cond(
@@ -965,7 +965,7 @@ extract_comptime_param_name :: (fn(
       ),
     .FnCall(_, _, _, _) => Option(String).None
   )
-});
+);
 
 /// Extract the evidence parameter name from the inner expression of a
 /// `using(...)` parameter declaration.
@@ -1018,7 +1018,7 @@ handle_using_call :: (fn(
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
-evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
+evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
   match(e,
     .Atom(tok) =>
       eval_atom(tok, env),
@@ -1034,7 +1034,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
         //   func_box.* = FnCall(Atom("->"), [FnCall(Atom("fn"), [...]), RetType], true)
         //   outer args = [body_expr]
         // -----------------------------------------------------------------
-        .FnCall(inner_func, inner_args, _, _) => {
+        .FnCall(inner_func, inner_args, _, _) => 
           match(inner_func.*,
             .Atom(dt) =>
               cond(
@@ -1271,7 +1271,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
               ),
             .FnCall(_, _, _, _) => Option(EvalResult).None
           )
-        },
+        ,
         .Atom(ftok) => {
           fval := ftok.value.as_str();
           cond(
@@ -1340,7 +1340,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                 match(cond_res.value,
                                   .BoolVal(b) =>
                                     cond(
-                                      b => {
+                                      b => 
                                         match(arm_args.get(usize(1)),
                                           .Some(body_expr) => {
                                             result = recur(body_expr, env);
@@ -1348,7 +1348,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                                           },
                                           .None => { i = n; }
                                         )
-                                      },
+                                      ,
                                       true => ()
                                     ),
                                   _ => ()
@@ -1668,7 +1668,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             // Variant with fields — self-hosted format (is_infix=false, 1 FnCall arg):
             //   FnCall(Atom(Dot), [FnCall(Atom("Some"), [arg1, …], false)], false)
             // ---------------------------------------------------------------
-            (fval == ".") => {
+            (fval == ".") => 
               cond(
                 // --- Field access or method call: is_infix=true, 2 args ---
                 ((is_infix) && (args.len() == usize(2))) => {
@@ -1723,7 +1723,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                 // --- Enum variant construction: 1 arg ---
                 // Fieldless (Atom arg): both TS and self-hosted formats
                 // With fields (FnCall arg): self-hosted format only
-                (args.len() == usize(1)) => {
+                (args.len() == usize(1)) => 
                   match(args.get(usize(0)),
                     .None => Option(EvalResult).None,
                     .Some(vne) =>
@@ -1764,20 +1764,20 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                         }
                       )
                   )
-                },
+                ,
 
                 true => Option(EvalResult).None
               )
-            },
+            ,
 
             // ---------------------------------------------------------------
             // `match(scrutinee, arm1, …)` pattern matching
             // Each arm is FnCall(Atom("=>"), [pattern, body], is_infix=true)
             // ---------------------------------------------------------------
-            (fval == "match") => {
+            (fval == "match") => 
               match(args.get(usize(0)),
                 .None => Option(EvalResult).None,
-                .Some(scrutinee_expr) => {
+                .Some(scrutinee_expr) => 
                   match(recur(scrutinee_expr, env),
                     .None => Option(EvalResult).None,
                     .Some(scrut_res) => {
@@ -1838,19 +1838,19 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       match_result
                     }
                   )
-                }
+
               )
-            },
+            ,
 
             // ---------------------------------------------------------------
             // `while condition, body`
             // Compile-time while loop: condition must fold to BoolVal.
             // `while runtime(true), body` handled: runtime(...) is unwrapped.
             // ---------------------------------------------------------------
-            (fval == "while") => {
+            (fval == "while") => 
               match(args.get(usize(0)),
                 .None => Option(EvalResult).None,
-                .Some(raw_cond) => {
+                .Some(raw_cond) => 
                   match(args.get(usize(1)),
                     .None => Option(EvalResult).None,
                     .Some(body_expr) => {
@@ -1908,9 +1908,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       .Some(last)
                     }
                   )
-                }
+
               )
-            },
+            ,
 
             // -----------------------------------------------------------------
             // Type casts: i32(x), u64(x), usize(x), f32(x), bool(x), etc.
@@ -1933,7 +1933,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
             // -----------------------------------------------------------------
             // return expr — emit a ReturnVal signal
             // -----------------------------------------------------------------
-            (fval == "return") => {
+            (fval == "return") => 
               cond(
                 (args.len() == usize(0)) =>
                   .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
@@ -1951,14 +1951,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       )
                   )
               )
-            },
+            ,
 
             // -----------------------------------------------------------------
             // recur — tail/recursive call to the currently-executing FuncVal.
             // Looks up __recur_fn bound when the current function frame was opened.
             // Delegates to call_funcval_with_args for env setup + forall inference.
             // -----------------------------------------------------------------
-            (fval == "recur") => {
+            (fval == "recur") => 
               match(env.*.lookup(String.from("__recur_fn")),
                 .None => Option(EvalResult).None,
                 .Some(rfv) =>
@@ -1991,7 +1991,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       )
                   )
               )
-            },
+            ,
 
             // -----------------------------------------------------------------
             // :: constant declaration.
@@ -2264,7 +2264,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                     true => .Some(eval_result(.StructVal(String.from(fval), fn_list, fv_list), t_unit()))
                   )
                 },
-                true => {
+                true => 
                   match(env.*.lookup(String.from(fval)),
                 .None => Option(EvalResult).None,
                 .Some(var) =>
@@ -2297,14 +2297,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))({
                       )
                   )
               )
-                }
+
               )
             }
           )
         }
       )
   )
-});
+);
 
 // Initialize the g_eval_fn slot with the evaluate function (Phase 3j).
 // Must run after evaluate is defined so the reference is valid.
@@ -2323,5 +2323,3 @@ set_module_loader :: (fn(loader : (fn(path : String) -> Option(EvalValue))) -> u
 });
 
 export evaluate, eval_atom, eval_identifier, parse_raw_int, evaluate_module_body, set_module_loader;
-
-

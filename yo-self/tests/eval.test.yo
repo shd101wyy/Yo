@@ -546,7 +546,6 @@ test "evaluate: assign updates stored value", {
   );
 };
 
-
 // ---------------------------------------------------------------------------
 // Phase 3d helpers: build enum-variant AST nodes
 // ---------------------------------------------------------------------------
@@ -2087,7 +2086,7 @@ test "evaluate: { A, B } :: ModuleVal destructures correctly", {
 test "evaluate: import uses module loader callback", {
   env := empty_env();
   // Register a mock loader that builds the module inline (no closure capture needed)
-  set_module_loader((fn(path : String) -> Option(EvalValue))({
+  set_module_loader((fn(path : String) -> Option(EvalValue))(
     cond(
       (path.as_str() == "test/my_module") => {
         mock_names_l := ArrayList(String).new();
@@ -2098,7 +2097,7 @@ test "evaluate: import uses module loader callback", {
       },
       true => Option(EvalValue).None
     )
-  }));
+  ));
   // Evaluate import("test/my_module") and check we get back the module
   import_expr := make_import_expr("test/my_module");
   result := evaluate(import_expr, &env);

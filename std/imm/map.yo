@@ -249,7 +249,7 @@ _copy_pairs :: (fn(
   };
 });
 
-_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, v: V, where(K <: (Eq(K), Hash, Send), V <: Send)) -> MapCollision(K, V))({
+_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, v: V, where(K <: (Eq(K), Hash, Send), V <: Send)) -> MapCollision(K, V))(
   match(_coll_find_key(K, V, coll, k),
     .Some(idx) => {
       new_ptr := _alloc_pairs(K, V, coll._pairs_len);
@@ -265,9 +265,9 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollisio
       return MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len);
     }
   )
-});
+);
 
-_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(MapCollision(K, V)))({
+_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(MapCollision(K, V)))(
   match(_coll_find_key(K, V, coll, k),
     .Some(idx) => {
       if((coll._pairs_len <= usize(2)), {
@@ -286,7 +286,7 @@ _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollis
     },
     .None => .Some(coll)
   )
-});
+);
 
 // -- Core HAMT algorithms --
 

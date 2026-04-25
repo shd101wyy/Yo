@@ -15,12 +15,12 @@ _min :: (fn(a: usize, b: usize) -> usize)(
   cond((a < b) => a, true => b)
 );
 
-_alloc_bytes :: (fn(n: usize) -> *(u8))({
+_alloc_bytes :: (fn(n: usize) -> *(u8))(
   match(malloc(n),
     .Some(p) => *(u8)(p),
     .None => panic("imm.String: allocation failed")
   )
-});
+);
 
 /// Immutable, thread-safe UTF-8 string.
 ///
@@ -424,7 +424,7 @@ impl(String,
   }),
 
   /// Replace the first occurrence of `search` with `replacement`.
-  replace : (fn(self: Self, search: Self, replacement: Self) -> Self)({
+  replace : (fn(self: Self, search: Self, replacement: Self) -> Self)(
     match(self.index_of(search, usize(0)),
       .None => { return self; },
       .Some(idx) => {
@@ -434,7 +434,7 @@ impl(String,
         return tmp.concat(after);
       }
     )
-  }),
+  ),
 
   /// Replace all occurrences of `search` with `replacement`.
   replace_all : (fn(self: Self, search: Self, replacement: Self) -> Self)({

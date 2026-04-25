@@ -2511,6 +2511,24 @@ test "return in match branch type compatibility", {
   test_fn();
 };
 
+// Test: { } without semicolons is a struct literal, not a block.
+// Single-expression function bodies must be written directly (no wrapping braces),
+// or as multi-statement blocks with semicolons.
+test "single-expression function body without braces", {
+  // Single-expression body: written directly, no outer { }
+  double :: (fn(x : i32) -> i32)(
+    (x * i32(2))
+  );
+  assert((double(i32(3)) == i32(6)), "double should work");
+
+  // Multi-statement block: { } WITH semicolons is still a valid block
+  add_one_verbose :: (fn(x : i32) -> i32)({
+    y := (x + i32(1));
+    y
+  });
+  assert((add_one_verbose(i32(4)) == i32(5)), "add_one_verbose should work");
+};
+
 // Test: indexing a function call result directly (temporary)
 test "index function call result", {
   open import "std/collections/array_list";

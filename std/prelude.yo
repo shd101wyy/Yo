@@ -31,7 +31,7 @@ extern "Yo",
   __yo_return_self : (fn(forall(T: Type), self: T) -> T),
   __yo_noop : (fn(forall(T : Type))-> T),
   __yo_as : (fn(forall(_Self: Type), self: _Self, comptime(Target): Type) -> Target),
-  
+
   // Arithmetic Operators
   /// +
   __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T),
@@ -45,7 +45,7 @@ extern "Yo",
   __yo_op_mod : (fn(forall(T : Type), x : T, y : T) -> T),
   /// -
   __yo_op_neg : (fn(forall(T : Type), x : T) -> T),
-  
+
   // Relational Operators
   /// ==
   __yo_op_eq : (fn(forall(T : Type), x : T, y : T) -> bool),
@@ -641,7 +641,7 @@ ComptimeEq ::
       ((lhs, rhs) ->
         not(Self.(==)(lhs, rhs))
       ),
-    
+
     where(Self <: Comptime)
   )
 ;
@@ -3377,7 +3377,6 @@ impl(long, Clone(
 _long :: long;
 export long : _long;
 
-
 /// ulong
 impl(ulong, Send());
 impl(ulong, Acyclic());
@@ -3946,7 +3945,6 @@ assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)
 ;
 export assert;
 
-
 /// ComptimeList
 impl(forall(T : Type), ComptimeList(T), Comptime());
 impl(forall(T : Type), ComptimeList(T), Acyclic());
@@ -3961,7 +3959,7 @@ impl(forall(T : Type), where(T <: Comptime), ComptimeList(T),
 
   first : car,
   rest : cdr,
-  
+
   append : (fn(comptime(self): Self, comptime(another): Self) -> comptime(Self))(
     __yo_comptime_list_append(self, another)
   ),
@@ -4627,7 +4625,6 @@ export
   (?*)
 ;
 
-
 /// DeriveContext — context passed to derive rule functions (needs Option).
 /// Used by the `derive` macro to generate trait implementations.
 DeriveContext :: struct(
@@ -4789,13 +4786,13 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
           )
         ))
       },
-      true => {
+      true => 
         ctx.make_impl(quote(
           Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> true)
           )
         ))
-      }
+
     )
   }
 );
@@ -4884,13 +4881,13 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           )
         ))
       },
-      true => {
+      true => 
         ctx.make_impl(quote(
           Clone(
             clone : ((self) -> self.*)
           )
         ))
-      }
+
     )
   }
 );
@@ -4905,13 +4902,13 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
         fields :: Type.get_struct_fields(T);
         fc :: fields.len();
         cond(
-          (fc == 0) => {
+          (fc == 0) => 
             ctx.make_impl(quote(
               Hash(
                 (hash) : ((self) -> u64(0))
               )
             ))
-          },
+          ,
           true => {
             hash_stmts :: __yo_comptime_fold_range(fc, "",
               (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))(
@@ -4986,13 +4983,13 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           )
         ))
       },
-      true => {
+      true => 
         ctx.make_impl(quote(
           Hash(
             (hash) : ((self) -> u64(0))
           )
         ))
-      }
+
     )
   }
 );
@@ -5035,7 +5032,7 @@ __derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_stri
 
 // Helper: generate lexicographic comparison for enum variant bindings
 __derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : comptime_string) -> comptime(comptime_string))(
-  {
+
     cond(
       (v.fields.len() == 1) => {
         fname :: v.fields.get(0).name;
@@ -5062,7 +5059,7 @@ __derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : compt
         __s3("cond(\n        ", branches, "\n      )")
       }
     )
-  }
+
 );
 
 __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
@@ -5073,7 +5070,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         fields :: Type.get_struct_fields(T);
         fc :: fields.len();
         cond(
-          (fc == 0) => {
+          (fc == 0) => 
             ctx.make_impl(quote(
               Ord(...#(trait_params))(
                 (<) : ((lhs, rhs) -> false),
@@ -5082,7 +5079,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
                 (>=) : ((lhs, rhs) -> true)
               )
             ))
-          },
+          ,
           true => {
             lt_body :: __derive_ord_struct_body(T, "<");
             le_body :: __derive_ord_struct_body(T, "<=");
@@ -5168,7 +5165,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           )
         ))
       },
-      true => {
+      true => 
         ctx.make_impl(quote(
           Ord(...#(trait_params))(
             (<) : ((lhs, rhs) -> false),
@@ -5177,12 +5174,11 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
             (>=) : ((lhs, rhs) -> true)
           )
         ))
-      }
+
     )
   }
 );
 derive_rule(Ord, __derive_ord);
-
 
 /// Result — a value that is either success (`Ok`) or failure (`Err`).
 ///
@@ -5490,7 +5486,6 @@ impl(forall(T : Type), Iso(T),
     __yo_iso_extract(self)
   )
 );
-
 
 (^) :: (fn(quote(v) : Expr) -> unquote(Expr))({
   temp :: cond(
