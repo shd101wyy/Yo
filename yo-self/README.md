@@ -26,9 +26,10 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 - **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
 - **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
 - **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 96 tests passing
+- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 97 tests passing
 - **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Total: ~224 tests passing** under `yo-self/tests/`
+- **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
+- **Total: ~225 tests passing** under `yo-self/tests/`
 
 Run tests:
 

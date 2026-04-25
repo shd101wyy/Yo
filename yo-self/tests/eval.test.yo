@@ -2492,3 +2492,70 @@ test "evaluate: function with only using params (no regular params)", {
     .None => ()
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3 Validation Milestone — evaluate a simple hello_world-style module
+//
+// Constructs the AST for:
+//   main :: (fn(using(io : IO)) -> unit)({ io; });
+//   export main;
+// and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
+// with evidence_params=["io"] and no regular params.
+// ---------------------------------------------------------------------------
+
+test "validation milestone: evaluate hello_world module", {
+  env := empty_env();
+
+  // ── Build the function definition: (fn(using(io : IO)) -> unit)({ io; }) ──
+  params_hw := ArrayList(AstExpr).new();
+  params_hw.push(make_using_param("io", "IO"));
+  stmts_hw := ArrayList(AstExpr).new();
+  stmts_hw.push(make_ident("io"));
+  fn_def_hw := make_typed_fn_def(params_hw, make_ident("unit"), make_begin(stmts_hw));
+
+  // ── Build: main :: fn_def_hw (infix ::) ──
+  bind_main := make_infix("::", make_ident("main"), fn_def_hw);
+
+  // ── Build: export main; ──
+  export_names_hw := ArrayList(str).new();
+  export_names_hw.push("main");
+  export_main_hw := make_export(export_names_hw);
+
+  // ── Assemble the module body ──
+  module_exprs := ArrayList(AstExpr).new();
+  module_exprs.push(bind_main);
+  module_exprs.push(export_main_hw);
+
+  // ── Evaluate the module ──
+  result := evaluate_module_body(module_exprs, &env);
+
+  // ── Verify the result is a ModuleVal exporting "main" as a FuncVal ──
+  match(result,
+    .None => assert(false, "evaluate_module_body returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(mod_names, mod_values) => {
+          assert((mod_names.len() == usize(1)), "exactly 1 export");
+          match(mod_names.get(usize(0)),
+            .Some(n) => assert((n.as_str() == "main"), "exported name is main"),
+            .None    => assert(false, "no exported name")
+          );
+          match(mod_values.get(usize(0)),
+            .Some(fn_val) => match(fn_val,
+              .FuncVal(_, ps, _, ev_ps, _, _, _, _) => {
+                assert((ps.len() == usize(0)), "main has no regular params");
+                assert((ev_ps.len() == usize(1)), "main has 1 evidence param");
+                match(ev_ps.get(usize(0)),
+                  .Some(evn) => assert((evn.as_str() == "io"), "evidence param is io"),
+                  .None      => assert(false, "no evidence param name")
+                );
+              },
+              _ => assert(false, "exported main is not a FuncVal")
+            ),
+            .None => assert(false, "no exported value")
+          );
+        },
+        _ => assert(false, "result is not a ModuleVal")
+      )
+  );
+};

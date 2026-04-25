@@ -279,7 +279,7 @@ The largest and most complex phase (~56K lines). Break into sub-phases:
 **3n. Compile-time evaluation (CTFE)** ✅ Done — `if(cond, then)` / `if(cond, then, else)` conditional expressions; float arithmetic (`+`, `-`, `*`, `/`) and comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`) constant folding; float unary negation; `comptime(Name)` parameter name extraction in function definitions. All new logic factored into `handle_if_form`, `eval_float_arith`, `eval_float_cmp`, `eval_float_neg`, and `extract_comptime_param_name` helpers to keep `evaluate()`'s ASAN stack frame within the 8 MB limit.
 **3o. Effects analysis** ✅ Done — `using(name : Type)` evidence parameters extracted from function definitions into `FuncVal.evidence_params`; `using(name)` at call sites evaluates to the named value from the caller's environment; `call_funcval_with_args` binds evidence params from args at indices `[n_params .. n_params + n_evidence]`; new helpers `extract_evidence_param_name` and `handle_using_call` keep `evaluate()`'s ASAN stack frame within the 8 MB limit. 5 new tests for evidence extraction, `using(name)` evaluation, evidence in function body, mixed regular+evidence params, and evidence-only functions.
 
-**Validation milestone**: Evaluate `hello_world.yo` through the full pipeline (without codegen — just verify types and values are correct by comparing with TS evaluator output).
+**Validation milestone** ✅ Done: Evaluate `hello_world.yo` through the full pipeline — constructs the AST for `main :: (fn(using(io : IO)) -> unit)({ io; }); export main;`, calls `evaluate_module_body`, and verifies the result is a `ModuleVal` that exports `main` as a `FuncVal` with `evidence_params=["io"]` and no regular params.
 
 ### Phase 4 — C Code Generation
 
