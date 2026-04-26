@@ -444,6 +444,8 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 **6i. Target system** ✅ Done — `yo-self/target/target.yo` mirrors `src/target.ts`. `Arch`/`Os`/`Abi` enums with Eq; `TargetInfo`/`HostInfo` objects; `parse_target`/`clang_triple`/`host_target`/`detect_host`/`detect_linux_abi` and full suite of `is_target_*` queries. 22 tests, 469 yo-self tests pass.
 
+**6j. Install command** ✅ Done — `yo-self/install-command/install_command.yo` mirrors `src/install-command.ts`. `ParsedPackage` enum (Git/Path), `SemVer` object, `InstallOptions` object; `is_local_path`/`_url_to_dep_name`/`_is_all_digits` pure string helpers; `_parse_semver_tag`/`_compare_semver`/`_parse_tags_for_latest_semver` semver helpers; `parse_package_specifier` resolves user/repo, full URLs, and local paths; `dependency_exists_in_deps_file`/`parse_dependency_names`/`_build_imports_block`/`regenerate_imports_list`/`_append_dep_to_content` for `deps.yo` text manipulation; `append_dep_to_deps_file`/`resolve_default_branch`/`resolve_latest_ref`/`run_install` async entry points. 43 tests, 512 yo-self tests pass.
+
 ### Phase 7 — Self-hosting verification
 
 1. Use the TS-compiled Yo compiler (Stage 0) to compile the Yo-written compiler source → produce `yo-stage1` binary.
