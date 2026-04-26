@@ -437,7 +437,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - 9 unit tests in `yo-self/tests/compiler_utils.test.yo`; 426 yo-self tests pass
 
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
-**6b-full. Dependency management** — `yo fetch`, `yo install`, git integration (uses 6b lock file layer)
+**6b-full. Dependency management** ✅ Done — `yo fetch`, git integration (uses 6b lock file layer). 10 tests, 436 yo-self tests pass.
 **6d. Documentation** — `yo doc` generator (can be lower priority)
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
 
