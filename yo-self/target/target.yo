@@ -1,0 +1,412 @@
+/// Target system for the Yo compiler.
+///
+/// Distinguishes between the host (machine running the compiler) and the target
+/// (machine the compiled binary will run on).  Target triples follow the standard
+/// `<arch>-<os>[-<abi>]` format, compatible with clang's `--target=` flag.
+///
+/// Mirrors: src/target.ts
+
+open import "std/string";
+{ ArrayList }              :: import "std/collections/array_list";
+{ Path }                   :: import "std/path";
+{ Exception }              :: import "std/error";
+{ DirEntry, read_dir }     :: import "std/fs/dir";
+{ platform, Platform, arch, Arch : ProcessArch } :: import "std/process";
+
+// ── Supported architectures ───────────────────────────────────────────
+
+Arch :: enum(X86_64, Aarch64, X86, Arm, Wasm32);
+derive(Arch, Eq(Arch));
+
+// ── Supported operating systems ───────────────────────────────────────
+
+Os :: enum(Linux, Macos, Windows, FreeBSD, Wasi, Emscripten);
+derive(Os, Eq(Os));
+
+// ── Supported ABIs ────────────────────────────────────────────────────
+
+Abi :: enum(Gnu, Musl, Msvc, Wasm_);
+derive(Abi, Eq(Abi));
+
+// ── Target info ───────────────────────────────────────────────────────
+
+TargetInfo :: object(
+  arch              : Arch,
+  os                : Os,
+  abi               : Option(Abi),
+  pointer_size_bits : u32,
+  triple            : String
+);
+
+// ── Host info ─────────────────────────────────────────────────────────
+
+HostInfo :: object(
+  platform : Os,
+  arch     : Arch
+);
+
+// ── Enum ↔ string helpers ────────────────────────────────────────────
+
+arch_to_str :: (fn(a: Arch) -> str)(
+  match(a,
+    .X86_64  => "x86_64",
+    .Aarch64 => "aarch64",
+    .X86     => "x86",
+    .Arm     => "arm",
+    .Wasm32  => "wasm32"
+  )
+);
+
+os_to_str :: (fn(o: Os) -> str)(
+  match(o,
+    .Linux      => "linux",
+    .Macos      => "macos",
+    .Windows    => "windows",
+    .FreeBSD    => "freebsd",
+    .Wasi       => "wasi",
+    .Emscripten => "emscripten"
+  )
+);
+
+abi_to_str :: (fn(a: Abi) -> str)(
+  match(a,
+    .Gnu   => "gnu",
+    .Musl  => "musl",
+    .Msvc  => "msvc",
+    .Wasm_ => "wasm"
+  )
+);
+
+parse_arch :: (fn(s: String) -> Option(Arch))(
+  cond(
+    (s.as_str() == "x86_64")  => Option(Arch).Some(Arch.X86_64),
+    (s.as_str() == "aarch64") => Option(Arch).Some(Arch.Aarch64),
+    (s.as_str() == "x86")     => Option(Arch).Some(Arch.X86),
+    (s.as_str() == "arm")     => Option(Arch).Some(Arch.Arm),
+    (s.as_str() == "wasm32")  => Option(Arch).Some(Arch.Wasm32),
+    true                      => Option(Arch).None
+  )
+);
+
+parse_os :: (fn(s: String) -> Option(Os))(
+  cond(
+    (s.as_str() == "linux")      => Option(Os).Some(Os.Linux),
+    (s.as_str() == "macos")      => Option(Os).Some(Os.Macos),
+    (s.as_str() == "windows")    => Option(Os).Some(Os.Windows),
+    (s.as_str() == "freebsd")    => Option(Os).Some(Os.FreeBSD),
+    (s.as_str() == "wasi")       => Option(Os).Some(Os.Wasi),
+    (s.as_str() == "emscripten") => Option(Os).Some(Os.Emscripten),
+    true                         => Option(Os).None
+  )
+);
+
+parse_abi :: (fn(s: String) -> Option(Abi))(
+  cond(
+    (s.as_str() == "gnu")  => Option(Abi).Some(Abi.Gnu),
+    (s.as_str() == "musl") => Option(Abi).Some(Abi.Musl),
+    (s.as_str() == "msvc") => Option(Abi).Some(Abi.Msvc),
+    (s.as_str() == "wasm") => Option(Abi).Some(Abi.Wasm_),
+    true                   => Option(Abi).None
+  )
+);
+
+// ── Pointer size ──────────────────────────────────────────────────────
+
+pointer_size_for_arch :: (fn(a: Arch) -> u32)(
+  match(a,
+    .X86_64  => u32(64),
+    .Aarch64 => u32(64),
+    .X86     => u32(32),
+    .Arm     => u32(32),
+    .Wasm32  => u32(32)
+  )
+);
+
+// ── Default ABI for a given OS ────────────────────────────────────────
+
+_default_abi_for_os :: (fn(o: Os) -> Option(Abi))(
+  match(o,
+    .Linux      => Option(Abi).Some(Abi.Gnu),
+    .Windows    => Option(Abi).Some(Abi.Msvc),
+    .Wasi       => Option(Abi).Some(Abi.Wasm_),
+    .Emscripten => Option(Abi).Some(Abi.Wasm_),
+    .Macos      => Option(Abi).None,
+    .FreeBSD    => Option(Abi).None
+  )
+);
+
+// ── Build TargetInfo ──────────────────────────────────────────────────
+
+_build_triple :: (fn(a: Arch, o: Os, abi: Option(Abi)) -> String)({
+  s := String.from(arch_to_str(a));
+  s.push_str("-");
+  s.push_str(os_to_str(o));
+  match(abi,
+    .None    => (),
+    .Some(b) => {
+      s.push_str("-");
+      s.push_str(abi_to_str(b));
+    }
+  );
+  s
+});
+
+_build_target_info :: (fn(a: Arch, o: Os, abi: Option(Abi)) -> TargetInfo)(
+  TargetInfo(
+    arch:              a,
+    os:                o,
+    abi:               abi,
+    pointer_size_bits: pointer_size_for_arch(a),
+    triple:            _build_triple(a, o, abi)
+  )
+);
+
+// ── Linux musl detection ──────────────────────────────────────────────
+
+/// Detect whether the host Linux system uses musl libc.
+/// Checks /lib for files starting with "ld-musl-".
+/// On non-Linux or if /lib is unreadable, returns Abi.Gnu.
+detect_linux_abi :: (fn(
+  using(io : IO, exn : Exception)
+) -> Impl(Future(Abi, IO, Exception)))(
+  io.async((using(io, exn)) =>
+    if((platform != Platform.Linux), Abi.Gnu, {
+      given(try_exn) := Exception(throw: ((err) -> { return ArrayList(DirEntry).new(); }));
+      entries := io.await(read_dir(Path.new(String.from("/lib")), using(io, try_exn)));
+      n := entries.len();
+      k := usize(0);
+      found_musl := false;
+      while ((k < n)), {
+        e_opt := entries.get(k);
+        e := match(e_opt, .None => { k = n; break; }, .Some(p) => p);
+        if(e.name.starts_with(String.from("ld-musl-")), {
+          found_musl = true;
+          break;
+        });
+        k = (k + usize(1));
+      };
+      if(found_musl, Abi.Musl, Abi.Gnu)
+    })
+  )
+);
+
+// ── Host detection ────────────────────────────────────────────────────
+
+/// Detect the host machine's platform and architecture from compile-time constants.
+detect_host :: (fn() -> HostInfo)({
+  host_os := cond(
+    (platform == Platform.Linux)      => Os.Linux,
+    (platform == Platform.Macos)      => Os.Macos,
+    (platform == Platform.Windows)    => Os.Windows,
+    (platform == Platform.FreeBSD)    => Os.FreeBSD,
+    (platform == Platform.Wasi)       => Os.Wasi,
+    (platform == Platform.Emscripten) => Os.Emscripten,
+    true                              => Os.Linux
+  );
+  host_arch := cond(
+    (arch == ProcessArch.X86_64)  => Arch.X86_64,
+    (arch == ProcessArch.Aarch64) => Arch.Aarch64,
+    (arch == ProcessArch.X86)     => Arch.X86,
+    (arch == ProcessArch.Arm)     => Arch.Arm,
+    (arch == ProcessArch.Wasm32)  => Arch.Wasm32,
+    true                          => Arch.X86_64
+  );
+  HostInfo(platform: host_os, arch: host_arch)
+});
+
+/// Return a TargetInfo representing the host machine (native compilation).
+/// Async because Linux ABI detection reads the filesystem.
+host_target :: (fn(
+  using(io : IO, exn : Exception)
+) -> Impl(Future(TargetInfo, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    host := detect_host();
+    linux_abi := io.await(detect_linux_abi());
+    abi := cond(
+      (host.platform == Os.Linux)      => Option(Abi).Some(linux_abi),
+      (host.platform == Os.Windows)    => Option(Abi).Some(Abi.Msvc),
+      (host.platform == Os.Wasi)       => Option(Abi).Some(Abi.Wasm_),
+      (host.platform == Os.Emscripten) => Option(Abi).Some(Abi.Wasm_),
+      true                             => Option(Abi).None
+    );
+    _build_target_info(host.arch, host.platform, abi)
+  })
+);
+
+// ── Parse target triple ───────────────────────────────────────────────
+
+/// Parse a target triple string like "x86_64-linux-gnu" into a TargetInfo.
+/// Returns Err(message) on invalid input.
+///
+/// Accepted formats:
+///   - `<arch>-<os>`         (ABI defaults per OS)
+///   - `<arch>-<os>-<abi>`   (explicit ABI)
+///   - `wasm-emscripten`     (shorthand for `wasm32-emscripten`)
+///   - `wasm-wasi`           (shorthand for `wasm32-wasi`)
+parse_target :: (fn(triple: String) -> Result(TargetInfo, String))({
+  // Expand "wasm-*" shorthand
+  expanded := cond(
+    triple.starts_with(String.from("wasm-")) => {
+      s := String.from("wasm32-");
+      s.push_string(triple.substring(usize(5), triple.len()));
+      s
+    },
+    true => String.from(triple.as_str())
+  );
+
+  parts := expanded.split(String.from("-"));
+  parts_n := parts.len();
+
+  if(((parts_n < usize(2)) || (parts_n > usize(3))), {
+    return Result(TargetInfo, String).Err(String.from("Invalid target triple. Expected format: <arch>-<os> or <arch>-<os>-<abi>"));
+  });
+
+  arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
+  os_str   := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
+  abi_str  := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p);
+
+  arch_opt := parse_arch(arch_str);
+  os_opt   := parse_os(os_str);
+
+  a := match(arch_opt,
+    .None    => {
+      return Result(TargetInfo, String).Err(String.from("Unknown architecture in target triple"));
+    },
+    .Some(v) => v
+  );
+  o := match(os_opt,
+    .None    => {
+      return Result(TargetInfo, String).Err(String.from("Unknown OS in target triple"));
+    },
+    .Some(v) => v
+  );
+
+  abi := cond(
+    (parts_n < usize(3)) => _default_abi_for_os(o),
+    (abi_str.as_str() == "none") => Option(Abi).None,
+    true => {
+      parsed := parse_abi(abi_str);
+      match(parsed,
+        .None    => {
+          return Result(TargetInfo, String).Err(String.from("Unknown ABI in target triple"));
+        },
+        .Some(v) => Option(Abi).Some(v)
+      )
+    }
+  );
+
+  Result(TargetInfo, String).Ok(_build_target_info(a, o, abi))
+});
+
+// ── Clang triple ──────────────────────────────────────────────────────
+
+/// Convert a TargetInfo to the triple format clang expects for --target=.
+clang_triple :: (fn(target: TargetInfo) -> String)(
+  match(target.os,
+    .Linux => {
+      s := String.from(arch_to_str(target.arch));
+      s.push_str("-linux-");
+      s.push_str(match(target.abi, .Some(b) => abi_to_str(b), .None => "gnu"));
+      s
+    },
+    .Macos => {
+      s := String.from(arch_to_str(target.arch));
+      s.push_str("-apple-darwin");
+      s
+    },
+    .Windows => {
+      s := String.from(arch_to_str(target.arch));
+      cond(
+        (target.abi == Option(Abi).Some(Abi.Gnu)) => {
+          s.push_str("-w64-mingw32");
+        },
+        true => {
+          s.push_str("-pc-windows-msvc");
+        }
+      );
+      s
+    },
+    .FreeBSD => {
+      s := String.from(arch_to_str(target.arch));
+      s.push_str("-unknown-freebsd");
+      s
+    },
+    .Wasi => {
+      s := String.from(arch_to_str(target.arch));
+      s.push_str("-wasi");
+      s
+    },
+    .Emscripten => {
+      s := String.from(arch_to_str(target.arch));
+      s.push_str("-emscripten");
+      s
+    }
+  )
+);
+
+// ── Convenience queries ───────────────────────────────────────────────
+
+is_target_windows :: (fn(target: TargetInfo) -> bool)(
+  target.os == Os.Windows
+);
+
+is_target_linux :: (fn(target: TargetInfo) -> bool)(
+  target.os == Os.Linux
+);
+
+is_target_macos :: (fn(target: TargetInfo) -> bool)(
+  target.os == Os.Macos
+);
+
+is_target_msvc :: (fn(target: TargetInfo) -> bool)(
+  ((target.os == Os.Windows) && (target.abi == Option(Abi).Some(Abi.Msvc)))
+);
+
+is_target_wasm :: (fn(target: TargetInfo) -> bool)(
+  ((target.arch == Arch.Wasm32) || ((target.os == Os.Wasi) || (target.os == Os.Emscripten)))
+);
+
+is_target_emscripten :: (fn(target: TargetInfo) -> bool)(
+  target.os == Os.Emscripten
+);
+
+is_target_standalone_wasi :: (fn(target: TargetInfo) -> bool)(
+  target.os == Os.Wasi
+);
+
+is_target_musl :: (fn(target: TargetInfo) -> bool)(
+  target.abi == Option(Abi).Some(Abi.Musl)
+);
+
+is_target_posix :: (fn(target: TargetInfo) -> bool)(
+  ((!(is_target_windows(target))) && (!(is_target_wasm(target))))
+);
+
+export
+  Arch,
+  Os,
+  Abi,
+  TargetInfo,
+  HostInfo,
+  arch_to_str,
+  os_to_str,
+  abi_to_str,
+  parse_arch,
+  parse_os,
+  parse_abi,
+  pointer_size_for_arch,
+  detect_linux_abi,
+  detect_host,
+  host_target,
+  parse_target,
+  clang_triple,
+  is_target_windows,
+  is_target_linux,
+  is_target_macos,
+  is_target_msvc,
+  is_target_wasm,
+  is_target_emscripten,
+  is_target_standalone_wasi,
+  is_target_musl,
+  is_target_posix
+;

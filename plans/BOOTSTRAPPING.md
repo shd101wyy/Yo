@@ -442,6 +442,8 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
 **6h. pkg-config integration** ✅ Done — `yo-self/pkg-config/pkg_config.yo` mirrors `src/pkg-config.ts`. `PkgConfigResult`/`BuildSystemLibrary` types; `parse_cflags`/`parse_ldflags_into`/`build_fallback`/`apply_system_library_metadata` pure helpers; `is_pkg_config_available`/`query_pkg_config`/`resolve_system_library`/`resolve_all_system_libraries` async subprocess functions. 11 tests, 447 yo-self tests pass.
 
+**6i. Target system** ✅ Done — `yo-self/target/target.yo` mirrors `src/target.ts`. `Arch`/`Os`/`Abi` enums with Eq; `TargetInfo`/`HostInfo` objects; `parse_target`/`clang_triple`/`host_target`/`detect_host`/`detect_linux_abi` and full suite of `is_target_*` queries. 22 tests, 469 yo-self tests pass.
+
 ### Phase 7 — Self-hosting verification
 
 1. Use the TS-compiled Yo compiler (Stage 0) to compile the Yo-written compiler source → produce `yo-stage1` binary.
