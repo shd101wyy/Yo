@@ -423,6 +423,19 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `init_project(opts, io, exn)` — async: resolves paths, creates dirs via `create_dir_all`, skips existing files, aborts on existing `build.yo`; `Future(unit, IO, Exception)`
 - 13 unit tests in `yo-self/tests/init.test.yo`; 417 yo-self tests pass
 
+**6g. C compiler utilities** ✅ Done
+
+- `yo-self/compiler-utils/compiler_utils.yo` mirrors `src/compiler-utils.ts`
+- `CompilerInfo` — compiler name, MSVC/Windows/emcc flags
+- `SanitizerKind` enum — `Address` / `Leak`
+- `get_compiler_info(compiler)` — detect compiler kind from command name
+- `get_sanitizer_flags(sanitize, info)` — platform-aware flag selection via `match` + `cond`
+- `get_macos_lsan_suppressions()` — LSAN suppression string on macOS
+- `check_compiler_available(cc, io, exn)` — run `cc --version`, return bool
+- `find_available_compiler(io)` — probe `clang`/`cc`/`gcc`/`zig`/`cl` in order with per-candidate exception handler
+- `is_liburing_available(io, exn)` — `pkg-config --exists liburing` on Linux
+- 9 unit tests in `yo-self/tests/compiler_utils.test.yo`; 426 yo-self tests pass
+
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
 **6b-full. Dependency management** — `yo fetch`, `yo install`, git integration (uses 6b lock file layer)
 **6d. Documentation** — `yo doc` generator (can be lower priority)
