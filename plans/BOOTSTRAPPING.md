@@ -391,8 +391,20 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `current_yo_version()` — returns the compiled-in `CURRENT_YO_VERSION` constant
 - 14 unit tests in `yo-self/tests/version.test.yo`; 386 yo-self tests pass
 
+**6b. Lock file management** ✅ Done (pure logic layer; full `yo fetch`/git integration is 6b-full)
+
+- `yo-self/lock-file/lock_file.yo` mirrors `src/lock-file.ts`
+- `LockEntry` / `LockFile` structs; `LockFile.empty()` constructor
+- `parse_lock_file(content)` — line-by-line `[[dependencies]]` TOML-like parser; strips quote delimiters; defaults `ref` to `"HEAD"`
+- `write_lock_file_content(lock)` — serialises back to TOML-like format with auto-generated header comment
+- `read_lock_file(project_dir, io, exn)` — checks `exists`, falls back to empty lock; `Future(LockFile, IO, Exception)`
+- `save_lock_file(project_dir, lock, io, exn)` — writes serialised content via `write_file`; `Future(unit, IO, Exception)`
+- `find_lock_entry(lock, name)` — linear scan, returns `Option(LockEntry)`
+- `upsert_lock_entry(lock, entry)` — returns new `LockFile` with entry replaced or appended
+- 12 unit tests in `yo-self/tests/lock_file.test.yo`; 398 yo-self tests pass
+
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
-**6b. Dependency management** — `yo fetch`, `yo install`, lock file, git integration
+**6b-full. Dependency management** — `yo fetch`, `yo install`, git integration (uses 6b lock file layer)
 **6d. Documentation** — `yo doc` generator (can be lower priority)
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
 
