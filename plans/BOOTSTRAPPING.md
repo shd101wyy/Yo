@@ -440,6 +440,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 **6b-full. Dependency management** ✅ Done — `yo fetch`, git integration (uses 6b lock file layer). 10 tests, 436 yo-self tests pass.
 **6d. Documentation** — `yo doc` generator (can be lower priority)
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
+**6h. pkg-config integration** ✅ Done — `yo-self/pkg-config/pkg_config.yo` mirrors `src/pkg-config.ts`. `PkgConfigResult`/`BuildSystemLibrary` types; `parse_cflags`/`parse_ldflags_into`/`build_fallback`/`apply_system_library_metadata` pure helpers; `is_pkg_config_available`/`query_pkg_config`/`resolve_system_library`/`resolve_all_system_libraries` async subprocess functions. 11 tests, 447 yo-self tests pass.
 
 ### Phase 7 — Self-hosting verification
 
