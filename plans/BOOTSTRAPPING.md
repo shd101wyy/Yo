@@ -362,6 +362,13 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 
+**5i. `if`-with-block-branch codegen fix** ✅ Done
+
+- **Bug**: `if(cond, { break; })` previously emitted `break;` unconditionally before the ternary, because `handle_begin` emitted the break as a side-effect when `handle_if` called `call_gen_expr` to get the ternary operand code.
+- **Fix**: Added `is_begin_block` helper to `codegen/exprs.yo`; rewrote `handle_if` to detect when the then- or else-branch is a begin block. In that case, a C `if`/`else` statement is emitted into `ctx.emitter` and `"0"` is returned, so control-flow keywords (`break`, `continue`, `return`) fire only when the condition is true.
+- Simple-expression branches (no begin block) still use the C ternary path for efficiency.
+- 3 new unit tests in `codegen.test.yo`; 141 codegen tests, 369 yo-self tests pass.
+
 **5h. Template string codegen** ✅ Done
 
 - Template strings are parsed by `parse_template_string` into a chain of `.to_string()` calls and `.+(part)` method calls.

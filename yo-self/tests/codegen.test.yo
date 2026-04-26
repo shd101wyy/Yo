@@ -2373,3 +2373,61 @@ test "emit_c_preamble: __yo_str_concat helper is present", {
   assert(output.contains(String.from("__yo_str_concat")), "__yo_str_concat in preamble");
   assert(output.contains(String.from("memcpy")),          "memcpy in concat helper");
 };
+
+// Phase 5i: if-with-block-branch emits C if statement, not ternary ----------
+
+/// Build a begin block containing a single expression (like `{ break; }`).
+make_single_stmt_begin :: (fn(expr : AstExpr) -> AstExpr)({
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(expr);
+  make_begin_expr(stmts)
+});
+
+test "handle_if: block then-branch emits C if statement (not ternary)", {
+  // if((x > 0), { break; })  →  should contain "if (" and "break", NOT "? break"
+  cond_e := make_infix_expr(">",
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "0")
+  );
+  then_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
+  if_e   := make_if_expr(cond_e, then_e);
+
+  ctx := run_gen_with_ctx(if_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("if (")),   "C if statement emitted");
+  assert(code.contains(String.from("break")),  "break present in output");
+  assert((!code.contains(String.from("? break"))), "no ternary with break");
+};
+
+test "handle_if: simple expression still emits ternary", {
+  // if((x > 0), y)  →  should emit (... ? y : 0)
+  cond_e := make_infix_expr(">",
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "0")
+  );
+  then_e := make_atom_expr(TokenKind.Identifier, "y");
+  if_e   := make_if_expr(cond_e, then_e);
+
+  result_opt := run_gen(if_e);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None"),
+    .Some(result) => {
+      assert(result.contains(String.from("?")), "ternary operator present");
+      assert(result.contains(String.from("y")), "then-value y present");
+    }
+  );
+};
+
+test "handle_if: block else-branch emits C if/else statement", {
+  // if(flag, x, { break; })  →  should contain "if (" and "else" and "break"
+  cond_e := make_atom_expr(TokenKind.Identifier, "flag");
+  then_e := make_atom_expr(TokenKind.Identifier, "x");
+  else_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
+  if_e   := make_if_else_expr(cond_e, then_e, else_e);
+
+  ctx := run_gen_with_ctx(if_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("if (")),   "C if statement emitted");
+  assert(code.contains(String.from("else")),   "else branch emitted");
+  assert(code.contains(String.from("break")),  "break in else branch");
+};

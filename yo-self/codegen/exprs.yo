@@ -510,7 +510,29 @@ handle_while :: (fn(
   )
 });
 
-/// Generate `if(cond, then)` or `if(cond, then, else)` as a C ternary.
+/// Returns true if `expr` is a begin block (`{ ... }`), i.e. a FnCall whose
+/// func is an Atom with value `BK_BEGIN`.  These blocks contain statement-level
+/// side-effects (break / continue / return) that must NOT appear inside a C
+/// ternary operand — they need a C `if` statement instead.
+is_begin_block :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_) => false,
+    .FnCall(func_box, _, _, _) => match(func_box.*,
+      .FnCall(_, _, _, _) => false,
+      .Atom(ftok) => (ftok.value.as_str() == BK_BEGIN)
+    )
+  )
+);
+
+/// Generate `if(cond, then)` or `if(cond, then, else)`.
+///
+/// When the then- or else-branch is a begin block, a C `if`/`else` statement
+/// is emitted into `ctx.emitter` and `"0"` is returned as the expression
+/// value.  This is necessary because control-flow keywords like `break`,
+/// `continue`, and `return` cannot appear inside a C ternary operand.
+///
+/// When both branches are simple expressions (no begin block), a C ternary
+/// `(cond ? then : else)` is returned instead.
 handle_if :: (fn(
   args   : ArrayList(AstExpr),
   ctx    : *(CodegenContext),
@@ -528,30 +550,78 @@ handle_if :: (fn(
     .Some(cond_expr) => match(then_opt,
       .None => Option(String).None,
       .Some(then_expr) => {
-        c_opt   := call_gen_expr(cond_expr, ctx, indent);
-        t_opt   := call_gen_expr(then_expr, ctx, indent);
-        else_code := match(else_opt,
-          .None      => String.from("0"),
-          .Some(e_ex) => match(call_gen_expr(e_ex, ctx, indent),
-            .None    => String.from("0"),
-            .Some(s) => s
-          )
+        then_is_begin := is_begin_block(then_expr);
+        else_is_begin := match(else_opt,
+          .None    => false,
+          .Some(e) => is_begin_block(e)
         );
-        match(c_opt,
-          .None => Option(String).None,
-          .Some(c) => match(t_opt,
-            .None => Option(String).None,
-            .Some(t) => {
-              result := String.from("(");
-              result.push_string(c);
-              result.push_str(" ? ");
-              result.push_string(t);
-              result.push_str(" : ");
-              result.push_string(else_code);
-              result.push_str(")");
-              .Some(result)
-            }
-          )
+        cond(
+          // One or both branches is a block: emit a C if/else statement so
+          // that break/continue/return fire only when the condition is true.
+          (then_is_begin || else_is_begin) => {
+            c_opt := call_gen_expr(cond_expr, ctx, indent);
+            match(c_opt,
+              .None => Option(String).None,
+              .Some(c) => {
+                inner := {
+                  r := String.from(indent.as_str());
+                  r.push_str("  ");
+                  r
+                };
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit("if (");
+                ctx.*.emitter.emit_string(c);
+                ctx.*.emitter.emit_line(") {");
+                match(call_gen_expr(then_expr, ctx, inner),
+                  .None => (),
+                  .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
+                );
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit("}");
+                match(else_opt,
+                  .None => ctx.*.emitter.emit_line(""),
+                  .Some(else_expr) => {
+                    ctx.*.emitter.emit_line(" else {");
+                    match(call_gen_expr(else_expr, ctx, inner),
+                      .None => (),
+                      .Some(else_code) => emit_as_stmt(else_code, ctx, inner)
+                    );
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit_line("}");
+                  }
+                );
+                .Some(String.from("0"))
+              }
+            )
+          },
+          // Both branches are simple expressions: emit a C ternary.
+          true => {
+            c_opt   := call_gen_expr(cond_expr, ctx, indent);
+            t_opt   := call_gen_expr(then_expr, ctx, indent);
+            else_code := match(else_opt,
+              .None      => String.from("0"),
+              .Some(e_ex) => match(call_gen_expr(e_ex, ctx, indent),
+                .None    => String.from("0"),
+                .Some(s) => s
+              )
+            );
+            match(c_opt,
+              .None => Option(String).None,
+              .Some(c) => match(t_opt,
+                .None => Option(String).None,
+                .Some(t) => {
+                  result := String.from("(");
+                  result.push_string(c);
+                  result.push_str(" ? ");
+                  result.push_string(t);
+                  result.push_str(" : ");
+                  result.push_string(else_code);
+                  result.push_str(")");
+                  .Some(result)
+                }
+              )
+            )
+          }
         )
       }
     )
