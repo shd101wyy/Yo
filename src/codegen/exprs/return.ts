@@ -489,6 +489,15 @@ export function generateReturn(
       returnedOwnVarNames
     );
 
+    // When returning a dup'd borrowed variable, also drop the original.
+    // The dup/drop optimizer marks the original as "consumed" (no scope-end drop)
+    // and puts its drop expression in consumedVarPendingDrops (for escape paths).
+    // On an early return-with-dup path, the original is still alive and must be
+    // freed after we've created the dup'd copy for the caller.
+    if (handledDeferredDup) {
+      generateConsumedVarDropsForEscape(indent, functionContext, expr);
+    }
+
     if (isUnitType(expr.$.type)) {
       return `return`;
     }
