@@ -214,6 +214,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/evaluator/index.ts`                            | `yo-self/evaluator/index.yo`                            | 🔲 Pending                        |
 | `src/evaluator/context.ts`                          | `yo-self/evaluator/context.yo`                          | ✅ Done (Phase 2b-context)        |
 | `src/evaluator/shared/suspension-analysis-types.ts` | `yo-self/evaluator/shared/suspension_analysis_types.yo` | ✅ Done (Phase 2b-shared)         |
+| `src/evaluator/effects/effect-analysis-types.ts`    | `yo-self/evaluator/effects/effect_analysis_types.yo`    | ✅ Done (Phase 2b-effects-types)  |
 | `src/evaluator/exprs/*.ts`                          | `yo-self/evaluator/exprs/*.yo`                          | 🔲 Pending                        |
 | `src/evaluator/calls/*.ts`                          | `yo-self/evaluator/calls/*.yo`                          | 🔲 Pending                        |
 | `src/evaluator/builtins/*.ts`                       | `yo-self/evaluator/builtins/*.yo`                       | 🔲 Pending                        |
