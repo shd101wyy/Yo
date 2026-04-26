@@ -1,0 +1,96 @@
+//! Global cache directory resolution for the Yo build system.
+//!
+//! Resolution order for the cache root:
+//!   1. `$YO_CACHE_DIR`  (environment variable, highest priority)
+//!   2. `$XDG_CACHE_HOME/yo`
+//!   3. `~/.cache/yo`  (Linux/macOS default)
+//!   4. `%LOCALAPPDATA%\yo\cache`  (Windows default)
+//!
+//! Cache structure:
+//! ```
+//!   <cache_root>/
+//!     deps/      — fetched dependency source trees (<name>-<commit12>/)
+//!     versions/  — versioned Yo installations (<version>/)
+//! ```
+//!
+//! This mirrors `src/cache.ts`.
+
+open import "std/string";
+{ Path }               :: import "std/path";
+{ env }                :: import "std/env";
+{ platform, Platform } :: import "std/process";
+{ home_dir }           :: import "std/os/env";
+{ create_dir_all }     :: import "std/fs/dir";
+{ AnyError, Exception } :: import "std/error";
+
+// ---------------------------------------------------------------------------
+// Cache root resolution
+// ---------------------------------------------------------------------------
+
+/// Return the global Yo cache root directory.
+///
+/// Resolution order:
+///   1. `$YO_CACHE_DIR`
+///   2. `$XDG_CACHE_HOME/yo`
+///   3. Platform default — `%LOCALAPPDATA%\yo\cache` (Windows) or `~/.cache/yo`
+get_global_cache_dir :: (fn() -> String)({
+  yo_cache_env := env.get(String.from("YO_CACHE_DIR"));
+  match(yo_cache_env,
+    .Some(d) => d,
+    .None    => {
+      xdg := env.get(String.from("XDG_CACHE_HOME"));
+      match(xdg,
+        .Some(d) => d.concat(String.from("/yo")),
+        .None    =>
+          cond(
+            (platform == Platform.Windows) => {
+              local_app_data := match(env.get(String.from("LOCALAPPDATA")),
+                .Some(p) => p,
+                .None    => match(home_dir(),
+                  .Some(h) => h.concat(String.from("/AppData/Local")),
+                  .None    => String.from("C:/Users/Default/AppData/Local")
+                )
+              );
+              local_app_data.concat(String.from("/yo/cache"))
+            },
+            true => match(home_dir(),
+              .Some(h) => h.concat(String.from("/.cache/yo")),
+              .None    => String.from("~/.cache/yo")
+            )
+          )
+      )
+    }
+  )
+});
+
+/// Return the global dependency cache directory (`<cache_root>/deps`).
+get_global_deps_cache_dir :: (fn() -> String)(
+  get_global_cache_dir().concat(String.from("/deps"))
+);
+
+/// Ensure the global dependency cache directory exists and return its path.
+ensure_global_deps_cache_dir :: (fn(using(io : IO, exn : Exception)) -> Impl(Future(String, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    dir := get_global_deps_cache_dir();
+    io.await(create_dir_all(Path.new(dir), using(io)));
+    dir
+  })
+);
+
+/// Return the global versioned Yo installations cache directory (`<cache_root>/versions`).
+get_global_versions_cache_dir :: (fn() -> String)(
+  get_global_cache_dir().concat(String.from("/versions"))
+);
+
+/// Return the cache directory for a specific Yo version.
+get_version_cache_dir :: (fn(version : String) -> String)(
+  get_global_versions_cache_dir().concat(String.from("/")).concat(version)
+);
+
+export
+  get_global_cache_dir,
+  get_global_deps_cache_dir,
+  ensure_global_deps_cache_dir,
+  get_global_versions_cache_dir,
+  get_version_cache_dir
+;

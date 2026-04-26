@@ -403,6 +403,16 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `upsert_lock_entry(lock, entry)` — returns new `LockFile` with entry replaced or appended
 - 12 unit tests in `yo-self/tests/lock_file.test.yo`; 398 yo-self tests pass
 
+**6e. Cache directory resolution** ✅ Done
+
+- `yo-self/cache/cache.yo` mirrors `src/cache.ts`
+- `get_global_cache_dir()` — respects `$YO_CACHE_DIR` override, then `$XDG_CACHE_HOME/yo`, then platform default (`%LOCALAPPDATA%/yo/cache` on Windows, `~/.cache/yo` elsewhere)
+- `get_global_deps_cache_dir()` — `<cache_root>/deps`
+- `ensure_global_deps_cache_dir(io, exn)` — creates the deps cache directory and returns its path; `Future(String, IO, Exception)`
+- `get_global_versions_cache_dir()` — `<cache_root>/versions`
+- `get_version_cache_dir(version)` — `<cache_root>/versions/<version>`
+- 6 unit tests in `yo-self/tests/cache.test.yo`; 404 yo-self tests pass
+
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
 **6b-full. Dependency management** — `yo fetch`, `yo install`, git integration (uses 6b lock file layer)
 **6d. Documentation** — `yo doc` generator (can be lower priority)
