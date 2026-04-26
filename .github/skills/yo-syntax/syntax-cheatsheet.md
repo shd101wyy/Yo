@@ -504,7 +504,70 @@ p := Point(i32(1), i32(2));
 
 Enum variant construction is positional (no field names needed).
 
-## Advanced features (reference)
+### Object types (RC) are passed by value
+
+`HashMap`, `ArrayList`, and other `object(...)` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
+
+```rust
+// DO NOT use pointer params for RC objects:
+// WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
+// CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
+
+process_map :: (fn(m : HashMap(String, i32)) -> unit)({
+  m.set(String.from("key"), i32(42));  // mutation visible to caller
+});
+
+counts := HashMap(String, i32).new();
+process_map(counts);
+// counts now has "key" => 42
+```
+
+### Forward references are NOT allowed
+
+Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later).
+
+```rust
+// WRONG — forward reference:
+caller :: (fn() -> unit)({ helper(); });
+helper :: (fn() -> unit)({ println("hi"); });
+
+// CORRECT — helper before caller:
+helper :: (fn() -> unit)({ println("hi"); });
+caller :: (fn() -> unit)({ helper(); });
+```
+
+This applies to ALL callee-before-caller relationships:
+
+- `_walk_dag` before `build_dag`
+- `compile_artifact`, `run_executable`, `run_test_suite` before `execute_node`
+- `execute_node` before `execute_dag`
+- `_print_summary_node` before `print_build_summary`
+- `print_build_summary` before `execute_step`
+- Exports section must come AFTER all definitions
+
+### `if(!cond, block)` — use parentheses
+
+The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
+
+```rust
+// WRONG — ! consumes "cond, block" as one arg:
+if(!cond, { do_thing(); });
+
+// CORRECT — ! only consumes (cond):
+if((!cond), { do_thing(); });
+```
+
+### Template strings produce `String`, literals are `str`
+
+```rust
+// Template string `` `...` `` → String
+// String literal "..." → str
+
+// If a function takes `str`, call .as_str() on a template string:
+fn_taking_str((`prefix_${value}`).as_str());
+
+// Or change the function to take String
+```
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 

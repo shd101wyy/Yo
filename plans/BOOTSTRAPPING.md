@@ -223,7 +223,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/codegen/functions/*.ts`        | `yo-self/codegen/functions/*.yo`             | 🔲 Pending |
 | `src/module-manager.ts`             | `yo-self/module-manager/module_manager.yo`   | 🔲 Pending |
 | `src/yo-cli.ts`                     | `yo-self/main.yo`                            | Partial    |
-| `src/build-runner.ts`               | `yo-self/build/build_runner.yo`              | 🔲 Pending |
+| `src/build-runner.ts`               | `yo-self/build/build_runner.yo`              | ✅ Done    |
 | `src/dag.ts`                        | `yo-self/build/dag.yo`                       | 🔲 Pending |
 | `src/version.ts`                    | `yo-self/version/version.yo`                 | ✅ Done    |
 | `src/version-cache.ts`              | `yo-self/version/version_cache.yo`           | 🔲 Pending |
@@ -501,7 +501,7 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `is_liburing_available(io, exn)` — `pkg-config --exists liburing` on Linux
 - 9 unit tests in `yo-self/tests/compiler_utils.test.yo`; 426 yo-self tests pass
 
-**6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
+**6a. Build system** ✅ Done — `yo-self/build/build_registry.yo` + `yo-self/build/build_runner.yo` mirror `src/evaluator/builtins/build.ts` + `src/build-runner.ts`. `build_registry.yo`: all data types (`ImportedModule`, `BuildArtifact`, `BuildTestSuite`, `BuildRunStep`, `BuildDocConfig`, `BuildStep`, `BuildGitDependency`, `BuildPathDependency`, `BuildSystemLibrary`, `ResolvedDep` enum, `BuildRegistry` object) plus full `impl` block (21 methods). `build_runner.yo`: `DAGNodeKind`/`DAGNode`/`StepResult`/`ExecutionContext`/`BuildOptions` types; `_walk_dag`/`build_dag` (DFS traversal with `recur`); `_dfs_cycle`/`detect_cycle` (cycle detection with `recur`); `compile_artifact`/`run_executable`/`run_test_suite`/`execute_node`/`execute_dag` (Kahn's algorithm executor); `_print_summary_node`/`print_build_summary`/`execute_step`/`print_steps`/`evaluate_build_file`/`run_build`. Both files compile successfully. 512 yo-self tests pass.
 **6b-full. Dependency management** ✅ Done — `yo fetch`, git integration (uses 6b lock file layer). 10 tests, 436 yo-self tests pass.
 **6d. Documentation** — `yo doc` generator (can be lower priority)
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
