@@ -26,6 +26,17 @@ pause_then_answer :: (fn(using(io : IO)) -> Impl(Future(i32, IO)))(
 
 - `io.async(...)` is lazy
 - If a function uses `using(io : IO)` and returns a future, include `IO` in the `Future(...)` type
+- **Type annotations can be omitted** in the lambda's `using` params — the compiler infers types from the `Future(T, IO, Raise, ...)` return type. You can even rename the params:
+
+```rust
+// Equivalent — types inferred from Future(i32, IO, Raise) in the return type
+work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
+  io.async((using(my_io, my_raise)) => {    // ← any names, no type annotations needed
+    my_io.await(yield());
+    my_raise("error")
+  })
+);
+```
 
 ## Sequential await
 
@@ -128,12 +139,50 @@ work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
 - Every effect used by the future should appear in the `Future(...)` type
 - Effects propagate through `using(...)` just like other contextual parameters
 
+## Async recursion — use an iterative worklist instead
+
+`recur` does **not** work inside an `io.async` lambda — it refers to the lambda's own signature, not the outer function, so the argument types will not match. Calling the outer function by name is also forbidden in Yo. Attempting either will produce a compile-time error.
+
+**Solution**: replace async recursion with an iterative worklist using `ArrayList` as a stack:
+
+```rust
+{ read_dir, DirEntry } :: import "std/fs/dir";
+
+process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    stack := ArrayList(Path).new();
+    { stack.push(root); };
+
+    while runtime((stack.len() > usize(0))), {
+      cur := match(stack.pop(), .Some(p) => p, .None => return ());
+      entries := io.await(read_dir(cur));
+      // process `entries`, push subdirectories to `stack`
+      n := entries.len();
+      i := usize(0);
+      while runtime((i < n)), {
+        match(entries.get(i),
+          .None => (),
+          .Some(e) => {
+            match(e.file_type,
+              .Directory => { stack.push(cur.join(Path.new(e.name))); },
+              _ => ()   // handle files here
+            );
+          }
+        );
+        i = (i + usize(1));
+      };
+    };
+  })
+);
+```
+
 ## Common pitfalls
 
 - `io.async(...)` does not run immediately
 - `escape` inside async aborts the future instead of completing it normally
 - `io.await(...)` on an aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`
 - Handler functions cannot capture outer variables like closures; pass required state explicitly
+- **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion
 
 ## Exception (non-resumable)
 

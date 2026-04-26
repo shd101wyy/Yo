@@ -305,6 +305,35 @@ impl(Tree,
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
 
+### Async recursion — `recur` does NOT work inside `io.async`
+
+`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((using(io)) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
+
+**Pattern for async recursion**: Replace recursion with an iterative worklist:
+
+```rust
+// WRONG — "Variable 'walk_dir' not found" inside io.async:
+walk_dir :: (fn(path: Path, using(io: IO)) -> Impl(Future(unit, IO)))(
+  io.async((using(io)) => {
+    entries := io.await(read_dir(path));
+    // CANNOT call walk_dir recursively here
+  })
+);
+
+// CORRECT — use an explicit stack inside a single io.async:
+walk_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    stack := ArrayList(Path).new();
+    { stack.push(root); };
+    while runtime((stack.len() > usize(0))), {
+      cur := match(stack.pop(), .Some(p) => p, .None => return ());
+      entries := io.await(read_dir(cur));
+      // process entries, push subdirs to stack…
+    };
+  })
+);
+```
+
 ### `Self` in generic type constructors
 
 `Self` works inside generic type constructor functions too — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
