@@ -225,7 +225,31 @@ export main;
 - Handler uses `escape` to discard the continuation and exit the enclosing function
 - Code after the escaped call is never reached
 
-## ResumableException
+### Swallowing exceptions with a fallback value (return in Exception handler)
+
+When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `escape`). The `ResumeType` is the return type of the operation that would have thrown.
+
+```rust
+{ Command, ExitStatus, Output } :: import "std/process/command";
+
+// Check if a tool is available — returns false if it throws (e.g., not found)
+given(try_exn) := Exception(throw: ((err) -> {
+  return ExitStatus(raw: i32(1));  // resume with "failed" exit status
+}));
+status := io.await(cmd.status(using(io, try_exn)));
+available := status.success();  // false if exception was swallowed
+
+// For cmd.output(), resume with a failed Output:
+given(out_exn) := Exception(throw: ((err) -> {
+  return Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new());
+}));
+out := io.await(cmd.output(using(io, out_exn)));
+if((!(out.status.success())), { return (); });  // handle failure
+```
+
+Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `escape` only when the enclosing function returns `unit` (e.g., test bodies).
+
+**`escape T_value` constraint**: `escape T_value` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape non_unit` is used in a handler declared before the final return expression. Prefer `return fallback_value` (resume) when possible.
 
 `ResumableException(ResumeType)` is a module effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
