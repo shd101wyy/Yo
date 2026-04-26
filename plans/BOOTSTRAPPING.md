@@ -212,7 +212,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/env.ts`                        | `yo-self/env/env.yo`                         | ✅ Done                           |
 | `src/value.ts`                      | `yo-self/evaluator/value.yo`                 | Partial                           |
 | `src/evaluator/index.ts`            | `yo-self/evaluator/index.yo`                 | 🔲 Pending                        |
-| `src/evaluator/context.ts`          | `yo-self/evaluator/context.yo`               | 🔲 Pending                        |
+| `src/evaluator/context.ts`          | `yo-self/evaluator/context.yo`               | ✅ Done (Phase 2b-context)        |
 | `src/evaluator/exprs/*.ts`          | `yo-self/evaluator/exprs/*.yo`               | 🔲 Pending                        |
 | `src/evaluator/calls/*.ts`          | `yo-self/evaluator/calls/*.yo`               | 🔲 Pending                        |
 | `src/evaluator/builtins/*.ts`       | `yo-self/evaluator/builtins/*.yo`            | 🔲 Pending                        |
