@@ -40,3 +40,7 @@ assert(false, "Invalid rule name");
 ## Impact
 
 This prevents including dynamic information (like variable names, indices, etc.) in assertion messages, reducing debuggability.
+
+## Status: Fixed
+
+Added `assert_dyn(flag: bool, msg: String)` and `panic_dyn(msg: String)` to `std/string/string.yo` (exported via `std/string`). These wrap `assert` / `panic` by calling `.as_str()` on the message. Import `std/string` to use them.

@@ -358,8 +358,26 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 
 - `return expr1, expr2` parses as a single function call: `return(expr1, expr2)`
 - In `cond` or `match` branches, **always use begin blocks** when you need `return`
+- `return` must be the **last expression** in a begin block — dead code after `return` is rejected. Do NOT write `{ return x; fallback_val }`. Write `{ return x; }` only.
 - If the whole function is one expression, prefer expression-bodied style and skip `return` entirely
 - The same trap applies to any function call without parens in match branches
+
+## String concatenation pitfall
+
+```rust
+// WRONG — str + str causes "comptime_string vs str" type unification error:
+content := String.from("line1\n" + "line2\n");
+
+// CORRECT — use .concat() on String objects:
+content := String.from("line1\n").concat(String.from("line2\n"));
+
+// Also CORRECT — single long string literal:
+content := String.from("line1\nline2\n");
+```
+
+- `"hello" + "world"` at runtime uses `+` on `str` values, which can cause type mismatches
+- The `str + str` operator can produce a `comptime_string` in some contexts, which is not always compatible with `str`
+- Prefer `.concat()` method on `String` objects when building multi-part strings at runtime
 
 ## Iterator and for loop
 

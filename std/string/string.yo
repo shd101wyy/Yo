@@ -2175,10 +2175,31 @@ impl(String, Clone(
   )
 ));
 
+/// Like `assert`, but accepts a runtime `String` message (e.g. a template
+/// string with interpolation: `` `error: ${value}` ``).
+///
+/// Example:
+///   name := String.from("rule1");
+///   assert_dyn(name.len() > usize(0), `Invalid rule name: ${name}`);
+assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
+  assert(flag, msg.as_str());
+});
+
+/// Like `panic`, but accepts a runtime `String` message (e.g. a template
+/// string with interpolation: `` `error: ${value}` ``).
+///
+/// Example:
+///   panic_dyn(`Something went wrong: ${details}`);
+panic_dyn :: (fn(msg : String) -> unit)({
+  panic(msg.as_str());
+});
+
 export
   String,
   StringError,
   StringChars,
   StringBytes,
-  StringLines
+  StringLines,
+  assert_dyn,
+  panic_dyn
 ;

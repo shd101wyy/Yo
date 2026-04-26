@@ -191,9 +191,74 @@ impl(Emitter,
 
 This is efficient (contiguous buffer) and straightforward to implement.
 
----
+## Port Strategy: 1:1 TypeScript → Yo
 
-## Bootstrapping Phases
+The self-hosted compiler must be a **faithful one-to-one port** of the TypeScript codebase into Yo. No simplifications, no architectural redesigns, no skipping features. This makes the port:
+
+- **Easy to verify** — every TS function has a direct Yo counterpart; diffs are trivial.
+- **Easy to maintain** — when the TS compiler is updated, the Yo port is updated in parallel.
+- **Correct by construction** — since both implementations describe the same algorithm, any test that passes the TS compiler is a direct test for the Yo compiler.
+
+### File mapping (TypeScript source → Yo target)
+
+| TypeScript source                   | Yo target                                    | Status     |
+| ----------------------------------- | -------------------------------------------- | ---------- |
+| `src/lexer.ts`                      | `yo-self/lexer/lexer.yo`                     | ✅ Done    |
+| `src/parser.ts`                     | `yo-self/parser/parser.yo`                   | ✅ Done    |
+| `src/expr.ts`                       | `yo-self/parser/expr.yo`                     | ✅ Done    |
+| `src/types/definitions.ts`          | `yo-self/types/type.yo`                      | ✅ Done    |
+| `src/types/guards.ts`               | `yo-self/types/guards.yo`                    | 🔲 Pending |
+| `src/types/compatibility.ts`        | `yo-self/types/compatibility.yo`             | Partial    |
+| `src/env.ts`                        | `yo-self/env/env.yo`                         | ✅ Done    |
+| `src/value.ts`                      | `yo-self/evaluator/value.yo`                 | Partial    |
+| `src/evaluator/index.ts`            | `yo-self/evaluator/index.yo`                 | 🔲 Pending |
+| `src/evaluator/context.ts`          | `yo-self/evaluator/context.yo`               | 🔲 Pending |
+| `src/evaluator/exprs/*.ts`          | `yo-self/evaluator/exprs/*.yo`               | 🔲 Pending |
+| `src/evaluator/calls/*.ts`          | `yo-self/evaluator/calls/*.yo`               | 🔲 Pending |
+| `src/evaluator/builtins/*.ts`       | `yo-self/evaluator/builtins/*.yo`            | 🔲 Pending |
+| `src/evaluator/effects/*.ts`        | `yo-self/evaluator/effects/*.yo`             | 🔲 Pending |
+| `src/codegen/index.ts`              | `yo-self/codegen/index.yo`                   | 🔲 Pending |
+| `src/codegen/exprs/*.ts`            | `yo-self/codegen/exprs/*.yo`                 | 🔲 Pending |
+| `src/codegen/effects/*.ts`          | `yo-self/codegen/effects/*.yo`               | 🔲 Pending |
+| `src/codegen/functions/*.ts`        | `yo-self/codegen/functions/*.yo`             | 🔲 Pending |
+| `src/module-manager.ts`             | `yo-self/module-manager/module_manager.yo`   | 🔲 Pending |
+| `src/yo-cli.ts`                     | `yo-self/main.yo`                            | Partial    |
+| `src/build-runner.ts`               | `yo-self/build/build_runner.yo`              | 🔲 Pending |
+| `src/dag.ts`                        | `yo-self/build/dag.yo`                       | 🔲 Pending |
+| `src/version.ts`                    | `yo-self/version/version.yo`                 | ✅ Done    |
+| `src/version-cache.ts`              | `yo-self/version/version_cache.yo`           | 🔲 Pending |
+| `src/cache.ts`                      | `yo-self/cache/cache.yo`                     | ✅ Done    |
+| `src/lock-file.ts`                  | `yo-self/lock-file/lock_file.yo`             | ✅ Done    |
+| `src/fetch.ts`                      | `yo-self/fetch/fetch.yo`                     | ✅ Done    |
+| `src/fetch-command.ts`              | `yo-self/fetch/fetch_command.yo`             | ✅ Done    |
+| `src/install-command.ts`            | `yo-self/install-command/install_command.yo` | ✅ Done    |
+| `src/init.ts`                       | `yo-self/init/init.yo`                       | ✅ Done    |
+| `src/pkg-config.ts`                 | `yo-self/pkg-config/pkg_config.yo`           | ✅ Done    |
+| `src/target.ts`                     | `yo-self/target/target.yo`                   | ✅ Done    |
+| `src/doc-command.ts` / `src/doc/**` | `yo-self/doc/`                               | 🔲 Pending |
+
+### Translation guidelines
+
+Follow these rules consistently across all ported files:
+
+1. **TypeScript classes → Yo `object` / struct + `impl` block.** Methods that mutate state take `self: *(Self)`.
+2. **TypeScript discriminated unions → Yo `enum`.** Each variant carries its specific fields directly.
+3. **`expr.$` annotation cache → side-table `ExprInfoTable`.** The AST is immutable after parsing; evaluated data is stored in a parallel `HashMap(ExprId, ExprInfo)` updated through each pass.
+4. **`throw formatErrorMessage(...)` → Yo `Exception` algebraic effect.** Evaluator and codegen functions carry `using(exn: Exception)` parameters.
+5. **TypeScript `Map<K, V>` → Yo `HashMap(K, V)`.** TypeScript `Map` preserves insertion order in some patterns; use `ordered_map` where order matters.
+6. **TypeScript `Array<T>` → Yo `ArrayList(T)`.** `.push()`, `.pop()`, `.slice()`, `.find()`, etc. map directly.
+7. **Optional chaining `?.` / nullish coalescing `??` → `Option(T)` + `match`.** Use `.unwrap_or(default)` for the `?? default` pattern.
+8. **TypeScript `string` → Yo `String` (heap) or `str` (slice).** Use `String` for mutable/owned values, `str` for read-only slices. Template strings with `${}` interpolation work in both.
+9. **Named parameter destructuring → positional parameters or explicit struct types.** Yo does not have JavaScript-style destructured parameters; use named fields on structs.
+10. **`for...of` loops → `while` + iterator or `.for_each()`.** Iterator combinators (`map`, `filter`, `fold`) are in prelude; prefer them for functional-style loops.
+
+### Current state vs. full port
+
+The current `yo-self/evaluator/eval.yo` and `yo-self/codegen/driver.yo` are **prototypes** — they cover ~5% of the TypeScript evaluator and ~2% of the codegen. They need to be **replaced** with full ports during Phase 3 and Phase 4 respectively.
+
+The prototype code can serve as reference for the port strategy and test infrastructure, but the actual porting must follow the 1:1 file-mapping table above.
+
+---
 
 ### Phase 0 — Preparation (std library enrichment)
 
@@ -579,19 +644,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 
 ## Open Questions
 
-1. **Immutable vs mutable AST?** Side-table approach is cleaner but the TS codebase is deeply tied to mutation. Initial port might use mutable ASTs for pragmatism, then refactor.
+1. **Immutable vs mutable AST?** The 1:1 port uses a side-table (`ExprInfoTable`) for evaluation results so the AST stays immutable after parsing. This is the chosen approach.
 
-2. **How to handle the evaluator's ~56K lines?** Options:
+2. **Should the LSP be ported or kept as a separate TS project?** The LSP can remain TS for now since it only analyzes code, doesn't compile it. Port later.
 
-   - (a) Faithful 1:1 port (fastest to complete, easiest to verify correctness)
-   - (b) Redesign with cleaner architecture (slower, but better long-term)
-   - Recommend: (a) first, (b) after self-hosting is achieved.
+3. **WASM target for the compiler itself?** A `yo.wasm` compiler running in browser/Node would enable playground/online compiler. Low priority but interesting.
 
-3. **Should the LSP be ported or kept as a separate TS project?** The LSP can remain TS for now since it only analyzes code, doesn't compile it. Port later.
-
-4. **WASM target for the compiler itself?** A `yo.wasm` compiler running in browser/Node would enable playground/online compiler. Low priority but interesting.
-
-5. **Incremental compilation?** The current compiler recompiles everything. Bootstrapping is a good time to design incremental compilation, but it adds scope. Defer to post-self-hosting.
+4. **Incremental compilation?** The current compiler recompiles everything. Bootstrapping is a good time to design incremental compilation, but it adds scope. Defer to post-self-hosting.
 
 ---
 
