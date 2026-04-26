@@ -413,6 +413,16 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `get_version_cache_dir(version)` — `<cache_root>/versions/<version>`
 - 6 unit tests in `yo-self/tests/cache.test.yo`; 404 yo-self tests pass
 
+**6f. Project scaffolding** ✅ Done
+
+- `yo-self/init/init.yo` mirrors `src/init.ts`
+- `InitOptions` struct with `dir: String` and `name: Option(String)`
+- `sanitize_project_name(raw)` — replaces non-`[a-zA-Z0-9_-]` chars with `-` via byte iteration
+- `generate_build_yo(name)` — build.yo template with exe/lib/test/doc/run/install steps
+- `generate_main_source()`, `generate_lib_source()`, `generate_test_file()`, `generate_deps_yo()`, `generate_gitignore()`, `generate_readme(name)` — pure string generators
+- `init_project(opts, io, exn)` — async: resolves paths, creates dirs via `create_dir_all`, skips existing files, aborts on existing `build.yo`; `Future(unit, IO, Exception)`
+- 13 unit tests in `yo-self/tests/init.test.yo`; 417 yo-self tests pass
+
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
 **6b-full. Dependency management** — `yo fetch`, `yo install`, git integration (uses 6b lock file layer)
 **6d. Documentation** — `yo doc` generator (can be lower priority)
