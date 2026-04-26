@@ -2278,3 +2278,98 @@ test "handle_dot_access: c.* emits (*c)", {
     .Some(result) => assert(result.contains(String.from("(*c)")), "dereference emitted")
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5h — template string codegen
+// ---------------------------------------------------------------------------
+
+/// Build `obj.to_string()` — the pattern emitted by parse_template_string
+/// for each template-string part.
+make_to_string_call :: (fn(obj : AstExpr) -> AstExpr)(
+  make_method_call_expr(obj, "to_string", ArrayList(AstExpr).new())
+);
+
+/// Build `lhs.+(rhs)` — the chain emitted by parse_template_string to
+/// concatenate template-string parts.  Uses TokenKind.Operator for the
+/// method name atom, matching what the parser actually produces.
+make_ts_concat :: (fn(lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+  dot_tok    := make_token_raw(TokenKind.Dot, ".");
+  plus_tok   := make_token_raw(TokenKind.Operator, "+");
+  dot_args   := ArrayList(AstExpr).new();
+  _p1 := dot_args.push(lhs);
+  _p2 := dot_args.push(AstExpr.Atom(plus_tok));
+  dot_expr := AstExpr.FnCall(box(AstExpr.Atom(dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  _p3 := call_args.push(rhs);
+  AstExpr.FnCall(box(dot_expr), call_args, false, dot_tok)
+});
+
+test "template string: to_string() on string literal strips the call", {
+  // `"hello "`.to_string() → `"hello "`
+  lit_expr := make_atom_expr(TokenKind.StringLit, "\"hello \"");
+  ts_expr  := make_to_string_call(lit_expr);
+  result_opt := run_gen(ts_expr);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None"),
+    .Some(result) => assert((result.as_str() == "\"hello \""), "string literal passed through")
+  );
+};
+
+test "template string: to_string() on identifier strips the call", {
+  // `name`.to_string() → `name`
+  id_expr := make_atom_expr(TokenKind.Identifier, "name");
+  ts_expr  := make_to_string_call(id_expr);
+  result_opt := run_gen(ts_expr);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None"),
+    .Some(result) => assert((result.as_str() == "name"), "identifier passed through")
+  );
+};
+
+test "template string: .+(b) emits __yo_str_concat(a, b)", {
+  // `"fn_".to_string().+(name.to_string())` — i.e. `fn_${name}`
+  lhs := make_to_string_call(make_atom_expr(TokenKind.StringLit, "\"fn_\""));
+  rhs := make_to_string_call(make_atom_expr(TokenKind.Identifier, "name"));
+  concat_expr := make_ts_concat(lhs, rhs);
+  result_opt := run_gen(concat_expr);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None"),
+    .Some(result) => {
+      assert(result.contains(String.from("__yo_str_concat")), "__yo_str_concat present");
+      assert(result.contains(String.from("\"fn_\"")),          "literal part present");
+      assert(result.contains(String.from("name")),             "identifier part present");
+    }
+  );
+};
+
+test "template string: three-part chain emits nested __yo_str_concat", {
+  // `fn_${name}!` → __yo_str_concat(__yo_str_concat("fn_", name), "!")
+  lhs1 := make_to_string_call(make_atom_expr(TokenKind.StringLit, "\"fn_\""));
+  mid  := make_to_string_call(make_atom_expr(TokenKind.Identifier, "name"));
+  rhs1 := make_to_string_call(make_atom_expr(TokenKind.StringLit, "\"!\""));
+  inner := make_ts_concat(lhs1, mid);
+  outer := make_ts_concat(inner, rhs1);
+  result_opt := run_gen(outer);
+  match(result_opt,
+    .None => assert(false, "generate_expr returned None"),
+    .Some(result) => {
+      count := usize(0);
+      if(result.contains(String.from("__yo_str_concat")), {
+        count = (count + usize(1));
+      });
+      // The outer __yo_str_concat wraps an inner one — check both parts present
+      assert(result.contains(String.from("\"fn_\"")), "prefix literal present");
+      assert(result.contains(String.from("name")),    "interpolation present");
+      assert(result.contains(String.from("\"!\"")),   "suffix literal present");
+    }
+  );
+};
+
+test "emit_c_preamble: __yo_str_concat helper is present", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  emit_c_preamble("test_mod", pctx);
+  output := generate_c_output(pctx);
+  assert(output.contains(String.from("__yo_str_concat")), "__yo_str_concat in preamble");
+  assert(output.contains(String.from("memcpy")),          "memcpy in concat helper");
+};

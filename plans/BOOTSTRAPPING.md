@@ -362,6 +362,16 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 **Validation milestone**: `yo-self compile hello.yo -o hello && ./hello` works.
 
+**5h. Template string codegen** ✅ Done
+
+- Template strings are parsed by `parse_template_string` into a chain of `.to_string()` calls and `.+(part)` method calls.
+- `handle_method_call` in `codegen/exprs.yo` now handles two special cases:
+  - `x.to_string()` (zero args): strips the `to_string()` call and passes the receiver through — `"hello ".to_string()` → `"hello "`.
+  - `a.+(b)` (Operator `+` as method, one arg): emits `__yo_str_concat(a, b)`.
+- `emit_c_preamble` in `codegen/program.yo` now includes a `__yo_str_concat` helper that concatenates two `const char*` strings via `malloc`+`memcpy`.
+- Template strings whose parts are all `str`-typed (`const char*`) now compile and run correctly under `yo-self-bin compile`.
+- 5 new unit tests in `codegen.test.yo`; 138 codegen tests, 369 yo-self tests pass.
+
 ### Phase 6 — Ancillary systems
 
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation

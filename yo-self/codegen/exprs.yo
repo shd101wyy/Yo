@@ -907,7 +907,19 @@ get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
   )
 );
 
-/// Handle method call `obj.method(args)` → `obj.method(args)`.
+/// Handle method call `obj.method(args)` → C method call expression.
+///
+/// Two special cases support template string codegen:
+///
+/// - `x.to_string()` (zero args): the Yo parser emits this for every part of a
+///   template string.  We strip the call and pass the receiver through, so
+///   `"hello ".to_string()` → `"hello "` and `name.to_string()` → `name`.
+///
+/// - `a.+(b)` (one arg, Operator "+" as method): the Yo parser emits this to
+///   chain template-string parts.  We emit `__yo_str_concat(a, b)` which is
+///   defined in the generated C preamble.
+///
+/// All other method calls are emitted as `recv.method(args)`.
 handle_method_call :: (fn(
   func_box : Box(AstExpr),
   args     : ArrayList(AstExpr),
@@ -922,18 +934,40 @@ handle_method_call :: (fn(
       .None => Option(String).None,
       .Some(method_name) => match(call_gen_expr(recv_expr, ctx, indent),
         .None => Option(String).None,
-        .Some(recv_code) => match(gen_arg_list(args, ctx, indent),
-          .None        => Option(String).None,
-          .Some(arg_s) => {
-            result := String.new();
-            result.push_string(recv_code);
-            result.push_str(".");
-            result.push_string(method_name);
-            result.push_str("(");
-            result.push_string(arg_s);
-            result.push_str(")");
-            .Some(result)
-          }
+        .Some(recv_code) => cond(
+          // `x.to_string()` — template string part: strip to_string, pass receiver through.
+          ((method_name.as_str() == "to_string") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
+          // `a.+(b)` — template string concatenation: emit __yo_str_concat(a, b).
+          ((method_name.as_str() == "+") && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(arg_expr) => match(call_gen_expr(arg_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(arg_code) => {
+                  result := String.from("__yo_str_concat(");
+                  result.push_string(recv_code);
+                  result.push_str(", ");
+                  result.push_string(arg_code);
+                  result.push_str(")");
+                  Option(String).Some(result)
+                }
+              )
+            ),
+          // Default: emit as C method call `recv.method(args)`
+          true => match(gen_arg_list(args, ctx, indent),
+            .None        => Option(String).None,
+            .Some(arg_s) => {
+              result := String.new();
+              result.push_string(recv_code);
+              result.push_str(".");
+              result.push_string(method_name);
+              result.push_str("(");
+              result.push_string(arg_s);
+              result.push_str(")");
+              .Some(result)
+            }
+          )
         )
       )
     )
