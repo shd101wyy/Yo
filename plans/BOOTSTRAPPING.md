@@ -207,7 +207,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/parser.ts`                     | `yo-self/parser/parser.yo`                   | ✅ Done                           |
 | `src/expr.ts`                       | `yo-self/parser/expr.yo`                     | ✅ Done                           |
 | `src/types/definitions.ts`          | `yo-self/types/type.yo`                      | ✅ Done                           |
-| `src/types/guards.ts`               | `yo-self/types/guards.yo`                    | 🔲 Pending                        |
+| `src/types/guards.ts`               | `yo-self/types/guards.yo`                    | ✅ Done                           |
 | `src/types/compatibility.ts`        | `yo-self/types/compatibility.yo`             | Partial                           |
 | `src/env.ts`                        | `yo-self/env/env.yo`                         | ✅ Done                           |
 | `src/value.ts`                      | `yo-self/evaluator/value.yo`                 | Partial                           |
