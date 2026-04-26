@@ -201,41 +201,41 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 
 ### File mapping (TypeScript source → Yo target)
 
-| TypeScript source                   | Yo target                                    | Status     |
-| ----------------------------------- | -------------------------------------------- | ---------- |
-| `src/lexer.ts`                      | `yo-self/lexer/lexer.yo`                     | ✅ Done    |
-| `src/parser.ts`                     | `yo-self/parser/parser.yo`                   | ✅ Done    |
-| `src/expr.ts`                       | `yo-self/parser/expr.yo`                     | ✅ Done    |
-| `src/types/definitions.ts`          | `yo-self/types/type.yo`                      | ✅ Done    |
-| `src/types/guards.ts`               | `yo-self/types/guards.yo`                    | 🔲 Pending |
-| `src/types/compatibility.ts`        | `yo-self/types/compatibility.yo`             | Partial    |
-| `src/env.ts`                        | `yo-self/env/env.yo`                         | ✅ Done    |
-| `src/value.ts`                      | `yo-self/evaluator/value.yo`                 | Partial    |
-| `src/evaluator/index.ts`            | `yo-self/evaluator/index.yo`                 | 🔲 Pending |
-| `src/evaluator/context.ts`          | `yo-self/evaluator/context.yo`               | 🔲 Pending |
-| `src/evaluator/exprs/*.ts`          | `yo-self/evaluator/exprs/*.yo`               | 🔲 Pending |
-| `src/evaluator/calls/*.ts`          | `yo-self/evaluator/calls/*.yo`               | 🔲 Pending |
-| `src/evaluator/builtins/*.ts`       | `yo-self/evaluator/builtins/*.yo`            | 🔲 Pending |
-| `src/evaluator/effects/*.ts`        | `yo-self/evaluator/effects/*.yo`             | 🔲 Pending |
-| `src/codegen/index.ts`              | `yo-self/codegen/index.yo`                   | 🔲 Pending |
-| `src/codegen/exprs/*.ts`            | `yo-self/codegen/exprs/*.yo`                 | 🔲 Pending |
-| `src/codegen/effects/*.ts`          | `yo-self/codegen/effects/*.yo`               | 🔲 Pending |
-| `src/codegen/functions/*.ts`        | `yo-self/codegen/functions/*.yo`             | 🔲 Pending |
-| `src/module-manager.ts`             | `yo-self/module-manager/module_manager.yo`   | 🔲 Pending |
-| `src/yo-cli.ts`                     | `yo-self/main.yo`                            | Partial    |
-| `src/build-runner.ts`               | `yo-self/build/build_runner.yo`              | ✅ Done    |
-| `src/dag.ts`                        | `yo-self/build/dag.yo`                       | 🔲 Pending |
-| `src/version.ts`                    | `yo-self/version/version.yo`                 | ✅ Done    |
-| `src/version-cache.ts`              | `yo-self/version/version_cache.yo`           | 🔲 Pending |
-| `src/cache.ts`                      | `yo-self/cache/cache.yo`                     | ✅ Done    |
-| `src/lock-file.ts`                  | `yo-self/lock-file/lock_file.yo`             | ✅ Done    |
-| `src/fetch.ts`                      | `yo-self/fetch/fetch.yo`                     | ✅ Done    |
-| `src/fetch-command.ts`              | `yo-self/fetch/fetch_command.yo`             | ✅ Done    |
-| `src/install-command.ts`            | `yo-self/install-command/install_command.yo` | ✅ Done    |
-| `src/init.ts`                       | `yo-self/init/init.yo`                       | ✅ Done    |
-| `src/pkg-config.ts`                 | `yo-self/pkg-config/pkg_config.yo`           | ✅ Done    |
-| `src/target.ts`                     | `yo-self/target/target.yo`                   | ✅ Done    |
-| `src/doc-command.ts` / `src/doc/**` | `yo-self/doc/`                               | 🔲 Pending |
+| TypeScript source                   | Yo target                                    | Status                            |
+| ----------------------------------- | -------------------------------------------- | --------------------------------- |
+| `src/lexer.ts`                      | `yo-self/lexer/lexer.yo`                     | ✅ Done                           |
+| `src/parser.ts`                     | `yo-self/parser/parser.yo`                   | ✅ Done                           |
+| `src/expr.ts`                       | `yo-self/parser/expr.yo`                     | ✅ Done                           |
+| `src/types/definitions.ts`          | `yo-self/types/type.yo`                      | ✅ Done                           |
+| `src/types/guards.ts`               | `yo-self/types/guards.yo`                    | 🔲 Pending                        |
+| `src/types/compatibility.ts`        | `yo-self/types/compatibility.yo`             | Partial                           |
+| `src/env.ts`                        | `yo-self/env/env.yo`                         | ✅ Done                           |
+| `src/value.ts`                      | `yo-self/evaluator/value.yo`                 | Partial                           |
+| `src/evaluator/index.ts`            | `yo-self/evaluator/index.yo`                 | 🔲 Pending                        |
+| `src/evaluator/context.ts`          | `yo-self/evaluator/context.yo`               | 🔲 Pending                        |
+| `src/evaluator/exprs/*.ts`          | `yo-self/evaluator/exprs/*.yo`               | 🔲 Pending                        |
+| `src/evaluator/calls/*.ts`          | `yo-self/evaluator/calls/*.yo`               | 🔲 Pending                        |
+| `src/evaluator/builtins/*.ts`       | `yo-self/evaluator/builtins/*.yo`            | 🔲 Pending                        |
+| `src/evaluator/effects/*.ts`        | `yo-self/evaluator/effects/*.yo`             | 🔲 Pending                        |
+| `src/codegen/index.ts`              | `yo-self/codegen/index.yo`                   | 🔲 Pending                        |
+| `src/codegen/exprs/*.ts`            | `yo-self/codegen/exprs/*.yo`                 | 🔲 Pending                        |
+| `src/codegen/effects/*.ts`          | `yo-self/codegen/effects/*.yo`               | 🔲 Pending                        |
+| `src/codegen/functions/*.ts`        | `yo-self/codegen/functions/*.yo`             | 🔲 Pending                        |
+| `src/module-manager.ts`             | `yo-self/module-manager/module_manager.yo`   | 🔲 Pending                        |
+| `src/yo-cli.ts`                     | `yo-self/main.yo`                            | Partial                           |
+| `src/build-runner.ts`               | `yo-self/build/build_runner.yo`              | ✅ Done                           |
+| `src/dag.ts`                        | `yo-self/build/dag.yo`                       | N/A (embedded in build_runner.yo) |
+| `src/version.ts`                    | `yo-self/version/version.yo`                 | ✅ Done                           |
+| `src/version-cache.ts`              | `yo-self/version/version_cache.yo`           | ✅ Done                           |
+| `src/cache.ts`                      | `yo-self/cache/cache.yo`                     | ✅ Done                           |
+| `src/lock-file.ts`                  | `yo-self/lock-file/lock_file.yo`             | ✅ Done                           |
+| `src/fetch.ts`                      | `yo-self/fetch/fetch.yo`                     | ✅ Done                           |
+| `src/fetch-command.ts`              | `yo-self/fetch/fetch_command.yo`             | ✅ Done                           |
+| `src/install-command.ts`            | `yo-self/install-command/install_command.yo` | ✅ Done                           |
+| `src/init.ts`                       | `yo-self/init/init.yo`                       | ✅ Done                           |
+| `src/pkg-config.ts`                 | `yo-self/pkg-config/pkg_config.yo`           | ✅ Done                           |
+| `src/target.ts`                     | `yo-self/target/target.yo`                   | ✅ Done                           |
+| `src/doc-command.ts` / `src/doc/**` | `yo-self/doc/`                               | 🔲 Pending                        |
 
 ### Translation guidelines
 
@@ -455,6 +455,24 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `is_pinned_version_current(pinned, current)` — string equality check
 - `current_yo_version()` — returns the compiled-in `CURRENT_YO_VERSION` constant
 - 14 unit tests in `yo-self/tests/version.test.yo`; 386 yo-self tests pass
+
+**6c-cache. Version cache management** ✅ Done
+
+- `yo-self/version/version_cache.yo` mirrors `src/version-cache.ts`
+- `is_version_cached(version, io, exn)` — checks version dir/package.json existence, reads package.json for non-empty dependencies, checks node_modules; returns `Future(bool, IO, Exception)`
+- `list_cached_versions(io, exn)` — reads `~/.cache/yo/versions/`, filters dirs with package.json, returns sorted `ArrayList(String)`
+- `clean_version_cache(version_opt, io, exn)` — removes a specific version or all cached versions
+- `install_dependencies(version_dir, io, exn)` — tries `sh -c 'cd DIR && npm install ...'` then `bun install`; warns on failure
+- `_http_get(url, io, exn)` — curl-based HTTP GET with redirect following; returns body as `String`
+- `_download_file(url, dest_path, io, exn)` — curl-based file download with redirect following
+- `download_version(version, io, exn)` — fetches tarball URL from npm, downloads to TempDir, extracts with `tar xzf`, moves `package/` to version cache, installs deps
+- `ensure_cached_version(version, io, exn)` — checks cache first, downloads if missing
+- `fetch_remote_versions(io, exn)` — fetches npm package metadata, extracts version keys with byte-level state machine, returns sorted list
+- `find_js_runtime(io, exn)` — tries `node --version` then `bun --version`
+- `compare_semver(a, b)` — numeric semver comparison (`i64` diff); `_sort_by_semver` uses selection sort
+- `_json_string_for_key(json, key)` — ASCII JSON string field extractor
+- `_json_extract_version_keys(json)` — byte-level state machine extracts top-level keys from `"versions":{...}`
+- 512 yo-self tests pass
 
 **6b. Lock file management** ✅ Done (pure logic layer; full `yo fetch`/git integration is 6b-full)
 
