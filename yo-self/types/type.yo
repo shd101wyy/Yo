@@ -122,10 +122,13 @@ TypeValue :: enum(
   /// parameter. `frame_level` is the env frame at which it was introduced.
   /// Phase 2b: required and negative trait constraint lists.
   /// Phase 2d: `id` for unique identity (mirrors TypeScript SomeType.id).
+  /// Phase 2e: `parent_type` — the meta-type of this type variable (usually TypeUni(0)).
+  ///           Mirrors TypeScript `SomeType.parentType`.
   SomeT(
     id                    : String,            // unique identity string
     name                  : String,
     frame_level           : usize,
+    parent_type           : Box(Self),         // meta-type (TypeUni(0) by default)
     required_trait_types  : ArrayList(Self),   // required trait constraints
     required_trait_levels : ArrayList(usize),  // frame-level of each constraint
     negative_trait_types  : ArrayList(Self),   // negative trait constraints
@@ -240,6 +243,7 @@ t_module_simple :: (fn(name : String) -> TypeValue)(
 t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
   .SomeT(
     generate_some_type_id(), name, frame_level,
+    Box(TypeValue)(.TypeUni(usize(0))),
     ArrayList(TypeValue).new(), ArrayList(usize).new(),
     ArrayList(TypeValue).new(), ArrayList(usize).new()
   )

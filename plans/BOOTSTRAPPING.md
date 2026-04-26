@@ -209,6 +209,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/types/definitions.ts`                          | `yo-self/types/type.yo`                                 | ✅ Done                           |
 | `src/types/guards.ts`                               | `yo-self/types/guards.yo`                               | ✅ Done                           |
 | `src/types/env-lookup.ts`                           | `yo-self/types/env_lookup.yo`                           | ✅ Done (Phase 2d)                |
+| `src/types/hierarchy.ts`                            | `yo-self/types/hierarchy.yo`                            | ✅ Done (Phase 2e)                |
 | `src/types/compatibility.ts`                        | `yo-self/types/compatibility.yo`                        | Partial                           |
 | `src/env.ts`                                        | `yo-self/env/env.yo`                                    | ✅ Done                           |
 | `src/value.ts`                                      | `yo-self/evaluator/value.yo`                            | Partial                           |
@@ -283,6 +284,7 @@ yo-self/
     substitution.yo         -- Substitution engine (subst_new/add/lookup/substitute)
     guards.yo               -- type guard predicates (mirrors src/types/guards.ts)
     env_lookup.yo           -- getTraitTypeFromEnv / getValueOfSomeTypeFromEnv (mirrors src/types/env-lookup.ts)
+    hierarchy.yo            -- type_of_type / _determine_type_universe (mirrors src/types/hierarchy.ts)
   env/
     env.yo                  -- Variable, Frame, Environment (mirrors src/env.ts)
   evaluator/
@@ -337,6 +339,7 @@ yo-self/
     types_guards.test.yo           -- 27 type guard tests
     env.test.yo             -- 9 environment tests
     env_lookup.test.yo      -- 7 env-lookup tests
+    hierarchy.test.yo       -- 22 hierarchy / type_of_type tests
     type_of.test.yo         -- 12 literal type-of tests
     eval.test.yo            -- 97 evaluator tests
     context.test.yo         -- 11 evaluator context tests
@@ -454,6 +457,21 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
   - Internal helpers: `_is_type_eval_value`, `_unwrap_type_eval_value`, `_same_some_id`, `_some_id`, `_some_name`, `_id_visited`, `_lookup_by_frame`, `_was_self_bound`, `_do_chain_resolve`, `_chain_resolve`
 - 7 new env_lookup tests
 - **Total: 591 tests passing**
+
+**2e — SomeT.parent_type + hierarchy.ts port** ✅ Done — 613 tests total
+
+- Added `parent_type : Box(Self)` field to `SomeT` in `yo-self/types/type.yo`, defaults to `Box(TypeValue)(.TypeUni(usize(0)))` via `t_some_t` constructor
+- Updated `substitution.yo` to capture and preserve `parent_type` through type substitution
+- Ported `src/types/hierarchy.ts` → `yo-self/types/hierarchy.yo`:
+  - `type_of_type(ty) → TypeValue` — returns the meta-type (type universe level) of any type
+  - Internal: `_determine_type_universe(field_types, visited_names) → TypeValue` — recursive field-type universe computation with name-based cycle guard
+  - Internal: `type_of_type_with_visited(ty, visited) → TypeValue` — the recursive core
+  - Mutual recursion handled via `g_type_of_type_visited_fn` function-pointer slot (same pattern as `g_eval_fn` in `eval.yo`)
+  - Named type cycle detection uses `ArrayList(String)` visited-name tracking (mirrors TypeScript's `includes(element)` reference-equality check)
+  - Variants not yet in self-hosted `TypeValue` fall through to `_ =>` wildcard, returning `TypeUni(0)` safely
+  - `getFunctionParameterToken` deferred to Phase 3 (requires `FunctionParameter.exprs`)
+- 22 new hierarchy tests covering primitives, TypeUni levels, compound types, structs, enums, traits, modules, and SomeT
+- **Total: 613 tests passing**
 
 ### Phase 3 — Evaluator
 

@@ -149,7 +149,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       .ModuleT(n, fls, new_fts)
     },
     // SomeT — check substitution first; if not found, recurse into constraints.
-    .SomeT(id: orig_id, name: n, frame_level: lvl,
+    .SomeT(id: orig_id, name: n, frame_level: lvl, parent_type: pt,
            required_trait_types: rts, required_trait_levels: rlvls,
            negative_trait_types: nts, negative_trait_levels: nlvls) => {
       found := subst_lookup(s, n, lvl);
@@ -170,7 +170,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
             new_nts.push(recur(s, elem));
             i = (i + usize(1));
           };
-          .SomeT(orig_id, n, lvl, new_rts, rlvls, new_nts, nlvls)
+          .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls)
         }
       )
     },
