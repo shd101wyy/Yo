@@ -17,6 +17,7 @@
 //!     minimal in this iteration — Phase 2b will fill in the details.
 
 open import "std/string";
+open import "std/fmt";
 { ArrayList } :: import "std/collections/array_list";
 { TypeTag } :: import "./tags.yo";
 
@@ -120,7 +121,9 @@ TypeValue :: enum(
   /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic
   /// parameter. `frame_level` is the env frame at which it was introduced.
   /// Phase 2b: required and negative trait constraint lists.
+  /// Phase 2d: `id` for unique identity (mirrors TypeScript SomeType.id).
   SomeT(
+    id                    : String,            // unique identity string
     name                  : String,
     frame_level           : usize,
     required_trait_types  : ArrayList(Self),   // required trait constraints
@@ -131,6 +134,20 @@ TypeValue :: enum(
 );
 
 derive(TypeValue, Clone);
+
+// ---------------------------------------------------------------------------
+// Global counter for generating unique SomeType IDs.
+// Mirrors the `IdMap` counter in `src/utils.ts:generateVarialeId`.
+// ---------------------------------------------------------------------------
+
+(g_some_type_id_counter : usize) = usize(0);
+
+generate_some_type_id :: (fn() -> String)({
+  local_c := g_some_type_id_counter;
+  s := local_c.to_string();
+  g_some_type_id_counter = (g_some_type_id_counter + usize(1));
+  s
+});
 
 // ---------------------------------------------------------------------------
 // Convenience constructors for primitive and pointer-sized types
@@ -222,7 +239,7 @@ t_module_simple :: (fn(name : String) -> TypeValue)(
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
   .SomeT(
-    name, frame_level,
+    generate_some_type_id(), name, frame_level,
     ArrayList(TypeValue).new(), ArrayList(usize).new(),
     ArrayList(TypeValue).new(), ArrayList(usize).new()
   )
@@ -377,7 +394,7 @@ export
   t_func_simple,
   t_trait, t_trait_simple,
   t_module, t_module_simple,
-  t_some_t,
+  t_some_t, generate_some_type_id,
   is_int_type, is_float_type, is_signed_int_type, is_numeric_type,
   is_pointer_type, is_slice_type, is_array_type, is_function_type,
   is_trait_type, is_module_type,

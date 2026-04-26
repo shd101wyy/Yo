@@ -4,193 +4,24 @@ This directory holds the **Yo-in-Yo** port of the compiler. The goal is to repla
 the TypeScript implementation in `src/` with a Yo implementation that compiles to
 a single C file, which can be redistributed as `yo.c` plus a small driver.
 
-## Status
+See **[`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md)** for:
 
-✅ **Phase 1 complete.** Lexer and parser are ported and tested.
-✅ **Phase 2 complete.** Type system (all variants), environment, substitution engine, and literal type-of pass are ported and tested.
-✅ **Phase 3a/3b/3c complete.** Evaluator core dispatch + literal/identifier evaluation + arithmetic/comparison/boolean operators implemented and tested.
-✅ **Phase 3d complete.** Enum variant construction, `match` pattern matching, and `while` loops implemented and tested.
-✅ **Phase 3e complete.** Function definitions and calls, `return` propagation, named constants (`::`) implemented and tested.
-✅ **Phase 3f complete.** Type casts and typed arithmetic (`i32(x)`, `usize(x)`, etc.) implemented and tested.
-✅ **Phase 3h complete.** Struct value construction (`TypeName(field: val…)`) and field access (`obj.field`) implemented and tested.
-✅ **Phase 3i complete.** Lexical closure capture — function bodies now execute in a fresh env rebuilt from a snapshot of the definition-time bindings.
-✅ **Phase 3j complete.** `impl(TypeName, method: fn_def, …)` block support and struct method dispatch (`recv.method(args)`) implemented and tested.
-✅ **Phase 3k complete.** `TypeVal` — type names (`i32`, `bool`, `usize`, …) now evaluate to first-class `TypeVal(Box(TypeValue))` values. Foundation for generic type-param binding.
-✅ **Phase 3l complete.** Generic specialization / forall param binding — `forall(T)` type params are inferred from argument types at call time and bound as `TypeVal` in the function body.
-✅ **Phase 3m complete.** Module system — `ModuleVal` added to `EvalValue`; `evaluate_module_body` evaluates a list of top-level exprs and collects `export` declarations; `import "path"` dispatch uses a pluggable `g_module_loader` callback (registered via `set_module_loader`); `open(module)` brings all module fields into scope; `{ A, B } :: module` destructuring binds individual names.
-✅ **Phase 3n complete.** CTFE basics — `if(cond, then)` / `if(cond, then, else)` conditional expressions; float arithmetic (`+`, `-`, `*`, `/`) and comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`) constant folding via `atof`/`f64.to_string()`; float unary negation; `comptime(Name)` parameter name extraction in function definitions. All new logic factored into helper functions to keep `evaluate()`'s ASAN stack frame within the 8 MB limit.
-✅ **Phase 3o complete.** Effects / evidence passing — `using(name : Type)` evidence parameters extracted from function definitions into `FuncVal.evidence_params`; `using(name)` at call sites evaluates to the named value from the caller's environment; `call_funcval_with_args` binds evidence params from the trailing args after regular params. New helpers `extract_evidence_param_name` and `handle_using_call` factor the logic out of `evaluate()` to keep the ASAN stack frame within the 8 MB limit.
-✅ **Phase 4a complete.** Core emission framework — `Emitter` type (`yo-self/codegen/emitter.yo`) with `headers`/`declarations`/`code` string buffers; methods `emit`, `emit_line`, `emit_header_line`, `emit_declaration_line`, `emit_string`, and `print`; 8 tests passing.
-✅ **Phase 4b complete.** Expression codegen — `generate_expr` (`yo-self/codegen/exprs.yo`) handles integer/float/bool/string literals, identifier atoms, all binary infix operators (`+`,`-`,`*`,`/`,`%`,`==`,`!=`,`<`,`>`,`<=`,`>=`,`&&`,`||`), and unary prefix operators (`-`,`!`); nested expressions handled via module-level `g_gen_expr_fn` pointer; 24 new tests passing.
-✅ **Phase 4c complete.** Control flow codegen — `generate_expr` extended with `CodegenContext` parameter (`yo-self/codegen/context.yo`); handles `begin` blocks (emit all-but-last as statements, return last expr), `cond` and `if`/`if-else` (right-nested C ternary chains), `while runtime(cond), body` (C while loop with optional `runtime(...)` unwrapping); 9 new tests passing.
-✅ **Phase 4e complete.** Type codegen — `generate_type_decl` (`yo-self/codegen/types.yo`) emits C type declarations for `Struct` (forward declaration + field list) and `EnumT` (simple `typedef enum` for unit variants; tagged-union struct for data variants); `type_value_to_c_field` maps primitive `TypeValue`s to C type strings; `struct_c_name`/`enum_c_name`/`enum_tag_prefix` build the ID-based C names; `emit_declaration_string_line` added to `Emitter`; 7 new tests passing.
-✅ **Phase 4i complete (simplified).** RC/GC codegen — `generate_rc_fns` and `generate_rc_fns_trivial` (`yo-self/codegen/rc.yo`) emit `__dispose`, `__drop`, and `__dup` C functions for struct and enum types with all-primitive fields; forward declarations go into `declarations` section, bodies into `code` section; 6 new tests passing.
-✅ **Phase 4j complete.** Program emission — `emit_c_preamble` emits C11 headers and libc allocator macros into the headers section; `emit_main_wrapper` emits `int main(void)` calling the user's Yo main; `generate_c_output` concatenates all sections into the final C source (`yo-self/codegen/program.yo`); 6 new tests passing including a full end-to-end program assembly test.
-✅ **Phase 4d (match) complete.** Match codegen — `generate_match_simple` and `generate_match_data` (`yo-self/codegen/match.yo`) emit `switch` statements for unit-enum and data-enum matches respectively; `DataBinding`/`SimpleArm`/`DataArm` data structures; wildcard arms emit `default:` cases; 9 new tests passing.
-✅ **Phase 4 validation milestone (compiler driver).** `compile_module_to_c` (`yo-self/codegen/driver.yo`) walks a parsed module body, extracts `name :: (fn(params) -> T)(body)` definitions via `extract_fn_def`, maps Yo type annotations to C types, and assembles a complete C11 source file; 9 new tests passing including two parser-integrated end-to-end tests that parse real Yo source then verify C output.
-✅ **Phase 4 integration milestone (compile → run).** Two end-to-end integration tests (`yo-self/tests/integration.test.yo`) parse Yo source with the self-hosted parser, call `compile_module_to_c` to produce C11 source, write the C to a temp file, compile it with the system `cc`, run the binary, and assert exit code 0. Also fixed two underlying bugs: (1) compiler codegen bug — unspecialized `isModuleEffectMember` forall effect handlers were not emitted when specializations existed, causing `cc` link errors when the async capture struct stored the unspecialized function pointer; (2) self-hosted codegen bug — empty `{ }` blocks were parsed as zero-arg anonymous structs (`_()`) and fell through to the regular function-call emitter, generating `_()` in C instead of the unit sentinel `0`.
-✅ **Phase 5a CLI entry point.** `yo-self/main.yo` wires argument parsing, the `compile` subcommand, the self-hosted parser, `compile_module_to_c`, C output, and `cc` invocation into a working `yo-self-bin` binary. Also fixed three compiler bugs exposed by this phase: phantom RC-owning temp for forall escape handlers in match arms (`helper.ts`); missing escape control-flow propagation for forall `isControlFunction` calls (`function.ts`); dead-code after escape handlers not skipped in `begin.ts`/`cond.ts` codegen; uninitialized variable drops at escape sites skipped in `return.ts`.
-✅ **Phase 5b Test runner.** `yo-self test <file.test.yo> [--test-name-pattern <pattern>]` parses a `.test.yo` file, finds all `test "name", { body }` declarations, compiles each to a standalone C program via `compile_test_body_to_c`, and reports pass/fail/skipped with proper exit codes. Also fixed three self-hosted codegen gaps: `:=` define now emits `__auto_type name = val;`; type casts `i32(x)` now emit `(int32_t)(x)`; `assert`/`comptime_assert` now emit `if (!(cond)) { exit(1); }`.
-✅ **Phase 5c Struct constructors + cross-function calls.** `TypeName(field: val, ...)` now emits C compound literals `(TypeName){.field = val}` via `handle_struct_constructor`. `CodegenContext` tracks registered user-defined function names; `compile_module_to_c` uses a two-pass approach (register then emit); `handle_regular_call` adds `fn_` prefix only for registered functions. `compile_test_body_to_c` now emits helper function bodies into the same C file so test bodies can call module-level helpers.
-✅ **Phase 5d Match value codegen.** `match(scrut, pat => body, ..., _ => default)` emits a ternary chain via `handle_match_value`. `gen_match_arm` builds one arm as `(temp == pat ? body : rest)`. A wildcard `_` arm becomes the default branch. 4 new unit tests; 125 codegen tests, 352 yo-self tests pass.
-✅ **Phase 5e Enum type declarations + variant access.** `Name :: enum(V1, V2, ...)` now emits `typedef enum { Name_V1, ... } Name;`. `CodegenContext` tracks registered enums; `handle_dot_access` rewrites `Color.Red` → `Color_Red` when the object is a registered enum. 4 new unit tests; 129 codegen tests, 356 yo-self tests pass.
-✅ **Phase 5f Pointer types, address-of, dereference, compound LHS assignment.** `*(T)` → `T*` (in `type_expr_to_c`); `&x` → `(&x)` (added to `is_unary_prefix_op`); `c.*` → `(*c)` (via `handle_dot_access`); compound LHS like `c.*.field = val` now handled by `handle_assignment` fallback. 4 new unit tests; 133 codegen tests, 360 yo-self tests pass.
-✅ **Phase 5g Error formatting.** `ParseError` gains a `source_line: String` field. Added `extract_source_line(input, row)`, `make_parse_error(tok, msg)`, and `make_parse_error_raw(module_path, msg)` factory helpers. All 29 `exn.throw(dyn ParseError(...))` sites in `parser.yo` replaced with factory calls. `ParseError.to_string()` now emits a multi-line message with `-->`, `|`, source line, and `^` caret; 0-indexed lexer rows are displayed as 1-indexed. 4 new unit tests; 40 parser tests, 364 yo-self tests pass.
-✅ **Phase 6b-full Git dependency fetching.** `yo-self/fetch/fetch.yo` mirrors `src/fetch.ts`. `BuildGitDependency` (name/url/ref/path), `CachedDepStatus` enum (Ok/Missing/HashMismatch/MissingHash), `CachedDepState`, `FetchDepResult`, `FetchResult` types. `normalize_line_endings` strips `\r` before `\n`. `sort_dir_entries` in-place selection sort (uses pointer writes). `compute_content_hash` iterative DFS via `_HashWorkItem` stack (avoids Yo self-recursion limitation): hashes file/dir entries in sorted order using SHA-256. `write_sidecar_hash`/`read_sidecar_hash` manage `.yo-content-hash` sidecar files. `inspect_cached_dep` validates cached path + sidecar hash. `resolve_git_ref` runs `git ls-remote`. `clone_repo` shallow-clones then fetches exact commit, hashes and moves to final path atomically. `fetch_dep` orchestrates lock-file lookup → resolve → clone → hash → sidecar → lock-file upsert. `fetch_all_deps`/`are_deps_cached`/`resolve_dep_path` complete the public API. 10 unit tests in `yo-self/tests/fetch.test.yo`; 436 yo-self tests pass.
+- Current status and test counts per phase
+- File mapping table (TypeScript source → Yo target)
+- Directory layout
+- Translation guidelines
+- Architecture decisions
+- Risk assessment and success criteria
 
-✅ **Phase 6h pkg-config integration.** `yo-self/pkg-config/pkg_config.yo` mirrors `src/pkg-config.ts`. `PkgConfigResult` object (c_flags, ld_flags, include_paths, library_paths, link_libraries, defines, runtime_files). `BuildSystemLibrary` object for system library config. `_split_whitespace` helper splits on ASCII whitespace; `parse_cflags` routes `-I`/`-D`/other flags; `parse_ldflags_into` routes `-L`/`-l`/other flags; `build_fallback` builds from user-provided paths; `apply_system_library_metadata` merges defines; `_append_all`/`_append_all_unique`/`_merge_into` merge helpers. `is_pkg_config_available`/`query_pkg_config` async subprocess functions (exception handlers use `return ExitStatus`/`return Output` resume pattern instead of `escape`). `resolve_system_library`/`resolve_all_system_libraries` orchestrate the full resolution flow. 11 unit tests in `yo-self/tests/pkg_config.test.yo`; 447 yo-self tests pass.
-
-✅ **Phase 6i Target system.** `yo-self/target/target.yo` mirrors `src/target.ts`. `Arch` enum (X86*64/Aarch64/X86/Arm/Wasm32), `Os` enum (Linux/Macos/Windows/FreeBSD/Wasi/Emscripten), `Abi` enum (Gnu/Musl/Msvc/Wasm*) — all with `derive(T, Eq(T))`. `TargetInfo` object (arch, os, abi: Option(Abi), pointer*size_bits, triple). `HostInfo` object. `arch_to_str`/`os_to_str`/`abi_to_str` enum-to-string helpers; `parse_arch`/`parse_os`/`parse_abi` string-to-enum parsers; `pointer_size_for_arch`; `_build_triple`/`_build_target_info` builders; `detect_linux_abi` (async: reads `/lib` for musl linker); `detect_host` (pure: uses `platform`/`arch` comptime constants from `std/process`); `host_target` (async wrapper); `parse_target` (parses `<arch>-<os>[-<abi>]`, expands `wasm-*`shorthands);`clang_triple`; full suite of `is_target\*\*`queries. 22 unit tests in`yo-self/tests/target.test.yo`; 469 yo-self tests pass.
-
-✅ **Phase 2b-guards Type guard predicates.** `yo-self/types/guards.yo` mirrors `src/types/guards.ts` — 1:1 port of all exported guard functions. Exports and re-exports (from `type.yo`): `is_primitive_type` (all value-type variants including C-compat); exact-width guards `is_u8_type`/`is_i8_type`/.../`is_u64_type`/`is_i64_type`; `is_f32_type`/`is_f64_type`; `is_usize_type`/`is_isize_type`; `is_comptime_int_type`/`is_comptime_float_type`/`is_comptime_string_type`; `is_void_type`; `is_tuple_type`/`is_union_type`; `is_integer_type` (fixed-width + pointer-sized), `is_unsigned_integer_type`; C-compat guards `is_char_type`/`is_short_type`/.../`is_long_double_type`/`is_c_compatible_type`; `is_type_hierarchy_type`/`is_type_0` (TypeUni checks); `is_function_type_and_is_type_function` (Func → TypeUni return); `is_function_type_generic` (partial: forall labels + implicit labels + SomeT params); `is_function_type_hard_generic` (partial: forall labels + SomeT params). Phase 2b stubs (return `false`): `is_object_type`, `is_atomic_object_type`, `is_newtype_type`, `is_fn_trait_type`, `is_iso_type`, `is_dyn_type`, `is_type_application_type`, `is_rc_type`, `is_comptime_list_type`, `is_expr_list_type`, `is_expr_type`, `is_future_trait_type`, `is_concrete_trait_type`, `is_function_type_and_is_macro_function`, `is_function_type_and_returns_comptime_value`, `is_function_specializable`, `is_boxed_type`, `is_effects_row_type`. 27 unit tests in `yo-self/tests/types_guards.test.yo`. **539 yo-self tests pass**.
-
-✅ **Phase 2b-context Evaluator context types.** `yo-self/evaluator/context.yo` mirrors `src/evaluator/context.ts` — 1:1 port of all exported types and the `trackVariableUsage` helper. TypeScript interfaces → Yo `object` types; optional TypeScript fields → `Option(T)` fields; TypeScript discriminated unions → Yo enums; `Map<K,V>` → `HashMap(K,V)`; `Set<K>` → `HashSet(K)`; callback types → Yo function type fields. Key exports: `EvalContext` (28-field object — all evaluator flags, module path, function/loop/expected-type sub-contexts, captured variables, specialization stack, doc-comment table), `eval_context_new` (default-initialised context); `FuncOrAsyncBlockKind` enum (`FunctionBody`/`AsyncBlock`/`TestBlock`) + `FuncOrAsyncBlockCtx`; `LoopKind` enum (`While`/`For`) + `LoopBodyCtx`; `ExpectedTypeCtx`; `CaptureUsage` enum (`Read`/`Write`/`Own`) + `CapturedVarInfo`; `SpecializingFunctionInfo`/`ImplConcreteTypeInfo`; `ArgEntry`/`VarArgEntry`/`ArgValues`; `FuncCallResult`/`TypeCallResult`/`ModuleTypeCallResult`/`TraitTypeCallResult`/`TraitSpecializationResult`/`MacroFuncCallResult`/`NumericTypeCallResult`/`PointerTypeCallResult`/`IndexCallResult`; `CallResultKind` enum (13 variants); `FunctionToCall`; `PathCollection` (Phase 2b stub: `ArrayList(AstExpr)`); `LoadModuleResult`; `track_variable_usage` (searches eval_env frames, promotes existing capture usage, skips compile-time-only vars). 11 unit tests in `yo-self/tests/context.test.yo`. **550 yo-self tests pass**.
-
-✅ **Phase 2b-shared Suspension analysis types.** `yo-self/evaluator/shared/suspension_analysis_types.yo` mirrors `src/evaluator/shared/suspension-analysis-types.ts` — 1:1 port of all exported types. TypeScript optional fields → `Option(T)`; self-referential `isOwningTheSameRcValueAs: SuspensionCapturedVariable | undefined` → `Option(Box(Self))` (using `Box(Self)` to break the recursive value-type cycle). Key exports: `SuspensionPoint` object (9 fields: index, expr, target_variable_id, is_inside_cond, is_inside_while, while_nesting_depth, cond_branch_source_index, needs_own_cond_branch_field, enclosing_while_expr); `SuspensionCapturedVariable` object (id, name, ty, is_owning_the_same_rc_value_as); `SuspensionAnalysisResult` object (suspension_points, captured_variables, has_suspensions, variable_id_remapping); `suspension_analysis_result_empty` constructor. 7 unit tests in `yo-self/tests/suspension_analysis_types.test.yo`. **557 yo-self tests pass**.
-
-✅ **Phase 2b-effects-types Effect analysis types.** `yo-self/evaluator/effects/effect_analysis_types.yo` mirrors `src/evaluator/effects/effect-analysis-types.ts` — 1:1 port of all exported types. TypeScript `extends` (interface inheritance) → embedding base type as a `base` field (Yo has no interface inheritance). `EffectCallPoint` embeds `SuspensionPoint` via `base` field + adds `operation_arg_types`, `operation_result_type`, `is_transitive_effect_call`, `is_transitive_closure_call`, `effect_index` fields. `EffectCapturedVariable` embeds `SuspensionCapturedVariable` via `base` + typed self-referential `is_owning_the_same_rc_value_as: Option(Box(Self))` override. `EffectHandlerInfo` object with per-handler metadata. `EffectAnalysisResult` aggregates call points, captured variables, remapping, and optional multi-effect handler infos; `effect_analysis_result_empty` constructor. 11 unit tests in `yo-self/tests/effect_analysis_types.test.yo`. **568 yo-self tests pass**.
-
-✅ **Phase 2b-await-types Await analysis types.** `yo-self/evaluator/async/await_analysis_types.yo` mirrors `src/evaluator/async/await-analysis-types.ts` — 1:1 port of all exported types. `CapturedVariableKind` enum (`Local`/`Outer`) replaces the TypeScript `"local" | "outer"` string union. `AwaitPoint` embeds `SuspensionPoint` as `base` + adds `result_type`, `future_type`, `future_variable_id` fields. `CapturedVariable` embeds `SuspensionCapturedVariable` as `base` + adds `kind` discriminator + typed `is_owning_the_same_rc_value_as: Option(Box(Self))` override. `AwaitAnalysisResult` aggregates await points, captured variables, `has_awaits`, and `variable_id_remapping`; `await_analysis_result_empty` constructor. 10 unit tests in `yo-self/tests/await_analysis_types.test.yo`. **578 yo-self tests pass**.
-
-✅ **Phase 6c-cache Version cache management.** `yo-self/version/version_cache.yo` mirrors `src/version-cache.ts`. Key exports: `is_version_cached` (checks version dir + package.json existence, reads dependencies key); `list_cached_versions` (reads `~/.cache/yo/versions/`, returns semver-sorted list); `clean_version_cache(version_opt)` (removes one version or all); `install_dependencies` (tries `npm install` then `bun install` via `sh -c`); `download_version` (fetches tarball URL from npm, downloads with curl, extracts with tar, installs deps); `ensure_cached_version` (cache-or-download); `fetch_remote_versions` (queries npm registry, extracts version keys with byte-level JSON state machine); `find_js_runtime` (tries `node` then `bun`). Helpers: `_http_get`/`_download_file` (curl-based); `_json_string_for_key` / `_json_extract_version_keys` (ASCII JSON extractors); `compare_semver`/`_sort_by_semver` (numeric semver sort using selection sort). **512 yo-self tests pass**.
-
-✅ **Phase 6a Build system.** `yo-self/build/build_registry.yo` mirrors `src/evaluator/builtins/build.ts`; `yo-self/build/build_runner.yo` mirrors `src/build-runner.ts`. `build_registry.yo` defines `ImportedModule`, `BuildArtifact`, `BuildTestSuite`, `BuildRunStep`, `BuildDocConfig`, `BuildStep`, `BuildGitDependency`, `BuildPathDependency`, `BuildSystemLibrary`, `ResolvedDep` enum, `BuildRegistry` object — all matching the TypeScript interfaces 1:1. `BuildRegistry` impl methods: `register_executable`/`register_static_library`/`register_shared_library`/`register_test`/`register_run`/`register_step`/`add_step_dependency`/`register_dependency`/`register_path_dependency`/`register_system_library`/`register_documentation`/`register_cli_option`/`find_artifact`/`find_test`/`find_run_step`/`find_step`/`find_documentation`/`get_step_names`/`register_link`/`resolve_dependency`/`_check_duplicate_artifact_name`/`reset`. `build_runner.yo` defines `DAGNodeKind` enum, `DAGNode`/`StepResult`/`ExecutionContext`/`BuildOptions` objects. Key functions: `_walk_dag` (DFS dependency walker, `recur` for self-recursion), `build_dag` (builds DAG from root step name), `_dfs_cycle`/`detect_cycle` (DFS cycle detection), `compile_artifact`/`run_executable`/`run_test_suite`/`execute_node` (node execution), `execute_dag` (Kahn's topological sort executor), `_print_summary_node`/`print_build_summary`/`execute_step`/`print_steps`/`evaluate_build_file`/`run_build`. Both files compile successfully. **512 yo-self tests pass** (all regression tests preserved).
-
-`yo-self/install-command/install_command.yo` mirrors `src/install-command.ts`. `ParsedPackage` enum (Git/Path with inline fields), `SemVer` object (tag/major/minor/patch), `InstallOptions` object. `is_local_path` detects relative/absolute paths; `_url_to_dep_name` extracts the last URL segment stripping `.git`; `_is_all_digits` validates digit strings; `_parse_semver_tag` parses `v1.2.3`/`1.2.3` → `Option(SemVer)`; `_compare_semver` compares two semver structs; `_parse_tags_for_latest_semver` scans `git ls-remote` output to find the highest-versioned semver tag; `parse_package_specifier` resolves `user/repo`, `github.com/user/repo`, full HTTPS URLs, and local paths to `ParsedPackage`; `dependency_exists_in_deps_file`/`parse_dependency_names`/`_build_imports_block`/`regenerate_imports_list`/`_append_dep_to_content` handle `deps.yo` text manipulation; `append_dep_to_deps_file` async file read/write; `resolve_default_branch`/`resolve_latest_ref` async git subprocess helpers; `run_install` orchestrates the full install flow (parse → find build.yo → resolve ref → append dep → fetch). 43 unit tests in `yo-self/tests/install_command.test.yo`; **512 yo-self tests pass**.
-
-`sanitize_project_name` iterates bytes to replace non-`[a-zA-Z0-9_-]` chars with `-`. Template generators (`generate_build_yo`, `generate_readme`, etc.) produce file content as pure functions. `init_project(opts, io, exn)` resolves paths, creates directories via `create_dir_all`, skips existing files (except `build.yo` — aborts if present), and prints success info. 13 unit tests; 417 yo-self tests pass.
-
-✅ **Phase 6e Cache directory resolution.** `yo-self/cache/cache.yo` mirrors `src/cache.ts`. `get_global_cache_dir()` checks `$YO_CACHE_DIR`, then `$XDG_CACHE_HOME/yo`, then platform default (`%LOCALAPPDATA%/yo/cache` on Windows, `~/.cache/yo` elsewhere). `get_global_deps_cache_dir()` and `get_global_versions_cache_dir()` append `deps` and `versions` sub-paths. `ensure_global_deps_cache_dir(io,exn)` creates the directory via `create_dir_all`. `get_version_cache_dir(version)` appends the version segment. 6 unit tests in `yo-self/tests/cache.test.yo`; 404 yo-self tests pass.
-
-✅ **Phase 6b Lock file management.** `yo-self/lock-file/lock_file.yo` mirrors `src/lock-file.ts`. `LockEntry`/`LockFile` structs with `LockFile.empty()` constructor. `parse_lock_file` does line-by-line `[[dependencies]]` TOML-like parsing, strips quote delimiters, defaults `ref` to `"HEAD"`. `write_lock_file_content` serialises back with auto-generated header comment. `read_lock_file`/`save_lock_file` wrap disk I/O in `io.async` with `IO, Exception` effects. `find_lock_entry` linear scan → `Option(LockEntry)`. `upsert_lock_entry` returns new `LockFile` with entry replaced or appended. 12 unit tests in `yo-self/tests/lock_file.test.yo`; 398 yo-self tests pass.
-
-✅ **Phase 6c Version management.** `yo-self/version/version.yo` mirrors `src/version.ts`. `parse_yo_version` trims, strips `v`/`V` prefix, rejects `"latest"`, and validates semver. `find_yo_version_file` walks up from `start_dir` using `io.async`/`io.await(exists(...))`. `read_yo_version` combines find + read + parse. `is_pinned_version_current` does string equality. `current_yo_version` returns the compiled-in version constant. 14 unit tests in `yo-self/tests/version.test.yo`; 386 yo-self tests pass.
-
-✅ **Phase 5i `if`-with-block-branch codegen fix.** `if(cond, { break; })` was emitting `break;` unconditionally because `handle_if` used a C ternary and evaluating the then-branch (a begin block) caused the `break` to be emitted as a side-effect immediately. Added `is_begin_block` helper to `codegen/exprs.yo`; `handle_if` now detects begin-block branches and emits a C `if`/`else` statement instead, so control-flow keywords fire only when the condition is true. Simple-expression branches still use the C ternary. 3 new unit tests; 141 codegen tests, 369 yo-self tests pass.
-
-✅ **Phase 5h Template string codegen.** `handle_method_call` in `codegen/exprs.yo` detects two patterns emitted by `parse_template_string`: `x.to_string()` (zero args) is stripped to a passthrough of the receiver, and `a.+(b)` (Operator `+` as dot-dispatch method, one arg) emits `__yo_str_concat(a, b)`. `emit_c_preamble` in `codegen/program.yo` now includes a `__yo_str_concat` C helper that concatenates two `const char*` strings using `malloc`+`memcpy`. Template strings with `str`-typed parts now compile and run correctly under `yo-self-bin compile`. 5 new unit tests; 138 codegen tests, 369 yo-self tests pass.
-
-- **Lexer** (`yo-self/lexer/`) — fully ported from `src/lexer.ts`; 33 tests passing
-- **Parser** (`yo-self/parser/`) — fully ported from `src/parser.ts`; 40 tests passing
-- **AST node types** (`yo-self/expr/`) — core `Expr` variants used by parser are defined
-- **Types** (`yo-self/types/`) — `TypeTag`, `TypeValue` (all variants including compound), `type_to_string`, `are_types_compatible`, `Substitution`/`substitute`; 38 tests passing
-- **Environment** (`yo-self/env/`) — `Variable`, `Frame`, `Environment` with `define`/`lookup`/`push_frame`/`pop_frame`; 3 tests passing
-- **Evaluator** (`yo-self/evaluator/`) — `type_of_literal` literal type-of pass (Phase 2c); `EvalValue`/`EvalResult` value types with manual `Eq` impl; `evaluate` core dispatch (literals, identifiers, begin/cond/if/define/assign, arithmetic, comparison, boolean, float arithmetic/comparison, enum variants, match, while, fn defs/calls, return, recur, `::`, type casts, typed declarations, string comparison, struct construction, field access, lexical closure capture, impl blocks, method dispatch, TypeVal for type names, forall type-param inference, `comptime(Name)` params, module body evaluation, import/open/destructure, `using(name)` evidence passing) (Phases 3a–3o); 97 tests passing
-- **Codegen** (`yo-self/codegen/`) — `Emitter` (Phase 4a), expression generator for literals/operators (Phase 4b), control flow codegen for begin/cond/if/while (Phase 4c), match codegen for simple/data enums (Phase 4d), dot/method/function-call/assignment codegen + `generate_function` (Phase 4e), type declaration codegen for struct/enum (Phase 4f), trivial RC/GC helpers for primitive-field types (Phase 4i), C program assembly: preamble + main wrapper (Phase 4j), compiler driver: `extract_fn_def` + `compile_module_to_c` (Phase 4 validation), integration tests: parse→C→cc→run binary (Phase 4 integration milestone), struct constructors + cross-function calls (Phase 5c), match value ternary codegen (Phase 5d), enum type declarations + variant access (Phase 5e), pointer types/address-of/deref/compound LHS assignment (Phase 5f); 133 tests passing
-- **Circular imports** — validated via smoke test (`yo-self/tests/circular_smoke.test.yo`)
-- **Phase 3 validation milestone** ✅ — `evaluate_module_body` on a hello_world-style module produces a `ModuleVal` exporting `main` as a `FuncVal` with `evidence_params=["io"]` (test: "validation milestone: evaluate hello_world module")
-- **Total: 550 tests passing** under `yo-self/tests/`
-
-Run tests:
-
-```bash
-./yo-cli test ./yo-self/tests/
-```
-
-All prerequisites from [`../plans/BOOTSTRAPPING_PREREQUISITES.md`](../plans/BOOTSTRAPPING_PREREQUISITES.md)
-are complete. See [`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md) for the overall plan.
-
-## Layout (mirrors `src/`)
-
-```
-yo-self/
-  build.yo            -- top-level build script (registers steps)
-  main.yo             -- CLI entry point  (mirrors src/yo-cli.ts)
-  expr/
-    expr.yo           -- core AST node types (mirrors src/expr.ts)
-  lexer/
-    lexer.yo          -- tokeniser (mirrors src/lexer.ts)
-    token.yo          -- Token type and helpers
-  parser/
-    parser.yo         -- recursive-descent parser (mirrors src/parser.ts)
-  types/
-    tags.yo           -- TypeTag enum (mirrors src/types/tags.ts)
-    type.yo           -- TypeValue enum + constructors (mirrors src/types/*.ts)
-    string.yo         -- type_to_string (mirrors src/types/strings.ts)
-    compatibility.yo  -- are_types_compatible (mirrors src/types/compatibility.ts)
-    substitution.yo   -- Substitution engine (subst_new/add/lookup/substitute)
-  env/
-    env.yo            -- Variable, Frame, Environment (mirrors src/env.ts)
-  evaluator/
-    type_of.yo        -- literal type-of pass (mirrors src/evaluator/exprs/atoms.ts)
-    value.yo          -- EvalValue enum + EvalResult object (Phase 3a)
-    eval.yo           -- evaluate() dispatch: literals + identifier lookup (Phase 3b)
-    ...
-  codegen/            -- C code generator (Phase 4+)
-    emitter.yo        -- Emitter with headers/declarations/code buffers (Phase 4a)
-    context.yo        -- CodegenContext with Emitter + temp var counter (Phase 4a/4c)
-    exprs.yo          -- generate_expr: literals, operators, control flow, calls, assignment (Phase 4b/4c/4d)
-    functions.yo      -- generate_function: C function definition emitter (Phase 4d)
-    types.yo          -- generate_type_decl: struct/enum C type declaration emitter (Phase 4f)
-    rc.yo             -- generate_rc_fns: __dispose/__drop/__dup for primitive-field types (Phase 4i)
-    program.yo        -- emit_c_preamble + emit_main_wrapper + generate_c_output (Phase 4j)
-    match.yo          -- generate_match_simple/data: switch statements for enums (Phase 4d)
-    driver.yo         -- extract_fn_def + compile_module_to_c: parser→C pipeline (Phase 4 validation)
-  tests/
-    lexer.test.yo     -- 33 lexer tests
-    parser.test.yo    -- 40 parser tests
-    types_string_compat.test.yo  -- 6 type system foundation tests
-    types_compound.test.yo       -- 29 compound type + substitution tests
-    env.test.yo       -- 3 environment tests
-    type_of.test.yo   -- 12 literal type-of tests
-    eval.test.yo      -- 97 evaluator tests (Phases 3a–3o)
-    circular_smoke.test.yo       -- 3 circular-import validation tests
-    codegen.test.yo   -- 74 codegen tests (Phases 4a–4e, 4i, 4j)
-```
-
-## Phases
-
-Each phase ends with a working binary that passes a target subset of the existing
-`tests/` suite when invoked through the new compiler.
-
-| Phase | Scope                                           | TS source size    | Status                         |
-| ----- | ----------------------------------------------- | ----------------- | ------------------------------ |
-| 1     | Lexer + Token types + Parser + AST node types   | ~4 800 lines      | ✅ Done                        |
-| 2     | Evaluator core (begin/cond/match, types, env)   | partial of ~50 k  | ✅ Done                        |
-| 3     | Evaluator: traits, impls, generics, effects     | rest of evaluator | ✅ Done                        |
-| 4     | C Codegen                                       | ~46 k lines       | 🔨 In progress (4a–4e, 4i, 4j) |
-| 5     | CLI, build runner, dependency management        | smaller modules   | 🔨 In progress (5a–5c done)    |
-| 6     | Self-hosting bootstrap: `yo-self` builds itself |                   | 🔲 Planned                     |
-
-(The 50 k / 46 k figures are TS line counts under `src/evaluator` and
-`src/codegen` respectively. The Yo port is expected to be smaller per file due
-to fewer ceremony lines, but comparable in total LOC.)
-
-## Translation conventions
-
-- **One-to-one TS → Yo translation** wherever feasible. Preserve file names,
-  function names, and module boundaries to keep `git blame` traceability with
-  the TS source.
-- **TS classes → Yo `object(...)` types** with method `impl` blocks.
-- **TS enums / discriminated unions → Yo `enum(...)`** (use GADTs for typed
-  variants).
-- **TS `Map` / `Set` → `std/collections/hash_map` / `hash_set`** (or
-  `ordered_map` when iteration order matters).
-- **Algebraic effects** for IO, fs, and error propagation — replace ad-hoc
-  Result threading from TS where it matches.
-- **`derive(Clone, Eq, Hash, ToString)`** on AST/value types instead of manual
-  implementations.
-- Keep the TS source as the reference until Phase 7 lands. After self-hosting,
-  the TS tree is removed.
-
-## Running
+## Quick start
 
 ```bash
 # Run all yo-self tests
 ./yo-cli test ./yo-self/tests/
 
-# Run individual test files
-./yo-cli test ./yo-self/tests/lexer.test.yo
-./yo-cli test ./yo-self/tests/parser.test.yo
-./yo-cli test ./yo-self/tests/env.test.yo
+# Run a single test file
+./yo-cli test ./yo-self/tests/eval.test.yo
+
+# Run a specific test by name
+./yo-cli test ./yo-self/tests/eval.test.yo --test-name-pattern "fib"
 ```
-
-Once Phase 4+ lands and a full compiler binary exists:
-
-```bash
-yo build              # build yo-self via the current TS yo
-./yo-out/yo-self ...  # invoke the new binary
-```
-
-A `tests/yo-self/` mirror will run the same `*.test.yo` files through the new
-compiler so we can detect regressions per phase.

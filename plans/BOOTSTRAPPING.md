@@ -208,6 +208,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/expr.ts`                                       | `yo-self/parser/expr.yo`                                | ✅ Done                           |
 | `src/types/definitions.ts`                          | `yo-self/types/type.yo`                                 | ✅ Done                           |
 | `src/types/guards.ts`                               | `yo-self/types/guards.yo`                               | ✅ Done                           |
+| `src/types/env-lookup.ts`                           | `yo-self/types/env_lookup.yo`                           | ✅ Done (Phase 2d)                |
 | `src/types/compatibility.ts`                        | `yo-self/types/compatibility.yo`                        | Partial                           |
 | `src/env.ts`                                        | `yo-self/env/env.yo`                                    | ✅ Done                           |
 | `src/value.ts`                                      | `yo-self/evaluator/value.yo`                            | Partial                           |
@@ -260,6 +261,116 @@ Follow these rules consistently across all ported files:
 The current `yo-self/evaluator/eval.yo` and `yo-self/codegen/driver.yo` are **prototypes** — they cover ~5% of the TypeScript evaluator and ~2% of the codegen. They need to be **replaced** with full ports during Phase 3 and Phase 4 respectively.
 
 The prototype code can serve as reference for the port strategy and test infrastructure, but the actual porting must follow the 1:1 file-mapping table above.
+
+### Directory layout (`yo-self/` mirrors `src/`)
+
+```
+yo-self/
+  build.yo                  -- top-level build script (registers steps)
+  main.yo                   -- CLI entry point  (mirrors src/yo-cli.ts)
+  expr/
+    expr.yo                 -- core AST node types (mirrors src/expr.ts)
+  lexer/
+    lexer.yo                -- tokeniser (mirrors src/lexer.ts)
+    token.yo                -- Token type and helpers
+  parser/
+    parser.yo               -- recursive-descent parser (mirrors src/parser.ts)
+  types/
+    tags.yo                 -- TypeTag enum (mirrors src/types/tags.ts)
+    type.yo                 -- TypeValue enum + constructors (mirrors src/types/*.ts)
+    string.yo               -- type_to_string (mirrors src/types/strings.ts)
+    compatibility.yo        -- are_types_compatible (mirrors src/types/compatibility.ts)
+    substitution.yo         -- Substitution engine (subst_new/add/lookup/substitute)
+    guards.yo               -- type guard predicates (mirrors src/types/guards.ts)
+    env_lookup.yo           -- getTraitTypeFromEnv / getValueOfSomeTypeFromEnv (mirrors src/types/env-lookup.ts)
+  env/
+    env.yo                  -- Variable, Frame, Environment (mirrors src/env.ts)
+  evaluator/
+    value.yo                -- EvalValue enum + EvalResult object
+    eval.yo                 -- evaluate() dispatch (prototype — to be replaced by full port)
+    context.yo              -- EvalContext + all sub-context types (mirrors src/evaluator/context.ts)
+    type_of.yo              -- literal type-of pass (mirrors src/evaluator/exprs/atoms.ts)
+    shared/
+      suspension_analysis_types.yo  -- suspension analysis types (mirrors src/evaluator/shared/suspension-analysis-types.ts)
+    effects/
+      effect_analysis_types.yo      -- effect analysis types (mirrors src/evaluator/effects/effect-analysis-types.ts)
+    async/
+      await_analysis_types.yo       -- await analysis types (mirrors src/evaluator/async/await-analysis-types.ts)
+  codegen/
+    emitter.yo              -- Emitter with headers/declarations/code buffers
+    context.yo              -- CodegenContext with Emitter + temp var counter
+    exprs.yo                -- generate_expr: literals, operators, control flow, calls, assignment
+    functions.yo            -- generate_function: C function definition emitter
+    types.yo                -- generate_type_decl: struct/enum C type declarations
+    rc.yo                   -- generate_rc_fns: __dispose/__drop/__dup for primitive-field types
+    program.yo              -- emit_c_preamble + emit_main_wrapper + generate_c_output
+    match.yo                -- generate_match_simple/data: switch statements for enums
+    driver.yo               -- extract_fn_def + compile_module_to_c: parser→C pipeline
+  build/
+    build_registry.yo       -- BuildRegistry data types + impl (mirrors src/evaluator/builtins/build.ts)
+    build_runner.yo         -- DAG executor + run_build (mirrors src/build-runner.ts)
+  version/
+    version.yo              -- parse_yo_version / find_yo_version_file (mirrors src/version.ts)
+    version_cache.yo        -- ensure_cached_version / fetch_remote_versions (mirrors src/version-cache.ts)
+  cache/
+    cache.yo                -- get_global_cache_dir / deps / versions dirs (mirrors src/cache.ts)
+  lock-file/
+    lock_file.yo            -- LockFile parse/write/upsert (mirrors src/lock-file.ts)
+  fetch/
+    fetch.yo                -- compute_content_hash / fetch_dep (mirrors src/fetch.ts)
+    fetch_command.yo        -- run_fetch CLI handler (mirrors src/fetch-command.ts)
+  install-command/
+    install_command.yo      -- run_install / parse_package_specifier (mirrors src/install-command.ts)
+  init/
+    init.yo                 -- init_project / template generators (mirrors src/init.ts)
+  pkg-config/
+    pkg_config.yo           -- resolve_system_library (mirrors src/pkg-config.ts)
+  target/
+    target.yo               -- Arch/Os/Abi/TargetInfo + detect_host (mirrors src/target.ts)
+  compiler-utils/
+    compiler_utils.yo       -- get_compiler_info / find_available_compiler (mirrors src/compiler-utils.ts)
+  tests/
+    lexer.test.yo           -- 33 lexer tests
+    parser.test.yo          -- 40 parser tests
+    types_string_compat.test.yo    -- 6 type system foundation tests
+    types_compound.test.yo         -- 29 compound type + substitution tests
+    types_guards.test.yo           -- 27 type guard tests
+    env.test.yo             -- 9 environment tests
+    env_lookup.test.yo      -- 7 env-lookup tests
+    type_of.test.yo         -- 12 literal type-of tests
+    eval.test.yo            -- 97 evaluator tests
+    context.test.yo         -- 11 evaluator context tests
+    suspension_analysis_types.test.yo  -- 7 suspension analysis tests
+    effect_analysis_types.test.yo      -- 11 effect analysis tests
+    await_analysis_types.test.yo       -- 10 await analysis tests
+    circular_smoke.test.yo  -- 3 circular-import validation tests
+    codegen.test.yo         -- 141 codegen tests
+    integration.test.yo     -- 2 end-to-end parse→C→cc→run tests
+    cache.test.yo           -- 6 cache tests
+    lock_file.test.yo       -- 12 lock file tests
+    version.test.yo         -- 14 version tests
+    target.test.yo          -- 22 target tests
+    init.test.yo            -- 13 project scaffolding tests
+    fetch.test.yo           -- 10 fetch tests
+    install_command.test.yo -- 43 install command tests
+    pkg_config.test.yo      -- 11 pkg-config tests
+    compiler_utils.test.yo  -- 9 compiler utils tests
+```
+
+### Running tests
+
+```bash
+# Run all yo-self tests
+./yo-cli test ./yo-self/tests/
+
+# Run individual test files
+./yo-cli test ./yo-self/tests/lexer.test.yo
+./yo-cli test ./yo-self/tests/parser.test.yo
+./yo-cli test ./yo-self/tests/eval.test.yo
+
+# Run a specific test by name
+./yo-cli test ./yo-self/tests/eval.test.yo --test-name-pattern "fib"
+```
 
 ---
 
@@ -326,6 +437,23 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 - `type_of_literal` — literal type-of pass: maps `AstExpr` literal tokens to `TypeValue` (`yo-self/evaluator/type_of.yo`)
 - Covers: Bool → BoolT, Integer → ComptimeInt, Float → ComptimeFloat, StringLit/TemplateString → ComptimeString, CharLit → u32 (rune), all others → None
 - **Total: 128 tests passing** (116 Phase 2b + 12 Phase 2c)
+
+**2d — Variable extension + env-query helpers + env-lookup** ✅ Done — 591 tests total
+
+- Extended `Variable` in `yo-self/env/env.yo` with `id : String`, `is_owning_the_rc_value : bool`,
+  `is_owning_the_same_rc_value_as : Option(Box(Self))` — mirrors `src/env.ts` `Variable` interface
+- Added global `(g_var_id_counter : usize) = usize(0);` + `generate_variable_id` function (monotonic counter)
+- `define` and `define_val` now auto-generate IDs; new fields default to `false` / `None`
+- Added `get_variables_from_env(env, name) → ArrayList(Variable)` — outermost→innermost scan; mirrors `src/env.ts:getVariablesFromEnv`
+- Added 6 new env tests (id uniqueness, shadow stability, default field values, `get_variables_from_env`)
+- Extended `SomeT` in `yo-self/types/type.yo` with `id : String` as first field; added `generate_some_type_id()` monotonic counter
+- Updated `substitution.yo` to preserve the original `id` when a `SomeT` is not found in the substitution map
+- Ported `src/types/env-lookup.ts` → `yo-self/types/env_lookup.yo`:
+  - `get_trait_type_from_env(env, trait_name) → Option(TypeValue)` — looks up a trait-type binding by name
+  - `get_value_of_some_type_from_env(env, some_type) → TypeValue` — follows SomeT → SomeT chains with cycle detection
+  - Internal helpers: `_is_type_eval_value`, `_unwrap_type_eval_value`, `_same_some_id`, `_some_id`, `_some_name`, `_id_visited`, `_lookup_by_frame`, `_was_self_bound`, `_do_chain_resolve`, `_chain_resolve`
+- 7 new env_lookup tests
+- **Total: 591 tests passing**
 
 ### Phase 3 — Evaluator
 
