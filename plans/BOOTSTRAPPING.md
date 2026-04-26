@@ -381,9 +381,18 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 
 ### Phase 6 — Ancillary systems
 
+**6c. Version management** ✅ Done
+
+- `yo-self/version/version.yo` mirrors `src/version.ts`
+- `parse_yo_version(content)` — trims whitespace, strips `v`/`V` prefix, rejects `"latest"`, validates semver (`MAJOR.MINOR.PATCH`, allows optional pre-release and build metadata suffixes); returns `Result(String, String)`
+- `find_yo_version_file(start_dir, io)` — walks up from `start_dir` using `io.async`/`io.await(exists(...))` until a `.yo-version` file is found or the root is reached; returns `Future(Option(Path), IO)`
+- `read_yo_version(start_dir, io, exn)` — combines `find_yo_version_file` and `read_string`, then calls `parse_yo_version`; returns `Future(Option(String), IO, Exception)`
+- `is_pinned_version_current(pinned, current)` — string equality check
+- `current_yo_version()` — returns the compiled-in `CURRENT_YO_VERSION` constant
+- 14 unit tests in `yo-self/tests/version.test.yo`; 386 yo-self tests pass
+
 **6a. Build system** — `build.yo` runner, DAG scheduler, artifact compilation
 **6b. Dependency management** — `yo fetch`, `yo install`, lock file, git integration
-**6c. Version management** — `.yo-version` pinning, version cache
 **6d. Documentation** — `yo doc` generator (can be lower priority)
 **6e. LSP server** — Language server (can be lowest priority or kept as a separate tool)
 
