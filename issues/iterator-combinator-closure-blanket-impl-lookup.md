@@ -99,7 +99,7 @@ where-clause Fn extraction is involved.
 
 ## Resolution
 
-**Status:** Partial fix landed.
+**Status:** ✅ Fixed — all three cases pass (iter_filter_closure.test.yo, iterator_combinators.test.yo)
 
 ### What was fixed
 
