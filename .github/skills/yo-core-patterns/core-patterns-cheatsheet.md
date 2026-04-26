@@ -143,6 +143,20 @@ counter.* = (counter.* + i32(1));
 - Use `Box(T)` or `box(value)` for owned heap allocation
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `Option(*(T))` or `?*(T)`, not sentinel integers
+- Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
+- For self-referential `object` types, use `Box(Self)` to break the recursive cycle:
+
+```rust
+Node :: object(
+  value : i32,
+  next  : Option(Box(Self))   // Box(Self) breaks the recursive type cycle
+);
+
+n := Node(value: i32(1), next: Option(Box(Node)).None);
+// Constructing a Box:
+child := Box(Node)(Node(value: i32(2), next: Option(Box(Node)).None));
+parent := Node(value: i32(1), next: Option(Box(Node)).Some(child));
+```
 
 ## Unicode and platform checks
 
