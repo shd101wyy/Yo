@@ -1,0 +1,40 @@
+//! Simple literal type-of pass — Phase 2c.
+//!
+//! Given an `AstExpr` that is a single literal token, returns the compile-time
+//! `TypeValue` for that literal. Returns `None` for expressions that need a
+//! full type-checking environment (identifiers, function calls, …).
+//!
+//! Literal → type mapping:
+//!   Bool literal      → BoolT
+//!   Integer literal   → ComptimeInt   (widened to target during assignment)
+//!   Float literal     → ComptimeFloat
+//!   String literal    → ComptimeString
+//!   Template string   → ComptimeString
+//!   Char literal      → u32           (rune ≅ u32 in Yo)
+//!   Everything else   → None
+
+open import "std/string";
+
+{ TokenKind } :: import "../lexer/token.yo";
+{ AstExpr } :: import "../expr/expr.yo";
+{ TypeValue, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string }
+  :: import "../types/type.yo";
+
+/// Return the compile-time type of a literal `AstExpr`, or `None` if the
+/// expression requires a type-check environment to resolve.
+type_of_literal :: (fn(e : AstExpr) -> Option(TypeValue))(
+  match(e,
+    .Atom(tok) => cond(
+      (tok.kind == TokenKind.Bool)           => .Some(t_bool()),
+      (tok.kind == TokenKind.Integer)        => .Some(t_comptime_int()),
+      (tok.kind == TokenKind.Float)          => .Some(t_comptime_float()),
+      (tok.kind == TokenKind.StringLit)      => .Some(t_comptime_string()),
+      (tok.kind == TokenKind.TemplateString) => .Some(t_comptime_string()),
+      (tok.kind == TokenKind.CharLit)        => .Some(t_u32()),
+      true                                   => Option(TypeValue).None
+    ),
+    .FnCall(_, _, _, _) => Option(TypeValue).None
+  )
+);
+
+export type_of_literal;

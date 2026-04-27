@@ -1,0 +1,236 @@
+//! Substitution engine for `yo-self` type system (Phase 2b).
+//!
+//! A `Substitution` maps `SomeT` type-variables (identified by name +
+//! frame-level) to concrete `TypeValue`s.  `substitute` recursively walks a
+//! `TypeValue` tree and replaces matching `SomeT` nodes; `substitute_all`
+//! applies the same substitution to every element of an `ArrayList(TypeValue)`.
+
+open import "std/collections/array_list";
+open import "std/string";
+
+{ TypeValue } :: import "./type.yo";
+
+// ---------------------------------------------------------------------------
+// Substitution map — parallel arrays for (name, level) → TypeValue.
+// ---------------------------------------------------------------------------
+
+Substitution :: object(
+  names  : ArrayList(String),
+  levels : ArrayList(usize),
+  types  : ArrayList(TypeValue)
+);
+
+/// Create an empty substitution.
+subst_new :: (fn() -> Substitution)(
+  Substitution(
+    names:  ArrayList(String).new(),
+    levels: ArrayList(usize).new(),
+    types:  ArrayList(TypeValue).new()
+  )
+);
+
+/// Add a (name, frame_level) → type binding.  Overwrites if already present.
+subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue) -> unit)({
+  i := usize(0);
+  n := s.names.len();
+  while runtime((i < n)), {
+    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
+    if(((ni == name) && (li == level)), {
+      s.types(i) = ty;
+      return ();
+    });
+    i = (i + usize(1));
+  };
+  s.names.push(name);
+  s.levels.push(level);
+  s.types.push(ty);
+});
+
+/// Look up a (name, frame_level) → Option(TypeValue).
+subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(TypeValue))({
+  i := usize(0);
+  n := s.names.len();
+  while runtime((i < n)), {
+    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
+    if(((ni == name) && (li == level)), {
+      return match(s.types.get(i),
+        .Some(t) => Option(TypeValue).Some(t),
+        .None    => Option(TypeValue).None
+      );
+    });
+    i = (i + usize(1));
+  };
+  Option(TypeValue).None
+});
+
+// ---------------------------------------------------------------------------
+// substitute — recursive tree walk
+// ---------------------------------------------------------------------------
+
+/// Apply substitution `s` to `ty`, returning a new `TypeValue`.
+/// SomeT nodes that match a binding are replaced; everything else is
+/// structurally reconstructed (copies untouched leaves, recurses into
+/// compound nodes).
+substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
+  match(ty,
+    // Recurse into pointer / slice / array.
+    .Pointer(inner)     => .Pointer(box(recur(s, inner.*))),
+    .Slice(inner)       => .Slice(box(recur(s, inner.*))),
+    .Array(inner, len)  => .Array(box(recur(s, inner.*)), len),
+    // Recurse into tuple.
+    .Tuple(labels, types) => {
+      new_types := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < types.len())), {
+        elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_types.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .Tuple(labels, new_types)
+    },
+    // Recurse into Func (all type-bearing fields).
+    .Func(forall_labels: fls, forall_types: fts,
+          param_labels: pls, param_types: pts,
+          implicit_labels: ils, implicit_types: its,
+          implicit_spreads: isp, where_types: wts,
+          result: ret) => {
+      new_fts := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < fts.len())), {
+        elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_fts.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      new_pts := ArrayList(TypeValue).new();
+      i = usize(0);
+      while runtime((i < pts.len())), {
+        elem := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_pts.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      new_its := ArrayList(TypeValue).new();
+      i = usize(0);
+      while runtime((i < its.len())), {
+        elem := match(its.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_its.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      new_wts := ArrayList(TypeValue).new();
+      i = usize(0);
+      while runtime((i < wts.len())), {
+        elem := match(wts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_wts.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .Func(fls, new_fts, pls, new_pts, ils, new_its, isp, new_wts, box(recur(s, ret.*)))
+    },
+    // TraitT / ModuleT — recurse into field types.
+    .TraitT(name: n, assoc_type_names: atns,
+            field_labels: fls, field_types: fts) => {
+      new_fts := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < fts.len())), {
+        elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_fts.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .TraitT(n, atns, fls, new_fts)
+    },
+    .ModuleT(name: n, field_labels: fls, field_types: fts) => {
+      new_fts := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < fts.len())), {
+        elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_fts.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .ModuleT(n, fls, new_fts)
+    },
+    // SomeT — check substitution first; if not found, recurse into constraints.
+    .SomeT(id: orig_id, name: n, frame_level: lvl, parent_type: pt,
+           required_trait_types: rts, required_trait_levels: rlvls,
+           negative_trait_types: nts, negative_trait_levels: nlvls) => {
+      found := subst_lookup(s, n, lvl);
+      match(found,
+        .Some(replacement) => replacement,
+        .None => {
+          new_rts := ArrayList(TypeValue).new();
+          i := usize(0);
+          while runtime((i < rts.len())), {
+            elem := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+            new_rts.push(recur(s, elem));
+            i = (i + usize(1));
+          };
+          new_nts := ArrayList(TypeValue).new();
+          i = usize(0);
+          while runtime((i < nts.len())), {
+            elem := match(nts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+            new_nts.push(recur(s, elem));
+            i = (i + usize(1));
+          };
+          .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls)
+        }
+      )
+    },
+    // Struct / Enum / Union — recurse into field types.
+    .Struct(name, labels, types) => {
+      new_types := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < types.len())), {
+        elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_types.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .Struct(name, labels, new_types)
+    },
+    // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
+    .EnumT(name, variant_names, variant_fields) => {
+      new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
+      i := usize(0);
+      while runtime((i < variant_fields.len())), {
+        vf := match(variant_fields.get(i),
+          .Some(vf_inner) => vf_inner,
+          .None => ArrayList(TypeValue).new()
+        );
+        new_vf := ArrayList(TypeValue).new();
+        j := usize(0);
+        while runtime((j < vf.len())), {
+          elem := match(vf.get(j), .Some(t) => t, .None => TypeValue.Unit);
+          new_vf.push(recur(s, elem));
+          j = (j + usize(1));
+        };
+        new_variant_fields.push(new_vf);
+        i = (i + usize(1));
+      };
+      .EnumT(name, variant_names, new_variant_fields)
+    },
+    .Union(name, labels, types) => {
+      new_types := ArrayList(TypeValue).new();
+      i := usize(0);
+      while runtime((i < types.len())), {
+        elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        new_types.push(recur(s, elem));
+        i = (i + usize(1));
+      };
+      .Union(name, labels, new_types)
+    },
+    // Primitives and leaves — return unchanged.
+    _ => ty
+  )
+);
+
+/// Apply substitution to every element of a list, returning a new list.
+substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  result := ArrayList(TypeValue).new();
+  i := usize(0);
+  while runtime((i < types.len())), {
+    elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    result.push(substitute(s, elem));
+    i = (i + usize(1));
+  };
+  result
+});
+
+export Substitution, subst_new, subst_add, subst_lookup, substitute, substitute_all;

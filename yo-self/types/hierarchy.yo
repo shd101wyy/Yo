@@ -1,0 +1,209 @@
+//! Port of `src/types/hierarchy.ts`
+//!
+//! Provides:
+//!   - `type_of_type(ty)` — get the meta-type (type universe) of a type value.
+//!
+//! Design notes:
+//!   * `_determine_type_universe` and `type_of_type_with_visited` are mutually
+//!     recursive. To avoid a forward-reference in Yo, we use the same function-
+//!     pointer pattern as `eval.yo` (g_type_of_type_visited_fn).
+//!   * Cycle detection uses a `visited_names` list (struct/enum/union names on
+//!     the current recursion stack). This mirrors the TypeScript `includes(element)`
+//!     check but uses name identity instead of reference identity.
+//!   * Variants not yet in the self-hosted `TypeValue` enum (Dyn, ExprType,
+//!     FnTrait, Iso, FutureTrait, EffectsRow, ComptimeList) fall through to the
+//!     wildcard arm and return `TypeUni(0)` as a safe fallback.
+//!   * `getFunctionParameterToken` is deferred to Phase 3 (requires FunctionParameter.exprs).
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeValue } :: import "./type.yo";
+
+// ---------------------------------------------------------------------------
+// Forward reference slot for type_of_type_with_visited
+// (needed by _determine_type_universe which is defined before the function)
+// ---------------------------------------------------------------------------
+
+(g_type_of_type_visited_fn : Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue))) = .None;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Return true if `name` already appears in `visited`.
+_name_in_visited :: (fn(visited : ArrayList(String), name : String) -> bool)({
+  result := false;
+  i := usize(0);
+  while runtime((i < visited.len())), {
+    elem := match(visited.get(i), .Some(s) => s, .None => String.from(""));
+    cond(
+      (elem.as_str() == name.as_str()) => { result = true; },
+      true => ()
+    );
+    i = (i + usize(1));
+  };
+  result
+});
+
+/// Return the larger of two `usize` values.
+_max_usize :: (fn(a : usize, b : usize) -> usize)(
+  cond(
+    (a >= b) => a,
+    true     => b
+  )
+);
+
+// ---------------------------------------------------------------------------
+// _determine_type_universe
+//   Mirrors TypeScript `determineTypeUniverse`.
+//   Iterates `field_types`, recursively calling `type_of_type_with_visited`
+//   via the function pointer, and returns the maximum TypeUni level found.
+// ---------------------------------------------------------------------------
+
+_determine_type_universe :: (fn(
+  field_types   : ArrayList(TypeValue),
+  visited_names : ArrayList(String)
+) -> TypeValue)({
+  max_level := usize(0);
+  i := usize(0);
+  while runtime((i < field_types.len())), {
+    field := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    subtype := match(g_type_of_type_visited_fn,
+      .Some(f) => f(field, visited_names),
+      .None    => TypeValue.TypeUni(usize(0))
+    );
+    sub_level := match(subtype,
+      .TypeUni(lvl) => lvl,
+      _             => usize(0)
+    );
+    max_level = _max_usize(max_level, sub_level);
+    i = (i + usize(1));
+  };
+  TypeValue.TypeUni(max_level)
+});
+
+// ---------------------------------------------------------------------------
+// type_of_type_with_visited — the recursive core
+//   Mirrors TypeScript `typeOfType(type, checkedTupleElements)`.
+// ---------------------------------------------------------------------------
+
+type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)(
+  match(ty,
+    // Primitives -------------------------------------------------------------
+    .Unit         => TypeValue.TypeUni(usize(0)),
+    .BoolT        => TypeValue.TypeUni(usize(0)),
+    .Void         => TypeValue.TypeUni(usize(0)),
+    .Int(_, _)    => TypeValue.TypeUni(usize(0)),
+    .Float(_)     => TypeValue.TypeUni(usize(0)),
+    .Usize        => TypeValue.TypeUni(usize(0)),
+    .Isize        => TypeValue.TypeUni(usize(0)),
+    .ComptimeInt  => TypeValue.TypeUni(usize(0)),
+    .ComptimeFloat => TypeValue.TypeUni(usize(0)),
+    .ComptimeString => TypeValue.TypeUni(usize(0)),
+    .CChar        => TypeValue.TypeUni(usize(0)),
+    .CShort       => TypeValue.TypeUni(usize(0)),
+    .CUShort      => TypeValue.TypeUni(usize(0)),
+    .CInt         => TypeValue.TypeUni(usize(0)),
+    .CUInt        => TypeValue.TypeUni(usize(0)),
+    .CLong        => TypeValue.TypeUni(usize(0)),
+    .CULong       => TypeValue.TypeUni(usize(0)),
+    .CLongLong    => TypeValue.TypeUni(usize(0)),
+    .CULongLong   => TypeValue.TypeUni(usize(0)),
+    .CLongDouble  => TypeValue.TypeUni(usize(0)),
+
+    // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
+    .TypeUni(lvl) => TypeValue.TypeUni((lvl + usize(1))),
+
+    // Pointer / Slice: raw pointers and slices are level-0 types ------------
+    .Pointer(_) => TypeValue.TypeUni(usize(0)),
+    .Slice(_)   => TypeValue.TypeUni(usize(0)),
+
+    // Array: recurse into element type --------------------------------------
+    .Array(elem_box, _) => match(g_type_of_type_visited_fn,
+      .Some(f) => f(elem_box.*, visited),
+      .None    => TypeValue.TypeUni(usize(0))
+    ),
+
+    // Tuple: check all field types ------------------------------------------
+    .Tuple(_, ftypes) => _determine_type_universe(ftypes, visited),
+
+    // Function types: all functions are level-0 types -----------------------
+    .Func(_, _, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(0)),
+
+    // Struct: recurse into fields, guard against cycles by name ------------
+    .Struct(sname, _, ftypes) =>
+      cond(
+        _name_in_visited(visited, sname) => TypeValue.TypeUni(usize(0)),
+        true => {
+          new_visited := visited.clone();
+          new_visited.push(String.from(sname.as_str()));
+          _determine_type_universe(ftypes, new_visited)
+        }
+      ),
+
+    // EnumT: flatten all variant field types, then check the universe ------
+    .EnumT(ename, _, variant_fields) =>
+      cond(
+        _name_in_visited(visited, ename) => TypeValue.TypeUni(usize(0)),
+        true => {
+          new_visited := visited.clone();
+          new_visited.push(String.from(ename.as_str()));
+          all_fields := ArrayList(TypeValue).new();
+          vi := usize(0);
+          while runtime((vi < variant_fields.len())), {
+            vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+            fi := usize(0);
+            while runtime((fi < vfields.len())), {
+              ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+              all_fields.push(ft);
+              fi = (fi + usize(1));
+            };
+            vi = (vi + usize(1));
+          };
+          _determine_type_universe(all_fields, new_visited)
+        }
+      ),
+
+    // Union: same as Struct -------------------------------------------------
+    .Union(uname, _, ftypes) =>
+      cond(
+        _name_in_visited(visited, uname) => TypeValue.TypeUni(usize(0)),
+        true => {
+          new_visited := visited.clone();
+          new_visited.push(String.from(uname.as_str()));
+          _determine_type_universe(ftypes, new_visited)
+        }
+      ),
+
+    // Traits and modules are type-level-1 types ----------------------------
+    .TraitT(_, _, _, _) => TypeValue.TypeUni(usize(1)),
+    .ModuleT(_, _, _)   => TypeValue.TypeUni(usize(1)),
+
+    // SomeT: return its parent_type (meta-type) ----------------------------
+    .SomeT(parent_type: pt) => pt.*,
+
+    // Unknown variants not yet ported to self-hosted TypeValue (Dyn,
+    // ExprType, FnTrait, Iso, FutureTrait, EffectsRow, ComptimeList) ------
+    _ => TypeValue.TypeUni(usize(0))
+  )
+);
+
+// Set the function pointer after type_of_type_with_visited is defined.
+_hierarchy_fn_init := (fn() -> bool)({
+  g_type_of_type_visited_fn = .Some(type_of_type_with_visited);
+  true
+})();
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+/// Get the meta-type (type universe) of any `TypeValue`.
+/// Mirrors `typeOfType` from `src/types/hierarchy.ts`.
+type_of_type :: (fn(ty : TypeValue) -> TypeValue)(
+  type_of_type_with_visited(ty, ArrayList(String).new())
+);
+
+// get_function_parameter_token — TODO Phase 3: needs FunctionParameter.exprs (AST data)
+
+export type_of_type;

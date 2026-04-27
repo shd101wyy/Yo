@@ -202,12 +202,12 @@ _node_insert :: (fn(
       (n : RBNode(K, V)) = cond(
         (key < h._key) =>
           _new_node(K, V, h._key, h._value, h._color,
-            .Some(_node_insert(K, V, h._left, key, value)), h._right),
+            .Some(recur(K, V, h._left, key, value)), h._right),
         (key == h._key) =>
           _new_node(K, V, h._key, value, h._color, h._left, h._right),
         true =>
           _new_node(K, V, h._key, h._value, h._color,
-            h._left, .Some(_node_insert(K, V, h._right, key, value)))
+            h._left, .Some(recur(K, V, h._right, key, value)))
       );
       _fixup(K, V, n)
     }
@@ -225,9 +225,9 @@ _node_get :: (fn(
   match(node,
     .None => .None,
     .Some(h) => cond(
-      (key < h._key) => _node_get(K, V, h._left, key),
+      (key < h._key) => recur(K, V, h._left, key),
       (key == h._key) => .Some(h._value),
-      true => _node_get(K, V, h._right, key)
+      true => recur(K, V, h._right, key)
     )
   )
 );
@@ -243,9 +243,9 @@ _node_contains :: (fn(
   match(node,
     .None => false,
     .Some(h) => cond(
-      (key < h._key) => _node_contains(K, V, h._left, key),
+      (key < h._key) => recur(K, V, h._left, key),
       (key == h._key) => true,
-      true => _node_contains(K, V, h._right, key)
+      true => recur(K, V, h._right, key)
     )
   )
 );
@@ -305,7 +305,7 @@ _node_min :: (fn(
   where(K <: (Eq(K), Ord(K), Send), V <: Send)
 ) -> RBNode(K, V))(
   match(h._left,
-    .Some(l) => _node_min(K, V, l),
+    .Some(l) => recur(K, V, l),
     .None => h
   )
 );
@@ -325,7 +325,7 @@ _delete_min :: (fn(
         node = _move_red_left(K, V, node);
       });
       new_left := match(node._left,
-        .Some(nl) => _delete_min(K, V, nl),
+        .Some(nl) => recur(K, V, nl),
         .None => (Option(RBNode(K, V)).None)
       );
       .Some(_fixup(K, V,
@@ -361,7 +361,7 @@ _node_remove :: (fn(
         node = _move_red_left(K, V, node);
       });
       new_left := match(node._left,
-        .Some(nl) => _node_remove(K, V, nl, key),
+        .Some(nl) => recur(K, V, nl, key),
         .None => (Option(RBNode(K, V)).None)
       );
       node = _new_node(K, V, node._key, node._value, node._color, new_left, node._right);
@@ -410,7 +410,7 @@ _node_remove :: (fn(
     }, {
       // Go right
       new_right := match(node._right,
-        .Some(r) => _node_remove(K, V, r, key),
+        .Some(r) => recur(K, V, r, key),
         .None => (Option(RBNode(K, V)).None)
       );
       node = _new_node(K, V, node._key, node._value, node._color, node._left, new_right);
@@ -435,9 +435,9 @@ _collect_keys :: (fn(
   match(node,
     .None => acc,
     .Some(h) => {
-      right_acc := _collect_keys(K, V, h._right, acc);
+      right_acc := recur(K, V, h._right, acc);
       with_key := right_acc.prepend(h._key);
-      _collect_keys(K, V, h._left, with_key)
+      recur(K, V, h._left, with_key)
     }
   )
 );
@@ -453,9 +453,9 @@ _collect_values :: (fn(
   match(node,
     .None => acc,
     .Some(h) => {
-      right_acc := _collect_values(K, V, h._right, acc);
+      right_acc := recur(K, V, h._right, acc);
       with_val := right_acc.prepend(h._value);
-      _collect_values(K, V, h._left, with_val)
+      recur(K, V, h._left, with_val)
     }
   )
 );

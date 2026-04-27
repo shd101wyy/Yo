@@ -102,3 +102,5 @@ After fixes, this should work:
 ```sh
 bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release -o test_fixme && ./test_fixme
 ```
+
+## Status: Fixed (verified in tests/impl.test.yo and tmp/test_impl2.yo)

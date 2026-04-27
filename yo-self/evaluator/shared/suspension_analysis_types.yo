@@ -1,0 +1,125 @@
+//! Shared base type definitions for suspension-point analysis.
+//!
+//! Mirrors `src/evaluator/shared/suspension-analysis-types.ts` — 1:1 port.
+//!
+//! Both async/await (AwaitPoint) and algebraic effects (EffectCallPoint) are
+//! forms of suspension points. This file defines the shared shape so the
+//! tree-walking analysis can be written once.
+//!
+//! Key design decisions vs the TypeScript source:
+//!
+//! * TypeScript interfaces → Yo `object` types.
+//! * Optional TypeScript fields (`field?: T`) → `Option(T)` Yo fields.
+//! * `SuspensionAnalysisResult<P extends SuspensionPoint>` is generic in TS;
+//!   Yo uses concrete instantiations (see Phase 2b note below).
+//! * `expr: unknown` (to avoid circular import) → `AstExpr` (we can import it safely).
+//! * `isOwningTheSameRcValueAs: SuspensionCapturedVariable | undefined` →
+//!   self-referential field — stored as `Option(SuspensionCapturedVariable)`.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ HashMap }   :: import "std/collections/hash_map";
+{ TypeValue }  :: import "../../types/type.yo";
+{ AstExpr }    :: import "../../expr/expr.yo";
+
+// ---------------------------------------------------------------------------
+// SuspensionPoint
+// ---------------------------------------------------------------------------
+
+/// Base type for any suspension point (an await call or an effect call).
+///
+/// Mirrors `SuspensionPoint` in `src/evaluator/shared/suspension-analysis-types.ts`.
+/// System-specific fields live in `AwaitPoint` / `EffectCallPoint` which embed this.
+SuspensionPoint :: object(
+  /// 0-based index of this suspension point in the analysis result.
+  index                    : usize,
+
+  /// The suspension expression.
+  /// TypeScript uses `unknown` to avoid circular import with expr.ts.
+  expr                     : AstExpr,
+
+  /// The variable that should receive the result of resuming (if assigned via `:=`).
+  target_variable_id       : Option(String),
+
+  /// Whether this suspension is inside a `cond` expression.
+  is_inside_cond           : Option(bool),
+
+  /// Whether this suspension is inside a `while` loop.
+  is_inside_while          : Option(bool),
+
+  /// The number of nested `while` loops this suspension is inside.
+  while_nesting_depth      : Option(usize),
+
+  /// For sequential suspensions within the same cond/match branch,
+  /// references the index of the first suspension in that cond/match.
+  cond_branch_source_index : Option(usize),
+
+  /// Whether this suspension needs its own `cond_branch_X` field in the
+  /// state machine struct.
+  needs_own_cond_branch_field : Option(bool),
+
+  /// The enclosing while loop expression.
+  /// TypeScript uses `unknown` to avoid circular import; we use `AstExpr`.
+  enclosing_while_expr     : Option(AstExpr)
+);
+
+// ---------------------------------------------------------------------------
+// SuspensionCapturedVariable
+// ---------------------------------------------------------------------------
+
+/// Information about a local variable that needs to persist across suspension points.
+///
+/// Mirrors `SuspensionCapturedVariable` in
+/// `src/evaluator/shared/suspension-analysis-types.ts`.
+///
+/// Note: The self-referential field `isOwningTheSameRcValueAs: SuspensionCapturedVariable | undefined`
+/// uses `Box(Self)` to break the recursive object-type cycle.
+SuspensionCapturedVariable :: object(
+  id   : String,
+  name : String,
+  ty   : TypeValue,
+  is_owning_the_same_rc_value_as : Option(Box(Self))
+);
+
+// ---------------------------------------------------------------------------
+// SuspensionAnalysisResult
+// ---------------------------------------------------------------------------
+
+/// Result of analyzing a function for suspension points (await or effect calls).
+///
+/// TypeScript generic: `SuspensionAnalysisResult<P extends SuspensionPoint>`.
+/// Yo does not have higher-kinded generics over object variants, so we provide
+/// concrete instantiations.  For the base type (used where any suspension point
+/// will do), we store `SuspensionPoint` directly.
+///
+/// Mirrors `SuspensionAnalysisResult<SuspensionPoint>`.
+SuspensionAnalysisResult :: object(
+  suspension_points     : ArrayList(SuspensionPoint),
+  captured_variables    : ArrayList(SuspensionCapturedVariable),
+  has_suspensions       : bool,
+  variable_id_remapping : HashMap(String, String)
+);
+
+// ---------------------------------------------------------------------------
+// Constructor helpers
+// ---------------------------------------------------------------------------
+
+/// Create an empty SuspensionAnalysisResult (no suspension points found).
+suspension_analysis_result_empty :: (fn() -> SuspensionAnalysisResult)(
+  SuspensionAnalysisResult(
+    suspension_points:     ArrayList(SuspensionPoint).new(),
+    captured_variables:    ArrayList(SuspensionCapturedVariable).new(),
+    has_suspensions:       false,
+    variable_id_remapping: HashMap(String, String).new()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+export
+  SuspensionPoint,
+  SuspensionCapturedVariable,
+  SuspensionAnalysisResult,
+  suspension_analysis_result_empty;

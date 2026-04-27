@@ -1,0 +1,280 @@
+//! EvalValue and EvalResult — core value types for the self-hosted evaluator.
+//!
+//! Phase 3a defines the value representation.  Numeric literals store their
+//! raw token text (actual parsing / CTFE is Phase 3h scope).  Variable
+//! references carry the bound type from the environment but have no computed
+//! value at compile time — they mirror `UnknownValue` from the TS evaluator.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeValue } :: import "../types/type.yo";
+{ AstExpr } :: import "../expr/expr.yo";
+{ are_types_compatible } :: import "../types/compatibility.yo";
+
+/// The compile-time representation of an evaluated expression.
+///
+/// - Literal variants (`BoolVal`, `IntLit`, `FloatLit`, `StrLit`) hold the
+///   actual data for constants that can be folded at compile time.
+/// - `VarRef` represents a runtime variable reference: the type is known from
+///   the environment, but the runtime value is unknown at compile time.
+/// - `UnitVal` is the value of the `()` unit expression.
+EvalValue :: enum(
+  /// The unit `()` value.
+  UnitVal,
+
+  /// Boolean constant from a `true`/`false` literal.
+  BoolVal(b : bool),
+
+  /// Integer or char literal — raw token text, e.g. `"42"`, `"0xFF"`, `"'a'"`.
+  /// Full parsing (CTFE numeric evaluation) is deferred to Phase 3h.
+  IntLit(raw : String),
+
+  /// Float literal — raw token text, e.g. `"3.14"`.
+  FloatLit(raw : String),
+
+  /// String or template-string literal — raw token text.
+  /// For StringLit tokens the value includes surrounding `"` delimiters.
+  /// For TemplateString tokens the delimiters are stripped by the lexer.
+  StrLit(raw : String),
+
+  /// Runtime variable reference: type is known from the environment, but the
+  /// value is only available at runtime.  Mirrors `UnknownValue` in the TS
+  /// evaluator for non-comptime bindings.
+  VarRef(name : String),
+
+  /// A compile-time known enum variant value.
+  ///
+  /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
+  /// `fields` holds the evaluated values of the constructor arguments in
+  /// declaration order (positional).
+  EnumVal(variant : String, fields : ArrayList(Self)),
+
+  /// A compiled function value: parameter names, unevaluated body expression,
+  /// and a snapshot of the definition-time environment for lexical scoping.
+  ///
+  /// Phase 3i: `cap_names`, `cap_tys`, and `cap_vals` hold a flat snapshot of
+  /// all variable bindings visible when the function was defined. At call time
+  /// a fresh `Environment` is rebuilt from these captures so the body sees the
+  /// correct lexical scope instead of the caller's dynamic env.
+  /// Runtime variables (no comptime value) are stored as `VarRef(name)` in
+  /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
+  ///
+  /// Phase 3l: `forall_names` holds the generic type parameter names extracted
+  /// from the function's `forall(T)` parameters. `param_type_names` holds the
+  /// type annotation identifier for each value parameter (empty string if the
+  /// annotation is complex or absent). These are used together at call time to
+  /// infer forall bindings: for each forall name `F`, if any value param has
+  /// type annotation `F`, the corresponding argument's type is bound as
+  /// `TypeVal(arg.ty)` under name `F` before value params are bound.
+  ///
+  /// Phase 3o: `evidence_params` holds the names of `using(name : Type)`
+  /// parameters. At call time these are bound from explicit `using(name)` args
+  /// (which evaluate to the named value from the caller's env).
+  FuncVal(
+    forall_names     : ArrayList(String),
+    params           : ArrayList(String),
+    param_type_names : ArrayList(String),
+    evidence_params  : ArrayList(String),
+    body             : Box(AstExpr),
+    cap_names        : ArrayList(String),
+    cap_tys          : ArrayList(TypeValue),
+    cap_vals         : ArrayList(Self)
+  ),
+
+  /// Control-flow signal emitted by a `return expr` statement.
+  ///
+  /// Propagated upward through begin blocks and while loops until it reaches
+  /// the function call boundary, where it is unwrapped into the return value.
+  ReturnVal(val : Box(Self), ty : TypeValue),
+
+  /// A compile-time type value (Phase 3k).
+  ///
+  /// Represents a Yo type as a first-class compile-time value.  For example,
+  /// evaluating the bare identifier `i32` produces `TypeVal(Int(32, true))`.
+  /// This is needed for `forall(T: Type)` param binding, type-level lambdas
+  /// (`ArrayList(String)`), and any other context where a type appears as a
+  /// value.
+  ///
+  /// `ty` is heap-allocated via `Box` to keep the `EvalValue` enum size small —
+  /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
+  /// storing it inline would bloat every local `EvalValue` and stack frame.
+  TypeVal(ty : Box(TypeValue)),
+
+  /// A compile-time known struct/object value with named fields.
+  ///
+  /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
+  /// `field_names` and `field_values` are parallel arrays in field-declaration order.
+  StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
+
+  /// A module value produced by evaluating a module body (Phase 3m).
+  ///
+  /// `names` and `values` are parallel arrays of exported identifiers and
+  /// their compile-time values, in export-statement order. When a module
+  /// exports a runtime variable the corresponding `values` entry is
+  /// `VarRef(name)` (comptime value unknown).
+  ModuleVal(names : ArrayList(String), values : ArrayList(Self))
+);
+
+/// Element-wise equality for `EvalValue`.
+///
+/// Implemented manually (not via `derive`) because `derive(EvalValue, Eq)` would
+/// need `ArrayList(EvalValue) <: Eq(ArrayList(EvalValue))` which in turn needs
+/// `EvalValue <: Eq(EvalValue)` — a circularity at derive-expansion time.
+///
+/// By writing the function with `recur` for the `EnumVal` case we break the
+/// cycle: the `Eq(ArrayList(EvalValue))` impl is only exercised at call time,
+/// after both impls are registered.
+eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
+  match(a,
+    .UnitVal =>
+      match(b, .UnitVal => true, _ => false),
+    .BoolVal(ab) =>
+      match(b, .BoolVal(bb) => (ab == bb), _ => false),
+    .IntLit(ar) =>
+      match(b, .IntLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .FloatLit(ar) =>
+      match(b, .FloatLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .StrLit(ar) =>
+      match(b, .StrLit(br) => (ar.as_str() == br.as_str()), _ => false),
+    .VarRef(an) =>
+      match(b, .VarRef(bn) => (an.as_str() == bn.as_str()), _ => false),
+    .EnumVal(av, afs) =>
+      match(b,
+        .EnumVal(bv, bfs) =>
+          cond(
+            (!(av.as_str() == bv.as_str())) => false,
+            (afs.len() != bfs.len()) => false,
+            true => {
+              n := afs.len();
+              (i : usize) = usize(0);
+              (ok : bool) = true;
+              while runtime(((i < n) && ok)), {
+                match(afs.get(i),
+                  .Some(af) =>
+                    match(bfs.get(i),
+                      .Some(bf) => { ok = recur(af, bf); },
+                      .None     => { ok = false; }
+                    ),
+                  .None => { ok = false; }
+                );
+                i = (i + usize(1));
+              };
+              ok
+            }
+          ),
+        _ => false
+      ),
+      .FuncVal(_, _, _, _, _, _, _, _) => false,
+    .ReturnVal(_, _) => false,
+    .TypeVal(at) =>
+      match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
+    .StructVal(atn, anames, avals) =>
+      match(b,
+        .StructVal(btn, bnames, bvals) =>
+          cond(
+            (!(atn.as_str() == btn.as_str())) => false,
+            (anames.len() != bnames.len()) => false,
+            (avals.len() != bvals.len()) => false,
+            true => {
+              n_sf := anames.len();
+              (sf_i : usize) = usize(0);
+              (sf_ok : bool) = true;
+              while runtime(((sf_i < n_sf) && sf_ok)), {
+                match(anames.get(sf_i),
+                  .Some(an_s) =>
+                    match(bnames.get(sf_i),
+                      .Some(bn_s) => {
+                        cond(
+                          (!(an_s.as_str() == bn_s.as_str())) => { sf_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { sf_ok = false; }
+                    ),
+                  .None => { sf_ok = false; }
+                );
+                match(avals.get(sf_i),
+                  .Some(av) =>
+                    match(bvals.get(sf_i),
+                      .Some(bv) => {
+                        cond(
+                          (!(recur(av, bv))) => { sf_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { sf_ok = false; }
+                    ),
+                  .None => { sf_ok = false; }
+                );
+                sf_i = (sf_i + usize(1));
+              };
+              sf_ok
+            }
+          ),
+        _ => false
+      ),
+    .ModuleVal(an, av) =>
+      match(b,
+        .ModuleVal(bn, bv) =>
+          cond(
+            (an.len() != bn.len()) => false,
+            (av.len() != bv.len()) => false,
+            true => {
+              n_m := an.len();
+              (m_i : usize) = usize(0);
+              (m_ok : bool) = true;
+              while runtime(((m_i < n_m) && m_ok)), {
+                match(an.get(m_i),
+                  .Some(an_s) =>
+                    match(bn.get(m_i),
+                      .Some(bn_s) => {
+                        cond(
+                          (!(an_s.as_str() == bn_s.as_str())) => { m_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { m_ok = false; }
+                    ),
+                  .None => { m_ok = false; }
+                );
+                match(av.get(m_i),
+                  .Some(av_v) =>
+                    match(bv.get(m_i),
+                      .Some(bv_v) => {
+                        cond(
+                          (!(recur(av_v, bv_v))) => { m_ok = false; },
+                          true => ()
+                        );
+                      },
+                      .None => { m_ok = false; }
+                    ),
+                  .None => { m_ok = false; }
+                );
+                m_i = (m_i + usize(1));
+              };
+              m_ok
+            }
+          ),
+        _ => false
+      )
+  )
+);
+
+impl(EvalValue, Eq(EvalValue)(
+  (==) : (fn(a : Self, b : Self) -> bool)(eval_value_eq(a, b))
+));
+
+/// The result of evaluating a single `AstExpr` node.
+EvalResult :: object(
+  /// The evaluated value (or a runtime reference marker).
+  value : EvalValue,
+  /// The compile-time type of the expression.
+  ty    : TypeValue
+);
+
+/// Construct an `EvalResult` with the given value and type.
+eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
+  EvalResult(value: value, ty: ty)
+);
+
+export EvalValue, EvalResult, eval_result;

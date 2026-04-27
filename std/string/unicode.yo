@@ -32,9 +32,9 @@ _decode_utf8 :: (fn(bytes: ArrayList(u8), i: usize) -> _DecodeResult)({
   (b0 : i32) = i32(bytes.get(i).unwrap());
   cond(
     // 1-byte ASCII
-    ((b0 & i32(0x80)) == i32(0)) => {
+    ((b0 & i32(0x80)) == i32(0)) => 
       _DecodeResult(codepoint: b0, bytes_consumed: usize(1))
-    },
+    ,
     // 2-byte
     ((b0 & i32(0xE0)) == i32(0xC0)) => {
       (b1 : i32) = i32(bytes.get((i + usize(1))).unwrap());
@@ -85,7 +85,7 @@ _encode_utf8 :: (fn(cp: i32, out: *(ArrayList(u8))) -> unit)({
 
 // Special case folding: codepoints that expand to multiple codepoints
 // when lowercased. These are Unicode case folding entries of type 'F' (full).
-_special_to_lower :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)({
+_special_to_lower :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
   cond(
     // ẞ (U+1E9E LATIN CAPITAL LETTER SHARP S) → ss
     (cp == i32(0x1E9E)) => {
@@ -102,11 +102,11 @@ _special_to_lower :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)({
     },
     true => false
   )
-});
+);
 
 // Special case folding: codepoints that expand to multiple codepoints
 // when uppercased.
-_special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)({
+_special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
   cond(
     // ß (U+00DF LATIN SMALL LETTER SHARP S) → SS
     (cp == i32(0x00DF)) => {
@@ -160,7 +160,7 @@ _special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)({
     },
     true => false
   )
-});
+);
 
 // Convert a String to lowercase using Unicode-aware case mapping.
 /// Convert a `String` to lowercase using Unicode case mapping rules.

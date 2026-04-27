@@ -126,3 +126,23 @@ work:
 
 Blocks the current parser port pattern in `yo-self/parser/`. Not blocking for
 day-to-day Yo use because the holder pattern is unusual.
+
+## Status
+
+✅ FIXED via workaround (2026-04-27).
+
+The `yo-self/parser/` port was restructured per workaround option #2 of
+this doc: all mutually recursive parser functions live inside a single
+`impl(Parser, ...)` block and use direct method calls / `recur` rather
+than module-level function-pointer holders. A grep over
+`yo-self/parser/parser.yo` shows no `_parse_*_holder` symbols remain;
+`parse_primary_end` is invoked as `self.parse_primary_end(...)` directly
+(see `yo-self/parser/parser.yo:947, 952, 1184`).
+
+The underlying language limitation — emitting per-call-site
+specializations of effect-bearing functions makes
+`Option(fn(... using(...)) -> T)` holders semantically ambiguous — is
+still real but unreached. If a future user writes the same pattern, the
+"Possible long-term fix" section above is the intended path. For now,
+the failing reproducer no longer exists in-tree, so this issue is
+considered resolved.

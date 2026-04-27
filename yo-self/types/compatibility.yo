@@ -1,0 +1,162 @@
+//! are_types_compatible — structural compatibility check.
+//!
+//! Mirrors `areTypesCompatible` in `src/types/compatibility.ts`. Phase 2a
+//! handles primitives, ComptimeInt → integer widening, ComptimeFloat → float
+//! widening, ComptimeString → comptime_string, pointers, slices, arrays of
+//! equal length, and tuples of equal arity. The full implementation (with
+//! traits, dyn dispatch, function-type variance, SomeType resolution, …) is
+//! a Phase 2b/3 deliverable.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeValue, type_value_tag, is_int_type, is_float_type } :: import "./type.yo";
+{ TypeTag } :: import "./tags.yo";
+
+/// Structural type compatibility.
+///
+/// `actual` is the type we have; `expected` is the type the context expects.
+/// The relation is intentionally asymmetric — comptime literals widen to
+/// concrete numeric types but not vice versa.
+are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+  // Same tag short-circuit for tag-only variants
+  ta := type_value_tag(actual);
+  te := type_value_tag(expected);
+
+  // Comptime widening
+  if((ta == TypeTag.TComptimeInt), {
+    if(is_int_type(expected), { return true; });
+    if((te == TypeTag.TUsize), { return true; });
+    if((te == TypeTag.TIsize), { return true; });
+    if(is_float_type(expected), { return true; });
+    if((te == TypeTag.TComptimeFloat), { return true; });
+  });
+  if((ta == TypeTag.TComptimeFloat), {
+    if(is_float_type(expected), { return true; });
+  });
+
+  // Tag mismatch otherwise
+  if((ta != te), { return false; });
+
+  // Per-variant structural check
+  return match(actual,
+    .Unit            => true,
+    .BoolT           => true,
+    .Void            => true,
+    .Usize           => true,
+    .Isize           => true,
+    .ComptimeInt     => true,
+    .ComptimeFloat   => true,
+    .ComptimeString  => true,
+    .CChar           => true,
+    .CShort          => true,
+    .CUShort         => true,
+    .CInt            => true,
+    .CUInt           => true,
+    .CLong           => true,
+    .CULong          => true,
+    .CLongLong       => true,
+    .CULongLong      => true,
+    .CLongDouble     => true,
+    .Int(abits, asigned) => match(expected,
+      .Int(ebits, esigned) => ((abits == ebits) && (asigned == esigned)),
+      _ => false
+    ),
+    .Float(abits) => match(expected,
+      .Float(ebits) => (abits == ebits),
+      _ => false
+    ),
+    .TypeUni(alvl) => match(expected,
+      .TypeUni(elvl) => (alvl == elvl),
+      _ => false
+    ),
+    .Pointer(ainner) => match(expected,
+      .Pointer(einner) => recur(ainner.*, einner.*),
+      _ => false
+    ),
+    .Slice(ainner) => match(expected,
+      .Slice(einner) => recur(ainner.*, einner.*),
+      _ => false
+    ),
+    .Array(ainner, alen) => match(expected,
+      .Array(einner, elen) => ((alen == elen) && recur(ainner.*, einner.*)),
+      _ => false
+    ),
+    .Tuple(_, atypes) => match(expected,
+      .Tuple(_, etypes) => {
+        n := atypes.len();
+        if((n != etypes.len()), { return false; });
+        i := usize(0);
+        ok := true;
+        while runtime((i < n)), {
+          ax_opt := atypes.get(i);
+          bx_opt := etypes.get(i);
+          match(ax_opt,
+            .Some(ax) => match(bx_opt,
+              .Some(bx) => if(!(recur(ax, bx)), { ok = false; }),
+              .None     => { ok = false; }
+            ),
+            .None => { ok = false; }
+          );
+          if(!(ok), { break; });
+          i = (i + usize(1));
+        };
+        ok
+      },
+      _ => false
+    ),
+    .Func(param_types: aps, result: ares) => match(expected,
+      .Func(param_types: eps, result: eres) => {
+        n := aps.len();
+        if((n != eps.len()), { return false; });
+        if(!(recur(ares.*, eres.*)), { return false; });
+        i := usize(0);
+        ok := true;
+        while runtime((i < n)), {
+          ax_opt := aps.get(i);
+          bx_opt := eps.get(i);
+          match(ax_opt,
+            .Some(ax) => match(bx_opt,
+              .Some(bx) => if(!(recur(ax, bx)), { ok = false; }),
+              .None     => { ok = false; }
+            ),
+            .None => { ok = false; }
+          );
+          if(!(ok), { break; });
+          i = (i + usize(1));
+        };
+        ok
+      },
+      _ => false
+    ),
+    // Named nominal types — compare by name (Phase 2a; nominal identity is
+    // refined later when we wire in module paths).
+    .Struct(aname, _, _) => match(expected,
+      .Struct(ename, _, _) => (aname == ename),
+      _ => false
+    ),
+    .EnumT(aname, _, _) => match(expected,
+      .EnumT(ename, _, _) => (aname == ename),
+      _ => false
+    ),
+    .Union(aname, _, _) => match(expected,
+      .Union(ename, _, _) => (aname == ename),
+      _ => false
+    ),
+    .TraitT(name: aname) => match(expected,
+      .TraitT(name: ename) => (aname == ename),
+      _ => false
+    ),
+    .ModuleT(name: aname) => match(expected,
+      .ModuleT(name: ename) => (aname == ename),
+      _ => false
+    ),
+    // SomeType: identity by (name, frame_level). Phase 2b adds trait-aware
+    // unification.
+    .SomeT(name: aname, frame_level: alvl) => match(expected,
+      .SomeT(name: ename, frame_level: elvl) => ((aname == ename) && (alvl == elvl)),
+      _ => false
+    )
+  );
+});
+
+export are_types_compatible;

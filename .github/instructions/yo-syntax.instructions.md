@@ -10,6 +10,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
 - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
+- **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
 
 ```rust
 // WRONG - creates a struct:
@@ -230,7 +231,7 @@ err1 :
 
 ## Unary operators need parentheses around their operand
 
-Unary operators like `!` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
+Unary operators like `!`, `&`, and `-` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
 
 ```rust
 // WRONG — `!` captures `d.is_empty(), "msg"` as one expression:
@@ -238,7 +239,34 @@ assert(!d.is_empty(), "should not be empty");
 
 // CORRECT — parentheses limit the operand:
 assert(!(d.is_empty()), "should not be empty");
+
+// WRONG — `&` captures `s, label, extra` as a TUPLE argument:
+func(&s, label, extra);  // parsed as func(&(s, label, extra)) — one tuple arg!
+
+// CORRECT — take address first, then pass separately:
+p := &s;
+func(p, label, extra);
+// OR — wrap operand only:
+func((&s), label, extra);
 ```
+
+This applies to **all** unary operators: `!`, `&`, `-`, `~`. Any of them placed before a comma-separated list will greedily absorb the entire list as a tuple.
+
+**Critical: `!x && y` is parsed as `!(x && y)`**, not `(!x) && y`.
+
+Because prefix `!` is treated as a function call that consumes the entire following expression (parsed by `parseExpression`, which includes all infix operators), `!x && match(...)` is equivalent to `!(x && match(...))`. Always parenthesize the negated operand separately when it must be the left operand of `&&`:
+
+```rust
+// WRONG — `!x && match(...)` parses as `!(x && match(...))`:
+(!is_infix && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+
+// CORRECT — parentheses around `!is_infix` make it a sub-expression:
+((!is_infix) && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+```
+
+This applies at any nesting depth: whenever you write `!expr && rhs`, add an extra layer of parentheses: `((!expr) && rhs)`.
+
+**Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 
 ## Recursion requires `recur`
 
@@ -276,6 +304,35 @@ impl(Tree,
 ```
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
+
+### Async recursion — `recur` does NOT work inside `io.async`
+
+`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((using(io)) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
+
+**Pattern for async recursion**: Replace recursion with an iterative worklist:
+
+```rust
+// WRONG — "Variable 'walk_dir' not found" inside io.async:
+walk_dir :: (fn(path: Path, using(io: IO)) -> Impl(Future(unit, IO)))(
+  io.async((using(io)) => {
+    entries := io.await(read_dir(path));
+    // CANNOT call walk_dir recursively here
+  })
+);
+
+// CORRECT — use an explicit stack inside a single io.async:
+walk_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    stack := ArrayList(Path).new();
+    { stack.push(root); };
+    while runtime((stack.len() > usize(0))), {
+      cur := match(stack.pop(), .Some(p) => p, .None => return ());
+      entries := io.await(read_dir(cur));
+      // process entries, push subdirs to stack…
+    };
+  })
+);
+```
 
 ### `Self` in generic type constructors
 
@@ -355,8 +412,11 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
-- There is no `loop` function. Use `while runtime(true), body` for runtime, or `while true, body` for comptime.
-- **`while true` is evaluated at compile time!** If the loop body has no runtime values and no `break`/`return`/`escape`, the evaluator will hang or exceed the iteration limit. Always use `while runtime(true), { ... }` for infinite runtime loops (e.g., server accept loops, event loops).
+- There is no `loop` function. Use `while true, body` for a runtime infinite loop.
+- **`while cond, body` is always a runtime loop**, regardless of whether `cond` is compile-time known.
+- **`while comptime(cond), body`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while comptime(true)` with no `break`/`return`/`escape`).
+- If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
+- The old `while runtime(true)` pattern still compiles (backwards compatible) but is no longer necessary — `while true` is now always a runtime loop.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
@@ -446,6 +506,41 @@ match(result,
 )
 ```
 
+## Match destructuring forms
+
+Match arms support three destructuring shapes for enum variants. All three coexist (different arms can use different forms within the same `match`):
+
+```rust
+Shape :: enum(
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32)
+);
+
+match(s,
+  // 1. Positional — order matches field declaration. Must list all fields.
+  .Rectangle(w, h) => (w * h),
+
+  // 2. Labeled — `(label: var)` pairs. Order-free, supports partial matches.
+  .Circle(radius: r) => (r * r),
+
+  // 3. Curly shorthand — `{a, b: c}` is sugar for `(a: a, b: c)`.
+  //    Bare atoms become `name: name`. Order-free, supports partial matches.
+  .Rectangle({width, height: h}) => (width * h)
+)
+```
+
+Curly destructuring rules:
+
+- `{a}` binds field `a` to a variable named `a` (label = name shortcut).
+- `{a: x}` binds field `a` to a variable named `x` (rename).
+- `{a: _}` asserts field `a` exists but ignores its value.
+- Partial matches are allowed: `{width}` on `Rectangle(width, height)` skips `height`.
+- Empty `{}` is rejected — use `.Variant` (no parens) for fieldless variants.
+- Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
+- Nested curly `.Foo({a: {b}})` is rejected — destructure in the body instead.
+
+The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
+
 ## String literal types
 
 - Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.
@@ -481,3 +576,128 @@ This is necessary when:
 - A type implements multiple traits with the same method name
 - You want to be explicit about which trait's method is called
 - The `self` parameter type doesn't uniquely determine the trait
+
+## `impl(...)` requires a trailing semicolon
+
+`impl(...)` is a statement and requires a trailing `;` at the top level:
+
+```rust
+// WRONG — missing semicolon causes "Invalid function call on type":
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+)
+
+// CORRECT:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+);
+```
+
+## Reserved keywords cannot be used as variable or field names
+
+The word `type` is a reserved keyword in Yo. Never use it as a parameter name, field name, or variable name:
+
+```rust
+// WRONG — `type` is reserved:
+Variable :: object(name : String, type : TypeValue);
+define :: (fn(ty : TypeValue) -> unit)(...)  // CORRECT, use `ty`
+
+// CORRECT — rename to `ty`:
+Variable :: object(name : String, ty : TypeValue);
+```
+
+Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `object`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `escape`, `recur`, `export`, `import`, `using`, `given`, `forall`, `where`.
+
+## `___` (discard) cannot be used twice in the same scope
+
+Yo does not allow redeclaring `___` twice in the same begin-block scope. Each use is a fresh variable binding and shadowing is not allowed:
+
+```rust
+// WRONG — second `___` shadows the first, causing a compile error:
+___ := foo();
+___ := bar();
+
+// CORRECT — use unique names, or call without binding:
+_a := foo();
+_b := bar();
+
+// ALSO CORRECT — if you don't need the results:
+foo();
+bar();
+```
+
+## ArrayList indexing via `arr(index)`
+
+`ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
+
+```rust
+{ ArrayList } :: import "std/collections/array_list";
+
+list := ArrayList(i32).new();
+list.push(i32(10));
+list.push(i32(20));
+
+val := list(usize(0));       // → i32  (value copy)
+list(usize(0)) = i32(99);   // mutate in place directly (preferred)
+
+// When you need the pointer explicitly:
+ptr := &(list(usize(0)));    // → *(i32)
+ptr.* = i32(100);            // also works
+```
+
+- `list(i)` returns the value `T` directly (not a pointer)
+- `list(i) = val` mutates in place directly — preferred form
+- `&(list(i))` returns `*(T)` for in-place mutation via pointer (explicit form)
+- `list.get(i)` returns `Option(T)` for safe bounds-checked access
+- Out-of-bounds access via `list(i)` panics at runtime
+
+## Module-level declarations are processed in order
+
+`::` definitions at the top level are evaluated sequentially. A function body that calls another top-level function declared later in the same file will fail with **"Variable not found"** at module load time.
+
+Always define helper functions **before** the callers (bottom-up order):
+
+```rust
+// WRONG — evaluate references eval_atom which is not yet defined:
+evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
+  match(e,
+    .Atom(tok) => eval_atom(tok, env),  // ERROR: Variable "eval_atom" not found
+    _ => .None
+  )
+);
+
+eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
+
+// CORRECT — define leaves first, callers last:
+eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
+
+evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
+  match(e,
+    .Atom(tok) => eval_atom(tok, env),  // OK
+    _ => .None
+  )
+);
+```
+
+**Exception**: methods inside the same `impl(...)` block **do** support forward references — a method declared earlier can call one declared later within the same block.
+
+## Named constructor arguments are required for `struct`/`object` types
+
+When constructing a `struct(...)` or `object(...)` value, always use named field syntax:
+
+```rust
+Point :: struct(x : i32, y : i32);
+
+// CORRECT — named fields:
+p := Point(x: i32(1), y: i32(2));
+
+// WRONG — positional construction for struct/object is not supported:
+p := Point(i32(1), i32(2));
+```
+
+`enum` variant construction is positional (fields are matched by order):
+
+```rust
+// CORRECT — enum variants use positional args:
+(v : Option(i32)) = .Some(i32(42));
+```

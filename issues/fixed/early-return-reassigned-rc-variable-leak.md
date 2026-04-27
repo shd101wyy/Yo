@@ -1,6 +1,6 @@
 # Early Return After RC Variable Reassignment — Leak
 
-**Status:** 🟡 OPEN (workaround available)  
+**Status:** ✅ FIXED (2026-07-15)  
 **Date:** 2026-07-11  
 **Severity:** Medium (Memory Leak)  
 **Related:** [early-return-missing-local-variable-drops.md](early-return-missing-local-variable-drops.md) (fixed, but different variant)
@@ -85,3 +85,16 @@ Any function that:
 3. Returns from inside the loop/match
 
 will leak the current value of the variable.
+
+## Fix
+
+In `src/codegen/exprs/return.ts`, after `generatePendingDeferredDrops`, added a call to `generateConsumedVarDropsForEscape` when `handledDeferredDup = true`.
+
+When returning a dup'd borrowed variable:
+
+1. The dup/drop optimizer marks the original as "consumed" (removing it from `pendingDeferredDrops`)
+2. The optimizer puts the drop in `consumedVariableDropExpressions` (for escape paths)
+3. On an early return-with-dup, `generatePendingDeferredDrops` skips the original (because `consumedAtToken` is set)
+4. `generateConsumedVarDropsForEscape` now correctly drops the original after the dup
+
+Regression test added: `tests/rc.test.yo` — "Test early return of reassigned RC variable does not leak".

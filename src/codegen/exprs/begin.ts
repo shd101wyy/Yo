@@ -63,6 +63,12 @@ export function generateBegin(
 
     for (let idx = 0; idx < expr.args.length; idx++) {
       const arg = expr.args[idx]!;
+
+      // Stop generating dead code after an escape/return/break/continue expression.
+      // The evaluator already breaks its own loop at the same point, so subsequent
+      // args are unevaluated (expr.$ = undefined). Mirror that behavior here.
+      if (!arg.$) break;
+
       const result = generateExpr(arg, indent + "  ", context);
       argsCode.push(result);
 
@@ -75,6 +81,11 @@ export function generateBegin(
         } else {
           context.emitter.emitLine(`${indent}  ${result};`);
         }
+      }
+
+      // Stop after any control-flow-exiting expression; everything after is dead code.
+      if (hasAnyControlFlow(arg.$?.controlFlow)) {
+        break;
       }
     }
     if (isReturningValue) {

@@ -123,9 +123,14 @@ export function generateFunctionDeclarations(
     // Skip the original (unspecialized) function when it has specialization caches.
     // The specialized versions handle codegen. The original body was evaluated
     // generically and sub-expressions may lack type annotations.
+    // Exception: isModuleEffectMember functions (e.g., Exception.throw forall handlers)
+    // MUST still be emitted in their unspecialized form — their body is simple (escape)
+    // and the unspecialized name is stored as a void* function pointer in async capture
+    // structs by emitModuleEffectInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&
+      !value.isModuleEffectMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
       continue;

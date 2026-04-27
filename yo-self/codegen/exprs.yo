@@ -1,0 +1,1399 @@
+//! Expression and statement code generation for the self-hosted Yo C code
+//! generator.
+//!
+//! Phase 4b: literals (integer, float, bool, string), variable references,
+//! binary infix operators, and unary prefix operators.
+//!
+//! Phase 4c: control flow — begin blocks, cond expressions, while loops,
+//! if expressions.
+//!
+//! ASAN note: `generate_expr` is large but far below the ~700-variable
+//! threshold that forced `evaluate()` to use the `g_eval_fn` pointer trick.
+//! All Phase 4c control-flow helpers are factored into module-level functions.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import "../expr/expr.yo";
+{ TokenKind }          :: import "../lexer/token.yo";
+{ CodegenContext }     :: import "./context.yo";
+
+// ---------------------------------------------------------------------------
+// Phase 4b helpers — one per kind of C literal/expression
+// ---------------------------------------------------------------------------
+
+/// Generate C code for an integer literal: emit the numeric string as-is.
+gen_integer_lit :: (fn(value : String) -> String)(value);
+
+/// Generate C code for a float literal: emit the numeric string as-is.
+gen_float_lit :: (fn(value : String) -> String)(value);
+
+/// Generate C code for a bool literal: `true` → `1`, `false` → `0`.
+gen_bool_lit :: (fn(value : str) -> String)(
+  cond(
+    (value == "true")  => String.from("1"),
+    (value == "false") => String.from("0"),
+    true               => String.from(value)
+  )
+);
+
+/// Generate C code for a string literal.
+///
+/// The Yo lexer stores StringLit token values with the surrounding quotes
+/// intact and uses the same escape sequences as C, so we emit them verbatim.
+gen_string_lit :: (fn(value : String) -> String)(value);
+
+/// Produce a valid C identifier from a Yo name.
+///
+/// Most Yo identifiers are already valid C names.  Future phases will need
+/// to handle names that clash with C keywords or contain special characters;
+/// for now we return the name unchanged.
+sanitize_c_ident :: (fn(name : str) -> String)(String.from(name));
+
+/// True iff `op` is a supported binary infix operator.
+is_binary_op :: (fn(op : str) -> bool)(
+  cond(
+    (op == "+")  => true,
+    (op == "-")  => true,
+    (op == "*")  => true,
+    (op == "/")  => true,
+    (op == "%")  => true,
+    (op == "==") => true,
+    (op == "!=") => true,
+    (op == "<")  => true,
+    (op == ">")  => true,
+    (op == "<=") => true,
+    (op == ">=") => true,
+    (op == "&&") => true,
+    (op == "||") => true,
+    true         => false
+  )
+);
+
+/// True iff `op` is a supported unary prefix operator.
+is_unary_prefix_op :: (fn(op : str) -> bool)(
+  cond(
+    (op == "-") => true,
+    (op == "!") => true,
+    (op == "&") => true,
+    true        => false
+  )
+);
+
+/// Emit `(lhs OP rhs)`.
+gen_binary_op :: (fn(op : String, lhs : String, rhs : String) -> String)({
+  result := String.from("(");
+  result.push_string(lhs);
+  result.push_str(" ");
+  result.push_string(op);
+  result.push_str(" ");
+  result.push_string(rhs);
+  result.push_str(")");
+  result
+});
+
+/// Emit `(OP operand)`.
+gen_unary_op :: (fn(op : String, operand : String) -> String)({
+  result := String.from("(");
+  result.push_string(op);
+  result.push_string(operand);
+  result.push_str(")");
+  result
+});
+
+// ---------------------------------------------------------------------------
+// Module-level function pointer — avoids direct recursion in generate_expr
+// ---------------------------------------------------------------------------
+//
+// Yo standalone functions cannot call themselves directly (no forward
+// declarations).  We store a pointer to generate_expr and route recursive
+// calls through call_gen_expr, mirroring the g_eval_fn trick in eval.yo.
+
+(g_gen_expr_fn : Option(fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))) = .None;
+
+call_gen_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
+  match(g_gen_expr_fn,
+    .None    => Option(String).None,
+    .Some(f) => f(expr, ctx, indent)
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 4b helpers — infix/prefix sub-expression generation
+// ---------------------------------------------------------------------------
+
+gen_infix_side :: (fn(args : ArrayList(AstExpr), idx : usize, ctx : *(CodegenContext), indent : String) -> Option(String))(
+  match(args.get(idx),
+    .None    => Option(String).None,
+    .Some(e) => call_gen_expr(e, ctx, indent)
+  )
+);
+
+handle_infix_op :: (fn(
+  op     : String,
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  lhs := gen_infix_side(args, usize(0), ctx, indent);
+  rhs := gen_infix_side(args, usize(1), ctx, indent);
+  match(lhs,
+    .None    => Option(String).None,
+    .Some(l) => match(rhs,
+      .None    => Option(String).None,
+      .Some(r) => .Some(gen_binary_op(op, l, r))
+    )
+  )
+});
+
+handle_prefix_op :: (fn(
+  op     : String,
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None    => Option(String).None,
+    .Some(e) => match(call_gen_expr(e, ctx, indent),
+      .None    => Option(String).None,
+      .Some(a) => .Some(gen_unary_op(op, a))
+    )
+  )
+);
+
+/// Extract the operator string from a FnCall func expression.
+extract_op :: (fn(func_box : Box(AstExpr)) -> Option(String))(
+  match(func_box.*,
+    .Atom(ftok) => cond(
+      (ftok.kind == TokenKind.Operator) => .Some(ftok.value),
+      true                              => Option(String).None
+    ),
+    .FnCall(_, _, _, _) => Option(String).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 4c helpers — control flow
+// ---------------------------------------------------------------------------
+
+/// Emit a single expression as a C statement: `{indent}{expr_code};\n`.
+/// Returns unit; used internally to emit non-last statements in begin blocks.
+emit_as_stmt :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
+  ctx.*.emitter.emit_string(indent);
+  ctx.*.emitter.emit_string(code);
+  ctx.*.emitter.emit_line(";");
+});
+
+/// Generate a `begin` block.
+///
+/// Emits all statements except the last into `ctx.emitter` and returns the
+/// last expression as the block's value.  An empty begin block returns `"0"`.
+handle_begin :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n := args.len();
+  cond(
+    (n == usize(0)) => .Some(String.from("0")),
+    true => {
+      // Emit all but the last statement
+      (i : usize) = usize(0);
+      inner := {
+        result_so_far := String.from(indent.as_str());
+        result_so_far.push_str("  ");
+        result_so_far
+      };
+      while runtime((i < (n - usize(1)))), {
+        match(args.get(i),
+          .None => (),
+          .Some(s) => 
+            match(call_gen_expr(s, ctx, inner), // use deeper indent for nested emit
+              .None => (),
+              .Some(code) => emit_as_stmt(code, ctx, indent)
+            )
+
+        );
+        i = (i + usize(1));
+      };
+      // Return the last expression as the block value
+      match(args.get((n - usize(1))),
+        .None    => .Some(String.from("0")),
+        .Some(e) => call_gen_expr(e, ctx, indent)
+      )
+    }
+  )
+});
+
+/// Generate a single `cond` arm as: `(cond_expr ? body_expr : rest)`.
+/// `rest` is the "else" branch (another ternary or the fallback value).
+gen_cond_arm :: (fn(
+  arm_args : ArrayList(AstExpr),
+  rest     : String,
+  ctx      : *(CodegenContext),
+  indent   : String
+) -> Option(String))({
+  cond_expr_opt := arm_args.get(usize(0));
+  body_expr_opt := arm_args.get(usize(1));
+  match(cond_expr_opt,
+    .None => Option(String).None,
+    .Some(cond_expr) => match(body_expr_opt,
+      .None => Option(String).None,
+      .Some(body_expr) => {
+        c_opt := call_gen_expr(cond_expr, ctx, indent);
+        b_opt := call_gen_expr(body_expr, ctx, indent);
+        match(c_opt,
+          .None => Option(String).None,
+          .Some(c) => match(b_opt,
+            .None => Option(String).None,
+            .Some(b) => {
+              result := String.from("(");
+              result.push_string(c);
+              result.push_str(" ? ");
+              result.push_string(b);
+              result.push_str(" : ");
+              result.push_string(rest);
+              result.push_str(")");
+              .Some(result)
+            }
+          )
+        )
+      }
+    )
+  )
+});
+
+/// Extract the arm args from a `cond` arm (which is `FnCall("=>", [c, b], true)`).
+get_arm_args :: (fn(arm : AstExpr) -> Option(ArrayList(AstExpr)))(
+  match(arm,
+    .Atom(_) => Option(ArrayList(AstExpr)).None,
+    .FnCall(_, arm_args, _, _) => .Some(arm_args)
+  )
+);
+
+/// Generate a `cond(arm1, arm2, …)` expression as a right-nested C ternary.
+///
+/// Built right-to-left: last arm becomes the else branch, then each preceding
+/// arm wraps it.  The `true =>` catch-all arm's body becomes the default.
+handle_cond :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n := args.len();
+  cond(
+    (n == usize(0)) => .Some(String.from("0")),
+    true => {
+      // Build right-to-left, starting from the last arm's body as the default.
+      last_arm_opt := args.get((n - usize(1)));
+      (acc : Option(String)) = match(last_arm_opt,
+        .None => Option(String).None,
+        .Some(last_arm) => match(get_arm_args(last_arm),
+          .None => Option(String).None,
+          .Some(la) => match(la.get(usize(1)),
+            .None => Option(String).None,
+            .Some(body) => call_gen_expr(body, ctx, indent)
+          )
+        )
+      );
+      (i : usize) = cond(
+        (n > usize(1)) => (n - usize(2)),
+        true => usize(0)
+      );
+      (done : bool) = (n <= usize(1));
+      while runtime((!done)), {
+        match(acc,
+          .None => { done = true; },
+          .Some(rest_str) => {
+            match(args.get(i),
+              .None => { done = true; },
+              .Some(arm) => {
+                match(get_arm_args(arm),
+                  .None => { done = true; },
+                  .Some(arm_args) => {
+                    acc = gen_cond_arm(arm_args, rest_str, ctx, indent);
+                  }
+                );
+              }
+            );
+            cond(
+              (i == usize(0)) => { done = true; },
+              true => { i = (i - usize(1)); }
+            )
+          }
+        );
+      };
+      acc
+    }
+  )
+});
+
+/// Generate a single `match` arm as: `(temp == pattern ? body : rest)`.
+/// Wildcard pattern `_` skips the condition: returns body directly.
+gen_match_arm :: (fn(
+  arm_args   : ArrayList(AstExpr),
+  scrut_temp : String,
+  rest       : String,
+  ctx        : *(CodegenContext),
+  indent     : String
+) -> Option(String))({
+  pat_opt  := arm_args.get(usize(0));
+  body_opt := arm_args.get(usize(1));
+  match(pat_opt,
+    .None => Option(String).None,
+    .Some(pat_expr) => match(body_opt,
+      .None => Option(String).None,
+      .Some(body_expr) => {
+        is_wild := match(pat_expr,
+          .Atom(ptok) => (ptok.value.as_str() == "_"),
+          .FnCall(_, _, _, _) => false
+        );
+        match(call_gen_expr(body_expr, ctx, indent),
+          .None => Option(String).None,
+          .Some(b) => cond(
+            is_wild => .Some(b),
+            true => match(call_gen_expr(pat_expr, ctx, indent),
+              .None => Option(String).None,
+              .Some(p) => {
+                result := String.from("(");
+                result.push_string(scrut_temp);
+                result.push_str(" == ");
+                result.push_string(p);
+                result.push_str(" ? ");
+                result.push_string(b);
+                result.push_str(" : ");
+                result.push_string(rest);
+                result.push_str(")");
+                .Some(result)
+              }
+            )
+          )
+        )
+      }
+    )
+  )
+});
+
+/// Generate a `match(scrut, pat => body, ...)` expression as a ternary chain.
+///
+/// The scrutinee is emitted into a `__auto_type` temp variable first to
+/// avoid repeated evaluation. Arms are processed right-to-left into a nested
+/// ternary: `(temp == pat1 ? b1 : (temp == pat2 ? b2 : ... default))`.
+/// A `_` wildcard arm becomes the default (outermost else).
+///
+/// Only handles simple value patterns. Data-enum arms (`.Variant(bindings)`)
+/// are not yet supported and fall through to `None`.
+handle_match_value :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n := args.len();
+  cond(
+    (n < usize(2)) => Option(String).None,
+    true => {
+      scrut_opt := args.get(usize(0));
+      match(scrut_opt,
+        .None => Option(String).None,
+        .Some(scrut_expr) => match(call_gen_expr(scrut_expr, ctx, indent),
+          .None => Option(String).None,
+          .Some(scrut_code) => {
+            // Emit scrutinee into a temp to avoid re-evaluation
+            temp := ctx.*.fresh_temp();
+            ctx.*.emitter.emit_string(indent);
+            ctx.*.emitter.emit("__auto_type ");
+            ctx.*.emitter.emit_string(temp);
+            ctx.*.emitter.emit(" = ");
+            ctx.*.emitter.emit_string(scrut_code);
+            ctx.*.emitter.emit_line(";");
+
+            // Build ternary chain right-to-left (arms are args[1..])
+            arm_count := (n - usize(1));
+            last_arm_opt := args.get((n - usize(1)));
+            (acc : Option(String)) = match(last_arm_opt,
+              .None => Option(String).None,
+              .Some(last_arm) => match(get_arm_args(last_arm),
+                .None => Option(String).None,
+                .Some(la) => match(la.get(usize(1)),
+                  .None => Option(String).None,
+                  .Some(body) => call_gen_expr(body, ctx, indent)
+                )
+              )
+            );
+            (i : usize) = cond(
+              (arm_count > usize(1)) => (arm_count - usize(2)),
+              true => usize(0)
+            );
+            (done : bool) = (arm_count <= usize(1));
+            while runtime((!done)), {
+              match(acc,
+                .None => { done = true; },
+                .Some(rest_str) => {
+                  match(args.get((i + usize(1))),
+                    .None => { done = true; },
+                    .Some(arm) => {
+                      match(get_arm_args(arm),
+                        .None => { done = true; },
+                        .Some(arm_args) => {
+                          acc = gen_match_arm(arm_args, temp, rest_str, ctx, indent);
+                        }
+                      );
+                    }
+                  );
+                  cond(
+                    (i == usize(0)) => { done = true; },
+                    true => { i = (i - usize(1)); }
+                  )
+                }
+              );
+            };
+            acc
+          }
+        )
+      )
+    }
+  )
+});
+///
+/// Emits a C `while` loop into `ctx.emitter` and returns `"0"` (void result).
+handle_while :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  cond_arg_opt := args.get(usize(0));
+  body_arg_opt := args.get(usize(1));
+  match(cond_arg_opt,
+    .None => Option(String).None,
+    .Some(raw_cond) => {
+      // Unwrap `runtime(inner)` wrapper if present
+      cond_expr := match(raw_cond,
+        .FnCall(rt_func, rt_args, _, _) => match(rt_func.*,
+          .Atom(rttok) => cond(
+            (rttok.value.as_str() == "runtime") => match(rt_args.get(usize(0)),
+              .Some(inner) => inner,
+              .None => raw_cond
+            ),
+            true => raw_cond
+          ),
+          .FnCall(_, _, _, _) => raw_cond
+        ),
+        .Atom(_) => raw_cond
+      );
+      match(call_gen_expr(cond_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(c_cond) => {
+          inner := {
+            r := String.from(indent.as_str());
+            r.push_str("  ");
+            r
+          };
+          // Emit: while (cond) {\n  body;\n}\n
+          ctx.*.emitter.emit_string(indent);
+          ctx.*.emitter.emit("while (");
+          ctx.*.emitter.emit_string(c_cond);
+          ctx.*.emitter.emit_line(") {");
+          match(body_arg_opt,
+            .None => (),
+            .Some(body_expr) => 
+              match(call_gen_expr(body_expr, ctx, inner),
+                .None => (),
+                .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
+              )
+
+          );
+          ctx.*.emitter.emit_string(indent);
+          ctx.*.emitter.emit_line("}");
+          .Some(String.from("0"))
+        }
+      )
+    }
+  )
+});
+
+/// Returns true if `expr` is a begin block (`{ ... }`), i.e. a FnCall whose
+/// func is an Atom with value `BK_BEGIN`.  These blocks contain statement-level
+/// side-effects (break / continue / return) that must NOT appear inside a C
+/// ternary operand — they need a C `if` statement instead.
+is_begin_block :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_) => false,
+    .FnCall(func_box, _, _, _) => match(func_box.*,
+      .FnCall(_, _, _, _) => false,
+      .Atom(ftok) => (ftok.value.as_str() == BK_BEGIN)
+    )
+  )
+);
+
+/// Generate `if(cond, then)` or `if(cond, then, else)`.
+///
+/// When the then- or else-branch is a begin block, a C `if`/`else` statement
+/// is emitted into `ctx.emitter` and `"0"` is returned as the expression
+/// value.  This is necessary because control-flow keywords like `break`,
+/// `continue`, and `return` cannot appear inside a C ternary operand.
+///
+/// When both branches are simple expressions (no begin block), a C ternary
+/// `(cond ? then : else)` is returned instead.
+handle_if :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n := args.len();
+  cond_opt := args.get(usize(0));
+  then_opt := args.get(usize(1));
+  else_opt := cond(
+    (n >= usize(3)) => args.get(usize(2)),
+    true => Option(AstExpr).None
+  );
+  match(cond_opt,
+    .None => Option(String).None,
+    .Some(cond_expr) => match(then_opt,
+      .None => Option(String).None,
+      .Some(then_expr) => {
+        then_is_begin := is_begin_block(then_expr);
+        else_is_begin := match(else_opt,
+          .None    => false,
+          .Some(e) => is_begin_block(e)
+        );
+        cond(
+          // One or both branches is a block: emit a C if/else statement so
+          // that break/continue/return fire only when the condition is true.
+          (then_is_begin || else_is_begin) => {
+            c_opt := call_gen_expr(cond_expr, ctx, indent);
+            match(c_opt,
+              .None => Option(String).None,
+              .Some(c) => {
+                inner := {
+                  r := String.from(indent.as_str());
+                  r.push_str("  ");
+                  r
+                };
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit("if (");
+                ctx.*.emitter.emit_string(c);
+                ctx.*.emitter.emit_line(") {");
+                match(call_gen_expr(then_expr, ctx, inner),
+                  .None => (),
+                  .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
+                );
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit("}");
+                match(else_opt,
+                  .None => ctx.*.emitter.emit_line(""),
+                  .Some(else_expr) => {
+                    ctx.*.emitter.emit_line(" else {");
+                    match(call_gen_expr(else_expr, ctx, inner),
+                      .None => (),
+                      .Some(else_code) => emit_as_stmt(else_code, ctx, inner)
+                    );
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit_line("}");
+                  }
+                );
+                .Some(String.from("0"))
+              }
+            )
+          },
+          // Both branches are simple expressions: emit a C ternary.
+          true => {
+            c_opt   := call_gen_expr(cond_expr, ctx, indent);
+            t_opt   := call_gen_expr(then_expr, ctx, indent);
+            else_code := match(else_opt,
+              .None      => String.from("0"),
+              .Some(e_ex) => match(call_gen_expr(e_ex, ctx, indent),
+                .None    => String.from("0"),
+                .Some(s) => s
+              )
+            );
+            match(c_opt,
+              .None => Option(String).None,
+              .Some(c) => match(t_opt,
+                .None => Option(String).None,
+                .Some(t) => {
+                  result := String.from("(");
+                  result.push_string(c);
+                  result.push_str(" ? ");
+                  result.push_string(t);
+                  result.push_str(" : ");
+                  result.push_string(else_code);
+                  result.push_str(")");
+                  .Some(result)
+                }
+              )
+            )
+          }
+        )
+      }
+    )
+  )
+});
+
+/// Get the string value from a FnCall's func if it is an Identifier atom.
+fncall_func_ident :: (fn(func_box : Box(AstExpr)) -> Option(String))(
+  match(func_box.*,
+    .Atom(ftok) => cond(
+      (ftok.kind == TokenKind.Identifier) => .Some(ftok.value),
+      true                                => Option(String).None
+    ),
+    .FnCall(_, _, _, _) => Option(String).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 4d helpers — type mapping, function calls, dot access, assignment
+// ---------------------------------------------------------------------------
+
+/// Map a simple Yo type name to its C equivalent.
+///
+/// Only handles primitive types.  User-defined names pass through unchanged.
+/// Generic types (e.g. `Option(i32)`) require Phase 4e type codegen.
+type_name_to_c :: (fn(name : str) -> String)(
+  cond(
+    (name == "i8")    => String.from("int8_t"),
+    (name == "i16")   => String.from("int16_t"),
+    (name == "i32")   => String.from("int32_t"),
+    (name == "i64")   => String.from("int64_t"),
+    (name == "u8")    => String.from("uint8_t"),
+    (name == "u16")   => String.from("uint16_t"),
+    (name == "u32")   => String.from("uint32_t"),
+    (name == "u64")   => String.from("uint64_t"),
+    (name == "usize") => String.from("size_t"),
+    (name == "f32")   => String.from("float"),
+    (name == "f64")   => String.from("double"),
+    (name == "bool")  => String.from("bool"),
+    (name == "str")   => String.from("const char*"),
+    (name == "unit")  => String.from("void"),
+    true              => String.from(name)
+  )
+);
+
+/// Convert a type-annotation AST node to a C type string.
+///
+/// Handles:
+///  - Simple atomic type names (`i32` → `int32_t`, `str` → `const char*`, etc.)
+///  - Pointer types (`*(T)` → `T*`, where T is a simple atomic type)
+///
+/// Other complex types (generic applications, slices) return `None`.
+type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
+  match(ty_expr,
+    .Atom(ttok) => cond(
+      (ttok.kind == TokenKind.Identifier) => .Some(type_name_to_c(ttok.value.as_str())),
+      true                                => Option(String).None
+    ),
+    // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
+    .FnCall(func_box, func_args, is_infix, _) => cond(
+      (is_infix) => Option(String).None,
+      (func_args.len() != usize(1)) => Option(String).None,
+      true => match(func_box.*,
+        .FnCall(_, _, _, _) => Option(String).None,
+        .Atom(ftok) => cond(
+          (!(ftok.value.as_str() == "*")) => Option(String).None,
+          true => match(func_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(inner_ty) => match(inner_ty,
+              .Atom(ittok) => cond(
+                (ittok.kind == TokenKind.Identifier) => {
+                  inner_c := type_name_to_c(ittok.value.as_str());
+                  inner_c.push_str("*");
+                  Option(String).Some(inner_c)
+                },
+                true => Option(String).None
+              ),
+              .FnCall(_, _, _, _) => Option(String).None
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+/// True if `name` is a primitive numeric or bool type name that supports casting.
+///
+/// These names are used for explicit type-cast expressions: `i32(x)` → `(int32_t)(x)`.
+is_primitive_type_cast :: (fn(name : str) -> bool)(
+  cond(
+    (name == "i8")    => true,
+    (name == "i16")   => true,
+    (name == "i32")   => true,
+    (name == "i64")   => true,
+    (name == "u8")    => true,
+    (name == "u16")   => true,
+    (name == "u32")   => true,
+    (name == "u64")   => true,
+    (name == "usize") => true,
+    (name == "f32")   => true,
+    (name == "f64")   => true,
+    (name == "bool")  => true,
+    true              => false
+  )
+);
+
+/// Handle a primitive type cast: `i32(x)` → `(int32_t)(x)`.
+handle_type_cast :: (fn(
+  type_name : String,
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None      => Option(String).None,
+    .Some(arg) => match(call_gen_expr(arg, ctx, indent),
+      .None      => Option(String).None,
+      .Some(val) => {
+        result := String.from("(");
+        result.push_string(type_name_to_c(type_name.as_str()));
+        result.push_str(")(");
+        result.push_string(val);
+        result.push_str(")");
+        .Some(result)
+      }
+    )
+  )
+);
+
+/// Handle variable definition `name := val` → emit `__auto_type name = val;\n` as a
+/// statement and return `"0"` (the unit sentinel).
+///
+/// Uses `__auto_type` (GCC/Clang extension) for type inference, avoiding the need
+/// to know the type at this phase.
+handle_define :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  lhs_opt := args.get(usize(0));
+  rhs_opt := args.get(usize(1));
+  match(lhs_opt,
+    .None => Option(String).None,
+    .Some(lhs_expr) => match(rhs_opt,
+      .None => Option(String).None,
+      .Some(rhs_expr) => match(call_gen_expr(rhs_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(rhs_code) => match(lhs_expr,
+          // x := val — auto-type variable declaration
+          .Atom(name_tok) => {
+            ctx.*.emitter.emit_string(indent);
+            ctx.*.emitter.emit("__auto_type ");
+            ctx.*.emitter.emit_string(name_tok.value);
+            ctx.*.emitter.emit(" = ");
+            ctx.*.emitter.emit_string(rhs_code);
+            ctx.*.emitter.emit_line(";");
+            .Some(String.from("0"))
+          },
+          .FnCall(_, _, _, _) => Option(String).None
+        )
+      )
+    )
+  )
+});
+
+/// True if `name` is a builtin keyword handled specially by `generate_expr`.
+///
+/// These names must NOT be treated as regular function calls.
+is_builtin_keyword :: (fn(name : str) -> bool)(
+  cond(
+    (name == BK_BEGIN)          => true,
+    (name == "cond")            => true,
+    (name == "while")           => true,
+    (name == "if")              => true,
+    (name == "runtime")         => true,
+    (name == "match")           => true,
+    (name == "recur")           => true,
+    (name == "escape")          => true,
+    (name == "return")          => true,
+    (name == "assert")          => true,
+    (name == "comptime_assert") => true,
+    // Unit value: FnCall(Atom("tuple"), [], …) — the zero-arg tuple is unit
+    (name == BK_TUPLE)          => true,
+    // Empty anon struct: FnCall(Atom("_"), [], …) from `{ }` — also unit
+    (name == BK_ANON_STRUCT)    => true,
+    true                        => false
+  )
+);
+
+/// True if `func_box` wraps a `TokenKind.Dot` atom.
+///
+/// Matches field access and enum-dot expressions such as `a.b`.
+func_box_is_dot :: (fn(func_box : Box(AstExpr)) -> bool)(
+  match(func_box.*,
+    .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
+    .FnCall(_, _, _, _) => false
+  )
+);
+
+/// True if `func_box` wraps a FnCall that is itself a dot-access expression.
+///
+/// This pattern identifies method calls of the form `a.method(args)`, which
+/// are parsed as `FnCall(FnCall(Dot, [a, method], true), [args], false)`.
+func_box_is_dot_dispatch :: (fn(func_box : Box(AstExpr)) -> bool)(
+  match(func_box.*,
+    .Atom(_) => false,
+    .FnCall(inner_func, _, inner_infix, _) => (inner_infix && match(inner_func.*,
+      .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
+      .FnCall(_, _, _, _) => false
+    ))
+  )
+);
+
+/// Generate a comma-separated C argument list for `args`.
+///
+/// Returns `Some("")` for zero args.  Returns `None` if any arg fails to
+/// generate.
+gen_arg_list :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  n      := args.len();
+  result := String.new();
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while runtime(((i < n) && ok)), {
+    match(args.get(i),
+      .None => { ok = false; },
+      .Some(arg) => match(call_gen_expr(arg, ctx, indent),
+        .None       => { ok = false; },
+        .Some(code) => {
+          if((i > usize(0)), { result.push_str(", "); });
+          result.push_string(code);
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  cond(
+    ok   => .Some(result),
+    true => Option(String).None
+  )
+});
+
+/// Handle regular function call `f(a, b)` → `f(a, b)`.
+handle_regular_call :: (fn(
+  ident_opt : Option(String),
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))(
+  match(ident_opt,
+    .None     => Option(String).None,
+    .Some(id) => match(gen_arg_list(args, ctx, indent),
+      .None        => Option(String).None,
+      .Some(arg_s) => {
+        result := String.new();
+        if(ctx.*.is_defined_fn(id.as_str()), {
+          result.push_str("fn_");
+        });
+        result.push_string(id);
+        result.push_str("(");
+        result.push_string(arg_s);
+        result.push_str(")");
+        .Some(result)
+      }
+    )
+  )
+);
+
+/// Handle dot field access `obj.field` → `obj.field` (struct) or `Enum_Variant` (enum).
+///
+/// `args[0]` is the receiver; `args[1]` is expected to be an Atom holding
+/// the field/variant name.
+///
+/// If the object is an enum type registered in `ctx` (e.g. `Color`), emits
+/// `Color_Red` instead of `Color.Red` to match the C enum constant convention.
+handle_dot_access :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  obj_opt   := args.get(usize(0));
+  field_opt := args.get(usize(1));
+  match(obj_opt,
+    .None => Option(String).None,
+    .Some(obj_expr) => match(field_opt,
+      .None => Option(String).None,
+      .Some(field_expr) => match(call_gen_expr(obj_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(obj_code) => {
+          field_name_opt := match(field_expr,
+            .Atom(ftok)         => Option(String).Some(ftok.value),
+            .FnCall(_, _, _, _) => Option(String).None
+          );
+          match(field_name_opt,
+            .None => Option(String).None,
+            .Some(fname) => {
+              is_enum := ctx.*.is_enum_name(obj_code.as_str());
+              is_deref := (fname.as_str() == "*");
+              cond(
+                is_deref => {
+                  // c.* → (*c) — pointer dereference
+                  result := String.from("(*");
+                  result.push_string(obj_code);
+                  result.push_str(")");
+                  Option(String).Some(result)
+                },
+                is_enum => {
+                  result := String.new();
+                  result.push_string(obj_code);
+                  result.push_str("_");
+                  result.push_string(fname);
+                  Option(String).Some(result)
+                },
+                true => {
+                  result := String.new();
+                  result.push_string(obj_code);
+                  result.push_str(".");
+                  result.push_string(fname);
+                  Option(String).Some(result)
+                }
+              )
+            }
+          )
+        }
+      )
+    )
+  )
+});
+
+/// Extract the receiver expression from a dot-dispatch `func_box`.
+get_dispatch_receiver :: (fn(func_box : Box(AstExpr)) -> Option(AstExpr))(
+  match(func_box.*,
+    .Atom(_)                   => Option(AstExpr).None,
+    .FnCall(_, dot_args, _, _) => dot_args.get(usize(0))
+  )
+);
+
+/// Extract the method name string from a dot-dispatch `func_box`.
+get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
+  match(func_box.*,
+    .Atom(_) => Option(String).None,
+    .FnCall(_, dot_args, _, _) => match(dot_args.get(usize(1)),
+      .None => Option(String).None,
+      .Some(method_expr) => match(method_expr,
+        .Atom(mtok)         => Option(String).Some(mtok.value),
+        .FnCall(_, _, _, _) => Option(String).None
+      )
+    )
+  )
+);
+
+/// Handle method call `obj.method(args)` → C method call expression.
+///
+/// Two special cases support template string codegen:
+///
+/// - `x.to_string()` (zero args): the Yo parser emits this for every part of a
+///   template string.  We strip the call and pass the receiver through, so
+///   `"hello ".to_string()` → `"hello "` and `name.to_string()` → `name`.
+///
+/// - `a.+(b)` (one arg, Operator "+" as method): the Yo parser emits this to
+///   chain template-string parts.  We emit `__yo_str_concat(a, b)` which is
+///   defined in the generated C preamble.
+///
+/// All other method calls are emitted as `recv.method(args)`.
+handle_method_call :: (fn(
+  func_box : Box(AstExpr),
+  args     : ArrayList(AstExpr),
+  ctx      : *(CodegenContext),
+  indent   : String
+) -> Option(String))({
+  recv_opt   := get_dispatch_receiver(func_box);
+  method_opt := get_dispatch_method(func_box);
+  match(recv_opt,
+    .None => Option(String).None,
+    .Some(recv_expr) => match(method_opt,
+      .None => Option(String).None,
+      .Some(method_name) => match(call_gen_expr(recv_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(recv_code) => cond(
+          // `x.to_string()` — template string part: strip to_string, pass receiver through.
+          ((method_name.as_str() == "to_string") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
+          // `a.+(b)` — template string concatenation: emit __yo_str_concat(a, b).
+          ((method_name.as_str() == "+") && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(arg_expr) => match(call_gen_expr(arg_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(arg_code) => {
+                  result := String.from("__yo_str_concat(");
+                  result.push_string(recv_code);
+                  result.push_str(", ");
+                  result.push_string(arg_code);
+                  result.push_str(")");
+                  Option(String).Some(result)
+                }
+              )
+            ),
+          // Default: emit as C method call `recv.method(args)`
+          true => match(gen_arg_list(args, ctx, indent),
+            .None        => Option(String).None,
+            .Some(arg_s) => {
+              result := String.new();
+              result.push_string(recv_code);
+              result.push_str(".");
+              result.push_string(method_name);
+              result.push_str("(");
+              result.push_string(arg_s);
+              result.push_str(")");
+              .Some(result)
+            }
+          )
+        )
+      )
+    )
+  )
+});
+
+/// Handle `x = val` (bare assignment), `(x : T) = val` (typed declaration),
+/// and compound LHS assignment like `c.*.field = val` or `arr.data = val`.
+///
+/// - Bare assignment: returns C expression `"x = val"`.
+/// - Typed declaration: emits `"T_c x = val;\n"` and returns `"0"`.
+/// - Compound LHS: returns C expression `"lhs_code = val"`.
+handle_assignment :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  lhs_opt := args.get(usize(0));
+  rhs_opt := args.get(usize(1));
+  match(lhs_opt,
+    .None => Option(String).None,
+    .Some(lhs_expr) => match(rhs_opt,
+      .None => Option(String).None,
+      .Some(rhs_expr) => match(call_gen_expr(rhs_expr, ctx, indent),
+        .None => Option(String).None,
+        .Some(rhs_code) => match(lhs_expr,
+          // Bare atom: x = val — C assignment expression
+          .Atom(name_tok) => {
+            result := String.new();
+            result.push_string(name_tok.value);
+            result.push_str(" = ");
+            result.push_string(rhs_code);
+            Option(String).Some(result)
+          },
+          // FnCall LHS: either (x : T) = val  OR  compound expr like c.*.field = val
+          .FnCall(colon_box, colon_args, colon_infix, _) => cond(
+            // Check if it's a typed declaration: (x : T) = val
+            (colon_infix && match(colon_box.*,
+              .Atom(ctok)         => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
+              .FnCall(_, _, _, _) => false
+            )) => {
+              name_opt := match(colon_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(ne) => match(ne,
+                  .Atom(ntok)         => Option(String).Some(ntok.value),
+                  .FnCall(_, _, _, _) => Option(String).None
+                )
+              );
+              ty_opt := match(colon_args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(te) => type_expr_to_c(te)
+              );
+              match(name_opt,
+                .None => Option(String).None,
+                .Some(var_name) => match(ty_opt,
+                  .None => Option(String).None,
+                  .Some(c_ty) => {
+                    // Emit: indent + c_ty + " " + var_name + " = " + rhs + ";"
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit_string(c_ty);
+                    ctx.*.emitter.emit(" ");
+                    ctx.*.emitter.emit_string(var_name);
+                    ctx.*.emitter.emit(" = ");
+                    ctx.*.emitter.emit_string(rhs_code);
+                    ctx.*.emitter.emit_line(";");
+                    .Some(String.from("0"))
+                  }
+                )
+              )
+            },
+            // Compound LHS: e.g. c.*.field = val, arr.data = val
+            // Generate the LHS as an expression and return "lhs = rhs"
+            true => match(call_gen_expr(lhs_expr, ctx, indent),
+              .None => Option(String).None,
+              .Some(lhs_code) => {
+                result := String.new();
+                result.push_string(lhs_code);
+                result.push_str(" = ");
+                result.push_string(rhs_code);
+                Option(String).Some(result)
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Core entry point
+// ---------------------------------------------------------------------------
+
+/// Handle `assert(cond, msg)` — emit a test assertion as a C if-check.
+///
+/// Generates: `if (!(cond)) { exit(1); }` into the code buffer.
+/// Returns `"0"` (the unit sentinel).
+/// The `msg` argument (second arg) is evaluated but discarded for Phase 5b.
+handle_assert :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None => Option(String).None,
+    .Some(cond_expr) => match(call_gen_expr(cond_expr, ctx, indent),
+      .None => Option(String).None,
+      .Some(cond_code) => {
+        ctx.*.emitter.emit_string(indent);
+        ctx.*.emitter.emit("if (!(");
+        ctx.*.emitter.emit_string(cond_code);
+        ctx.*.emitter.emit_line(")) { exit(1); }");
+        .Some(String.from("0"))
+      }
+    )
+  )
+);
+
+/// True if `expr` is a labeled argument: `FnCall(Atom(":"), [name, val], true)`.
+is_labeled_arg :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_) => false,
+    .FnCall(ff, fa, finfix, _) => (finfix && (match(ff.*,
+      .Atom(ftok) => (ftok.value.as_str() == ":"),
+      .FnCall(_, _, _, _) => false
+    ) && (fa.len() == usize(2))))
+  )
+);
+
+/// True if all elements of `args` are labeled (`field: val`) args AND args is non-empty.
+all_labeled_args :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  n := args.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      (all : bool) = true;
+      (i : usize) = usize(0);
+      while runtime(((i < n) && all)), {
+        match(args.get(i),
+          .None => { all = false; },
+          .Some(e) => {
+            if((!is_labeled_arg(e)), { all = false; });
+          }
+        );
+        i = (i + usize(1));
+      };
+      all
+    }
+  )
+});
+
+/// True if `s` starts with an uppercase ASCII letter (A–Z).
+/// Used to distinguish struct type names from lowercase function names.
+is_uppercase_start :: (fn(s : String) -> bool)(
+  match(s.at(usize(0)),
+    .None => false,
+    .Some(r) => ((r.char >= u32(65)) && (r.char <= u32(90)))
+  )
+);
+
+/// Handle struct construction: `TypeName(field1: val1, field2: val2)`
+/// → `(TypeName){.field1 = val1, .field2 = val2}`.
+///
+/// All args must be labeled (`:` infix). The type name must start with an
+/// uppercase letter (Yo convention for types).
+handle_struct_constructor :: (fn(
+  type_name : String,
+  args      : ArrayList(AstExpr),
+  ctx       : *(CodegenContext),
+  indent    : String
+) -> Option(String))({
+  result := String.from("(");
+  result.push_string(type_name);
+  result.push_str("){");
+  n := args.len();
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  (first : bool) = true;
+  while runtime(((i < n) && all_ok)), {
+    match(args.get(i),
+      .None => { all_ok = false; },
+      .Some(field_expr) => match(field_expr,
+        .Atom(_) => { all_ok = false; },
+        .FnCall(ff, fa, _, _) => {
+          field_name_opt := match(fa.get(usize(0)),
+            .None => Option(String).None,
+            .Some(name_e) => match(name_e,
+              .Atom(ntok) => Option(String).Some(ntok.value),
+              .FnCall(_, _, _, _) => Option(String).None
+            )
+          );
+          field_val_opt := match(fa.get(usize(1)),
+            .None => Option(String).None,
+            .Some(val_e) => call_gen_expr(val_e, ctx, indent)
+          );
+          match(field_name_opt,
+            .None => { all_ok = false; },
+            .Some(fname) => match(field_val_opt,
+              .None => { all_ok = false; },
+              .Some(fval) => {
+                if((!first), { result.push_str(", "); });
+                result.push_str(".");
+                result.push_string(fname);
+                result.push_str(" = ");
+                result.push_string(fval);
+                first = false;
+              }
+            )
+          );
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  cond(
+    (!(all_ok)) => Option(String).None,
+    true => {
+      result.push_str("}");
+      .Some(result)
+    }
+  )
+});
+
+/// Generate a C expression string for a Yo AST expression.
+///
+/// May emit C statements into `ctx.emitter` as side effects (for begin blocks,
+/// while loops, etc.).  Returns the C expression that represents the value of
+/// `expr`, or `None` for unsupported constructs.
+generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
+  match(expr,
+    // --- Atom expressions ---
+    .Atom(tok) => cond(
+      (tok.kind == TokenKind.Integer)    => .Some(gen_integer_lit(tok.value)),
+      (tok.kind == TokenKind.Float)      => .Some(gen_float_lit(tok.value)),
+      (tok.kind == TokenKind.Bool)       => .Some(gen_bool_lit(tok.value.as_str())),
+      (tok.kind == TokenKind.StringLit)  => .Some(gen_string_lit(tok.value)),
+      (tok.kind == TokenKind.Identifier) => .Some(sanitize_c_ident(tok.value.as_str())),
+      true                               => Option(String).None
+    ),
+
+    // --- FnCall expressions ---
+    .FnCall(func_box, args, is_infix, _) => {
+      op_opt    := extract_op(func_box);
+      ident_opt := fncall_func_ident(func_box);
+      cond(
+        // Binary infix arithmetic/comparison/logical: (a OP b)
+        (is_infix && match(op_opt,
+          .None   => false,
+          .Some(op) => ((args.len() == usize(2)) && is_binary_op(op.as_str()))
+        )) => match(op_opt,
+          .None    => Option(String).None,
+          .Some(op) => handle_infix_op(op, args, ctx, indent)
+        ),
+        // Unary prefix: (OP a)
+        ((!is_infix) && match(op_opt,
+          .None   => false,
+          .Some(op) => ((args.len() == usize(1)) && is_unary_prefix_op(op.as_str()))
+        )) => match(op_opt,
+          .None    => Option(String).None,
+          .Some(op) => handle_prefix_op(op, args, ctx, indent)
+        ),
+        // Unit value: FnCall(Atom("tuple"), [], …)  ← parser synthesizes this at end of begin
+        // Empty anon struct: FnCall(Atom("_"), [], …) ← parser produces for `{ }` with no args
+        // Both represent Yo unit () — emit the sentinel "0" (void functions skip it).
+        ((!is_infix) &&
+          (args.len() == usize(0)) &&
+          match(ident_opt,
+            .None    => false,
+            .Some(id) => ((id.as_str() == BK_TUPLE) || (id.as_str() == BK_ANON_STRUCT))
+          )) => .Some(String.from("0")),
+        // begin block: { stmt1; …; last_expr }
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == BK_BEGIN)
+        ) => handle_begin(args, ctx, indent),
+        // cond(arm1, arm2, …)
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "cond")
+        ) => handle_cond(args, ctx, indent),
+        // match(scrut, pat => body, …) — value-pattern ternary chain
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "match")
+        ) => handle_match_value(args, ctx, indent),
+        // while runtime(cond), body
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "while")
+        ) => handle_while(args, ctx, indent),
+        // if(cond, then) / if(cond, then, else)
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "if")
+        ) => handle_if(args, ctx, indent),
+        // Dot field access: a.b — infix FnCall with Dot func
+        (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
+        // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
+        func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
+        // assert(cond, msg) / comptime_assert(cond, msg) — test assertions
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => ((id.as_str() == "assert") || (id.as_str() == "comptime_assert"))
+        )) => handle_assert(args, ctx, indent),
+        // Struct constructor: TypeName(field1: val1, field2: val2)
+        // Detected by: non-infix, uppercase-start name, all args labeled.
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (is_uppercase_start(id) && all_labeled_args(args))
+        )) => match(ident_opt,
+          .None    => Option(String).None,
+          .Some(id) => handle_struct_constructor(id, args, ctx, indent)
+        ),
+        // Regular function call: f(args) — identifier func, not a builtin keyword
+        // Special case: primitive type cast — i32(x) → (int32_t)(x)
+        ((!is_infix) &&
+          ((args.len() == usize(1)) &&
+          match(ident_opt,
+            .None    => false,
+            .Some(id) => is_primitive_type_cast(id.as_str())
+          ))) => match(ident_opt,
+          .None    => Option(String).None,
+          .Some(id) => handle_type_cast(id, args, ctx, indent)
+        ),
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (!is_builtin_keyword(id.as_str()))
+        )) => handle_regular_call(ident_opt, args, ctx, indent),
+        // Assignment: x = val  OR  typed declaration: (x : T) = val
+        (is_infix && match(op_opt,
+          .None    => false,
+          .Some(op) => (op.as_str() == "=")
+        )) => handle_assignment(args, ctx, indent),
+        // Variable definition: x := val  →  __auto_type x = val;
+        (is_infix && match(op_opt,
+          .None    => false,
+          .Some(op) => (op.as_str() == ":=")
+        )) => handle_define(args, ctx, indent),
+        true => Option(String).None
+      )
+    }
+  )
+);
+
+// Initialize the g_gen_expr_fn pointer after generate_expr is defined.
+_gen_expr_fn_init := (fn() -> bool)({
+  g_gen_expr_fn = .Some(generate_expr);
+  true
+})();
+
+export generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op;
+export gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit;
+export gen_binary_op, gen_unary_op;
+export type_name_to_c, type_expr_to_c, is_builtin_keyword, is_primitive_type_cast;
+export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
+export handle_define, handle_type_cast, handle_assert;
+export is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor;
+export gen_match_arm, handle_match_value;
+export func_box_is_dot, func_box_is_dot_dispatch;

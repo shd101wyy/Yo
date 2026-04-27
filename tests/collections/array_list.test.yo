@@ -1058,3 +1058,117 @@ test "Test ArrayList.extend_from_ptr", {
   assert((list(usize(0)) == u8(1)), "first should be 1");
   assert((list(usize(1)) == u8(2)), "last should be 2");
 };
+// ===== Eq Tests =====
+
+test "ArrayList Eq - two empty lists are equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  assert((a == b), "empty == empty");
+  assert((!(a != b)), "!(empty != empty)");
+};
+
+test "ArrayList Eq - single-element lists equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  a.push(i32(42));
+  b.push(i32(42));
+  assert((a == b), "single element equal");
+};
+
+test "ArrayList Eq - single-element lists not equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  a.push(i32(1));
+  b.push(i32(2));
+  assert((!(a == b)), "single element not equal");
+  assert((a != b), "a != b");
+};
+
+test "ArrayList Eq - different lengths not equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  a.push(i32(1));
+  a.push(i32(2));
+  b.push(i32(1));
+  assert((!(a == b)), "different lengths not equal");
+};
+
+test "ArrayList Eq - multi-element equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  a.push(i32(10));
+  a.push(i32(20));
+  a.push(i32(30));
+  b.push(i32(10));
+  b.push(i32(20));
+  b.push(i32(30));
+  assert((a == b), "multi-element lists equal");
+};
+
+test "ArrayList Eq - multi-element not equal (last differs)", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  a.push(i32(10));
+  a.push(i32(20));
+  a.push(i32(99));
+  b.push(i32(10));
+  b.push(i32(20));
+  b.push(i32(30));
+  assert((!(a == b)), "multi-element not equal");
+};
+
+test "ArrayList Eq - reflexive (list equals itself)", {
+  a := ArrayList(i32).new();
+  a.push(i32(5));
+  a.push(i32(6));
+  assert((a == a), "reflexive equality");
+};
+
+test "ArrayList Eq - empty vs non-empty not equal", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  b.push(i32(1));
+  assert((!(a == b)), "empty vs non-empty");
+  assert((!(b == a)), "non-empty vs empty");
+};
+
+test "ArrayList Eq - nested ArrayList(ArrayList(i32))", {
+  inner1a := ArrayList(i32).new();
+  inner1a.push(i32(1));
+  inner1a.push(i32(2));
+  inner1b := ArrayList(i32).new();
+  inner1b.push(i32(1));
+  inner1b.push(i32(2));
+  inner2 := ArrayList(i32).new();
+  inner2.push(i32(3));
+  a := ArrayList(ArrayList(i32)).new();
+  b := ArrayList(ArrayList(i32)).new();
+  a.push(inner1a);
+  b.push(inner1b);
+  assert((a == b), "nested equal");
+  c := ArrayList(ArrayList(i32)).new();
+  c.push(inner2);
+  assert((!(a == c)), "nested not equal");
+};
+
+test "ArrayList index .* on non-pointer Output gives clear error - issue arraylist-index-deref-pattern", {
+  // Index trait dispatch already auto-dereferences (returns Output, not
+  // *(Output)). Writing `list(usize(0)).*` is a user error since `String`
+  // has no `*` member. Verify we surface a clear error message instead of
+  // the generic "Expected to be evaluated" failure.
+  // See issues/fixed/arraylist-index-deref-pattern.md.
+  list := ArrayList(String).new();
+  list.push(`hello`);
+  // Correct usage: drop the redundant `.*`.
+  assert(list(usize(0)).bytes_len() == usize(5), "list(0).bytes_len() == 5");
+  // Same for primitive Output type.
+  ints := ArrayList(i32).new();
+  ints.push(i32(42));
+  assert(ints(usize(0)) == i32(42), "ints(0) == 42");
+  // The redundant `.*` form must be rejected at compile time.
+  comptime_expect_error({
+    bad_list := ArrayList(String).new();
+    bad_list.push(`hello`);
+    _ := bad_list(usize(0)).*;
+  });
+};

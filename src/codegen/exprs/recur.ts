@@ -1,7 +1,15 @@
 import { exprIsFunctionCall, exprToString, type FnCallExpr } from "../../expr";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
-import { generateDeferredDupExpressions } from "./drop-dup";
+import { isUnitType } from "../../types/guards";
+import {
+  type CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+} from "../utils";
+import {
+  generateDeferredDropExpressions,
+  generateDeferredDupExpressions,
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -56,7 +64,35 @@ export function generateRecur(
         ? `${argsList}, ${evidenceArgs.join(", ")}`
         : argsList || evidenceArgs.join(", ");
 
-    return `${context.currentFunctionName}(${fullArgs})`;
+    const callCode = `${context.currentFunctionName}(${fullArgs})`;
+
+    // Handle deferred drop expressions at the expression level (e.g., from
+    // moves of RC-typed arguments into the recursive call).
+    if (expr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(expr, indent, functionContext);
+    }
+
+    // If this recur expression has a variableName, emit the result into a
+    // named temp variable before any enclosing-scope drops are emitted.
+    // Without this, the call happens AFTER the scope drops (use-after-free)
+    // because the enclosing begin/match-arm emitter only gets back a raw
+    // call string and emits drops first, then assigns the result.
+    const tempVar = expr.$?.variableName;
+    if (tempVar && expr.$?.type && !isUnitType(expr.$.type)) {
+      const cType = getTypeString(expr.$.type, context);
+      const tempVarName = getVariableNameForCodegen(tempVar, expr.$.env);
+      if (!functionContext.declaredTempVars)
+        functionContext.declaredTempVars = new Set();
+      if (!functionContext.declaredTempVars.has(tempVarName)) {
+        functionContext.declaredTempVars.add(tempVarName);
+        context.emitter.emitLine(
+          `${indent}${cType} ${tempVarName} = ${callCode};`
+        );
+      }
+      return tempVarName;
+    }
+
+    return callCode;
   } else {
     return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
   }

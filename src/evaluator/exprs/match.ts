@@ -159,13 +159,47 @@ function isMatchablePrimitiveType(type: Type): boolean {
 }
 
 /**
+ * Evaluate a `match` expression.
  *
+ * **Ownership**: `match` does NOT consume the scrutinee. The original variable
+ * remains live and accessible both inside the arm body and after the match
+ * expression. Only the extracted destructuring variables (e.g., `w`, `h` from
+ * `.Rectangle(w, h)`) are new bindings scoped to that arm.
  *
- * match shape // shape will be consumed here and moved to `s` in each condition.
- *   .Circle => ((s) => s.radius),
- *   .Square => ((s) => s.side),
- *   .Rectangle => ((s) => s.width + s.height)
- * ;
+ * Supported scrutinee types:
+ *   - Enum types (with variant patterns, optional destructuring, GADT refinement)
+ *   - Primitive types (i*, u*, f*, bool, comptime_int/float/string) — see
+ *     `evaluateMatchForPrimitiveTypes` below
+ *   - Pointer-to-enum: matched as the underlying enum, with destructured
+ *     variables typed as `*(FieldType)` so users can mutate fields in place
+ *
+ * Match arm syntax (enum scrutinee):
+ *
+ *   match(shape,
+ *     .Circle           => use_circle_unit_variant(),
+ *     .Rectangle(w, h)  => (w + h),                    // positional
+ *     .Square(side: s)  => double(s),                  // labeled
+ *     .Triangle({base, height: h}) => (base * h),      // curly shorthand
+ *     (.Foo | .Bar)     => 0,                          // or-pattern
+ *     _                 => fallback_value              // wildcard (must be last)
+ *   );
+ *
+ * Destructuring forms (mutually exclusive within a single arm):
+ *   - **Positional**: `.Variant(a, b, c)` — must list exactly N args for N fields.
+ *     Use `_` to ignore individual positions.
+ *   - **Labeled**: `.Variant(label1: var1, label2: _)` — partial; only listed
+ *     labels are bound. `_` on the RHS asserts presence without binding.
+ *   - **Curly shorthand**: `.Variant({label1, label2: alias})` — partial;
+ *     bare atoms are sugar for `name: name`. Bare `_` and nested `{...}` are
+ *     rejected; use the labeled form `(label: _)` to skip a single field.
+ *
+ * GADT support: branches whose declared return-type args are incompatible
+ * with the scrutinee's concrete type-constructor args are unreachable and
+ * silently skipped (also excluded from exhaustiveness checking).
+ *
+ * Compile-time scrutinees: when the scrutinee is a known compile-time enum
+ * value, only the matching branch is evaluated and destructured fields are
+ * bound as compile-time values (enabling further CTFE inside the body).
  */
 export function evaluateMatch({
   expr,
@@ -669,17 +703,61 @@ export function evaluateMatch({
         continue; // No need to continue if the variant is not selected
       }
 
-      // Extract destructuring parameters
+      // Extract destructuring parameters.
+      //
+      // Curly-destructuring shorthand: `.Variant({a, b: c})` parses as
+      // `.Variant(_(a: a, b: c))` — the parser rewrites `{...}` to `_(...)`
+      // and converts bare atoms inside to `(name: name)` labeled pairs.
+      // When the only arg is such a `_(...)` call, lift its inner args so the
+      // rest of this function (and codegen) see canonical labeled-destructuring
+      // form. Curly destructuring permits partial matches (omit fields you
+      // don't need). We mutate `matchArmExpr.args` in place so codegen — which
+      // re-reads `caseValue.args` — sees the same lifted form.
+      let isCurlyDestructuring = false;
+      if (
+        matchArmExpr.args.length === 1 &&
+        exprIsFunctionCall(matchArmExpr.args[0]!) &&
+        exprIsFunctionCallOf(matchArmExpr.args[0]!, "_")
+      ) {
+        const curly = matchArmExpr.args[0] as FnCallExpr;
+        if (curly.args.length === 0) {
+          throw formatErrorMessage({
+            token: curly.token,
+            errorMessage: `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variantName}" without arguments for variants with no fields.`,
+          });
+        }
+        // Reject nested curly: any inner arg that is itself `_(...)`.
+        for (const inner of curly.args) {
+          if (exprIsFunctionCall(inner) && exprIsFunctionCallOf(inner, "_")) {
+            throw formatErrorMessage({
+              token: inner.token,
+              errorMessage: `Nested curly destructuring "{...}" inside another "{...}" is not supported.`,
+            });
+          }
+          // Reject bare `_` inside `{...}` — meaningless without a label.
+          if (exprIsAtomOf(inner, "_")) {
+            throw formatErrorMessage({
+              token: inner.token,
+              errorMessage: `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`,
+            });
+          }
+        }
+        isCurlyDestructuring = true;
+        matchArmExpr.args = curly.args;
+      }
       const destructuringParams = matchArmExpr.args;
 
       // Check if variant has fields
       if (variant.fields && variant.fields.length > 0) {
-        // For labeled destructuring, we don't require all parameters to be specified
-        // For positional destructuring, we require exact match
-        const hasLabeledParams = destructuringParams.some(
-          (param) =>
-            exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
-        );
+        // For labeled destructuring (and curly shorthand), we don't require all
+        // parameters to be specified. For positional destructuring, we require
+        // exact match.
+        const hasLabeledParams =
+          isCurlyDestructuring ||
+          destructuringParams.some(
+            (param) =>
+              exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+          );
 
         if (
           !hasLabeledParams &&
@@ -857,7 +935,9 @@ export function evaluateMatch({
           } else {
             throw formatErrorMessage({
               token: param.token,
-              errorMessage: `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${exprToString(param)}`,
+              errorMessage: isCurlyDestructuring
+                ? `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${exprToString(param)}`
+                : `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${exprToString(param)}`,
             });
           }
         }

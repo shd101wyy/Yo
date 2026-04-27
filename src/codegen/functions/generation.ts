@@ -267,11 +267,40 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // sub-expressions may lack type annotations, making codegen impossible.
     // This applies even when the function was marked effectful — the effectful
     // generation needs properly annotated sub-expressions too.
+    // Exception: isModuleEffectMember functions (e.g., Exception.throw forall handlers)
+    // MUST still be emitted in their unspecialized form — their forall params are type-erased
+    // (void), the body is just escape(), and the unspecialized name is stored as a void*
+    // function pointer in async capture structs by emitModuleEffectInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&
+      !value.isModuleEffectMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
+      continue;
+    }
+
+    // For isModuleEffectMember functions that have specializations, the generic
+    // body lacks type annotations on sub-expressions (metadata is only filled in
+    // during specialization). We must emit the unspecialized form because its name
+    // is stored as a void* function pointer in async capture structs by
+    // emitModuleEffectInjection (see await.ts). Emit a minimal stub: set the
+    // effect-escaped flag and return a zero value matching the declared return type.
+    if (
+      value.isModuleEffectMember &&
+      (value.specializedFunctionCaches?.length ?? 0) > 0
+    ) {
+      const proto = generateFunctionPrototype(value.type, cName, context);
+      const returnTypeStr = getTypeString(value.type.return.type, context);
+      const returnStmt = isUnitType(value.type.return.type)
+        ? `return;`
+        : returnTypeStr === "void"
+          ? `return;`
+          : `return (${returnTypeStr}){0};`;
+      context.emitter.emitLine(`static inline ${proto} {`);
+      context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
+      context.emitter.emitLine(`  ${returnStmt}`);
+      context.emitter.emitLine(`}`);
       continue;
     }
 

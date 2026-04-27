@@ -15,7 +15,6 @@ open import "std/error";
   ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_token
 } :: import "../expr/expr.yo";
 
-
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
   expr  : AstExpr,
@@ -33,18 +32,73 @@ ParseError :: object(
   message     : String,
   row         : usize,
   column      : usize,
-  module_path : String
+  module_path : String,
+  source_line : String
 );
 
 impl(ParseError, ToString(
-  to_string : (fn(self : *(Self)) -> String)(
-    `parse error at ${self.row}:${self.column}: ${self.message}`
-  )
+  to_string : (fn(self : *(Self)) -> String)({
+    sb := StringBuilder.new();
+    sb.write_str("error: ");
+    sb.write_string(self.message);
+    sb.write_str("\n --> ");
+    sb.write_string(self.module_path);
+    sb.write_str(":");
+    sb.write_string(`${(self.row + usize(1))}`);
+    sb.write_str(":");
+    sb.write_string(`${self.column}`);
+    if((self.source_line.len() > usize(0)), {
+      sb.write_str("\n  |\n");
+      sb.write_string(`${(self.row + usize(1))}`);
+      sb.write_str(" | ");
+      sb.write_string(self.source_line);
+      sb.write_str("\n  |");
+      (k : usize) = usize(0);
+      // pad column + 3 spaces (to align under first non-space char of source line)
+      while runtime((k < self.column)), {
+        sb.write_byte(u8(32));
+        k = (k + usize(1));
+      };
+      sb.write_byte(u8(94));
+    });
+    sb.to_string()
+  })
 ));
 
 impl(ParseError, Error());
 
-/// Parser state: holds the input, tokens, and parsing progress.
+/// Extract the Nth source line (0-indexed) from the input string.
+/// Returns an empty string if the row is out of range.
+extract_source_line :: (fn(input : String, row : usize) -> String)({
+  lines_list := input.split(String.from("\n"));
+  match(lines_list.get(row),
+    .None => String.from(""),
+    .Some(line) => line
+  )
+});
+
+/// Build a `ParseError` from a token, automatically extracting the source line.
+make_parse_error :: (fn(tok : Token, message : String) -> ParseError)(
+  ParseError(
+    message:     message,
+    row:         tok.row,
+    column:      tok.column,
+    module_path: tok.module_path,
+    source_line: extract_source_line(tok.input, tok.row)
+  )
+);
+
+/// Build a `ParseError` without source context (for end-of-input or internal errors).
+make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseError)(
+  ParseError(
+    message:     message,
+    row:         usize(0),
+    column:      usize(0),
+    module_path: module_path,
+    source_line: String.from("")
+  )
+);
+
 Parser :: struct(
   input_string        : String,
   module_path         : String,
@@ -345,10 +399,7 @@ impl(Parser,
           // (avoids forward reference: parse_template_string → get_program cycle)
           (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, using(exn)).get_program(using(exn));
           if((inner_prog.len() == usize(0)), {
-            exn.throw(dyn ParseError(
-              message: `empty expression in template string interpolation`,
-              row: tok.row, column: tok.column, module_path: tok.module_path
-            ));
+            exn.throw(dyn make_parse_error(tok, `empty expression in template string interpolation`));
           });
           inner_expr := match(inner_prog.get(usize(0)),
             .Some(e) => e,
@@ -440,13 +491,10 @@ impl(Parser,
           );
         },
         true => {
-          exn.throw(dyn ParseError(
-            message: cond(
+          exn.throw(dyn make_parse_error(curr, cond(
               has_whitespace => `expected ; to end function call`,
               true => `expected , or ) in function call`
-            ),
-            row: curr.row, column: curr.column, module_path: curr.module_path
-          ));
+            )));
           return FnArgsResult(args: args, index: idx);
         }
       );
@@ -472,17 +520,11 @@ impl(Parser,
 ,
   parse_paren_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn ParseError(
-        message: `unexpected end of input`,
-        row: usize(0), column: usize(0), module_path: self.module_path
-      )),
+      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LParen), {
-      exn.throw(dyn ParseError(
-        message: `expected (`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ));
+      exn.throw(dyn make_parse_error(tok, `expected (`));
     });
 
     // Check for unit ()
@@ -512,10 +554,7 @@ impl(Parser,
 
     (curr_kind : TokenKind) = match(self.tokens.get(idx),
       .Some(t) => t.kind,
-      .None => exn.throw(dyn ParseError(
-        message: `expected ) or , in (...)`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ))
+      .None => exn.throw(dyn make_parse_error(tok, `expected ) or , in (...)`))
     );
 
     // Single expression wrapped in parens: (expr)
@@ -530,10 +569,7 @@ impl(Parser,
 
     while runtime(true), {
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `expected ) or , for tuple`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `expected ) or , for tuple`)),
         .Some(t) => t
       );
       cond(
@@ -543,10 +579,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix , and ; in (...)`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in (...)`));
                 Option(bool).Some(false)
               }
             )
@@ -558,10 +591,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix ; and , in (...)`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in (...)`));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -574,10 +604,7 @@ impl(Parser,
 
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `expected ) for tuple`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `expected ) for tuple`)),
         .Some(t) => t
       );
       if((curr2.kind == TokenKind.RParen), { break; });
@@ -611,17 +638,11 @@ impl(Parser,
 ,
   parse_array_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn ParseError(
-        message: `unexpected end of input`,
-        row: usize(0), column: usize(0), module_path: self.module_path
-      )),
+      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LBracket), {
-      exn.throw(dyn ParseError(
-        message: `expected [`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ));
+      exn.throw(dyn make_parse_error(tok, `expected [`));
     });
     idx := (index + usize(1));
 
@@ -630,10 +651,7 @@ impl(Parser,
 
     while runtime(true), {
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `expected ] or , for array`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `expected ] or , for array`)),
         .Some(t) => t
       );
       cond(
@@ -643,10 +661,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix , and ; in [...]`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in [...]`));
                 Option(bool).Some(false)
               }
             )
@@ -658,10 +673,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix ; and , in [...]`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in [...]`));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -673,10 +685,7 @@ impl(Parser,
       );
 
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `expected ]`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `expected ]`)),
         .Some(t) => t
       );
       if((curr2.kind == TokenKind.RBracket), { break; });
@@ -693,10 +702,7 @@ impl(Parser,
     );
     n_args := args.len();
     if((is_array_or_slice_type && (n_args > usize(2))), {
-      exn.throw(dyn ParseError(
-        message: `expected at most 2 arguments for Array type, or 1 for Slice type`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ));
+      exn.throw(dyn make_parse_error(tok, `expected at most 2 arguments for Array type, or 1 for Slice type`));
     });
     is_array_type := (is_array_or_slice_type && (n_args == usize(2)));
     is_slice_type := (is_array_or_slice_type && (n_args == usize(1)));
@@ -724,17 +730,11 @@ impl(Parser,
 ,
   parse_curly_bracket_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn ParseError(
-        message: `unexpected end of input`,
-        row: usize(0), column: usize(0), module_path: self.module_path
-      )),
+      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LCurlyBracket), {
-      exn.throw(dyn ParseError(
-        message: `expected {`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ));
+      exn.throw(dyn make_parse_error(tok, `expected {`));
     });
 
     args := ArrayList(AstExpr).new();
@@ -744,10 +744,7 @@ impl(Parser,
     while runtime(true), {
       idx = self.skip_ws_fwd(idx);
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `unexpected end of {...}`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `unexpected end of {...}`)),
         .Some(t) => t
       );
       cond(
@@ -757,10 +754,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix , and ; in {...}`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in {...}`));
                 Option(bool).Some(false)
               }
             )
@@ -772,10 +766,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn ParseError(
-                  message: `cannot mix ; and , in {...}`,
-                  row: curr.row, column: curr.column, module_path: curr.module_path
-                ));
+                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in {...}`));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -788,10 +779,7 @@ impl(Parser,
 
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn ParseError(
-          message: `unexpected end of {...}`,
-          row: tok.row, column: tok.column, module_path: tok.module_path
-        )),
+        .None => exn.throw(dyn make_parse_error(tok, `unexpected end of {...}`)),
         .Some(t) => t
       );
 
@@ -927,28 +915,16 @@ impl(Parser,
       (left_operand : AstExpr) = match(rhs,
         .FnCall(_, rargs, _, _) => match(rargs.get(usize(0)),
           .Some(a) => a,
-          .None => exn.throw(dyn ParseError(
-            message: `internal: missing left arg in rhs`,
-            row: usize(0), column: usize(0), module_path: self.module_path
-          ))
+          .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing left arg in rhs`))
         ),
-        .Atom(_) => exn.throw(dyn ParseError(
-          message: `internal: rhs is atom`,
-          row: usize(0), column: usize(0), module_path: self.module_path
-        ))
+        .Atom(_) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
       );
       (right_operand : AstExpr) = match(rhs,
         .FnCall(_, rargs, _, _) => match(rargs.get(usize(1)),
           .Some(a) => a,
-          .None => exn.throw(dyn ParseError(
-            message: `internal: missing right arg in rhs`,
-            row: usize(0), column: usize(0), module_path: self.module_path
-          ))
+          .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing right arg in rhs`))
         ),
-        .Atom(_) => exn.throw(dyn ParseError(
-          message: `internal: rhs is atom`,
-          row: usize(0), column: usize(0), module_path: self.module_path
-        ))
+        .Atom(_) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
       );
       rhs_func_tok := match(rhs,
         .FnCall(rfb, _, _, _) => match(rfb.*,
@@ -980,10 +956,7 @@ impl(Parser,
   parse_primary : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(self.tokens.get(idx),
-      .None => exn.throw(dyn ParseError(
-        message: `unexpected end of input`,
-        row: usize(0), column: usize(0), module_path: self.module_path
-      )),
+      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
       .Some(t) => t
     );
 
@@ -995,9 +968,9 @@ impl(Parser,
         || (tok.kind == TokenKind.Integer))
         || (tok.kind == TokenKind.Float))
         || (tok.kind == TokenKind.StringLit))
-        || (tok.kind == TokenKind.CharLit)) => {
+        || (tok.kind == TokenKind.CharLit)) => 
         ParseResult(expr: .Atom(tok), index: (idx + usize(1)))
-      },
+      ,
 
       (tok.kind == TokenKind.LParen)         => self.parse_paren_expr(idx, using(exn)),
       (tok.kind == TokenKind.LBracket)        => self.parse_array_expr(idx, using(exn)),
@@ -1005,10 +978,7 @@ impl(Parser,
       (tok.kind == TokenKind.Dot)             => ParseResult(expr: .Atom(tok), index: (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString)  => self.parse_template_string(tok, idx, using(exn)),
 
-      true => exn.throw(dyn ParseError(
-        message: `unexpected token: ${tok.value}`,
-        row: tok.row, column: tok.column, module_path: tok.module_path
-      ))
+      true => exn.throw(dyn make_parse_error(tok, `unexpected token: ${tok.value}`))
     )
   })
 ,
@@ -1177,13 +1147,10 @@ impl(Parser,
                 using(exn)
               )
             },
-            op_at_line_start => {
+            op_at_line_start => 
               self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, using(exn))
-            },
-            true => exn.throw(dyn ParseError(
-              message: `ambiguous operator precedence near ${tok.value} — use parentheses`,
-              row: tok.row, column: tok.column, module_path: tok.module_path
-            ))
+            ,
+            true => exn.throw(dyn make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`))
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
@@ -1330,5 +1297,5 @@ parse :: (fn(
   p.get_program(using(exn))
 });
 
-
 export ParseResult, FnArgsResult, ParseError, Parser, parse;
+export extract_source_line, make_parse_error, make_parse_error_raw;

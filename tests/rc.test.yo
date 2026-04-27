@@ -205,6 +205,17 @@ test "Test match returning RC object - no phantom drop", {
   assert((s2 == `beta`), "match returning RC String B");
 };
 
+// Regression for inline-enum-match-subject-phantom-drop.md:
+// constructing an enum with at least one object-payload variant directly as
+// the subject of a match (not via a named local) used to emit a drop on an
+// undeclared temp variable.
+test "Test inline enum construction as match subject - no phantom drop", {
+  Kind :: enum(Func, Arr, Obj(s : String));
+  match(Kind.Func, .Func => (), _ => ());
+  match(Kind.Arr, .Arr => (), _ => ());
+  match(Kind.Obj(`payload`), .Obj(s) => assert((s == `payload`), "Obj payload"), _ => ());
+};
+
 // --- Array index access with RC types ---
 // Regression tests for the inline incr_rc leak (array-index-rc-leak.md).
 // Only ubuntu/Linux detected the leak via LeakSanitizer; macOS ARM lacks it.
@@ -414,4 +425,37 @@ test "Test nested && with RC temps - no phantom drop", {
   result3 := (((a.len() > usize(0)) && (b.len() > usize(0))) && ((c.len() > usize(0)) || (make_str("x").len() > usize(0))));
   assert(result3, "triple nested && || should work with RC temps");
   ();
+};
+test "Test early return of reassigned RC variable does not leak", {
+  // Regression test for: issues/early-return-reassigned-rc-variable-leak.md
+  //
+  // When an RC variable is reassigned inside a while loop and returned early
+  // from inside a match branch, the current value must be dropped after dup'ing
+  // it for the return value.
+  // (ArrayList is already imported at the top of this file)
+
+  build_string :: (fn(parts : ArrayList(str)) -> String)({
+    result := String.new();
+    i := usize(0);
+    while (i < parts.len()), {
+      match(parts.get(i),
+        .Some(s) => {
+          result = result.concat(String.from(s));
+          i = (i + usize(1));
+        },
+        .None => {
+          return result;
+        }
+      );
+    };
+    result
+  });
+
+  parts := ArrayList(str).new();
+  parts.push("hello ");
+  parts.push("world");
+  s := build_string(parts);
+  assert((s.len() == usize(11)), "result should be 'hello world' (11 chars)");
+  // If the RC is wrong (leak), ASAN will report it.
+  assert((rc(s) == 1), "rc(s) should be 1 after early return");
 };

@@ -13,8 +13,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## C codegen tests
 
-- Run specific test: `./yo-cli test ./tests/XXX.test.yo --parallel 1` (add `-v` for verbose)
-- **Always use `--parallel 1`** when running a single test file — this shows results sequentially and avoids hangs with large test files.
+- Run specific test: `./yo-cli test ./tests/XXX.test.yo` (add `-v` for verbose)
 - The **full test suite** (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
@@ -30,13 +29,43 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## Bootstrap (yo-self) tests
 
-- Run all: `./yo-cli test ./yo-self/tests/ --parallel 1`
-- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1`
-- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1`
-- Currently 69 tests (33 lexer + 36 parser), ~53 seconds.
+- Run all: `./yo-cli test ./yo-self/tests/`
+- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
+- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
+- Run evaluator only: `./yo-cli test ./yo-self/tests/eval.test.yo`
+- Currently 180 tests (33 lexer + 36 parser + 15 types/env + 51 evaluator + 45 other), ~7 minutes.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
-- Run these whenever modifying `yo-self/lexer/`, `yo-self/parser/`, or their tests.
+- Run these whenever modifying `yo-self/` source or tests.
+
+### ASAN stack depth limit for yo-self evaluator tests
+
+The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~693 local variables.
+ASAN disables stack frame reuse and adds redzones around every variable, inflating
+each `evaluate()` call significantly.
+
+**Per-frame overhead by platform:**
+
+- macOS ARM64: ~566KB per `evaluate()` frame
+- Windows x86_64: ~1.1MB per `evaluate()` frame (larger redzones + x86_64 ABI spills)
+
+**macOS ARM64 (8MB default stack):**
+
+- Safe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → ✓
+- Safe: fact(2) needs ~6 frames × 566KB ≈ 3.4MB → ✓
+- Safe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → ✓
+- Unsafe: countdown(3) needs ~9 frames × 566KB > 8MB → **STACK OVERFLOW**
+- Unsafe: fact(3) needs ~9+ frames × 566KB > 8MB → **STACK OVERFLOW**
+- Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
+
+**Windows x86_64 (16MB reserve set via `-Wl,/STACK:16777216` in `src/test-runner.ts`):**
+
+- Safe: countdown(2) needs ~7 frames × 1.1MB ≈ 7.7MB → ✓
+- Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
+- Unsafe: countdown(3) / fact(3) would exceed 16MB → **STACK OVERFLOW**
+
+When writing recursive evaluator tests, use small inputs (e.g. fib(2), countdown(2), fact(2)).
+Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
 
 ## Important constraints
 

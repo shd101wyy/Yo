@@ -263,6 +263,43 @@ export function evaluatePropertyAccess({
 
       return expr;
     }
+
+    // Not a pointer. The `.*` may still resolve later as a struct/object
+    // field named `*` (e.g. `Box(T)` defines `(*) : V`) or as a `*`
+    // method on the type's trait — fall through to the normal property
+    // lookup. But if the type is one of the common cases that clearly
+    // has no `*` member (the underlying type carries an
+    // `indexTraitPtrType`, meaning the user wrote `value(idx).*` after
+    // the Index trait already auto-dereferenced), surface a clear error
+    // instead of the generic "Expected to be evaluated" failure that
+    // appears farther downstream.
+    if (objectExpr.$?.indexTraitPtrType) {
+      const outputType = objectExpr.$.type;
+      // If the Output type defines its own `*` member (e.g. Box(T)
+      // declares `(*) : V`, or a trait declares a `*` method), fall
+      // through to the normal property lookup so that legitimate
+      // unwraps like `arr_of_boxes(0).*` keep working.
+      const hasStarMember =
+        (isStructType(outputType) &&
+          outputType.fields?.some((f) => f.label === "*")) ||
+        (isTraitType(outputType) &&
+          outputType.fields?.some((f) => f.label === "*"));
+      if (hasStarMember) {
+        // Fall through to the normal struct/trait property lookup below.
+      } else {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage:
+            `Cannot dereference value of type "${typeToString(outputType)}". ` +
+            `The Index trait dispatch on this expression already returns the ` +
+            `dereferenced element value (not a pointer), so the trailing ".*" ` +
+            `is redundant. Drop the ".*" and chain the next call directly ` +
+            `(e.g. \`value(idx).method()\`). ` +
+            `If you intended to unwrap a smart pointer, the inner type "${typeToString(outputType)}" ` +
+            `does not define a "*" member.`,
+        });
+      }
+    }
   }
 
   if (isTypeValue(objectExpr.$?.value)) {

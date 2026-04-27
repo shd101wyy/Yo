@@ -33,6 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string`. It does NOT auto-convert to `str`. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if a comptime function needs to return `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns
 
@@ -88,6 +89,22 @@ numbers := ArrayList(i32).new();
 numbers.push(i32(1));
 numbers.push(i32(2));
 
+// Index via call syntax (Index trait) — returns the value directly:
+first := numbers(usize(0));  // → i32  (value)
+
+// Mutate in place — direct assignment syntax:
+numbers(usize(0)) = i32(99);
+
+// When you need the pointer explicitly:
+ptr := &(numbers(usize(0)));  // → *(i32)
+ptr.* = i32(100);
+
+// Safe access:
+match(numbers.get(usize(0)),
+  .Some(v) => println(`${v}`),
+  .None => ()
+);
+
 counts := HashMap(String, i32).new();
 counts.set(`yo`, i32(1));
 ```
@@ -126,6 +143,20 @@ counter.* = (counter.* + i32(1));
 - Use `Box(T)` or `box(value)` for owned heap allocation
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `Option(*(T))` or `?*(T)`, not sentinel integers
+- Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
+- For self-referential `object` types, use `Box(Self)` to break the recursive cycle:
+
+```rust
+Node :: object(
+  value : i32,
+  next  : Option(Box(Self))   // Box(Self) breaks the recursive type cycle
+);
+
+n := Node(value: i32(1), next: Option(Box(Node)).None);
+// Constructing a Box:
+child := Box(Node)(Node(value: i32(2), next: Option(Box(Node)).None));
+parent := Node(value: i32(1), next: Option(Box(Node)).Some(child));
+```
 
 ## Unicode and platform checks
 
@@ -224,6 +255,60 @@ println(p1.to_string());
 - Built-in derivable traits: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`
 - Works for both structs and enums
 - Custom derives can be registered with `derive_rule`; see [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)
+
+### ⚠️ Circular derive trap: recursive enum with `ArrayList`
+
+`derive(T, Eq)` and `derive(T, Clone)` fail when any field's type requires the derived trait to be already registered:
+
+```rust
+// PROBLEM: derive expansion generates `fields_l == fields_r` (ArrayList(Node) needs
+// Eq(Node)), but Eq(Node) isn't registered yet — compile error.
+Node :: enum(Leaf, Branch(children : ArrayList(Self)));
+derive(Node, Eq);  // ← ERROR: "No matching call found for __lhs_children == __rhs_children"
+```
+
+**Fix**: skip `derive`, write a manual recursive equality function with `recur`:
+
+```rust
+node_eq :: (fn(a : Node, b : Node) -> bool)(
+  match(a,
+    .Leaf => match(b, .Leaf => true, _ => false),
+    .Branch(acs) =>
+      match(b,
+        .Branch(bcs) => {
+          cond(
+            (acs.len() != bcs.len()) => false,
+            true => {
+              (i : usize) = usize(0);
+              (ok : bool) = true;
+              while runtime(((i < acs.len()) && ok)), {
+                match(acs.get(i),
+                  .Some(ac) => match(bcs.get(i),
+                    .Some(bc) => { ok = recur(ac, bc); },
+                    .None     => { ok = false; }
+                  ),
+                  .None => { ok = false; }
+                );
+                i = (i + usize(1));
+              };
+              ok
+            }
+          )
+        },
+        _ => false
+      )
+  )
+);
+
+impl(Node, Eq(Node)(
+  (==) : (fn(a : Self, b : Self) -> bool)(node_eq(a, b))
+));
+```
+
+Same issue applies to `Clone` when fields contain `ArrayList(Self)`.
+Yo's reference counting handles shallow copies automatically (no `Clone` trait call needed);
+the `Clone` trait is only for deep cloning and has the same circularity problem.
+In practice, passing `EvalValue`-like types by value works fine without a `Clone` impl.
 
 ## Error handling
 

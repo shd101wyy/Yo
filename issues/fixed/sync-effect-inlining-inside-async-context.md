@@ -1,6 +1,6 @@
 # Sync Effect Inlining Inside Async Context — Design Flaw
 
-**Status:** 🔴 OPEN  
+**Status:** ✅ FIXED (verified 2026-04-27 — reproducer compiles and runs; both success and throw/escape paths work)  
 **Date:** March 12, 2026  
 **Severity:** Critical (blocks std/fs Exception migration)
 

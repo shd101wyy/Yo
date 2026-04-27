@@ -1,0 +1,115 @@
+//! Top-level C program assembly for the self-hosted Yo compiler.
+//!
+//! Phase 4j: combine C preamble + type declarations + RC helpers +
+//! function definitions into a compilable C11 file.
+//!
+//! Key entry points:
+//!   emit_c_preamble(module_id, ctx)    — headers section (#include, typedefs, allocator)
+//!   emit_main_wrapper(fn_name, ctx)    — int main() { fn_name(); return 0; }
+//!   generate_c_output(ctx) -> String   — call ctx.emitter.print()
+//!
+//! Typical usage:
+//!   1. emit_c_preamble(module_id, ctx)
+//!   2. generate_type_decl(tv, mod, id, ctx) per type
+//!   3. generate_rc_fns(tv, mod, id, ctx) per type
+//!   4. generate_function(name, ret, params, tys, body, ctx) per fn
+//!   5. emit_main_wrapper("__yo_user_main", ctx)
+//!   6. generate_c_output(ctx) -> full C source
+
+open import "std/string";
+{ CodegenContext } :: import "./context.yo";
+
+// ---------------------------------------------------------------------------
+// Preamble
+// ---------------------------------------------------------------------------
+
+/// Emit the minimal C11 preamble required for compiled Yo programs.
+///
+/// Emits into the headers section:
+///   - `#define _DEFAULT_SOURCE` / `_GNU_SOURCE`
+///   - Standard C headers
+///   - Libc allocator macros
+///   - Module ID comment
+emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
+  e := &ctx.*.emitter;
+
+  // Feature macros
+  e.*.emit_header_line("#define _DEFAULT_SOURCE");
+  e.*.emit_header_line("#define _GNU_SOURCE");
+  e.*.emit_header_line("");
+
+  // Standard C headers
+  e.*.emit_header_line("#include <stdbool.h>");
+  e.*.emit_header_line("#include <stdint.h>");
+  e.*.emit_header_line("#include <stddef.h>");
+  e.*.emit_header_line("#include <stdarg.h>");
+  e.*.emit_header_line("#include <stdlib.h>");
+  e.*.emit_header_line("#include <stdio.h>");
+  e.*.emit_header_line("#include <string.h>");
+  e.*.emit_header_line("#include <errno.h>");
+  e.*.emit_header_line("");
+
+  // Allocator abstraction (libc default)
+  e.*.emit_header_line("// Using libc allocator");
+  e.*.emit_header_line("#define __yo_malloc  malloc");
+  e.*.emit_header_line("#define __yo_calloc  calloc");
+  e.*.emit_header_line("#define __yo_realloc realloc");
+  e.*.emit_header_line("#define __yo_free    free");
+  e.*.emit_header_line("");
+
+  // Template string helper: concatenate two C strings.
+  // Used by the self-hosted codegen to implement `\`...${x}...\`` expressions.
+  e.*.emit_header_line("// Template string helper");
+  e.*.emit_header_line("static inline char* __yo_str_concat(const char* a, const char* b) {");
+  e.*.emit_header_line("  size_t la = strlen(a), lb = strlen(b);");
+  e.*.emit_header_line("  char* buf = (char*)__yo_malloc(la + lb + 1);");
+  e.*.emit_header_line("  memcpy(buf, a, la); memcpy(buf + la, b, lb);");
+  e.*.emit_header_line("  buf[la + lb] = '\\0';");
+  e.*.emit_header_line("  return buf;");
+  e.*.emit_header_line("}");
+  e.*.emit_header_line("");
+
+  // Module ID comment
+  mod_comment := String.from("// Module ID: ");
+  mod_comment.push_str(module_id);
+  e.*.emit_header_line(mod_comment.as_str());
+});
+
+// ---------------------------------------------------------------------------
+// main() wrapper
+// ---------------------------------------------------------------------------
+
+/// Emit the C `main()` entry point that calls the user's Yo main function.
+///
+/// ```c
+/// int main(void) {
+///   <user_main_c_name>();
+///   return 0;
+/// }
+/// ```
+emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> unit)({
+  e := &ctx.*.emitter;
+  e.*.emit_line("int main(void) {");
+
+  call_line := String.from("  ");
+  call_line.push_str(user_main_c_name);
+  call_line.push_str("();");
+  e.*.emit_line(call_line.as_str());
+
+  e.*.emit_line("  return 0;");
+  e.*.emit_line("}");
+});
+
+// ---------------------------------------------------------------------------
+// Output assembly
+// ---------------------------------------------------------------------------
+
+/// Produce the complete C source by concatenating headers + declarations + code.
+///
+/// This is a thin wrapper around `ctx.emitter.print()` that makes the
+/// intent explicit.
+generate_c_output :: (fn(ctx : *(CodegenContext)) -> String)(
+  ctx.*.emitter.print()
+);
+
+export emit_c_preamble, emit_main_wrapper, generate_c_output;

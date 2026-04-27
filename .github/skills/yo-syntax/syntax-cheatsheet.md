@@ -51,7 +51,7 @@ total := {
 };
 ```
 
-Remember: `{ expr }` without semicolons is a struct literal, not a block.
+Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
 
 ## Control flow
 
@@ -90,6 +90,7 @@ Key rules:
 - In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
 
 ## Calls, operators, and whitespace
 
@@ -102,7 +103,9 @@ masked := ((A | B) | C);
 - Prefer parenthesized calls: `func(arg1, arg2)`
 - `func (a, b)` is a different parse shape than `func(a, b)`
 - Yo has no operator precedence; fully parenthesize binary expressions
-- Parenthesize unary operands: `!(ready)`, `-(value)`
+- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Always wrap: `p := &s; func(p, a, b)` or use `func((&s), a, b)`.
+- Parenthesize other unary operands too: `!(ready)`, `-(value)`
+- **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
 
 ## Functions and methods
 
@@ -126,6 +129,7 @@ impl(Counter,
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when type arguments differ from the current instantiation.
 - Wrap `fn` types in parentheses when they appear after `:`
 - **Forward references between methods in the same `impl` block are supported.** A method defined later in the block can be called by a method defined earlier. Both `self.method()` and `Self.method(...)` dispatch work. Only the canonical `name : (fn(...) -> R)(body)` method shape participates; bare lambdas do not get forward-ref shells.
+- **Module-level `::` function definitions are processed in order.** A function body that calls another function declared later in the same file will fail with "Variable not found". Always define leaf helpers first (bottom-up order): `eval_identifier` → `eval_atom` → `evaluate`.
 
 ### Named arguments and default values
 
@@ -223,6 +227,20 @@ text := match(value,
 - Construction and match branches use the leading `.`
 - Nested destructuring is not supported; match one layer at a time
 
+Three destructuring shapes for arms (mix freely across arms):
+
+```rust
+Shape :: enum(Circle(radius : i32), Rectangle(width : i32, height : i32));
+
+match(s,
+  .Circle(r)                       => (r * r),         // positional
+  .Rectangle(width: w, height: h)  => (w * h),         // labeled
+  .Rectangle({width, height: h})   => (width * h)      // curly shorthand
+)
+```
+
+Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
+
 ## Generics and compile-time
 
 ```rust
@@ -294,14 +312,21 @@ factorial :: (fn(n : i32) -> i32)(
   )
 );
 
-while runtime(true), {
+// Runtime infinite loop — `while cond` is ALWAYS runtime
+while true, {
   work();
+};
+
+// Compile-time loop unrolling — requires comptime() modifier
+while comptime(i < 10), {
+  // body evaluated/unrolled at compile time
 };
 ```
 
 - Use `recur(...)` for self-recursion
-- `while true` runs at compile time
-- Use `while runtime(true), { ... }` for open-ended runtime loops
+- `while cond` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
+- `while comptime(cond)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
+- Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
 
 ## Return and branch safety
 
@@ -333,8 +358,26 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 
 - `return expr1, expr2` parses as a single function call: `return(expr1, expr2)`
 - In `cond` or `match` branches, **always use begin blocks** when you need `return`
+- `return` must be the **last expression** in a begin block — dead code after `return` is rejected. Do NOT write `{ return x; fallback_val }`. Write `{ return x; }` only.
 - If the whole function is one expression, prefer expression-bodied style and skip `return` entirely
 - The same trap applies to any function call without parens in match branches
+
+## String concatenation pitfall
+
+```rust
+// WRONG — str + str causes "comptime_string vs str" type unification error:
+content := String.from("line1\n" + "line2\n");
+
+// CORRECT — use .concat() on String objects:
+content := String.from("line1\n").concat(String.from("line2\n"));
+
+// Also CORRECT — single long string literal:
+content := String.from("line1\nline2\n");
+```
+
+- `"hello" + "world"` at runtime uses `+` on `str` values, which can cause type mismatches
+- The `str + str` operator can produce a `comptime_string` in some contexts, which is not always compatible with `str`
+- Prefer `.concat()` method on `String` objects when building multi-part strings at runtime
 
 ## Iterator and for loop
 
@@ -381,7 +424,150 @@ test "Async test", {
 - `comptime_assert(condition)` — compile-time assertion
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
-## Advanced features (reference)
+## Common pitfalls
+
+### `impl(...)` requires a trailing semicolon
+
+```rust
+// WRONG — "Invalid function call on type" at runtime:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+)
+
+// CORRECT:
+impl(MyType,
+  get : (fn(self : Self) -> i32)(self.x)
+);
+```
+
+### `___` discard variable cannot appear twice in the same scope
+
+```rust
+// WRONG — shadowing of ___ is not allowed:
+___ := foo();
+___ := bar();
+
+// CORRECT — use unique names or bare calls:
+_a := foo();
+_b := bar();
+// or simply:
+foo();
+bar();
+```
+
+### `type` is a reserved keyword — avoid as field/param name
+
+```rust
+// WRONG:
+Variable :: object(name : String, type : TypeValue);
+
+// CORRECT:
+Variable :: object(name : String, ty : TypeValue);
+```
+
+### ArrayList indexing uses call syntax
+
+```rust
+list := ArrayList(i32).new();
+list.push(i32(42));
+
+val := list(usize(0));         // → i32  (value copy via Index trait)
+list(usize(0)) = i32(99);     // mutate in place directly
+
+// When you need the pointer explicitly:
+ptr := &(list(usize(0)));     // → *(i32)
+ptr.* = i32(99);              // also works
+
+// Safe access (returns Option(T)):
+match(list.get(usize(0)),
+  .Some(v) => println(`${v}`),
+  .None => ()
+);
+```
+
+- `list(i)` returns the value `T` (not a pointer)
+- `list(i) = val` mutates in place directly (preferred)
+- `&(list(i))` returns `*(T)` if you need the pointer explicitly
+- `list.get(i)` returns `Option(T)` for safe bounds-checked access
+
+### Named fields required for `struct`/`object` constructors
+
+```rust
+Point :: struct(x : i32, y : i32);
+
+// CORRECT:
+p := Point(x: i32(1), y: i32(2));
+
+// WRONG — positional not supported for struct/object:
+p := Point(i32(1), i32(2));
+```
+
+Enum variant construction is positional (no field names needed).
+
+### Object types (RC) are passed by value
+
+`HashMap`, `ArrayList`, and other `object(...)` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
+
+```rust
+// DO NOT use pointer params for RC objects:
+// WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
+// CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
+
+process_map :: (fn(m : HashMap(String, i32)) -> unit)({
+  m.set(String.from("key"), i32(42));  // mutation visible to caller
+});
+
+counts := HashMap(String, i32).new();
+process_map(counts);
+// counts now has "key" => 42
+```
+
+### Forward references are NOT allowed
+
+Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later).
+
+```rust
+// WRONG — forward reference:
+caller :: (fn() -> unit)({ helper(); });
+helper :: (fn() -> unit)({ println("hi"); });
+
+// CORRECT — helper before caller:
+helper :: (fn() -> unit)({ println("hi"); });
+caller :: (fn() -> unit)({ helper(); });
+```
+
+This applies to ALL callee-before-caller relationships:
+
+- `_walk_dag` before `build_dag`
+- `compile_artifact`, `run_executable`, `run_test_suite` before `execute_node`
+- `execute_node` before `execute_dag`
+- `_print_summary_node` before `print_build_summary`
+- `print_build_summary` before `execute_step`
+- Exports section must come AFTER all definitions
+
+### `if(!cond, block)` — use parentheses
+
+The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
+
+```rust
+// WRONG — ! consumes "cond, block" as one arg:
+if(!cond, { do_thing(); });
+
+// CORRECT — ! only consumes (cond):
+if((!cond), { do_thing(); });
+```
+
+### Template strings produce `String`, literals are `str`
+
+```rust
+// Template string `` `...` `` → String
+// String literal "..." → str
+
+// If a function takes `str`, call .as_str() on a template string:
+fn_taking_str((`prefix_${value}`).as_str());
+
+// Or change the function to take String
+```
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 

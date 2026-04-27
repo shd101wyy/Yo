@@ -193,10 +193,30 @@ export function generateMatchExpression(
   }
 
   // Generate the matched value
-  const matchedValueCode = generateExpr(expr.args[0]!, indent, context);
-  const matchValueType = expr.args[0]!.$?.type;
+  const subjectExpr = expr.args[0]!;
+  let matchedValueCode = generateExpr(subjectExpr, indent, context);
+  const matchValueType = subjectExpr.$?.type;
   if (!matchValueType) {
     return `// Error: "match" expression requires a valid type`;
+  }
+
+  // If the subject expression has a temp variable name (i.e. the evaluator
+  // allocated a temp var for it and registered a deferred drop on that name),
+  // we must materialize the temp var here. Otherwise inlining the subject
+  // straight into `switch (...)` leaves the deferred drop referring to an
+  // undeclared identifier. See issues/inline-enum-match-subject-phantom-drop.md.
+  if (subjectExpr.$?.variableName) {
+    const subjectVarName = getVariableNameForCodegen(
+      subjectExpr.$.variableName,
+      subjectExpr.$.env
+    );
+    if (matchedValueCode !== subjectVarName) {
+      const subjectTypeStr = getTypeString(matchValueType, context);
+      context.emitter.emitLine(
+        `${indent}${subjectTypeStr} ${subjectVarName} = ${matchedValueCode};`
+      );
+      matchedValueCode = subjectVarName;
+    }
   }
 
   // Check if this is a primitive type match (integer, bool)

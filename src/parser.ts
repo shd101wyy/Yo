@@ -656,6 +656,22 @@ export default class Parser {
     }
 
     if (separator === TokenType.Comma || !separator) {
+      // Validate: each arg must be a valid struct field (atom, colon-infix, or spread).
+      // A bare expression like `{ .Ok(()) }` or `{ x + 1 }` is almost certainly a block
+      // written without semicolons. Fire an early, actionable error.
+      for (const arg of args) {
+        if (!this.isValidStructFieldArg(arg)) {
+          throw formatErrorMessage({
+            token: tokens[startIndex]!,
+            errorMessage: [
+              `{ ... } without semicolons is parsed as a struct literal, not a block.`,
+              `To write a block, use semicolons: { stmt1; stmt2; }`,
+              `To use a single expression, write it directly without braces.`,
+            ].join("\n"),
+          });
+        }
+      }
+
       // Go over the args, if it's an identifier, then convert it to (:)
       // For example:
       // { x, y: 2 }
@@ -809,6 +825,29 @@ export default class Parser {
     }
 
     return returnValue;
+  }
+
+  private isValidStructFieldArg(expr: Expr): boolean {
+    if (exprIsAtom(expr)) return true;
+    if (expr.tag === ExprTag.FnCall) {
+      // Colon-infix: `name: value`
+      if (
+        expr.isInfix === true &&
+        exprIsAtom(expr.func) &&
+        expr.func.token.value === ":"
+      ) {
+        return true;
+      }
+      // Spread: `...rest`
+      if (
+        !expr.isInfix &&
+        exprIsAtom(expr.func) &&
+        expr.func.token.value === "..."
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private isOperatorAtLineStart(
