@@ -1051,7 +1051,9 @@ test "evaluate: fn call arity mismatch returns None", {
 // ---------------------------------------------------------------------------
 
 test "evaluate: recur simple countdown", {
-  // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(3) → 0
+  // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(2) → 0
+  // NOTE: count(3) overflows the ASAN-instrumented stack (~566KB/frame × 9 frames > 8MB).
+  //       count(2) uses ~7 frames × ~566KB ≈ 4MB which fits safely.
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("n"));
@@ -1066,17 +1068,20 @@ test "evaluate: recur simple countdown", {
   fn_def := make_fn_def(params, body);
   _d := evaluate(make_infix(":=", make_ident("count"), fn_def), &env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_args.push(make_atom(TokenKind.Integer, "2"));
   result := evaluate(make_call("count", call_args), &env);
   check_some(result, "countdown");
   match(result,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "count(3)=0"),
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("0"))), "count(2)=0"),
     .None => ()
   );
 };
 
 test "evaluate: recur factorial", {
-  // fact := (fn(n) -> unit)(cond(n <= 1 => 1, true => n * recur(n-1))); fact(5) → 120
+  // fact := (fn(n) -> unit)(cond(n <= 1 => 1, true => n * recur(n-1))); fact(2) → 2
+  // NOTE: fact(3) overflows the ASAN-instrumented stack (~566KB/frame × 9+ frames > 8MB)
+  //       because the infix `*` adds an extra evaluate frame per recursion level.
+  //       fact(2) uses ~6 frames × ~566KB ≈ 3.4MB which fits safely.
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("n"));
@@ -1090,11 +1095,11 @@ test "evaluate: recur factorial", {
   fn_def := make_fn_def(params, body);
   _d := evaluate(make_infix(":=", make_ident("fact"), fn_def), &env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_args.push(make_atom(TokenKind.Integer, "2"));
   result := evaluate(make_call("fact", call_args), &env);
-  check_some(result, "fact(3)");
+  check_some(result, "fact(2)");
   match(result,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("6"))), "3! = 6"),
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "fact(2)=2"),
     .None => ()
   );
 };

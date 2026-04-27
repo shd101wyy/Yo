@@ -46,11 +46,15 @@ each `evaluate()` call from ~7.5KB to **~566KB** per call on ARM64 macOS.
 
 With macOS's 8MB hard stack limit, this means:
 
-- Safe: ≤ 12 simultaneously live `evaluate()` frames (~6.8MB)
+- Safe: ≤ 8 simultaneously live `evaluate()` frames (accounting for overhead from `__yo_user_main`, `main`, and `call_funcval_with_args`)
 - Unsafe: fib(5) needs ~22 frames × 566KB = 12.5MB → **STACK OVERFLOW**
-- Safe: fib(3) needs ~11 frames × 566KB = 6.2MB → ✓
+- Unsafe: countdown(3) needs ~9 frames × 566KB + overhead > 8MB → **STACK OVERFLOW**
+- Unsafe: fact(3) needs ~9+ frames × 566KB + overhead > 8MB → **STACK OVERFLOW** (extra frame per level for infix `*`)
+- Safe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → ✓
+- Safe: fact(2) needs ~6 frames × 566KB ≈ 3.4MB → ✓
+- Safe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → ✓
 
-When writing recursive evaluator tests, use small inputs (e.g. fib(3), countdown(3)).
+When writing recursive evaluator tests, use small inputs (e.g. fib(2), countdown(2), fact(2)).
 Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
 
 ## Important constraints
