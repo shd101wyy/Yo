@@ -1052,8 +1052,9 @@ test "evaluate: fn call arity mismatch returns None", {
 
 test "evaluate: recur simple countdown", {
   // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(2) → 0
-  // NOTE: count(3) overflows the ASAN-instrumented stack (~566KB/frame × 9 frames > 8MB).
-  //       count(2) uses ~7 frames × ~566KB ≈ 4MB which fits safely.
+  // NOTE: count(3) overflows the ASAN-instrumented stack.
+  //       Frames: ~7 frames × ~566KB (ARM64 macOS) or ~1.1MB (x86_64 Windows) per frame.
+  //       count(2) uses ~7 frames, fitting within both 8MB (macOS) and 16MB (Windows) reserves.
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("n"));
@@ -1079,9 +1080,9 @@ test "evaluate: recur simple countdown", {
 
 test "evaluate: recur factorial", {
   // fact := (fn(n) -> unit)(cond(n <= 1 => 1, true => n * recur(n-1))); fact(2) → 2
-  // NOTE: fact(3) overflows the ASAN-instrumented stack (~566KB/frame × 9+ frames > 8MB)
-  //       because the infix `*` adds an extra evaluate frame per recursion level.
-  //       fact(2) uses ~6 frames × ~566KB ≈ 3.4MB which fits safely.
+  // NOTE: fact(3) overflows the ASAN-instrumented stack (infix `*` adds an extra
+  //       evaluate frame per recursion level, pushing the total above safe limits).
+  //       fact(2) uses ~8 frames, fitting within the 16MB Windows reserve.
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("n"));

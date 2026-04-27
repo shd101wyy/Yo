@@ -42,17 +42,27 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~693 local variables.
 ASAN disables stack frame reuse and adds redzones around every variable, inflating
-each `evaluate()` call from ~7.5KB to **~566KB** per call on ARM64 macOS.
+each `evaluate()` call significantly.
 
-With macOS's 8MB hard stack limit, this means:
+**Per-frame overhead by platform:**
 
-- Safe: ≤ 8 simultaneously live `evaluate()` frames (accounting for overhead from `__yo_user_main`, `main`, and `call_funcval_with_args`)
-- Unsafe: fib(5) needs ~22 frames × 566KB = 12.5MB → **STACK OVERFLOW**
-- Unsafe: countdown(3) needs ~9 frames × 566KB + overhead > 8MB → **STACK OVERFLOW**
-- Unsafe: fact(3) needs ~9+ frames × 566KB + overhead > 8MB → **STACK OVERFLOW** (extra frame per level for infix `*`)
+- macOS ARM64: ~566KB per `evaluate()` frame
+- Windows x86_64: ~1.1MB per `evaluate()` frame (larger redzones + x86_64 ABI spills)
+
+**macOS ARM64 (8MB default stack):**
+
 - Safe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → ✓
 - Safe: fact(2) needs ~6 frames × 566KB ≈ 3.4MB → ✓
 - Safe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → ✓
+- Unsafe: countdown(3) needs ~9 frames × 566KB > 8MB → **STACK OVERFLOW**
+- Unsafe: fact(3) needs ~9+ frames × 566KB > 8MB → **STACK OVERFLOW**
+- Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
+
+**Windows x86_64 (16MB reserve set via `-Wl,/STACK:16777216` in `src/test-runner.ts`):**
+
+- Safe: countdown(2) needs ~7 frames × 1.1MB ≈ 7.7MB → ✓
+- Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
+- Unsafe: countdown(3) / fact(3) would exceed 16MB → **STACK OVERFLOW**
 
 When writing recursive evaluator tests, use small inputs (e.g. fib(2), countdown(2), fact(2)).
 Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.

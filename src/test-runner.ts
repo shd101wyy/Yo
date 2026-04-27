@@ -508,6 +508,14 @@ function compileBatchedBinary(
       } else {
         compileArgs.splice(-2, 0, "-lws2_32");
         compileArgs.splice(-2, 0, "-lbcrypt");
+        // Increase the stack reserve to 16 MB.  The Windows default (1 MB) is
+        // too small when ASAN is enabled: ASAN disables stack frame reuse and
+        // adds redzones around every local variable, inflating each frame by
+        // roughly 2× compared to macOS ARM64.  Large functions in the yo-self
+        // bootstrapping tests (e.g. compile_module_to_c, evaluate) have
+        // hundreds of locals, and their recursive call chains exceed 8 MB on
+        // x86_64 Windows.  16 MB provides sufficient headroom for all tests.
+        compileArgs.splice(-2, 0, "-Wl,/STACK:16777216");
       }
     }
 
