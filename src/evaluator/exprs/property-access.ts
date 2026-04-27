@@ -10,18 +10,12 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import type {
-  EnumType,
-  ModuleField,
-  TraitType,
-  TypeField,
-} from "../../types/definitions";
+import type { EnumType, ModuleField, TypeField } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionType,
   isModuleType,
-  isObjectType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -179,40 +173,6 @@ export function evaluatePropertyAccess({
 
   // Check if it's .* for dereference
   if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
-    // The Index trait dispatch (`value(idx)`) already auto-dereferences and
-    // exposes the Output type — not the underlying pointer. If a user writes
-    // `value(idx).*` (mirroring the desugaring `Index.index(&value, idx).*`),
-    // treat the trailing `.*` as a no-op since the value already represents
-    // the dereferenced element. See issues/fixed/arraylist-index-deref-pattern.md.
-    //
-    // BUT only if the Output type does not itself define a custom `*`
-    // operator method (e.g. `Box(T)` has `*` for unwrapping the inner
-    // value — `arr_of_boxes(0).*` must call Box's `*` method, not no-op).
-    if (objectExpr.$ && objectExpr.$.indexTraitPtrType) {
-      const outputType = objectExpr.$.type;
-      let outputTrait: TraitType | undefined;
-      let outputFields: { label: string }[] | undefined;
-      if (
-        isStructType(outputType) ||
-        isEnumType(outputType) ||
-        isObjectType(outputType)
-      ) {
-        outputTrait = outputType.trait;
-        outputFields = (outputType as { fields?: { label: string }[] }).fields;
-      }
-      const hasStarMember =
-        outputTrait?.fields.some((f) => f.label === "*") ||
-        outputFields?.some((f) => f.label === "*");
-      if (!hasStarMember) {
-        expr.$ = {
-          ...objectExpr.$,
-          isAccessingProperty: true,
-        };
-        propertyExpr.$ = expr.$;
-        return expr;
-      }
-    }
-
     if (isPtrType(objectExpr.$?.type)) {
       const pointerType = objectExpr.$.type;
       let baseType = pointerType.childType;
@@ -302,6 +262,43 @@ export function evaluatePropertyAccess({
       attachTempVariableToExpr(expr, false);
 
       return expr;
+    }
+
+    // Not a pointer. The `.*` may still resolve later as a struct/object
+    // field named `*` (e.g. `Box(T)` defines `(*) : V`) or as a `*`
+    // method on the type's trait — fall through to the normal property
+    // lookup. But if the type is one of the common cases that clearly
+    // has no `*` member (the underlying type carries an
+    // `indexTraitPtrType`, meaning the user wrote `value(idx).*` after
+    // the Index trait already auto-dereferenced), surface a clear error
+    // instead of the generic "Expected to be evaluated" failure that
+    // appears farther downstream.
+    if (objectExpr.$?.indexTraitPtrType) {
+      const outputType = objectExpr.$.type;
+      // If the Output type defines its own `*` member (e.g. Box(T)
+      // declares `(*) : V`, or a trait declares a `*` method), fall
+      // through to the normal property lookup so that legitimate
+      // unwraps like `arr_of_boxes(0).*` keep working.
+      const hasStarMember =
+        (isStructType(outputType) &&
+          outputType.fields?.some((f) => f.label === "*")) ||
+        (isTraitType(outputType) &&
+          outputType.fields?.some((f) => f.label === "*"));
+      if (hasStarMember) {
+        // Fall through to the normal struct/trait property lookup below.
+      } else {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage:
+            `Cannot dereference value of type "${typeToString(outputType)}". ` +
+            `The Index trait dispatch on this expression already returns the ` +
+            `dereferenced element value (not a pointer), so the trailing ".*" ` +
+            `is redundant. Drop the ".*" and chain the next call directly ` +
+            `(e.g. \`value(idx).method()\`). ` +
+            `If you intended to unwrap a smart pointer, the inner type "${typeToString(outputType)}" ` +
+            `does not define a "*" member.`,
+        });
+      }
     }
   }
 

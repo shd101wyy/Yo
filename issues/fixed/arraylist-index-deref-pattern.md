@@ -51,25 +51,45 @@ Index trait dispatch, the type is not always propagated correctly, causing
 
 ✅ FIXED (2026-04-27).
 
-The fix lives in two places:
+### Why the original `.*` is wrong
 
-- `src/evaluator/exprs/property-access.ts` — when the `.` operator's
-  property is `*` and the object expression's metadata has an
-  `indexTraitPtrType` (i.e. it came from an Index trait dispatch which
-  already auto-dereferenced the pointer), and the Output type does not
-  itself define a custom `*` member (e.g. `Box(T)` has `*` as an object
-  field for unwrapping the inner value), treat the `.*` as a no-op:
-  propagate the object's evaluation metadata to the parent expression.
+The Index trait's `index` method returns `*(Output)` and the call-site
+desugaring is `value(arg) → Index(...).index(&value, arg).*` — the `.*`
+is **already applied** as part of the desugaring. So `list(usize(0))`
+evaluates to `String` (the `Output` type), not to `*(String)`. Writing
+`list(usize(0)).*` then asks for a deref of a `String`, which has no
+`*` member — that's a real user error, not a compiler bug.
 
-- `src/codegen/exprs/property-access.ts` — in `generateFieldAccess`,
-  apply the symmetric no-op so the C output emits just the receiver code
-  (instead of `recv._u42_`, which would be a struct member lookup of the
-  C-sanitized identifier for `*`).
+The original failure mode was the cryptic
+`Error: Expected to be evaluated.` thrown deep in the call dispatcher,
+which made the type error completely unattributable.
 
-Regression test:
-`tests/collections/array_list.test.yo` — "ArrayList index with redundant
-._ deref - issue arraylist-index-deref-pattern". Verified via `bun run
-build && ./yo-cli test ./tests/collections/array_list.test.yo` (89/89
-pass). The original Box-unwrap pattern `arr_of_boxes(idx)._`(which IS a
-real Box`\*`field access, not a redundant deref) continues to work via
-the`hasStarMember` guard.
+### The fix
+
+`src/evaluator/exprs/property-access.ts` now surfaces a clear error
+when `.*` is applied to an expression that came from Index trait
+dispatch (its metadata carries `indexTraitPtrType`) but the underlying
+type does not define a `*` member:
+
+> Cannot dereference value of type "String". The Index trait dispatch
+> on this expression already returns the dereferenced element value
+> (not a pointer), so the trailing "._" is redundant. Drop the "._"
+> and chain the next call directly (e.g. `value(idx).method()`). If
+> you intended to unwrap a smart pointer, the inner type "String"
+> does not define a "\*" member.
+
+The fall-through still works for legitimate `*` members — e.g.
+`arr_of_boxes(0).*` continues to call `Box(T)`'s `(*) : V` field
+because that lookup happens later in `property-access.ts`.
+
+### Correct user code
+
+```rust
+list := ArrayList(String).new();
+list.push(`hello`);
+println(list(usize(0)).bytes_len().to_string());  // 5
+```
+
+Regression test: `tests/collections/array_list.test.yo` — "ArrayList
+index .\* on non-pointer Output gives clear error - issue
+arraylist-index-deref-pattern".

@@ -1151,16 +1151,24 @@ test "ArrayList Eq - nested ArrayList(ArrayList(i32))", {
   assert((!(a == c)), "nested not equal");
 };
 
-test "ArrayList index with redundant .* deref - issue arraylist-index-deref-pattern", {
-  // Index trait dispatch already auto-dereferences. A trailing `.*` should be
-  // a no-op rather than causing an "Expected to be evaluated" error.
+test "ArrayList index .* on non-pointer Output gives clear error - issue arraylist-index-deref-pattern", {
+  // Index trait dispatch already auto-dereferences (returns Output, not
+  // *(Output)). Writing `list(usize(0)).*` is a user error since `String`
+  // has no `*` member. Verify we surface a clear error message instead of
+  // the generic "Expected to be evaluated" failure.
   // See issues/fixed/arraylist-index-deref-pattern.md.
   list := ArrayList(String).new();
   list.push(`hello`);
-  assert(list(usize(0)).*.bytes_len() == usize(5), "list(0).*.bytes_len() should equal 5");
-
-  // Also exercise on a primitive type
+  // Correct usage: drop the redundant `.*`.
+  assert(list(usize(0)).bytes_len() == usize(5), "list(0).bytes_len() == 5");
+  // Same for primitive Output type.
   ints := ArrayList(i32).new();
   ints.push(i32(42));
-  assert(ints(usize(0)).* == i32(42), "ints(0).* should equal 42");
+  assert(ints(usize(0)) == i32(42), "ints(0) == 42");
+  // The redundant `.*` form must be rejected at compile time.
+  comptime_expect_error({
+    bad_list := ArrayList(String).new();
+    bad_list.push(`hello`);
+    _ := bad_list(usize(0)).*;
+  });
 };

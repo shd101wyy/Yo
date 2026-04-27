@@ -55,31 +55,6 @@ export function generateFieldAccess(
   if (exprIsAtom(fieldExpr)) {
     const fieldName = fieldExpr.token.value;
 
-    // No-op `.*` after Index trait dispatch: `value(idx)` already
-    // auto-dereferences (returns Output, not *(Output)). When the user
-    // writes `value(idx).*` and the Output type does NOT define a custom
-    // `*` member (field or method), emit just the object code.
-    // See issues/fixed/arraylist-index-deref-pattern.md.
-    if (fieldName === "*" && objectExpr.$?.indexTraitPtrType) {
-      const outputType = objectExpr.$.type;
-      let hasStarMember = false;
-      if (
-        outputType &&
-        (isStructType(outputType) ||
-          isEnumType(outputType) ||
-          isObjectType(outputType))
-      ) {
-        const trait = (outputType as { trait?: TraitType }).trait;
-        const fields = (outputType as { fields?: { label: string }[] }).fields;
-        hasStarMember =
-          (trait?.fields.some((f) => f.label === "*") ?? false) ||
-          (fields?.some((f) => f.label === "*") ?? false);
-      }
-      if (!hasStarMember) {
-        return objectCode;
-      }
-    }
-
     // Evidence passing: if we're in a function with evidence params,
     // module field accesses that match evidence params should resolve to
     // the evidence fn ptr parameter, not the resolved handler function.
