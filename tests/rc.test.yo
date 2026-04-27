@@ -205,6 +205,17 @@ test "Test match returning RC object - no phantom drop", {
   assert((s2 == `beta`), "match returning RC String B");
 };
 
+// Regression for inline-enum-match-subject-phantom-drop.md:
+// constructing an enum with at least one object-payload variant directly as
+// the subject of a match (not via a named local) used to emit a drop on an
+// undeclared temp variable.
+test "Test inline enum construction as match subject - no phantom drop", {
+  Kind :: enum(Func, Arr, Obj(s : String));
+  match(Kind.Func, .Func => (), _ => ());
+  match(Kind.Arr, .Arr => (), _ => ());
+  match(Kind.Obj(`payload`), .Obj(s) => assert((s == `payload`), "Obj payload"), _ => ());
+};
+
 // --- Array index access with RC types ---
 // Regression tests for the inline incr_rc leak (array-index-rc-leak.md).
 // Only ubuntu/Linux detected the leak via LeakSanitizer; macOS ARM lacks it.

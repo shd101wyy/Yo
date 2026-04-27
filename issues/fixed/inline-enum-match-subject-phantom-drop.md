@@ -1,6 +1,26 @@
 # Inline enum construction in match subject generates phantom drop
 
-## Status: OPEN
+## Status: FIXED (2026-04-27)
+
+## Fix
+
+In `src/codegen/exprs/match.ts` (`generateMatchExpression`), when the match
+subject expression carries a `variableName` (i.e. the evaluator allocated a
+temp var for it and registered a deferred drop on that name), materialize
+the temp var by emitting
+
+```c
+T _temp_N = <subject construction>;
+switch (_temp_N.tag) { ... }
+```
+
+instead of inlining the construction into the `switch (...)` directly. The
+end-of-scope drop now refers to a real declared variable.
+
+## Regression test
+
+`tests/rc.test.yo` → "Test inline enum construction as match subject - no
+phantom drop".
 
 ## Summary
 

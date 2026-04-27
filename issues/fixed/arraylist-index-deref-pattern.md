@@ -49,6 +49,27 @@ Index trait dispatch, the type is not always propagated correctly, causing
 
 ## Status
 
-Known limitation — workarounds above are sufficient for bootstrap Phase 1.
-A proper fix would require propagating the type through Index trait dispatch
-in the evaluator's property-access handler.
+✅ FIXED (2026-04-27).
+
+The fix lives in two places:
+
+- `src/evaluator/exprs/property-access.ts` — when the `.` operator's
+  property is `*` and the object expression's metadata has an
+  `indexTraitPtrType` (i.e. it came from an Index trait dispatch which
+  already auto-dereferenced the pointer), and the Output type does not
+  itself define a custom `*` member (e.g. `Box(T)` has `*` as an object
+  field for unwrapping the inner value), treat the `.*` as a no-op:
+  propagate the object's evaluation metadata to the parent expression.
+
+- `src/codegen/exprs/property-access.ts` — in `generateFieldAccess`,
+  apply the symmetric no-op so the C output emits just the receiver code
+  (instead of `recv._u42_`, which would be a struct member lookup of the
+  C-sanitized identifier for `*`).
+
+Regression test:
+`tests/collections/array_list.test.yo` — "ArrayList index with redundant
+._ deref - issue arraylist-index-deref-pattern". Verified via `bun run
+build && ./yo-cli test ./tests/collections/array_list.test.yo` (89/89
+pass). The original Box-unwrap pattern `arr_of_boxes(idx)._`(which IS a
+real Box`\*`field access, not a redundant deref) continues to work via
+the`hasStarMember` guard.

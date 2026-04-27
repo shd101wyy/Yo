@@ -1150,3 +1150,17 @@ test "ArrayList Eq - nested ArrayList(ArrayList(i32))", {
   c.push(inner2);
   assert((!(a == c)), "nested not equal");
 };
+
+test "ArrayList index with redundant .* deref - issue arraylist-index-deref-pattern", {
+  // Index trait dispatch already auto-dereferences. A trailing `.*` should be
+  // a no-op rather than causing an "Expected to be evaluated" error.
+  // See issues/fixed/arraylist-index-deref-pattern.md.
+  list := ArrayList(String).new();
+  list.push(`hello`);
+  assert(list(usize(0)).*.bytes_len() == usize(5), "list(0).*.bytes_len() should equal 5");
+
+  // Also exercise on a primitive type
+  ints := ArrayList(i32).new();
+  ints.push(i32(42));
+  assert(ints(usize(0)).* == i32(42), "ints(0).* should equal 42");
+};
