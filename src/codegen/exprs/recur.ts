@@ -1,5 +1,6 @@
 import { exprIsFunctionCall, exprToString, type FnCallExpr } from "../../expr";
 import type { FunctionGenerationContext } from "../functions/context";
+import { isUnitType } from "../../types/guards";
 import {
   type CodeGenContext,
   getTypeString,
@@ -77,7 +78,7 @@ export function generateRecur(
     // because the enclosing begin/match-arm emitter only gets back a raw
     // call string and emits drops first, then assigns the result.
     const tempVar = expr.$?.variableName;
-    if (tempVar && expr.$?.type) {
+    if (tempVar && expr.$?.type && !isUnitType(expr.$.type)) {
       const cType = getTypeString(expr.$.type, context);
       const tempVarName = getVariableNameForCodegen(tempVar, expr.$.env);
       if (!functionContext.declaredTempVars)
