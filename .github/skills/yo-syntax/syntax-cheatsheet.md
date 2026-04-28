@@ -103,9 +103,10 @@ masked := ((A | B) | C);
 - Prefer parenthesized calls: `func(arg1, arg2)`
 - `func (a, b)` is a different parse shape than `func(a, b)`
 - Yo has no operator precedence; fully parenthesize binary expressions
-- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Always wrap: `p := &s; func(p, a, b)` or use `func((&s), a, b)`.
+- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Preferred fix: parenthesize the operand: `func(&(s), a, b)`. The outer-parens form `func((&s), a, b)` also works. Either is fine; the operand-parens form `&(x)` matches how the parser thinks about it.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
+- **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
 
 ## Functions and methods
 
@@ -240,6 +241,8 @@ match(s,
 ```
 
 Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
+
+> **Critical**: Within a single match arm, you must use **either all positional or all named** field patterns. Mixing positional and named fields in the same arm (e.g., `.Foo(x, y: z, w)`) causes C codegen to emit undeclared identifiers for the named fields. This is a parser/codegen limitation — do not mix.
 
 ## Generics and compile-time
 
@@ -545,7 +548,44 @@ This applies to ALL callee-before-caller relationships:
 - `print_build_summary` before `execute_step`
 - Exports section must come AFTER all definitions
 
-### `if(!cond, block)` — use parentheses
+### Named tuple fields in type syntax are not allowed
+
+Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use an `object` struct instead:
+
+```rust
+// WRONG — "Labelled field is not allowed in tuple value":
+get_range :: (fn(ty : TypeValue) -> Option((min : i64, max : u64)))(
+  .Some((min: i64(-128), max: u64(127)))
+);
+
+// CORRECT — define a named struct:
+Range :: object(min : i64, max : u64);
+get_range :: (fn(ty : TypeValue) -> Option(Range))(
+  .Some({min: i64(-128), max: u64(127)})
+);
+```
+
+Named fields work in struct/object constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
+
+### `Option` equality comparison limitations
+
+Comparing `Option(T)` with `== .None` or `== .Some(...)` fails when the inner type `T` lacks a derived `Eq` implementation or when `.None` is type-ambiguous. Always use the method API:
+
+```rust
+// WRONG — "No matching call found with arguments: r == .None":
+assert((r == .None), "should be None");
+
+// CORRECT — use .is_none() / .is_some() / .unwrap():
+assert(r.is_none(), "should be None");
+assert(r.is_some(), "should be Some");
+assert((r.unwrap() == expected_value), "value check");
+
+// Also fine in match:
+match(r,
+  .Some(v) => assert((v == expected_value), "value check"),
+  .None    => assert(false, "unexpected None")
+);
+```
 
 The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
 
@@ -584,3 +624,168 @@ These features are powerful but less commonly used. Consult the linked docs for 
 | Isolated types         | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
 | Arc (atomic ref count) | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
 | Parallelism            | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
+
+---
+
+## Self-hosted evaluator (`yo-self/`) — known limitations and pitfalls
+
+These constraints apply **only** to the self-hosted Yo evaluator (code inside `yo-self/`). The TypeScript-compiled Yo compiler does not have these restrictions.
+
+### Match patterns: no bare identifier catch-all
+
+The self-hosted parser only accepts three match arm forms:
+
+- `.VariantName` — unit variant
+- `.VariantName(p1, p2, ...)` — tuple variant
+- `_` — wildcard
+
+**Bare identifier catch-all `t => ...` is NOT supported.** Use `_` and access the outer binding directly:
+
+```rust
+// ❌ NOT supported in yo-self/
+match(val, {
+  .SomeVariant(x) => x,
+  t => t,      // ERROR: bare identifier not a valid pattern
+})
+
+// ✅ Correct — use outer binding
+match(val, {
+  .SomeVariant(x) => x,
+  _ => val,    // refer to outer binding
+})
+```
+
+### String concatenation: no `String + str` operator
+
+The `+` operator does not accept mixed `String`/`str` operands.
+**Always use template strings** for concatenation:
+
+```rust
+// ❌ Type error
+result := (parts + ", ");
+result := (parts + item.as_str());
+
+// ✅ Template strings
+result := `${parts}, `;
+result := `${parts}${item}`;
+```
+
+### `clone()` on extracted String fields is ambiguous
+
+When a `String` field is bound in a match arm, calling `.clone()` triggers an ambiguity error (two impls: `fn(self: String)` and `fn(self: *(String))`).
+
+```rust
+// ❌ Ambiguous
+.StructVal(name, fields) => name.clone()
+
+// ✅ Use from + as_str
+.StructVal(name, fields) => String.from(name.as_str())
+```
+
+### `box(val)` is a move — cannot box the same value twice
+
+```rust
+// ❌ Move error: target is moved by first box(target)
+p1 := PtrVal(box(target), usize(0));
+p2 := PtrVal(box(target), usize(0));  // ERROR: target already moved
+
+// ✅ Create separate instances
+p1 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
+p2 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
+```
+
+### `recur(...)` for self-recursive lambdas
+
+Lambdas defined as `name :: (fn(args) -> T)(body)` cannot call `name` inside `body`.
+Use `recur(...)` instead:
+
+```rust
+// ❌ Would not find `my_fn` inside its own body
+my_fn :: (fn(x : i32) -> i32)({
+  my_fn(x - 1)   // ERROR: `my_fn` not in scope yet
+});
+
+// ✅ Use recur
+my_fn :: (fn(x : i32) -> i32)({
+  recur(x - 1)
+});
+```
+
+### `{ expr }` without semicolons is a struct literal, not a block
+
+```rust
+// ❌ Parsed as struct literal `{ match(...) }`
+fn :: (fn() -> T)({ match(x, arms) })
+
+// ✅ Remove braces or add semicolon
+fn :: (fn() -> T)(match(x, arms))
+fn :: (fn() -> T)({ match(x, arms); })
+```
+
+### Template strings cannot be nested inside `${...}` interpolations
+
+A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.
+
+```rust
+// ❌ Inner backtick closes the outer template string — parse error
+lines.push(`**Implements:** ${`, `.join(names)}`);
+
+// ✅ Assign the separator to a variable first
+sep := `, `;
+lines.push(`**Implements:** ${sep.join(names)}`);
+```
+
+### Pushing RC struct fields into ArrayList does not need `.clone()`
+
+String (and other RC object) fields of structs can be passed directly to `ArrayList.push()`. Calling `.clone()` triggers an ambiguity error between `fn(self: String)` and `fn(self: *(String))` overloads.
+
+```rust
+// ❌ Ambiguous clone call
+names.push(param.name.clone());
+
+// ✅ Push directly — RC bump happens automatically
+names.push(param.name);
+```
+
+If explicit clone is needed elsewhere, use `(&field).clone()` to select the pointer overload.
+
+### `.Some(expr)` in expression position is parsed as a 2-arg property access
+
+Using `.Some(x)` as an expression (not inside a match pattern) is parsed by the Yo parser
+as a 2-arg dot property access: `obj.(prop, arg)`. This means `evaluate_property_access` is
+invoked on it at compile time, causing confusing errors like "Failed to infer enum variant type".
+
+```rust
+// ❌ Parsed as 2-arg property access — NOT an Option::Some constructor call
+val := .Some(oi.ty);
+
+// ✅ Use the explicit fully-qualified form
+val := Option(TypeValue).Some(oi.ty);
+```
+
+### `||` chaining requires explicit parentheses for 3+ operands
+
+Chaining three or more `||` terms in a single expression is rejected with a precedence error.
+Always add explicit parentheses around each pair:
+
+```rust
+// ❌ Rejected — ambiguous precedence
+if ((is_tuple_type(ty) || is_struct_type(ty) || is_union_type(ty)), ...)
+
+// ✅ Parenthesise each pair
+if (((is_tuple_type(ty) || is_struct_type(ty)) || is_union_type(ty)), ...)
+```
+
+### Duplicate imports from the same path must be merged
+
+Having two `:: import "path"` lines importing from the same file causes a compile error.
+Always merge them into a single destructuring import:
+
+```rust
+// ❌ Two imports from the same path
+{ Foo } :: import "../../mod.yo";
+{ Bar } :: import "../../mod.yo";
+
+// ✅ Merged
+{ Foo, Bar } :: import "../../mod.yo";
+```

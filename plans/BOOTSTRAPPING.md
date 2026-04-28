@@ -201,46 +201,65 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 
 ### File mapping (TypeScript source → Yo target)
 
-| TypeScript source                                   | Yo target                                               | Status                            |
-| --------------------------------------------------- | ------------------------------------------------------- | --------------------------------- |
-| `src/lexer.ts`                                      | `yo-self/lexer/lexer.yo`                                | ✅ Done                           |
-| `src/parser.ts`                                     | `yo-self/parser/parser.yo`                              | ✅ Done                           |
-| `src/expr.ts`                                       | `yo-self/parser/expr.yo`                                | ✅ Done                           |
-| `src/types/definitions.ts`                          | `yo-self/types/type.yo`                                 | ✅ Done                           |
-| `src/types/guards.ts`                               | `yo-self/types/guards.yo`                               | ✅ Done                           |
-| `src/types/env-lookup.ts`                           | `yo-self/types/env_lookup.yo`                           | ✅ Done (Phase 2d)                |
-| `src/types/hierarchy.ts`                            | `yo-self/types/hierarchy.yo`                            | ✅ Done (Phase 2e)                |
-| `src/types/compatibility.ts`                        | `yo-self/types/compatibility.yo`                        | Partial                           |
-| `src/env.ts`                                        | `yo-self/env/env.yo`                                    | ✅ Done                           |
-| `src/value.ts`                                      | `yo-self/evaluator/value.yo`                            | Partial                           |
-| `src/evaluator/index.ts`                            | `yo-self/evaluator/index.yo`                            | 🔲 Pending                        |
-| `src/evaluator/context.ts`                          | `yo-self/evaluator/context.yo`                          | ✅ Done (Phase 2b-context)        |
-| `src/evaluator/shared/suspension-analysis-types.ts` | `yo-self/evaluator/shared/suspension_analysis_types.yo` | ✅ Done (Phase 2b-shared)         |
-| `src/evaluator/effects/effect-analysis-types.ts`    | `yo-self/evaluator/effects/effect_analysis_types.yo`    | ✅ Done (Phase 2b-effects-types)  |
-| `src/evaluator/async/await-analysis-types.ts`       | `yo-self/evaluator/async/await_analysis_types.yo`       | ✅ Done (Phase 2b-await-types)    |
-| `src/evaluator/exprs/*.ts`                          | `yo-self/evaluator/exprs/*.yo`                          | 🔲 Pending                        |
-| `src/evaluator/calls/*.ts`                          | `yo-self/evaluator/calls/*.yo`                          | 🔲 Pending                        |
-| `src/evaluator/builtins/*.ts`                       | `yo-self/evaluator/builtins/*.yo`                       | 🔲 Pending                        |
-| `src/evaluator/effects/*.ts`                        | `yo-self/evaluator/effects/*.yo`                        | 🔲 Pending                        |
-| `src/codegen/index.ts`                              | `yo-self/codegen/index.yo`                              | 🔲 Pending                        |
-| `src/codegen/exprs/*.ts`                            | `yo-self/codegen/exprs/*.yo`                            | 🔲 Pending                        |
-| `src/codegen/effects/*.ts`                          | `yo-self/codegen/effects/*.yo`                          | 🔲 Pending                        |
-| `src/codegen/functions/*.ts`                        | `yo-self/codegen/functions/*.yo`                        | 🔲 Pending                        |
-| `src/module-manager.ts`                             | `yo-self/module-manager/module_manager.yo`              | 🔲 Pending                        |
-| `src/yo-cli.ts`                                     | `yo-self/main.yo`                                       | Partial                           |
-| `src/build-runner.ts`                               | `yo-self/build/build_runner.yo`                         | ✅ Done                           |
-| `src/dag.ts`                                        | `yo-self/build/dag.yo`                                  | N/A (embedded in build_runner.yo) |
-| `src/version.ts`                                    | `yo-self/version/version.yo`                            | ✅ Done                           |
-| `src/version-cache.ts`                              | `yo-self/version/version_cache.yo`                      | ✅ Done                           |
-| `src/cache.ts`                                      | `yo-self/cache/cache.yo`                                | ✅ Done                           |
-| `src/lock-file.ts`                                  | `yo-self/lock-file/lock_file.yo`                        | ✅ Done                           |
-| `src/fetch.ts`                                      | `yo-self/fetch/fetch.yo`                                | ✅ Done                           |
-| `src/fetch-command.ts`                              | `yo-self/fetch/fetch_command.yo`                        | ✅ Done                           |
-| `src/install-command.ts`                            | `yo-self/install-command/install_command.yo`            | ✅ Done                           |
-| `src/init.ts`                                       | `yo-self/init/init.yo`                                  | ✅ Done                           |
-| `src/pkg-config.ts`                                 | `yo-self/pkg-config/pkg_config.yo`                      | ✅ Done                           |
-| `src/target.ts`                                     | `yo-self/target/target.yo`                              | ✅ Done                           |
-| `src/doc-command.ts` / `src/doc/**`                 | `yo-self/doc/`                                          | 🔲 Pending                        |
+| TypeScript source                                   | Yo target                                               | Status                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `src/lexer.ts`                                      | `yo-self/lexer/lexer.yo`                                | ✅ Done                                                                                             |
+| `src/parser.ts`                                     | `yo-self/parser/parser.yo`                              | ✅ Done                                                                                             |
+| `src/expr.ts`                                       | `yo-self/parser/expr.yo`                                | ✅ Done                                                                                             |
+| `src/types/definitions.ts`                          | `yo-self/types/type.yo`                                 | ✅ Done                                                                                             |
+| `src/types/guards.ts`                               | `yo-self/types/guards.yo`                               | ✅ Done                                                                                             |
+| `src/types/env-lookup.ts`                           | `yo-self/types/env_lookup.yo`                           | ✅ Done (Phase 2d)                                                                                  |
+| `src/types/hierarchy.ts`                            | `yo-self/types/hierarchy.yo`                            | ✅ Done (Phase 2e)                                                                                  |
+| `src/types/compatibility.ts`                        | `yo-self/types/compatibility.yo`                        | ✅ Done (Phase 2f)                                                                                  |
+| `src/types/utils.ts` (pure subset)                  | `yo-self/types/utils.yo`                                | ✅ Done (Phase 2g)                                                                                  |
+| `src/env.ts`                                        | `yo-self/env/env.yo`                                    | ✅ Done                                                                                             |
+| `src/value.ts`                                      | `yo-self/evaluator/value.yo`                            | ✅ Done (Phase 2h)                                                                                  |
+| `src/error.ts`                                      | `yo-self/error/error.yo`                                | ✅ Done (Phase 2j)                                                                                  |
+| `src/evaluator/index.ts`                            | `yo-self/evaluator/index.yo`                            | ✅ Done (Phase 2i)                                                                                  |
+| `src/evaluator/context.ts`                          | `yo-self/evaluator/context.yo`                          | ✅ Done (Phase 2b-context)                                                                          |
+| `src/evaluator/shared/suspension-analysis-types.ts` | `yo-self/evaluator/shared/suspension_analysis_types.yo` | ✅ Done (Phase 2b-shared)                                                                           |
+| `src/evaluator/effects/effect-analysis-types.ts`    | `yo-self/evaluator/effects/effect_analysis_types.yo`    | ✅ Done (Phase 2b-effects-types)                                                                    |
+| `src/evaluator/async/await-analysis-types.ts`       | `yo-self/evaluator/async/await_analysis_types.yo`       | ✅ Done (Phase 2b-await-types)                                                                      |
+| `src/expr.ts` (EvaluatedExprData + helpers)         | `yo-self/expr/expr_info.yo`                             | ✅ Done (Phase 2k)                                                                                  |
+| `src/evaluator/shared/suspension-analysis.ts`       | `yo-self/evaluator/shared/suspension_analysis.yo`       | ✅ Done (Phase 2l)                                                                                  |
+| `src/evaluator/async/await-analysis.ts`             | `yo-self/evaluator/async/await_analysis.yo`             | ✅ Done (Phase 2m)                                                                                  |
+| `src/evaluator/effects/effect-analysis.ts`          | `yo-self/evaluator/effects/effect_analysis.yo`          | ✅ Done (Phase 2n)                                                                                  |
+| `src/evaluator/utils.ts`                            | `yo-self/evaluator/utils.yo`                            | ✅ Done (Phase 2aa)                                                                                 |
+| `src/evaluator/exprs/begin.ts`                      | `yo-self/evaluator/exprs/begin.yo`                      | ✅ Done (Phase 2ab)                                                                                 |
+| `src/evaluator/exprs/cond.ts`                       | `yo-self/evaluator/exprs/cond.yo`                       | ✅ Done (Phase 2ac)                                                                                 |
+| `src/evaluator/exprs/while.ts`                      | `yo-self/evaluator/exprs/while.yo`                      | ✅ Done (Phase 2ad)                                                                                 |
+| `src/evaluator/exprs/match.ts`                      | `yo-self/evaluator/exprs/match.yo`                      | ✅ Done (Phase 2ae)                                                                                 |
+| `src/evaluator/exprs/property-access.ts`            | `yo-self/evaluator/exprs/property_access.yo`            | ✅ Done (Phase 2af)                                                                                 |
+| `src/evaluator/exprs/import.ts`                     | `yo-self/evaluator/exprs/import.yo`                     | ✅ Done (Phase 2ag, partial — no dep resolution)                                                    |
+| `src/evaluator/exprs/subtype-of.ts`                 | `yo-self/evaluator/exprs/subtype_of.yo`                 | ✅ Done (Phase 2ah, partial — no where clauses)                                                     |
+| `src/evaluator/exprs/extern.ts`                     | `yo-self/evaluator/exprs/extern.yo`                     | ✅ Done (Phase 2ai, stub)                                                                           |
+| `src/evaluator/exprs/c-include.ts`                  | `yo-self/evaluator/exprs/c_include.yo`                  | ✅ Done (Phase 2aj, stub)                                                                           |
+| `src/evaluator/exprs/exists.ts`                     | `yo-self/evaluator/exprs/exists.yo`                     | ✅ Done (Phase 2ak, stub)                                                                           |
+| `src/evaluator/exprs/_expr.ts`                      | `yo-self/evaluator/exprs/_expr.yo`                      | 🔲 Pending (Phase 2al, needs all builtins+calls)                                                    |
+| `src/evaluator/calls/*.ts`                          | `yo-self/evaluator/calls/*.yo`                          | 🔄 In progress (function.yo+helper.yo done; 11 stubs being created)                                 |
+| `src/evaluator/builtins/*.ts`                       | `yo-self/evaluator/builtins/*.yo`                       | 🔄 In progress (stubs being created)                                                                |
+| `src/evaluator/types/*.ts`                          | `yo-self/evaluator/types/*.yo`                          | 🔄 In progress (expr_synthesizer.yo done; 17 stubs being created)                                   |
+| `src/evaluator/values/*.ts`                         | `yo-self/evaluator/values/*.yo`                         | 🔄 In progress (clone_value.yo done; 11 stubs being created)                                        |
+| `src/evaluator/effects/*.ts`                        | `yo-self/evaluator/effects/*.yo`                        | 🔲 Pending                                                                                          |
+| `src/codegen/index.ts`                              | `yo-self/codegen/index.yo`                              | 🔲 Pending                                                                                          |
+| `src/codegen/exprs/*.ts`                            | `yo-self/codegen/exprs/*.yo`                            | 🔲 Pending                                                                                          |
+| `src/codegen/effects/*.ts`                          | `yo-self/codegen/effects/*.yo`                          | 🔲 Pending                                                                                          |
+| `src/codegen/functions/*.ts`                        | `yo-self/codegen/functions/*.yo`                        | 🔲 Pending                                                                                          |
+| `src/module-manager.ts`                             | `yo-self/module-manager/module_manager.yo`              | 🔲 Pending                                                                                          |
+| `src/yo-cli.ts`                                     | `yo-self/main.yo`                                       | Partial                                                                                             |
+| `src/build-runner.ts`                               | `yo-self/build/build_runner.yo`                         | ✅ Done                                                                                             |
+| `src/dag.ts`                                        | `yo-self/build/dag.yo`                                  | N/A (embedded in build_runner.yo)                                                                   |
+| `src/version.ts`                                    | `yo-self/version/version.yo`                            | ✅ Done                                                                                             |
+| `src/version-cache.ts`                              | `yo-self/version/version_cache.yo`                      | ✅ Done                                                                                             |
+| `src/cache.ts`                                      | `yo-self/cache/cache.yo`                                | ✅ Done                                                                                             |
+| `src/lock-file.ts`                                  | `yo-self/lock-file/lock_file.yo`                        | ✅ Done                                                                                             |
+| `src/fetch.ts`                                      | `yo-self/fetch/fetch.yo`                                | ✅ Done                                                                                             |
+| `src/fetch-command.ts`                              | `yo-self/fetch/fetch_command.yo`                        | ✅ Done                                                                                             |
+| `src/install-command.ts`                            | `yo-self/install-command/install_command.yo`            | ✅ Done                                                                                             |
+| `src/init.ts`                                       | `yo-self/init/init.yo`                                  | ✅ Done                                                                                             |
+| `src/pkg-config.ts`                                 | `yo-self/pkg-config/pkg_config.yo`                      | ✅ Done                                                                                             |
+| `src/target.ts`                                     | `yo-self/target/target.yo`                              | ✅ Done                                                                                             |
+| `src/doc-command.ts` / `src/doc/**`                 | `yo-self/doc/`                                          | 🔲 Partial (model/sections/extractor/render-markdown done; builder/render-html/render-json pending) |
 
 ### Translation guidelines
 
@@ -281,12 +300,15 @@ yo-self/
     type.yo                 -- TypeValue enum + constructors (mirrors src/types/*.ts)
     string.yo               -- type_to_string (mirrors src/types/strings.ts)
     compatibility.yo        -- are_types_compatible (mirrors src/types/compatibility.ts)
+    utils.yo                -- integer bits/range, comptime cast checks (mirrors src/types/utils.ts subset)
     substitution.yo         -- Substitution engine (subst_new/add/lookup/substitute)
     guards.yo               -- type guard predicates (mirrors src/types/guards.ts)
     env_lookup.yo           -- getTraitTypeFromEnv / getValueOfSomeTypeFromEnv (mirrors src/types/env-lookup.ts)
     hierarchy.yo            -- type_of_type / _determine_type_universe (mirrors src/types/hierarchy.ts)
   env/
     env.yo                  -- Variable, Frame, Environment (mirrors src/env.ts)
+  error/
+    error.yo                -- error types and formatting (mirrors src/error.ts)
   evaluator/
     value.yo                -- EvalValue enum + EvalResult object
     eval.yo                 -- evaluate() dispatch (prototype — to be replaced by full port)
@@ -332,11 +354,12 @@ yo-self/
   compiler-utils/
     compiler_utils.yo       -- get_compiler_info / find_available_compiler (mirrors src/compiler-utils.ts)
   tests/
+    error.test.yo           -- 16 error type/formatting tests
     lexer.test.yo           -- 33 lexer tests
     parser.test.yo          -- 40 parser tests
-    types_string_compat.test.yo    -- 6 type system foundation tests
+    types_string_compat.test.yo    -- 20 type system foundation tests
     types_compound.test.yo         -- 29 compound type + substitution tests
-    types_guards.test.yo           -- 27 type guard tests
+    types_guards.test.yo           -- 36 type guard tests
     env.test.yo             -- 9 environment tests
     env_lookup.test.yo      -- 7 env-lookup tests
     hierarchy.test.yo       -- 22 hierarchy / type_of_type tests
@@ -345,7 +368,9 @@ yo-self/
     context.test.yo         -- 11 evaluator context tests
     suspension_analysis_types.test.yo  -- 7 suspension analysis tests
     effect_analysis_types.test.yo      -- 11 effect analysis tests
-    await_analysis_types.test.yo       -- 10 await analysis tests
+    await_analysis_types.test.yo       -- 10 await analysis types tests
+    await_analysis.test.yo             -- 28 await analysis tests
+    effect_analysis.test.yo            -- 18 effect analysis tests
     circular_smoke.test.yo  -- 3 circular-import validation tests
     codegen.test.yo         -- 141 codegen tests
     integration.test.yo     -- 2 end-to-end parse→C→cc→run tests
@@ -473,9 +498,716 @@ Port the frontend first because it's the smallest (~4.8K lines), has no dependen
 - 22 new hierarchy tests covering primitives, TypeUni levels, compound types, structs, enums, traits, modules, and SomeT
 - **Total: 613 tests passing**
 
-### Phase 3 — Evaluator
+**2f — Remaining TypeValue variants + full compatibility port** ✅ Done — 637 tests total
 
-The largest and most complex phase (~56K lines). Break into sub-phases:
+- Added 8 new `TypeValue` enum variants to `yo-self/types/type.yo`: `ExprT`, `ComptimeListT`, `EffectsRowT`, `TypeAppT`, `IsoT`, `DynT`, `FnTraitT`, `FutureTraitT`
+  - Each variant carries the exact fields of its TypeScript counterpart
+  - Updated `type_value_tag` match to map all new variants (FnTraitT/FutureTraitT → `TypeTag.TTrait`, others to their own tags)
+  - Updated `is_trait_type` to include `FnTraitT` and `FutureTraitT`
+  - Added 11 convenience constructors: `t_expr_t`, `t_comptime_list`, `t_effects_row`, `t_type_app`, `t_iso`, `t_dyn`, `t_dyn_simple`, `t_fn_trait`, `t_fn_trait_simple`, `t_future_trait`, `t_future_trait_simple`
+- Extended `yo-self/types/guards.yo`: replaced 9 `false` stubs with real match implementations for all new variants
+- Extended `yo-self/types/string.yo`: added 8 new `type_to_string` match arms for all new variants
+- Extended `yo-self/types/hierarchy.yo`: added `FnTraitT` and `FutureTraitT` → `TypeUni(1)` arms before the `_ => TypeUni(0)` fallback
+- Extended `yo-self/types/substitution.yo`: added 7 new recursive substitution arms for all new variants
+- Full rewrite of `yo-self/types/compatibility.yo` from Phase 2a stub to complete Phase 2f port:
+  - `_compat_impl` — core recursive compatibility checker with `visited` cycle guard, `require_exact` flag, comptime widening rules (ComptimeInt → Int/Usize/Isize/Float/ComptimeFloat/C-types; ComptimeFloat → Float/ComptimeFloat; ComptimeString → str/Slice(u8)/Pointer(u8)/Pointer(CChar))
+  - `_visited_contains`, `_is_in_used` helpers
+  - `_flatten_effects` — recursively unwraps `EffectsRowT` implicit chains for `FutureTraitT` effect matching
+  - `are_types_compatible(actual, expected)` — public wrapper with `require_exact=false`
+  - `are_types_compatible_exact(actual, expected)` — public wrapper with `require_exact=true` (no comptime widening)
+  - `are_function_types_compatible(actual, expected)` — structural function type comparison with forall substitution
+- Added 20 new tests to `yo-self/tests/types_string_compat.test.yo` for all new variants' string form and compatibility
+- Added 8 new tests to `yo-self/tests/types_guards.test.yo` for all new guard predicates
+- **Total: 637 tests passing**
+
+### Phase 2g — Port pure subset of `src/types/utils.ts` ✅ Done
+
+Created `yo-self/types/utils.yo` with the evaluator-independent functions from `utils.ts`:
+
+- **Target pointer size config**: `g_target_pointer_size_bits` module-level global (default 64), `set_target_pointer_size(bits)` with validation (ignores invalid sizes), `get_target_pointer_size_bits()`, `get_target_pointer_size_bytes()`
+- **`get_integer_type_bits(ty: TypeValue) → Option(u32)`** — maps `Int(bits, signed)`, `Usize`, `Isize` to their bit widths; returns `.None` for non-integer types. Uses the global pointer size for `Usize`/`Isize`.
+- **`IntRange :: object(min: i64, max: u64)`** — range result type (named tuple fields are not supported in Yo tuple types, so a struct is used)
+- **`get_integer_type_range(ty: TypeValue) → Option(IntRange)`** — returns precomputed min/max for all 8 fixed-width int types plus `Usize`/`Isize`. Uses a lookup table instead of bit-shifting to avoid overflow at i64/u64 boundaries.
+- **`can_comptime_int_cast_to(target: TypeValue) → bool`** — `is_integer_type || is_comptime_int_type`
+- **`can_comptime_float_cast_to(target: TypeValue) → bool`** — `is_float_type || is_comptime_float_type`
+
+Deferred to Phase 3 (require evaluator context):
+
+- `is_comptime_only_type` / `is_runtime_only_type` — need `typeImplementsComptime` / `typeImplementsRuntime`
+- `type_contains_rc_type` — needs `typeImplementsFuture`
+- `get_size_of_type` / `get_alignment_of_type` — need `Struct.isReferenceSemantics`, `Struct.isNewtype`
+- `can_type_form_rc_cycle` — needs `typeImplementsAcyclic`
+- `type_contains_self_type_for_dynamic_dispatch_check` — needs `SomeType.resolvedConcreteType`
+- `prohibit_void_type` — needs error formatting (Phase 3)
+
+Created `yo-self/tests/types_utils.test.yo` with 31 tests covering all ported functions.
+
+**Syntax lessons from Phase 2g**:
+
+- Named tuple fields in type syntax `(min: i64, max: u64)` are **not supported** — use an `object` struct instead
+- `Option` comparisons via `== .Some(...)` or `== .None` don't work when the inner type has no auto-`Eq` impl or the `.None` is ambiguous — use `.is_some()`, `.is_none()`, `.unwrap()` instead
+- `{ () }` without a semicolon is parsed as a struct literal, not a block — use `()` directly or `{ (); }`
+- **Total: 668 tests passing**
+
+### Phase 2h — Complete `src/value.ts` port to `yo-self/evaluator/value.yo` ✅ Done
+
+Extended `yo-self/evaluator/value.yo` with 7 previously-missing `EvalValue` variants, a full `value_to_string` pretty-printer, and 19 type predicate functions.
+
+**New EvalValue variants** (appended after `ModuleVal`):
+
+- `TupleVal(fields: ArrayList(Self))` — positional-field tuples
+- `ArrayVal(elements: ArrayList(Self))` — homogeneous arrays
+- `SliceVal(source: Box(Self), start_idx: usize, end_idx: usize)` — non-owning view into an `ArrayVal`
+- `PtrVal(target: Box(Self), index: usize)` — mutable pointer with index
+- `TraitVal(ty_name: String, field_names: ArrayList(String), field_values: ArrayList(Option(Self)))` — trait object (runtime fields use `None`)
+- `ComptimeListVal(elements: ArrayList(Self))` — heterogeneous compile-time list
+- `ExprVal(expr: Box(AstExpr))` — unevaluated AST node as a first-class value
+
+**Equality extensions** in `eval_value_eq`:
+
+- `TupleVal` / `ArrayVal` / `ComptimeListVal` — structural recursive equality
+- `SliceVal` — compares visible element range from backing `ArrayVal`
+- `PtrVal` — always `false` (pointer alias identity not portable; limitation documented)
+- `TraitVal` — structural equality with `Option(Self)` field comparison
+- `ExprVal` — always `false` (no structural AST eq yet)
+
+**`value_to_string` function** — complete pretty-printer for all variants:
+
+- Imports `type_to_string` from `../types/string.yo`
+- Uses `recur(...)` for self-calls (lambdas can't reference their own name)
+- Uses template strings for all concatenation (`+` operator has type-mismatch on `String`/`str`)
+
+**19 type predicate functions** (is_unit_val, is_bool_val, … is_expr_val)
+
+**Updates to `yo-self/evaluator/eval.yo`**:
+
+- Added `t_expr_t` to type imports
+- Added all new predicates and `value_to_string` to value imports
+- Added 7 new arms to `value_is_comptime` (all → `true`)
+- Added 7 new arms to `type_of_eval_value` (most → `t_unit()`, `ExprVal` → `t_expr_t()`)
+
+**Syntax lessons from Phase 2h**:
+
+- Bare identifier catch-all `t => ...` is **not valid** in the self-hosted evaluator match — use `_ => { ... outer_binding.* ... }` to access a previously-bound name
+- `String + str` (`+` operator) causes type mismatch — always use template strings instead
+- `raw.clone()` on a `String` field is ambiguous (two impls) — use `String.from(raw.as_str())`
+- `{ match(...) }` without semicolons is parsed as a struct literal — remove braces or add `;`
+- `box(val)` moves `val` — cannot box the same value twice; create separate instances instead
+
+Created `yo-self/tests/value.test.yo` with 37 tests covering all 7 new variants, equality, predicates, and `value_to_string` output.
+
+**Total: 705 tests passing**
+
+### Phase 2i — Port `src/evaluator/index.ts` to `yo-self/evaluator/index.yo` ✅ Done
+
+Ported the `Evaluator` entry-point class from TypeScript to Yo. This is the top-level wrapper that drives parsing, prelude injection, module loading, and `evaluate_module_body`.
+
+**Key decisions vs TypeScript**:
+
+- TypeScript class → Yo `object` + `impl` block (`Evaluator :: object(...)`, `impl(Evaluator, ...)`)
+- `hasCommentAttribute` helper → `is_comment_token_kind` + `has_comment_attribute` standalone functions
+- `getModuleValue()` / `getModuleError()` accessor methods kept as `get_module_value` / `get_module_error`
+- File I/O removed — caller provides the source string (`input_string : String`)
+- `allowPartialModule` / `registerPartialModule` not yet ported (proto-evaluator limitation)
+- Prelude load failure sets `module_error : Option(String)` instead of throwing
+- Added no-op stubs for `clear_impls_from_module`, `clear_generic_impls_from_module`, `clear_all_global_impl_state`
+
+**Bug discovered and documented**: `@skip_prelude` literal in `//!` or `///` doc comments inside `.yo` source files triggers a false-positive prelude skip. The `hasCommentAttribute` in the TypeScript evaluator (`src/evaluator/index.ts`) scans ALL comment token kinds (including `InnerDocLineComment`, `DocLineComment`, `DocBlockComment`, `InnerDocBlockComment`) for the attribute string. If any doc comment in the source file contains the literal `@skip_prelude`, the entire file is evaluated without the prelude. Documented in `issues/skip-prelude-doc-comment-false-positive.md`. Workaround: use "skip-prelude directive" in doc comments instead of the literal `@skip_prelude`.
+
+**Syntax lessons from Phase 2i**:
+
+- `given(exn) := Exception(throw: ((err) -> { assert(false, "msg"); escape (); }))` — this is the standard pattern to provide an `Exception` effect in tests
+- `assert(condition, msg)` takes `str` for `msg` — do NOT use template strings (`` `...` ``) as the second arg; they produce `String` and will error "Cannot unify incompatible struct types: String and str"
+- `// @skip_prelude` in a `//` (or `//!` / `///`) comment of a `.yo` source file causes prelude to be skipped for that entire file, even if the comment is a test separator or documentation
+
+Updated `yo-self/evaluator/index.yo` with workaround comments. Updated `yo-self/tests/evaluator_index.test.yo` to use `given(exn)` pattern and avoid template-string assert messages.
+
+Updated file table: `src/evaluator/index.ts` → `yo-self/evaluator/index.yo` ✅ Done (Phase 2i)
+
+Created `yo-self/tests/evaluator_index.test.yo` with 18 tests (12 for `has_comment_attribute`, 6 for `Evaluator.new`).
+
+**Total: 723 tests passing**
+
+### Phase 2j — Port `src/error.ts` to `yo-self/error/error.yo` ✅ Done
+
+Ported the foundational error-formatting module. This provides the `YoError` and `YoLexerError`
+types plus all formatting utilities used throughout the evaluator.
+
+**Ported symbols:**
+
+- `ErrorKind :: enum(Overflow)` — closed-set enum replacing TS `"overflow"` literal type; with `derive(ToString)`
+- `TokenAndError :: struct(token, error_message)` — mirrors `TokenAndError` interface
+- `TokenAndWarning :: struct(token, warning_message)` — mirrors inline type in `formatWarningMessages`
+- `YoLexerError :: object(character_index, message, row)` — implements `ToString` and `Error`
+- `YoError :: object(token_and_error_list, is_assertion_error, kind)` — implements `ToString` and `Error`
+- `get_line_at_token(token) → String` — source line with caret indicator from a Token
+- `get_line_at_position(module_path, input_string, row, column) → String` — source line from components
+- `format_error_message(token, error_message, is_assertion_error, kind) → YoError`
+- `format_error_messages(token_and_error_list, is_assertion_error, kind) → YoError`
+- `format_warning_messages(warning_message, token_and_warning_list) → String`
+- `print_yo_error(error : *(YoError)) → unit` — prints to stderr via `eprintln`
+
+**Key differences from TypeScript:**
+
+- `ErrorKind` is an enum instead of a string literal type (`"overflow"`)
+- `cause` parameter omitted from `format_error_message` (never used in practice)
+- `is_assertion_error` and `kind` are required parameters (not optional); callers pass `false`/`.None`
+- `print_yo_error` accepts `*(YoError)` only (TS accepted `YoError | Error` union)
+- `format_error_messages` guards against empty list with `assert`
+
+Created `yo-self/tests/error.test.yo` with 16 tests covering all types and functions.
+
+**Total: 739 tests passing**
+
+### Phase 2k — Port `src/expr.ts` (EvaluatedExprData + helpers) to `yo-self/expr/expr_info.yo` ✅ Done
+
+Ported the `EvaluatedExprData` annotation system, `ControlFlowFlags`, `ComptimeRef`, `PathCollection`, and related utilities.
+
+**Ported symbols:**
+
+- `Path :: ArrayList(String)` and `PathCollection :: ArrayList(ArrayList(String))` type aliases
+- `path_collection_new`, `path_contains_path`, `path_conflicts_with_path`, `path_collection_conflicts_with_path_collection` — path conflict detection utilities
+- `ControlFlowKind :: enum(Return, Escape, Break, Continue)` — with `derive(Clone, Eq, ToString)`
+- `ControlFlowFlags :: struct(return_flag, escape_flag, break_flag, continue_flag : bool)` — with `derive(Clone, Eq)`
+- `control_flow_of(kind) → ControlFlowFlags` — single-flag constructor
+- `has_control_flow(flags, kind) → bool` — checks if a specific flag is set
+- `has_any_control_flow(flags) → bool` — checks if any flag is set
+- `merge_control_flows(a, b) → ControlFlowFlags` — OR of two flag structs
+- `control_flow_to_string(flags) → String` — human-readable flag dump
+- `ComptimeRef :: enum(ArrayRef, ComptimeListRef, StructRef, TupleRef)` with `ArrayList(EvalValue)` fields
+- `RuntimeDestructuring :: struct(label, ty, variable_name)` — maps TypeScript `RuntimeDestructuring` interface
+- `ExprInfo :: object(env, ty, value, …34 optional fields)` — the main annotation object per-expression
+- `new_expr_info(env, ty) → ExprInfo` — factory with all optional fields set to `None`
+
+Also added to `yo-self/expr/expr.yo`:
+
+- `ast_expr_is_atom_of(e, value) → bool`
+- `ast_expr_is_atom_of_any(e, values) → bool`
+- `ast_expr_is_fn_call_of(e, func_name, arg_count) → bool`
+- `ast_expr_is_fn_call_of_any(e, func_names, arg_count) → bool`
+- `exprs_are_equal(e1, e2) → bool` — structural equality with `recur` for self-recursion
+
+Updated `yo-self/evaluator/context.yo` to remove the `PathCollection :: ArrayList(AstExpr)` Phase 2b stub and import the proper type from `expr_info.yo`.
+
+**Codegen bug discovered (filed as `issues/struct-literal-in-match-arm-not-assigned.md`):**
+When a `match` arm's value is a struct literal, the C emitter emits it as a standalone statement rather than assigning it to the return temporary. Workaround applied: use mutable flag variables and construct the struct after the match.
+
+Created `yo-self/tests/expr_info.test.yo` with 23 tests.
+
+**Total: 762 tests passing**
+
+### Phase 2l — Port `src/evaluator/shared/suspension-analysis.ts` to `yo-self/evaluator/shared/suspension_analysis.yo` ✅ Done
+
+Ported the suspension-point analysis pass, which walks an AST to identify async suspension points (`io.await`, `yield`, spawned futures, nested async lambdas) and computes `ExprInfo` annotations for them.
+
+**Ported symbols:**
+
+- `SuspensionKind :: enum(Await, Yield, Spawn, Nested)` — matches TypeScript `SuspensionKind` string literal union
+- `SuspensionPoint :: object(kind, expr, path)` — one identified suspension site
+- `ExprInfo :: object(...)` re-used from `expr_info.yo`
+- `walk_expr_(e, get_info, depth, max_depth, acc)` — recursive AST walker that collects `SuspensionPoint`s; uses `Impl(Fn(AstExpr) -> Option(ExprInfo))` for lazy info lookup
+- `analyze_suspension_points(fn_body, get_info)` — entry point; calls `walk_expr_` and returns `ArrayList(SuspensionPoint)`
+
+**Codegen bugs discovered and fixed:**
+
+Two compiler bugs were discovered and fixed while porting this phase:
+
+1. **Bug: Specialized function missing forward declaration for `Impl(Fn(...))` params** (fixed in `src/codegen/functions/declarations.ts`):
+   `generateSpecializedFunctionDeclarations` used `isFunctionTypeHardGeneric` which did not exclude `Impl(Fn(...))` SomeTypes, causing the forward declaration of `walk_expr_` to be omitted in batch compilation. Fixed by using the same `isUnresolvedSomeType` logic as `generateSpecializedFunctions`. See `issues/fixed/codegen-specialized-fn-missing-forward-decl-impl-fn.md`.
+
+2. **Bug: `break` inside match-init drops not-yet-declared variable** (fixed in `src/codegen/exprs/atom.ts`):
+   `emitLoopBodyDropsBeforeExit` used a position-based filter to skip drops of uninitialized variables, but the filter incorrectly dropped variables whose `:=` was on the line before `break` (even though their C declaration comes after the entire match). Fixed by switching to env-based liveness checking (same approach as `generatePendingDeferredDrops` in `return.ts`). See `issues/fixed/codegen-break-in-match-init-drops-undeclared-var.md`.
+
+Created `yo-self/tests/suspension_analysis.test.yo` with 9 tests.
+
+**Total: 771 tests passing**
+
+### Phase 2m — Port `src/evaluator/async/await-analysis.ts` to `yo-self/evaluator/async/await_analysis.yo` ✅ Done
+
+Ported the await-point analysis pass for async function bodies. This is a thin wrapper around the shared suspension-point analysis engine that provides async-specific detection logic (io.await, io.async, io.spawn, JoinHandle.await).
+
+**Ported symbols:**
+
+- `AwaitPointExtra :: object(result_type, future_type, future_variable_id)` — typed side-channel for async fields (no TypeScript equivalent; needed because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects)
+- `extract_future_trait_from_type(ty) -> Option(TypeValue)` — extracts FutureTraitT from SomeT/DynT trait bounds; mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`
+- `type_implements_future(ty) -> bool` — checks if SomeT/DynT has a FutureTraitT bound
+- `_is_dot_access(expr, obj_name, method_name) -> bool` — structural AST check for `io.await(...)` style calls (replaces TypeScript `ioBuiltin` type marker)
+- `is_io_async_call`, `is_io_await_call`, `is_io_state_call`, `is_io_spawn_call`, `is_join_handle_await_call` — structural IO call detectors
+- `get_future_variable_id_(await_arg, get_info) -> Option(String)` — resolves the variable ID of the future being awaited
+- `detect_await_expr_(expr, parent_expr, points, await_extras, get_info)` — core per-expression detection logic
+- `analyze_await_points(body, get_info) -> AwaitAnalysisResult` — main entry point; uses side-channel HashMap for typed fields
+- `collect_variable_bindings_(expr, variables, seen, get_info)` — recursively collects let/`:=` bindings for state machine generation
+- `get_local_variables_from_body(body, get_info) -> ArrayList(CapturedVariable)` — entry point for local variable collection
+
+**Key design decisions:**
+
+1. **Side-channel for typed fields**: TypeScript uses a generic `SuspensionPointDetector<AwaitPoint>` to accumulate typed suspension points directly. Yo's `SuspensionPointDetector` is untyped (stores `SuspensionPoint`). Solution: `HashMap(String, AwaitPointExtra)` keyed by `expr.token.character.to_string()` collects async-specific fields during the walk, then zipped with base `SuspensionPoint` list afterward.
+
+2. **`dyn` closure capture semantics**: Yo's `dyn(closure)` captures outer variables by C pointer reference (not by move), so `get_info` can simultaneously be captured in the `detect` dyn closure AND passed directly to `analyze_suspension_points`. This was verified experimentally.
+
+3. **Structural IO call detection**: TypeScript uses `expr.func.$?.type?.ioBuiltin` marker. Yo uses AST pattern matching on `FnCall(FnCall(dot, [Atom("io"), Atom("await")], is_infix=true), [arg])` structure.
+
+4. **`collect_variable_bindings_` must NOT use early `return`**: The TypeScript version always recurses after checking for bindings. Any `return` in Yo would skip the recursion into `func_box.*` and args, missing nested bindings.
+
+Created `yo-self/tests/await_analysis.test.yo` with 28 tests covering type helpers, IO call detectors, JoinHandle detection, and basic `analyze_await_points` behavior.
+
+**Total: 799 tests passing**
+
+### Phase 2n — Port `src/evaluator/effects/effect-analysis.ts` to `yo-self/evaluator/effects/effect_analysis.yo` ✅ Done
+
+Ported the effect-call-point analysis pass for algebraic effect handler bodies. This is a thin wrapper around the shared suspension-point analysis engine that provides effect-specific detection logic (direct `ctl(args)` calls, module-member calls `ctl.raise(args)`, spread resolution, and transitive calls).
+
+**Ported symbols:**
+
+- `EffectCallPointExtra_ :: object(...)` — internal side-channel for effect-specific fields (not in TypeScript; needed because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects)
+- `is_effect_call_(expr, effect_param_name, effect_field_path, allow_missing_type, get_info) -> bool` — detects direct effect calls; handles both Case 1 (bare call) and Case 2 (module-member dotted call with path matching)
+- `has_effect_in_spread_(param_label, param_type, effect_param_name, env) -> bool` — checks if an effect row spread parameter resolves to an EffectsRowT containing the effect name
+- `is_transitive_effect_call_(expr, effect_param_name, get_info) -> Option(bool)` — detects transitive effect calls (Path 1: direct FunctionType; Path 2: FnTrait — always None due to known limitation)
+- `detect_effect_expr_(...)` — core per-expression detection; builds `EffectCallPoint` suspension points and populates side-channel HashMap
+- `analyze_effect_call_points(body, name, type, transitive, field_path, get_info) -> EffectAnalysisResult` — main entry point; uses side-channel HashMap for typed fields
+
+**Key design decisions:**
+
+1. **Side-channel for typed fields**: Same pattern as Phase 2m. `HashMap(String, EffectCallPointExtra_)` keyed by `expr.token.character.to_string()` collects effect-specific fields during the walk, then zipped with base `SuspensionPoint` list afterward.
+
+2. **`has_effect_in_spread_` limitation**: The TypeScript version uses both `getVariablesFromEnv(env, label)` AND a fallback `getValueOfSomeTypeFromEnv(env, type)`. Since `Environment` is not `Clone`, and both functions consume `env : Environment`, only the primary label lookup is implemented. The fallback is omitted. Documented in `issues/fntrait-no-implicit-params.md`.
+
+3. **Dot-access chain walking bug fixed**: The `is_effect_call_` Case 2 walker correctly sets `current = args[0]` (the receiver) at each step, not `curr_func.*` (the dot operator). This matches the TypeScript `current = current.args[0]!` logic.
+
+4. **`TypeValue.Unit` not `TypeValue.UnitT`**: The unit variant of `TypeValue` in yo-self is `.Unit` (without the `T` suffix). The ported code used `TypeValue.UnitT` (following TypeScript naming) and required a fix.
+
+5. **FnTraitT path always returns None**: `is_transitive_effect_call_` Path 2 (Impl/Dyn closures) always returns None because `FnTraitT` in yo-self has no `implicit_params` field. See `issues/fntrait-no-implicit-params.md`.
+
+6. **`is_type_val` guard removed**: In `has_effect_in_spread_`, the TypeScript `isTypeValue(val)` guard before pattern matching `EvalValue` was removed since `EvalValue` does not derive `Clone` (can't clone for the guard check). The match directly handles `.TypeVal` vs `_` arms, which is equivalent.
+
+Created `yo-self/tests/effect_analysis.test.yo` with 18 tests covering direct call detection, field-path matching, spread resolution, transitive detection, and `analyze_effect_call_points` structural behavior.
+
+**Total: 817 tests passing** (799 + 18 new)
+
+### Phase 2o — Port `src/doc/sections.ts` and `src/doc/extractor.ts` to `yo-self/doc/` ✅ Done
+
+Ported the doc-comment parsing pipeline to Yo. These modules are used by `yo doc` to extract structured documentation from source files.
+
+**Files created:**
+
+- `yo-self/doc/model.yo` — Pure type definitions: `DocItemKind`, `DocTraitKind`, all `Doc*` structs (`DocField`, `DocParam`, `DocVariant`, `DocFn`, `DocTrait`, `DocItem`, `DocModule`, `DocModel`)
+- `yo-self/doc/sections.yo` — Doc comment section parser (1:1 port of `src/doc/sections.ts`): `ParsedDocComment`, `parse_doc_comment`, `is_known_section`
+- `yo-self/doc/extractor.yo` — Doc comment extractor operating on Token stream (1:1 port of `src/doc/extractor.ts`): `DocComment`, `DocAssociation`, `DocExtractionResult`, `InlineDocResult`, `ParensResult`, `strip_doc_line_comment`, `strip_doc_block_comment`, `extract_doc_comments`, `extract_inline_docs`, `find_matching_parens`
+
+**Test files created:**
+
+- `yo-self/tests/doc_sections.test.yo` — 23 tests for `parse_doc_comment` and `is_known_section`
+- `yo-self/tests/doc_extractor.test.yo` — 39 tests for all extractor functions
+
+**Key design decisions:**
+
+1. **`continue` workaround**: TypeScript's `if (cond) { ...; continue; }` patterns replaced with nested `if-else` chains and `cont_*` boolean flags.
+
+2. **HashMap API**: Uses `map.set(key, value)` (not `insert`). The `set` return value is discarded as a statement.
+
+3. **Trailing blank-line trim**: Uses index-based approach (`get(len-1)` + conditional `remove`) rather than `pop()` in the loop condition (which would remove elements).
+
+4. **Helper ordering**: All private helper functions defined before callers (Yo requires forward declaration ordering).
+
+5. **DocModule recursive struct**: Uses `Box(Self)` for `submodules : ArrayList(Box(Self))` to allow recursive struct definition.
+
+**Total: 879 tests passing** (817 + 23 + 39 new)
+
+### Phase 2p — Port `src/doc/render-markdown.ts` to `yo-self/doc/render_markdown.yo` ✅ Done
+
+Ported the Markdown documentation renderer to Yo. Renders `DocModel` data structures into `.md` output (table of contents, type/trait/function/constant documentation pages, index page).
+
+**Files created:**
+
+- `yo-self/doc/render_markdown.yo` — 1:1 port of `src/doc/render-markdown.ts` (490 lines → ~380 lines in Yo): `render_function_md`, `render_type_md`, `render_trait_md`, `render_constant_md`, `render_module_md`, `render_index_md`
+- `yo-self/tests/doc_render_markdown.test.yo` — 25 tests covering all six render functions
+
+**Key design decisions:**
+
+1. **No nested template strings**: `` `, `.join(names) `` cannot appear inside `${...}` of another template string (inner backtick closes the outer). Fixed by assigning separators to variables: `sep := `, `; \`(\${sep.join(names)})\``.
+
+2. **No `.clone()` needed**: Struct fields (String, etc.) are RC objects that can be passed to `ArrayList.push()` directly without explicit `.clone()`. The ambiguous overload error (`fn(self: String)` vs `fn(self: *(String))`) is avoided by not calling `.clone()` at all.
+
+3. **`{ single_expr }` → bare expr in match arms**: A block containing only one expression without a semicolon (e.g., `.Some(p) => { cond(...) }`) is parsed as a struct literal, not a block. Fixed by removing the outer braces: `.Some(p) => cond(...)`.
+
+4. **Linear search instead of HashMap/HashSet for method tracking**: The `render_type_md` function tracks claimed/unclaimed methods using linear search helpers (`find_method_by_name_`, `is_in_list_`) instead of `HashMap(String, DocFunction)` + `HashSet(String)`. The collections are small (typically < 20 items) so this is equivalent in practice.
+
+5. **`indent(text, 0)` is a no-op**: TypeScript calls `indent(renderFunction(m), 0)` which adds a zero-space prefix. This is eliminated; `render_function_md(m)` is called directly.
+
+**Total: 904 tests passing** (879 + 25 new)
+
+### Phase 2q — Production evaluator infrastructure (ExprId + ExprInfoTable + dispatcher seam) ✅ Done
+
+Established the architectural foundation for porting the production evaluator (`src/evaluator/`) one-to-one. The TypeScript evaluator mutates `expr.$` in-place to attach inferred type, value, control-flow, and other metadata to every AST node. Yo's AST is immutable, so we replace this with a stable `ExprId` per node + a side `ExprInfoTable` keyed by id, threaded through `EvalContext`.
+
+**Files modified (~30):**
+
+- `yo-self/expr/expr.yo` — added `ExprId :: usize` alias; `id : ExprId` is now the first positional field of `AstExpr.Atom` and `AstExpr.FnCall`. New `ast_expr_id` getter. All helpers updated for the new shape (`ast_expr_token`, `ast_expr_to_string`, `exprs_are_equal` — id ignored in equality).
+- `yo-self/parser/parser.yo` — new `next_expr_id : usize` field on `Parser` + `alloc_id` method that increments and returns a fresh id; called at all 40+ AST construction sites.
+- `yo-self/expr/expr_info.yo` — new `ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo))` with `_new`, `_set` (uses `HashMap.set` returning `Result(Option(V), HashMapError)`), `_get` helpers.
+- `yo-self/evaluator/context.yo` — new `expr_info_table : ExprInfoTable` field on `EvalContext`, initialized in `eval_context_new`. Threaded via `ctx : *(EvalContext)` to handlers (not global, keeps reentrant).
+- All `yo-self/evaluator/`, `yo-self/codegen/`, `yo-self/shared/`, `yo-self/effects/`, `yo-self/async/` source files — pattern destructures updated with `_` for the new id slot.
+- All `yo-self/tests/*.yo` files — manually-constructed `AstExpr` literals get `usize(0)` as placeholder id (collisions don't matter for tests that don't exercise the table).
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/expr.yo` — first Phase 3 dispatcher seam. Mirrors `src/evaluator/exprs/_expr.ts`'s tag-dispatch entry point, but uses the existing `g_eval_fn`-style function-pointer pattern (`g_evaluate_expression : Option(EvaluateExprFn)`, `set_evaluate_expression_fn`, `evaluate_expression`) to break circular references between the dispatcher and individual handlers that will land in Phase 3+.
+- `issues/asan-eval-frame-size-after-expr-id.md` — documents an ASAN stack regression: adding the `id` field grew prototype `evaluate()`'s ~566 KB/frame footprint enough to push `count(2)`/`fib(2)` past the 8 MB macOS ARM64 limit; reduced to `count(1)`/`fib(1)` as a temporary workaround. Will resolve naturally once the production port replaces `eval.yo` with many small handler functions.
+
+**Key design decisions (validated by rubber-duck critique):**
+
+1. **`"module:row:col"` keys are unsafe** — the parser creates synthetic tokens at `(0,0,0)` in multiple places, causing collisions. Counter-based `usize` ids assigned during parsing are collision-free.
+2. **`ExprInfoTable` lives in `EvalContext`** — not global, not a separate parameter — matches TS's `context` threading and stays reentrant.
+3. **Function-pointer dispatcher seam** — re-uses the existing `g_eval_fn` pattern; lets handler files be ported one-by-one without touching the dispatcher each time.
+
+**Total: 904 tests passing** (no test count change; infrastructure is invisible to existing tests).
+
+### Phase 2r — First production handlers: typeof / runtime / escape ✅ Done
+
+First handlers from `src/evaluator/exprs/` ported 1:1 onto the Phase 2q dispatcher seam.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/typeof.yo` — `typeof(expr)` → `TypeValue`. Validates shape, recursively dispatches via `evaluate_expression`, reads child info from `ctx.expr_info_table`, writes `out_info.value = .Some(TypeValue)`.
+- `yo-self/evaluator/exprs/runtime.yo` — `runtime(expr)` forces runtime evaluation. Uses `convert_comptime_type_to_runtime_type` from `types/utils.yo`.
+- `yo-self/evaluator/exprs/escape.yo` — `escape(value)` records an `Escape` control flow + return type. Validates `enclosing_function_return_type` and `is_inside_given_handler` first.
+- `yo-self/tests/typeof.test.yo`, `yo-self/tests/runtime.test.yo`, `yo-self/tests/escape.test.yo` — one happy-path test each that injects a stub `evaluate_expression` via `set_evaluate_expression_fn` and asserts the produced `ExprInfo`.
+
+**Files updated:**
+
+- `yo-self/types/utils.yo` — added `create_str_type(env)` (uses `while runtime(...)` to walk `ArrayList(Variable)` returned by `get_variables_from_env`) and `convert_comptime_type_to_runtime_type(ty, env)`.
+
+**Issues found and documented:**
+
+- `issues/closure-capture-mutable.md` — closures cannot capture mutable locals or mutable globals. Blocks the natural "did we throw?" pattern in tests; we restrict tests to happy paths and use `assert(false, ...)` inside the handler closure for unexpected-throw detection.
+- `issues/codegen-dead-code-after-exn-throw.md` — codegen emits comptime-only calls (`t_i32()`) after `exn.throw(...)` in begin-block tail position, panicking with `Unhandled function call`. Workaround: split a one-shot `match` into validate-then-extract pairs.
+
+**Pattern established for handlers** (re-usable for next handlers):
+
+1. `using(exn : Exception)` for error reporting.
+2. `ast_expr_is_fn_call_of` + standalone `if(cond, { exn.throw(...); })` for shape validation **before** any `match` (avoids `ResumeType` unification clashes).
+3. Recursively dispatch via `evaluate_expression(child, env, ctx)`.
+4. Read child info from `ctx.expr_info_table` via `expr_info_table_get(table, ast_expr_id(child))`.
+5. Default match arms with safe values (e.g. `t_i32()`) — never put `exn.throw` directly in an arm whose value is consumed.
+6. Build `out_info := new_expr_info(env, ty)`, set fields, then `expr_info_table_set(...)` and return `expr` unchanged.
+
+**Total: 907 tests passing** (904 baseline + 3 new handler tests).
+
+### Phase 2s — Variable shape extension + `add_variable_to_env` ✅ Done
+
+To unblock several follow-on handlers (`open`, `binding`, `c-include`, ...) that all depend on the production variable-creation surface, the yo-self `Variable` struct was extended to match `src/env.ts` and a new `add_variable_to_env` builder was added.
+
+**Files updated:**
+
+- `yo-self/env/env.yo`:
+  - Added 11 production fields to `Variable`: `is_reassignable`, `token`, `initialized_at_token`, `consumed_at_token`, `is_implicit`, `is_created_from_destructuring_atom_variable`, `parameter_alias`, `is_from_effect_spread`, `is_effect_param`, `is_module_level`, `doc_comment`.
+  - Added `synthetic_token(name, module_path)` helper (Token with row/col/character all 0) for places that need a placeholder token.
+  - Added `make_default_variable(...)` builder — consolidates the now-large default-init for `Variable`.
+  - Refactored `define` and `define_val` to use `make_default_variable` so all 9 existing env tests continue to pass.
+  - Added `add_variable_to_env(env, name, ty, value, is_compile_time_only, is_reassignable, is_owning_the_rc_value, is_implicit, token) -> Option(Variable)` — mirrors `addVariableToEnv` in `src/env.ts`. Mutates the innermost frame and sets `initialized_at_token = .Some(token)` automatically. Returns `.None` if the env has no frames.
+- `yo-self/tests/env.test.yo`:
+  - Added 2 tests: explicit-token + flags, and implicit (`given`) variable.
+
+**Important divergence from production:** the Yo env is mutable (frames are `ArrayList`s pushed/popped in place), so `add_variable_to_env` mutates rather than cloning the env. This is a deliberate choice to fit the existing yo-self env design.
+
+**Issue found and documented:**
+
+- `issues/parser-ampersand-arg-precedence.md` — `&x` as an unparenthesized argument is parsed greedily and consumes the entire trailing argument list as a tuple operand (`foo(&x, a, b)` becomes `foo(&(x, a, b))`, i.e. **one** arg). Always wrap as `(&x)` in argument position. The skill cheatsheet already covers this rule (line 106) — added an explicit issue file for visibility because the resulting "Got: 1 arguments" error message is very misleading.
+
+**Total: 909 tests passing** (907 + 2 new env tests).
+
+### Phase 2t — Port `open` handler ✅ Done
+
+`src/evaluator/exprs/open.ts` (179 lines) ported 1:1 to `yo-self/evaluator/exprs/open.yo`. Brings every field of a module/struct value into the current env as a fresh variable. For struct opens, also records `runtime_destructurings` on the output `ExprInfo` so codegen can emit equivalent runtime destructurings.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/open.yo` — `evaluate_open(expr, env, ctx, using(exn))`. Validates shape, walks `.`-chain to root atom and rejects `open` on `is_implicit` variables, dispatches the argument via `evaluate_expression`, then branches on `ModuleVal` vs struct type and calls `add_variable_to_env` for each field. Local mutating `next_env` mirrors the env-threading pattern of the TS version (which clones the env per call) — yo-self mutates in place because frames are mutable `ArrayList`s.
+- `yo-self/tests/open.test.yo` — happy-path module test using a stub evaluator that injects a 2-field `ModuleVal`. Asserts both fields are bound in the resulting env, that `info.value = .Some(UnitVal)`, and that `runtime_destructurings = .None` for module opens.
+
+**Files updated:**
+
+- `yo-self/evaluator/value.yo` — added `type_of_eval_value(v)` helper (best-effort recovery of `TypeValue` from a comptime `EvalValue`). Used by `open.yo` because yo-self's `ModuleVal(names, values)` does not carry a parallel type list (production `ModuleValue` does, via `type: ModuleType`). For `BoolVal`/`IntLit`/`FloatLit`/`StrLit`/`TypeVal`/`StructVal`/`ModuleVal` the type is exact; for unknown variants it falls back to `t_unit()`. Imports for the type constructors added.
+- `yo-self/expr/expr.yo` — added `BF_DOT :: "."` constant and exported it (used by `open.yo` to detect property-access chains).
+
+**Documentation tightened:**
+
+- `.github/skills/yo-syntax/syntax-cheatsheet.md` and `.github/instructions/yo-syntax.instructions.md` — clarified the preferred unary-operator-in-args form: `func(&(x), a, b)` (operand-parenthesized) matches how the parser thinks about precedence; `func((&x), a, b)` (outer-parenthesized) is equivalent. Both work; `&(x)` is preferred.
+
+**1:1 fidelity notes / divergence:**
+
+- TS `open` clones `env` per `addVariableToEnv` call and threads the new env through the loop. yo-self uses `add_variable_to_env(&next_env, ...)` which mutates a local `next_env` in place — same semantics, different mechanics. Documented in the file header comment.
+- TS uses per-field tokens (`field.exprs.labelExpr?.token`) for diagnostics; yo-self falls back to `arg_expr.token` because struct/module type fields don't carry per-field tokens yet. Diagnostic precision only — no semantic difference.
+- Per-field types for module opens come from `type_of_eval_value(value)` instead of a stored `ModuleType.fields[i].type`. Lossy only when the comptime value is a `VarRef` (runtime export); falls back to `t_unit()` in that case. Could be tightened later if/when `ModuleVal` is extended to carry types.
+
+**Total: 910 tests passing** (909 + 1 new open test).
+
+---
+
+### Phase 2u — Port `binding` handler ✅ Done
+
+`src/evaluator/exprs/binding.ts` (240 lines) ported 1:1 to `yo-self/evaluator/exprs/binding.yo`. Handles `(name : T)` typed variable declarations — validates the `:` shape, evaluates the rhs type, strips optional `comptime(...)` / `given(...)` wrappers from the lhs, adds the variable to the environment with an `UnknownVal` placeholder (for comptime) or `None` (for runtime), and writes `ExprInfo` for both the lhs and the whole `":"` expression.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/binding.yo` — full port of `binding.ts`. Defines `BindingResult` object, `is_valid_variable_name` helper, and `evaluate_binding`. Deferred (Phase 3) stubs: `type_requires_comptime_modifier`, `type_prohibits_comptime_modifier`, `type_contains_rc_type`, `is_function_type_and_returns_comptime_value`.
+- `yo-self/tests/binding.test.yo` — 7 tests covering `is_valid_variable_name` (identifier / operator / FnCall cases) and `evaluate_binding` (simple `(found : bool)`, comptime wrapper `(comptime(n) : i32)`, and non-colon error-throw cases).
+
+**Files updated:**
+
+- `yo-self/evaluator/value.yo` — added `.UnknownVal(ty : Box(TypeValue))` to `EvalValue` enum (uses `Box` to keep the enum tag small and avoid ASAN stack overflows). Updated `eval_value_eq`, `value_to_string`, `type_of_eval_value`. Added `is_unknown_val`, `is_type_value`, `create_unknown_val` helpers.
+- `yo-self/evaluator/eval.yo` — added `.UnknownVal(_) => true` to `value_is_comptime`; added `.UnknownVal(ty) => ty.*` to local `type_of_eval_value`.
+- `yo-self/types/utils.yo` — added `prohibit_void_type`, `type_requires_comptime_modifier` stub, `type_prohibits_comptime_modifier` stub, `type_contains_rc_type` stub.
+- `yo-self/expr/expr.yo` — added `BK_COMPTIME`, `BK_GIVEN`, `BK_FORALL`, `BK_COLON` constants and exports.
+
+**1:1 fidelity notes / divergence:**
+
+- TS `binding.ts` sets `initialized_at_token = undefined` for type-only declarations; yo-self's `add_variable_to_env` always sets `initialized_at_token = Some(token)`. Minor semantic divergence — acceptable for Phase 2u.
+- TS `createUnknownValue` also creates `TypeVal(SomeType)` for `TypeUni(0)` parameters; yo-self uses `UnknownVal(Box(TypeValue)(ty))` for all cases. SomeType path deferred to Phase 3.
+- `isArrayType(t) && isUnknownValue(t.length)` check skipped — yo-self `TypeValue.Array` always has a concrete `usize` length.
+- `is_function_type_and_returns_comptime_value` is a Phase 2b stub (always `false`).
+- Yo doesn't allow variable shadowing, so the mutable `env` parameter is renamed `env_in` and redeclared as `(env : Environment) = env_in` inside the body. Similarly, `lhs` is declared mutable via `(lhs : AstExpr) = lhs_arg`.
+
+**Bugs fixed / Yo lessons learned:**
+
+- Chained `&&` with three operands is ambiguous: `a && b && c` must be written as `(a && (b && c))` or `((a && b) && c)`.
+- `cond` arms returning `.Some(...)` without a fully-qualified type (e.g., `.Some(create_unknown_val(...))`) can fail type inference; use `Option(EvalValue).Some(...)` explicitly.
+- Yo closures cannot capture outer mutable variables — the workaround is to extract the escaping-exception pattern into a wrapper function that uses `escape bool` to signal whether the exception fired.
+
+**Total: 917 tests passing** (910 + 7 new binding tests).
+
+---
+
+### Phase 2v — Port `assignment` handler ✅ Done
+
+`src/evaluator/exprs/assignment.ts` (195 lines) ported 1:1 to `yo-self/evaluator/exprs/assignment.yo`. Handles `lhs = rhs` reassignment — validates the rhs for control-flow expressions (cond/match/begin), resolves `SomeType`/`UnknownVal` in the resolved type, resolves the lhs variable in the environment, checks mutability, checks type compatibility, updates the variable value, and writes `ExprInfo` for the `"="` expression.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/assignment.yo` — full port of `assignment.ts`. Exports `throw_rhs_contains_control_flow_expression_error`, `resolve_unknown_values_and_some_type_in_type`, and `evaluate_assignment`.
+- `yo-self/tests/assignment.test.yo` — 9 tests covering `throw_rhs_contains_control_flow_expression_error` (cond/match/begin/other rhs), `evaluate_assignment` (atom lhs with unit ExprInfo and UnitVal, variable-not-found throw, non-reassignable throw, type-mismatch throw).
+
+**Files updated:**
+
+- `yo-self/env/env.yo` — added `make_err_variable(env)` helper (dummy `env` arg to prevent CTFE of RC object) and `update_existing_variable(env, name, new_val)` helper, used by `evaluate_assignment`.
+- `src/codegen/functions/declarations.ts` — fixed a codegen bug: the override logic that uses `functionBody.$.type` instead of the signature's return type was unconditional; it now only applies when the signature return type is generic (`SomeType` or `typeContainsSomeType`). This prevents forward declarations for concrete-return-type functions (like `unit`-returning effect handlers) from being incorrectly typed as `bool` when called with a `bool`-escape handler. (Bug documented in `issues/codegen-forward-decl-return-type-override.md`.)
+
+**1:1 fidelity notes / divergence:**
+
+- `get_variable_type` and `get_variable_value` called on the resolved `Variable` match the TS helpers; `variable.ty` / `variable.current_val` accessed directly.
+- `resolve_unknown_values_and_some_type_in_type` delegates to `resolve_unknown_values_in_type` stub (always returns the type unchanged for Phase 2v; SomeType resolution deferred to Phase 3).
+- The `.None` arm in the `vars.get(...)` match cannot use `exn.throw(...)` followed by `make_err_variable(env)` because the evaluator marks code after `exn.throw` as unreachable (dead code), which is unannotated and causes codegen to fail with "Unhandled function call". Pattern: check with `if` first, then use `match` with only a simple fallback in the `.None` arm.
+
+**Bugs fixed:**
+
+- **Codegen: forward declaration return type override** — `src/codegen/functions/declarations.ts` override logic guarded with `isSomeType || typeContainsSomeType` check. Documented in `issues/codegen-forward-decl-return-type-override.md`.
+
+**Total: 926 tests passing** (917 + 9 new assignment tests).
+
+---
+
+### Phase 2w — Port `initialization-assignment` handler ✅ Done
+
+`src/evaluator/exprs/initialization-assignment.ts` (483 lines) ported 1:1 to `yo-self/evaluator/exprs/init_assignment.yo`. Handles `name := rhs` (runtime variable declaration), `name :: rhs` (compile-time constant declaration), `given(name) := handler` (implicit parameter declaration), and `_ := rhs` (discard, renamed to temp var).
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/init_assignment.yo` — full port of `initialization-assignment.ts`. Exports `evaluate_initialization_assignment`.
+- `yo-self/evaluator/values/clone_value.yo` — Phase 2w stub: identity clone (deep clone deferred to Phase 3).
+- `yo-self/evaluator/types/expr_synthesizer.yo` — Phase 2w stub: `synthesize_expr_and_type` returns input unchanged (type inference deferred to Phase 3).
+- `yo-self/evaluator/exprs/destructuring_assignment.yo` — Phase 2w stub: throws "not yet implemented" for destructuring LHS.
+- `yo-self/tests/init_assignment.test.yo` — 4 tests covering: invalid shape throws, `name := rhs` adds variable to env, `name :: rhs` adds compile-time-only variable, `_ := rhs` renames to temp var.
+
+**Files updated:**
+
+- `yo-self/evaluator/utils.yo` — 4 bug fixes found during porting:
+  1. `generate_temp_variable_name_prefix`: `String.get(i)` doesn't exist → use `as_bytes()` + `bytes.get(i)` with ASCII range checks on `u8`.
+  2. `is_temp_variable_name`: `String.starts_with(str)` → `String.starts_with(String)`.
+  3. `find_rc_value_owner_relationship`: `HashSet.insert()` → `HashSet.add()`.
+  4. `find_rc_value_owner_relationship`: `HashSet.contains(str)` → `HashSet.contains(String)`.
+- `yo-self/evaluator/exprs/init_assignment.yo` — added `TypeTag` import and changed `ali.ty != t_unit()` to `type_value_tag(ali.ty) != TypeTag.TUnit` (TypeValue enum doesn't support `!=`); changed `Box(Variable).new(rov)` to `Box(Variable)(rov)` (Box constructor syntax); changed `String.from(\`...\`)`to`String.from("...")`(backtick literals produce`String`, not `str`, so wrapping in `String.from(str)` fails).
+
+**1:1 fidelity notes / divergence:**
+
+- `is_reassignable: !isImplicit` in TS maps directly to `!is_implicit`. Both `:=` and `::` create `is_reassignable = true`; only `given()` creates `is_reassignable = false`.
+- `clone_value` is stubbed to identity; RC ownership analysis for the clone path is deferred.
+- `set_expr_as_needs_to_call_dup` is stubbed to a no-op.
+- Duplicate variable detection (`"Variable X is already defined here"`) is not yet in `add_variable_to_env` (Phase 2w limitation).
+
+**Bugs found and documented:**
+
+- **`String.from(\`backtick\`)` fails** — backtick literals produce `String` (not `str`), so `String.from(\`...\`)`is`String.from(String)`which fails since`String.from`takes`str`. Use `String.from("...")`(double-quoted`str`literals) instead. Documented in`issues/string-from-backtick-type-error.md`.
+- **`TypeValue` equality** — `TypeValue` enum doesn't support `==` or `!=` operators. Use `type_value_tag(ty) == TypeTag.TUnit` for unit-type checks.
+- **`Box(T).new(v)` doesn't exist** — use `Box(T)(v)` (constructor application syntax).
+
+**Total: 930 tests passing** (926 + 4 new init_assignment tests).
+
+### Phase 2x — Port `recur` handler ✅ Done
+
+Port of `src/evaluator/exprs/recur.ts` (137 lines) → `yo-self/evaluator/exprs/recur.yo`.
+
+**New files:**
+
+- `yo-self/evaluator/exprs/recur.yo` — full 1:1 port of `recur.ts`. Handles `recur(...)` tail-recursive self-call. Two paths: (1) short-circuit for CTFE capability analysis / function-definition validation; (2) normal path delegates to `evaluate_function_call`.
+- `yo-self/evaluator/calls/function.yo` — stub for `evaluate_function_call` (throws "not yet implemented (Phase 3)").
+- `yo-self/evaluator/calls/helper.yo` — stub for `try_to_call_function_with_arguments` (throws + returns dead-code `FuncCallResult`).
+
+**Modified files:**
+
+- `yo-self/expr/expr.yo` — added `BF_RECUR :: "recur"` constant and export.
+- `yo-self/evaluator/utils.yo` — added `random_id` (global counter, `yo_id_N` format; separate from `generate_temp_variable_name_prefix` to avoid `is_temp_variable_name` false positives), `attach_temp_variable_to_expr` no-op stub.
+
+**Known semantic gaps (Phase 3):**
+
+- `UnknownVal` does not carry `variable_name` or `is_runtime_only`. The `is_runtime_only = true` flag on `recur`'s result prevents comptime overload selection — deferred to Phase 3. See `issues/recur-runtime-result-not-marked-runtime-only.md`.
+- `try_to_call_function_with_arguments` stub throws immediately — short-circuit CTFE path non-functional until Phase 3.
+- `attach_temp_variable_to_expr` is a no-op stub — RC drop tracking deferred to Phase 3.
+
+**Syntax issues fixed:**
+
+- `escape expr` is only valid inside `given` handlers — removed from match arm bodies.
+- `{ expr }` (without semicolons) is a struct literal, not a begin block — removed wrapping braces from `if`-branch expressions.
+- `Option(String).None` for the `kind` parameter of `format_error_message` must be `.None` (unqualified) to let the type checker infer `Option(ErrorKind)`.
+
+**Total: 930 tests passing** (unchanged — production handlers are not wired to any dispatcher yet).
+
+### Phase 2y — Port `identifier-and-operator` handler ✅ Done
+
+Port of `src/evaluator/exprs/identifer-and-operator.ts` → `yo-self/evaluator/exprs/identifier_and_operator.yo` (254 lines).
+
+Handles identifier lookup, built-in type keywords (`i32`, `bool`, `Type`, `Module`, etc.), and operator resolution. Notes:
+
+- `is_extern` metadata not yet ported to yo-self; the identifier handler skips extern special-casing.
+- `c_include` constants pass-through noted as a gap.
+
+**Total: 930 tests passing** (unchanged).
+
+### Phase 2z — Port `destructuring-assignment` handler ✅ Done
+
+Port of `src/evaluator/exprs/destructuring-assignment.ts` (546 lines) → `yo-self/evaluator/exprs/destructuring_assignment.yo`.
+
+**Modified files:**
+
+- `yo-self/evaluator/exprs/destructuring_assignment.yo` — full 1:1 port. Handles struct/tuple destructuring, spread patterns, labeled rename, positional atom patterns.
+- `yo-self/types/type.yo` — added `selected_variant_name: Option(String)` as 4th field to `EnumT`; added `is_union_type` and `is_tuple_type` guard functions.
+- `yo-self/expr/expr.yo` — added `make_err_expr` sentinel factory.
+
+**Bug fixed in this phase:**
+
+- Line 360: `((!(A) && !(B)) && (C && D))` → extracted into two intermediate boolean variables to avoid "Ambiguous operator precedence" parser error.
+
+**Syntax lessons learned:**
+
+- `panic` is NOT a bottom type — use typed sentinels in unreachable `.None` match arms.
+- Multiple `___ :=` in same scope is disallowed — wrap each in `{ ...; }`.
+- `escape` only valid in nested closures, not top-level function bodies.
+- Nested `&&` compound conditions on a single line → "Ambiguous operator precedence" — extract sub-conditions into named variables.
+
+**Total: 930 tests passing.**
+
+---
+
+### Phase 2ad — Port `evaluator/exprs/while.ts` ✅ Done
+
+Port of `src/evaluator/exprs/while.ts` (582 lines) → `yo-self/evaluator/exprs/while.yo` (506 lines).
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/while.yo` — full 1:1 port. Handles 2-argument `while(cond, body)` and 3-argument `while(cond, init, body)` forms, comptime() modifier, runtime/comptime loop unrolling, control flow propagation.
+
+**Phase 2 stubs:**
+
+- `MAX_COMPTIME_LOOP_ITERATIONS` fixed at 10000 (no env var support)
+- Comptime unrolling that requires `clone_expr` (lines 449-547 of `while.ts`) is deferred to Phase 3 with a clear comment and error return
+
+**Bugs fixed during port:**
+
+- `n_args` computed inside a `match` arm caused frame-level mismatches → extracted `all_args` from match first, then `n_args := all_args.len()` outside (follows `cond.yo` pattern)
+- Return type mismatch: function body's last expression was `unit` → added trailing `evaluate_while` call
+
+**Total: 930 tests passing.**
+
+---
+
+Port of `src/evaluator/utils.ts` → `yo-self/evaluator/utils.yo`.
+
+**Files created/modified:**
+
+- `yo-self/evaluator/utils.yo` — full 1:1 port. Implements `format_error_message_with_path`, `merge_and_check_envs` (Phase 2 stub returning env unchanged), `consume_case_body_temp_var`, `attach_temp_variable_to_expr`, `is_temp_variable_name`.
+- `yo-self/types/utils.yo` — added `type_contains_some_type` (Phase 2 partial: top-level `SomeT`/`TypeAppT` check only).
+
+**Bug fixed in this phase:**
+
+- `!is_temp_variable_name(env.module_path, var_name)` → `!(is_temp_variable_name(env.module_path, var_name))` — unary `!` binds to the next atom only, not the function call.
+
+**Total: 930 tests passing.**
+
+---
+
+### Phase 2ab — Port `evaluator/exprs/begin.ts` ✅ Done
+
+Port of `src/evaluator/exprs/begin.ts` → `yo-self/evaluator/exprs/begin.yo`.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/begin.yo` — full 1:1 port (609 lines). Handles `begin(expr, ...)` block evaluation with RC ownership management, temp variable tracking, and scope frame push/pop.
+
+**Total: 930 tests passing.**
+
+---
+
+### Phase 2ac — Port `evaluator/exprs/cond.ts` ✅ Done
+
+Port of `src/evaluator/exprs/cond.ts` → `yo-self/evaluator/exprs/cond.yo`.
+
+**Files created:**
+
+- `yo-self/evaluator/exprs/cond.yo` — full 1:1 port (711 lines). Handles `cond(test => body, ...)` expressions including compile-time evaluation, control flow propagation, type checking across arms, and environment merging.
+
+**Local structs introduced:**
+
+- `ParsedStmt :: struct(cond_expr, case_body_expr, case_env)` — two-pass cond evaluation intermediate.
+- `EvaluatedCond :: struct(cond_expr, case_body_expr, case_env, cond_value: Option(EvalValue))`.
+- `ValueTypeState :: struct(ty: TypeValue, env: Environment)` — holds type+env pair that `Option` can't hold as anonymous struct.
+
+**Key pattern used:** Save/restore pattern for mutable `EvalContext` instead of TypeScript's `{ ...context, field: val }` spreading.
+
+**Total: 930 tests passing.**
+
+---
+
+### Phase 2ae — Add `are_values_equal` to evaluator/utils.yo ✅ Done
+
+Added `are_values_equal(val1, env1, val2, env2) -> bool` to `yo-self/evaluator/utils.yo`.
+
+**Changes:**
+
+- Added imports: `EvalValue, is_unknown_val, is_var_ref` from `value.yo`; `TypeValue` from `type.yo`; `are_types_compatible` from `compatibility.yo`
+- Added private helpers `_try_resolve_last_var` and `_get_last_var_type`
+- Added `are_values_equal` — resolves `VarRef` via env, falls back to type compat for `UnknownVal`, delegates to `==` for concrete values
+- Mirrors `areValuesEqual` from `src/value.ts`
+
+**Total: 930 tests passing.**
+
+---
+
+### Phase 2ae-main — Port `evaluator/exprs/match.ts` ✅ Done
+
+Port of `src/evaluator/exprs/match.ts` (2003 lines) → `yo-self/evaluator/exprs/match.yo`.
+
+**Prerequisites completed:**
+
+- `are_values_equal` in `utils.yo` ✅
+
+**Prerequisites remaining:**
+
+- Extend `TypeValue.EnumT` with `variant_field_labels: ArrayList(ArrayList(String))` (5th field)
+- Update all ~15 construction and match sites for the new field
+- Port `evaluateMatch` (1144 lines) and `evaluatePrimitiveMatch` (646 lines) with helpers
+
+---
+
+--- Break into sub-phases:
 
 **3a. Core evaluation loop** ✅ Done — `evaluate(expr, env)` dispatch on `Expr` tag
 **3b. Literal and atom evaluation** ✅ Done — constants, variable references, define `:=`, assign `=`, begin blocks, `cond`
