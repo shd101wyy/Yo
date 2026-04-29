@@ -163,11 +163,11 @@ handle_prefix_op :: (fn(
 /// Extract the operator string from a FnCall func expression.
 extract_op :: (fn(func_box : Box(AstExpr)) -> Option(String))(
   match(func_box.*,
-    .Atom(ftok) => cond(
+    .Atom(_, ftok) => cond(
       (ftok.kind == TokenKind.Operator) => .Some(ftok.value),
       true                              => Option(String).None
     ),
-    .FnCall(_, _, _, _) => Option(String).None
+    .FnCall(_, _, _, _, _) => Option(String).None
   )
 );
 
@@ -265,8 +265,8 @@ gen_cond_arm :: (fn(
 /// Extract the arm args from a `cond` arm (which is `FnCall("=>", [c, b], true)`).
 get_arm_args :: (fn(arm : AstExpr) -> Option(ArrayList(AstExpr)))(
   match(arm,
-    .Atom(_) => Option(ArrayList(AstExpr)).None,
-    .FnCall(_, arm_args, _, _) => .Some(arm_args)
+    .Atom(_, _) => Option(ArrayList(AstExpr)).None,
+    .FnCall(_, _, arm_args, _, _) => .Some(arm_args)
   )
 );
 
@@ -344,8 +344,8 @@ gen_match_arm :: (fn(
       .None => Option(String).None,
       .Some(body_expr) => {
         is_wild := match(pat_expr,
-          .Atom(ptok) => (ptok.value.as_str() == "_"),
-          .FnCall(_, _, _, _) => false
+          .Atom(_, ptok) => (ptok.value.as_str() == "_"),
+          .FnCall(_, _, _, _, _) => false
         );
         match(call_gen_expr(body_expr, ctx, indent),
           .None => Option(String).None,
@@ -467,17 +467,17 @@ handle_while :: (fn(
     .Some(raw_cond) => {
       // Unwrap `runtime(inner)` wrapper if present
       cond_expr := match(raw_cond,
-        .FnCall(rt_func, rt_args, _, _) => match(rt_func.*,
-          .Atom(rttok) => cond(
+        .FnCall(_, rt_func, rt_args, _, _) => match(rt_func.*,
+          .Atom(_, rttok) => cond(
             (rttok.value.as_str() == "runtime") => match(rt_args.get(usize(0)),
               .Some(inner) => inner,
               .None => raw_cond
             ),
             true => raw_cond
           ),
-          .FnCall(_, _, _, _) => raw_cond
+          .FnCall(_, _, _, _, _) => raw_cond
         ),
-        .Atom(_) => raw_cond
+        .Atom(_, _) => raw_cond
       );
       match(call_gen_expr(cond_expr, ctx, indent),
         .None => Option(String).None,
@@ -516,10 +516,10 @@ handle_while :: (fn(
 /// ternary operand — they need a C `if` statement instead.
 is_begin_block :: (fn(expr : AstExpr) -> bool)(
   match(expr,
-    .Atom(_) => false,
-    .FnCall(func_box, _, _, _) => match(func_box.*,
-      .FnCall(_, _, _, _) => false,
-      .Atom(ftok) => (ftok.value.as_str() == BK_BEGIN)
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, _, _, _) => match(func_box.*,
+      .FnCall(_, _, _, _, _) => false,
+      .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN)
     )
   )
 );
@@ -631,11 +631,11 @@ handle_if :: (fn(
 /// Get the string value from a FnCall's func if it is an Identifier atom.
 fncall_func_ident :: (fn(func_box : Box(AstExpr)) -> Option(String))(
   match(func_box.*,
-    .Atom(ftok) => cond(
+    .Atom(_, ftok) => cond(
       (ftok.kind == TokenKind.Identifier) => .Some(ftok.value),
       true                                => Option(String).None
     ),
-    .FnCall(_, _, _, _) => Option(String).None
+    .FnCall(_, _, _, _, _) => Option(String).None
   )
 );
 
@@ -676,22 +676,22 @@ type_name_to_c :: (fn(name : str) -> String)(
 /// Other complex types (generic applications, slices) return `None`.
 type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
   match(ty_expr,
-    .Atom(ttok) => cond(
+    .Atom(_, ttok) => cond(
       (ttok.kind == TokenKind.Identifier) => .Some(type_name_to_c(ttok.value.as_str())),
       true                                => Option(String).None
     ),
     // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
-    .FnCall(func_box, func_args, is_infix, _) => cond(
+    .FnCall(_, func_box, func_args, is_infix, _) => cond(
       (is_infix) => Option(String).None,
       (func_args.len() != usize(1)) => Option(String).None,
       true => match(func_box.*,
-        .FnCall(_, _, _, _) => Option(String).None,
-        .Atom(ftok) => cond(
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, ftok) => cond(
           (!(ftok.value.as_str() == "*")) => Option(String).None,
           true => match(func_args.get(usize(0)),
             .None => Option(String).None,
             .Some(inner_ty) => match(inner_ty,
-              .Atom(ittok) => cond(
+              .Atom(_, ittok) => cond(
                 (ittok.kind == TokenKind.Identifier) => {
                   inner_c := type_name_to_c(ittok.value.as_str());
                   inner_c.push_str("*");
@@ -699,7 +699,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 },
                 true => Option(String).None
               ),
-              .FnCall(_, _, _, _) => Option(String).None
+              .FnCall(_, _, _, _, _) => Option(String).None
             )
           )
         )
@@ -772,7 +772,7 @@ handle_define :: (fn(
         .None => Option(String).None,
         .Some(rhs_code) => match(lhs_expr,
           // x := val — auto-type variable declaration
-          .Atom(name_tok) => {
+          .Atom(_, name_tok) => {
             ctx.*.emitter.emit_string(indent);
             ctx.*.emitter.emit("__auto_type ");
             ctx.*.emitter.emit_string(name_tok.value);
@@ -781,7 +781,7 @@ handle_define :: (fn(
             ctx.*.emitter.emit_line(";");
             .Some(String.from("0"))
           },
-          .FnCall(_, _, _, _) => Option(String).None
+          .FnCall(_, _, _, _, _) => Option(String).None
         )
       )
     )
@@ -814,11 +814,40 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
 
 /// True if `func_box` wraps a `TokenKind.Dot` atom.
 ///
-/// Matches field access and enum-dot expressions such as `a.b`.
+/// Handle bare `.Variant` pattern in match arms (no receiver).
+///
+/// `.Variant` is parsed as `FnCall(Dot, [Atom("Variant")], is_infix=false)`.
+/// Looks up the variant name in the context's variant registry to find the
+/// owning enum name, then returns `"EnumName_Variant"`.
+///
+/// Returns `None` if the variant is not registered in the context.
+handle_bare_dot_variant :: (fn(
+  args : ArrayList(AstExpr),
+  ctx  : *(CodegenContext)
+) -> Option(String))(
+  match(args.get(usize(0)),
+    .None => Option(String).None,
+    .Some(variant_expr) => match(variant_expr,
+      .FnCall(_, _, _, _, _) => Option(String).None,
+      .Atom(_, vtok) => match(ctx.*.get_enum_for_variant(vtok.value.as_str()),
+        .None           => Option(String).None,
+        .Some(enum_name) => {
+          result := String.new();
+          result.push_string(enum_name);
+          result.push_str("_");
+          result.push_string(vtok.value);
+          Option(String).Some(result)
+        }
+      )
+    )
+  )
+);
+
+
 func_box_is_dot :: (fn(func_box : Box(AstExpr)) -> bool)(
   match(func_box.*,
-    .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
-    .FnCall(_, _, _, _) => false
+    .Atom(_, ftok)         => (ftok.kind == TokenKind.Dot),
+    .FnCall(_, _, _, _, _) => false
   )
 );
 
@@ -828,10 +857,10 @@ func_box_is_dot :: (fn(func_box : Box(AstExpr)) -> bool)(
 /// are parsed as `FnCall(FnCall(Dot, [a, method], true), [args], false)`.
 func_box_is_dot_dispatch :: (fn(func_box : Box(AstExpr)) -> bool)(
   match(func_box.*,
-    .Atom(_) => false,
-    .FnCall(inner_func, _, inner_infix, _) => (inner_infix && match(inner_func.*,
-      .Atom(ftok)         => (ftok.kind == TokenKind.Dot),
-      .FnCall(_, _, _, _) => false
+    .Atom(_, _) => false,
+    .FnCall(_, inner_func, _, inner_infix, _) => (inner_infix && match(inner_func.*,
+      .Atom(_, ftok)         => (ftok.kind == TokenKind.Dot),
+      .FnCall(_, _, _, _, _) => false
     ))
   )
 );
@@ -916,14 +945,17 @@ handle_dot_access :: (fn(
         .None => Option(String).None,
         .Some(obj_code) => {
           field_name_opt := match(field_expr,
-            .Atom(ftok)         => Option(String).Some(ftok.value),
-            .FnCall(_, _, _, _) => Option(String).None
+            .Atom(_, ftok)         => Option(String).Some(ftok.value),
+            .FnCall(_, _, _, _, _) => Option(String).None
           );
           match(field_name_opt,
             .None => Option(String).None,
             .Some(fname) => {
-              is_enum := ctx.*.is_enum_name(obj_code.as_str());
-              is_deref := (fname.as_str() == "*");
+              is_enum      := ctx.*.is_enum_name(obj_code.as_str());
+              is_deref     := (fname.as_str() == "*");
+              // `rune` is a zero-cost newtype over u32.  In C it is `typedef uint32_t rune;`
+              // so there is no `.char` field — the `.char` accessor is an identity.
+              is_char_field := (fname.as_str() == "char");
               cond(
                 is_deref => {
                   // c.* → (*c) — pointer dereference
@@ -932,6 +964,7 @@ handle_dot_access :: (fn(
                   result.push_str(")");
                   Option(String).Some(result)
                 },
+                is_char_field => Option(String).Some(obj_code),
                 is_enum => {
                   result := String.new();
                   result.push_string(obj_code);
@@ -958,20 +991,20 @@ handle_dot_access :: (fn(
 /// Extract the receiver expression from a dot-dispatch `func_box`.
 get_dispatch_receiver :: (fn(func_box : Box(AstExpr)) -> Option(AstExpr))(
   match(func_box.*,
-    .Atom(_)                   => Option(AstExpr).None,
-    .FnCall(_, dot_args, _, _) => dot_args.get(usize(0))
+    .Atom(_, _)                   => Option(AstExpr).None,
+    .FnCall(_, _, dot_args, _, _) => dot_args.get(usize(0))
   )
 );
 
 /// Extract the method name string from a dot-dispatch `func_box`.
 get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
   match(func_box.*,
-    .Atom(_) => Option(String).None,
-    .FnCall(_, dot_args, _, _) => match(dot_args.get(usize(1)),
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, _, dot_args, _, _) => match(dot_args.get(usize(1)),
       .None => Option(String).None,
       .Some(method_expr) => match(method_expr,
-        .Atom(mtok)         => Option(String).Some(mtok.value),
-        .FnCall(_, _, _, _) => Option(String).None
+        .Atom(_, mtok)         => Option(String).Some(mtok.value),
+        .FnCall(_, _, _, _, _) => Option(String).None
       )
     )
   )
@@ -1065,7 +1098,7 @@ handle_assignment :: (fn(
         .None => Option(String).None,
         .Some(rhs_code) => match(lhs_expr,
           // Bare atom: x = val — C assignment expression
-          .Atom(name_tok) => {
+          .Atom(_, name_tok) => {
             result := String.new();
             result.push_string(name_tok.value);
             result.push_str(" = ");
@@ -1073,17 +1106,17 @@ handle_assignment :: (fn(
             Option(String).Some(result)
           },
           // FnCall LHS: either (x : T) = val  OR  compound expr like c.*.field = val
-          .FnCall(colon_box, colon_args, colon_infix, _) => cond(
+          .FnCall(_, colon_box, colon_args, colon_infix, _) => cond(
             // Check if it's a typed declaration: (x : T) = val
             (colon_infix && match(colon_box.*,
-              .Atom(ctok)         => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
-              .FnCall(_, _, _, _) => false
+              .Atom(_, ctok)         => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
+              .FnCall(_, _, _, _, _) => false
             )) => {
               name_opt := match(colon_args.get(usize(0)),
                 .None => Option(String).None,
                 .Some(ne) => match(ne,
-                  .Atom(ntok)         => Option(String).Some(ntok.value),
-                  .FnCall(_, _, _, _) => Option(String).None
+                  .Atom(_, ntok)         => Option(String).Some(ntok.value),
+                  .FnCall(_, _, _, _, _) => Option(String).None
                 )
               );
               ty_opt := match(colon_args.get(usize(1)),
@@ -1159,10 +1192,10 @@ handle_assert :: (fn(
 /// True if `expr` is a labeled argument: `FnCall(Atom(":"), [name, val], true)`.
 is_labeled_arg :: (fn(expr : AstExpr) -> bool)(
   match(expr,
-    .Atom(_) => false,
-    .FnCall(ff, fa, finfix, _) => (finfix && (match(ff.*,
-      .Atom(ftok) => (ftok.value.as_str() == ":"),
-      .FnCall(_, _, _, _) => false
+    .Atom(_, _) => false,
+    .FnCall(_, ff, fa, finfix, _) => (finfix && (match(ff.*,
+      .Atom(_, ftok) => (ftok.value.as_str() == ":"),
+      .FnCall(_, _, _, _, _) => false
     ) && (fa.len() == usize(2))))
   )
 );
@@ -1220,13 +1253,13 @@ handle_struct_constructor :: (fn(
     match(args.get(i),
       .None => { all_ok = false; },
       .Some(field_expr) => match(field_expr,
-        .Atom(_) => { all_ok = false; },
-        .FnCall(ff, fa, _, _) => {
+        .Atom(_, _) => { all_ok = false; },
+        .FnCall(_, ff, fa, _, _) => {
           field_name_opt := match(fa.get(usize(0)),
             .None => Option(String).None,
             .Some(name_e) => match(name_e,
-              .Atom(ntok) => Option(String).Some(ntok.value),
-              .FnCall(_, _, _, _) => Option(String).None
+              .Atom(_, ntok) => Option(String).Some(ntok.value),
+              .FnCall(_, _, _, _, _) => Option(String).None
             )
           );
           field_val_opt := match(fa.get(usize(1)),
@@ -1269,7 +1302,7 @@ handle_struct_constructor :: (fn(
 generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
   match(expr,
     // --- Atom expressions ---
-    .Atom(tok) => cond(
+    .Atom(_, tok) => cond(
       (tok.kind == TokenKind.Integer)    => .Some(gen_integer_lit(tok.value)),
       (tok.kind == TokenKind.Float)      => .Some(gen_float_lit(tok.value)),
       (tok.kind == TokenKind.Bool)       => .Some(gen_bool_lit(tok.value.as_str())),
@@ -1279,7 +1312,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
     ),
 
     // --- FnCall expressions ---
-    .FnCall(func_box, args, is_infix, _) => {
+    .FnCall(_, func_box, args, is_infix, _) => {
       op_opt    := extract_op(func_box);
       ident_opt := fncall_func_ident(func_box);
       cond(
@@ -1335,6 +1368,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ) => handle_if(args, ctx, indent),
         // Dot field access: a.b — infix FnCall with Dot func
         (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
+        // Bare enum variant pattern: .Variant — non-infix, Dot func, exactly 1 arg.
+        // Used in match arm patterns; resolves to `EnumName_Variant` via variant registry.
+        ((!is_infix) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
         // assert(cond, msg) / comptime_assert(cond, msg) — test assertions
@@ -1395,5 +1431,5 @@ export type_name_to_c, type_expr_to_c, is_builtin_keyword, is_primitive_type_cas
 export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
 export handle_define, handle_type_cast, handle_assert;
 export is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor;
-export gen_match_arm, handle_match_value;
+export gen_match_arm, handle_match_value, handle_bare_dot_variant;
 export func_box_is_dot, func_box_is_dot_dispatch;

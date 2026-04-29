@@ -1,0 +1,637 @@
+//! destructuring_assignment — evaluate destructuring `_(x, y) := rhs`.
+//!
+//! Phase 2z: full 1:1 port of `evaluateDestructuringAssignment` and
+//! `handleMemberDestructuring` from
+//! `src/evaluator/exprs/destructuring-assignment.ts`.
+//!
+//! Supports:
+//!   - struct/union/module destructuring: `_(x, y) := point`
+//!   - tuple destructuring:               `tuple(a, b) := pair`
+//!   - enum variant destructuring:        `_(v) := some_val`
+//!   - labeled rename:                    `_(label : new_name) := point`
+//!   - spread:                            `_(...) := point`
+//!
+//! TypeValue structural differences from TypeScript (intentional divergence):
+//!   - TS `TypeField[]` → yo-self parallel `ArrayList(String)` + `ArrayList(TypeValue)`
+//!   - TS `Record<string, RuntimeDestructuring>` → yo-self `ArrayList(String)` seen set
+//!     + `ArrayList(RuntimeDestructuring)` result list
+
+open import "std/string";
+{ ArrayList }              :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of, BK_COLON, BK_TUPLE, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment, Variable, add_variable_to_env }       :: import "../../env/env.yo";
+{ EvalContext }                                       :: import "../context.yo";
+{ EvalValue }                                        :: import "../value.yo";
+{ RuntimeDestructuring, new_expr_info,
+  expr_info_table_set, expr_info_table_get }          :: import "../../expr/expr_info.yo";
+{ TypeValue,
+  is_tuple_type, is_struct_type, is_union_type,
+  is_module_type, is_enum_type }                     :: import "../../types/type.yo";
+{ type_to_string }                                   :: import "../../types/string.yo";
+{ format_error_message }                             :: import "../../error/error.yo";
+{ is_valid_variable_name }                           :: import "./binding.yo";
+{ clone_value }                                      :: import "../values/clone_value.yo";
+{ Exception }                                        :: import "std/error";
+
+// ---------------------------------------------------------------------------
+// Return type
+// ---------------------------------------------------------------------------
+
+/// Result of a destructuring assignment.
+/// Mirrors the anonymous `{ env; runtimeDestructurings }` return type of
+/// `evaluateDestructuringAssignment` in TypeScript.
+DestructuringResult :: object(
+  env                    : Environment,
+  runtime_destructurings : Option(ArrayList(RuntimeDestructuring))
+);
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// True if `label` is already in the `seen` list.
+_label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
+  i := usize(0);
+  (found : bool) = false;
+  while runtime(((i < seen.len()) && !(found))), {
+    match(seen.get(i),
+      .Some(s) => { if((s.as_str() == label), { found = true; }); },
+      .None    => ()
+    );
+    i = (i + usize(1));
+  };
+  found
+});
+
+/// Get the field value at `index` from a struct/module/enum/tuple EvalValue.
+/// Mirrors `rhsValue.fields[fieldIndex]` in TypeScript.
+_get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))(
+  match(v,
+    .StructVal(_, _, field_values) => field_values.get(index),
+    .ModuleVal(_, values)          => values.get(index),
+    .EnumVal(_, fields)            => fields.get(index),
+    .TupleVal(fields)              => fields.get(index),
+    _                              => Option(EvalValue).None
+  )
+);
+
+/// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
+/// Returns `.None` when not found.
+_find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
+  i := usize(0);
+  (result : Option(usize)) = Option(usize).None;
+  while runtime(((i < field_labels.len()) && match(result, .None => true, _ => false))), {
+    match(field_labels.get(i),
+      .Some(s) => {
+        if((s.as_str() == label), {
+          result = Option(usize).Some(i);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  result
+});
+
+// ---------------------------------------------------------------------------
+// handle_member_destructuring
+// ---------------------------------------------------------------------------
+
+/// Handle struct / union / module / tuple / enum-variant destructuring.
+///
+/// Mirrors `handleMemberDestructuring` in
+/// `src/evaluator/exprs/destructuring-assignment.ts`.
+///
+/// Key differences from TS:
+///   - `rhs_field_labels` + `rhs_field_types` replace `rhsFields: TypeField[]`
+///   - `seen_labels: ArrayList(String)` + `runtime_destructurings` replace
+///     `destructuredRhsFields: Record<string, RuntimeDestructuring>`
+///   - ExprInfo is recorded via `ctx.expr_info_table` instead of `expr.$`
+///   - No `rhsValue.isLoading` check (not in yo-self ModuleVal)
+handle_member_destructuring :: (fn(
+  lhs_func                       : AstExpr,
+  lhs_fields                     : ArrayList(AstExpr),
+  rhs_field_labels               : ArrayList(String),
+  rhs_field_types                : ArrayList(TypeValue),
+  rhs_value                      : Option(EvalValue),
+  rhs_type                       : TypeValue,
+  lhs                            : AstExpr,
+  env                            : Environment,
+  ctx                            : *(EvalContext),
+  is_compile_time_only           : bool,
+  is_destructuring_atom_variable : bool,
+  using(exn : Exception)
+) -> DestructuringResult)({
+  require_underscore := !(is_tuple_type(rhs_type));
+  lhs_func_name      := ast_expr_token(lhs_func).value;
+
+  if((require_underscore && !(lhs_func_name == String.from("_"))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_func),
+      `Expected "_" for non-tuple destructuring, got "${lhs_func_name}"`,
+      false,
+      .None
+    ));
+  });
+
+  // Union destructuring requires exactly one field.
+  if(is_union_type(rhs_type), {
+    if(!(lhs_fields.len() == usize(1)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs),
+        `Destructuring union type requires a single field, got ${lhs_fields.len()}`,
+        false,
+        .None
+      ));
+    });
+  });
+
+  // Check field count.
+  if((lhs_fields.len() > rhs_field_labels.len()), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs),
+      `Too many fields in destructuring pattern. Expected at most ${rhs_field_labels.len()}, got ${lhs_fields.len()}`,
+      false,
+      .None
+    ));
+  });
+
+  seen_labels            := ArrayList(String).new();
+  runtime_destructurings := ArrayList(RuntimeDestructuring).new();
+
+  (i : usize) = usize(0);
+  while runtime((i < lhs_fields.len())), {
+    lhs_field   := match(lhs_fields.get(i), .Some(f) => f, .None => make_err_expr());
+    (field_index : usize) = i;  // default: positional
+    (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
+    (rhs_field_label : String) = match(rhs_field_labels.get(field_index),
+      .Some(l) => l,
+      .None    => String.from("")
+    );
+    (rhs_field_type : TypeValue) = match(rhs_field_types.get(field_index),
+      .Some(t) => t,
+      .None    => TypeValue.Unit
+    );
+    (variable_name_opt  : Option(String)) = Option(String).None;
+    (variable_token_opt : Option(AstExpr)) = Option(AstExpr).None;  // token carried via lhs_field
+    (label_expr_opt     : Option(AstExpr)) = Option(AstExpr).None;
+    (rename_expr_opt    : Option(AstExpr)) = Option(AstExpr).None;
+    (did_spread         : bool)            = false;
+
+    // -----------------------------------------------------------------------
+    // Branch 1: spread `...` or `(... : ...)`
+    // -----------------------------------------------------------------------
+    is_spread := cond(
+      // `(... : ...)` form
+      (ast_expr_is_fn_call_of(lhs_field, BK_COLON, Option(usize).Some(usize(2))) &&
+        match(lhs_field,
+          .FnCall(_, _, args, _, _) => (
+            (match(args.get(usize(0)), .Some(a) => (ast_expr_token(a).value.as_str() == "..."), .None => false)) &&
+            (match(args.get(usize(1)), .Some(b) => (ast_expr_token(b).value.as_str() == "..."), .None => false))
+          ),
+          _ => false
+        )) => true,
+      // bare `...` atom
+      (ast_expr_is_atom(lhs_field) && (ast_expr_token(lhs_field).value.as_str() == "...")) => true,
+      true => false
+    );
+
+    if(is_spread, {
+      if(is_union_type(rhs_type), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(lhs_field),
+          `Cannot destructure union type with _, got ${type_to_string(rhs_type)}`,
+          false,
+          .None
+        ));
+      });
+
+      // Spread: destructure all rhs fields not yet seen.
+      (j : usize) = usize(0);
+      while runtime((j < rhs_field_labels.len())), {
+        flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
+        fty  := match(rhs_field_types.get(j),  .Some(t) => t, .None => TypeValue.Unit);
+
+        if(!(_label_already_seen(seen_labels, flab.as_str())), {
+          { ___ := seen_labels.push(String.from(flab.as_str())); };
+          { ___ := runtime_destructurings.push(RuntimeDestructuring(
+            label:         String.from(flab.as_str()),
+            variable_name: String.from(flab.as_str()),
+            ty:            fty
+          )); };
+
+          fval_opt := match(rhs_value,
+            .Some(rv) => _get_eval_value_field(rv, j),
+            .None     => Option(EvalValue).None
+          );
+
+          if((match(fval_opt, .None => true, _ => false) && is_compile_time_only), {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(lhs_field),
+              `Destructuring field "${flab}" is not defined in compile-time only context.`,
+              false,
+              .None
+            ));
+          });
+
+          { ___ := add_variable_to_env(
+            &(env),
+            String.from(flab.as_str()),
+            fty,
+            match(fval_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv)), .None => Option(EvalValue).None),
+            is_compile_time_only,
+            false,           // is_reassignable
+            false,           // is_owning_the_rc_value (stub)
+            false,           // is_implicit
+            ast_expr_token(lhs_field)
+          ); };
+        });
+
+        j = (j + usize(1));
+      };
+
+      // Record ExprInfo for the spread expression itself.
+      spread_info := new_expr_info(env, rhs_type);
+      spread_info.value = rhs_value;
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_field), spread_info);
+
+      did_spread = true;
+    });
+
+    if(!(did_spread), {
+      // -------------------------------------------------------------------
+      // Branch 2: labeled rename `(label : new_name)`
+      // -------------------------------------------------------------------
+      is_labeled := ast_expr_is_fn_call_of(lhs_field, BK_COLON, Option(usize).Some(usize(2)));
+      if(is_labeled, {
+        left_side_opt  := match(lhs_field,
+          .FnCall(_, _, args, _, _) => args.get(usize(0)),
+          _                         => Option(AstExpr).None
+        );
+        right_side_opt := match(lhs_field,
+          .FnCall(_, _, args, _, _) => args.get(usize(1)),
+          _                         => Option(AstExpr).None
+        );
+        left_side  := match(left_side_opt,  .Some(e) => e, .None => make_err_expr());
+        right_side := match(right_side_opt, .Some(e) => e, .None => make_err_expr());
+
+        if(!(ast_expr_is_atom(left_side) && is_valid_variable_name(left_side)), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(left_side),
+            `Expected identifier for label in destructuring pattern, got ${ast_expr_token(left_side).value}`,
+            false,
+            .None
+          ));
+        });
+
+        label_expr_opt = Option(AstExpr).Some(left_side);
+        label := ast_expr_token(left_side).value;
+
+        fi_opt := _find_field_index(rhs_field_labels, label.as_str());
+        match(fi_opt,
+          .None => {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(lhs_field),
+              `Label "${label}" being destructured not found.`,
+              false,
+              .None
+            ));
+          },
+          .Some(fi) => {
+            field_index     = fi;
+            rhs_field_label = match(rhs_field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+            rhs_field_type  = match(rhs_field_types.get(fi),  .Some(t) => t, .None => TypeValue.Unit);
+          }
+        );
+
+        // Get field value at the resolved index.
+        field_value_opt = match(rhs_value,
+          .Some(rv) => _get_eval_value_field(rv, field_index),
+          .None     => Option(EvalValue).None
+        );
+
+        if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
+          rename_expr_opt     = Option(AstExpr).Some(right_side);
+          variable_name_opt   = Option(String).Some(String.from(ast_expr_token(right_side).value.as_str()));
+          variable_token_opt  = Option(AstExpr).Some(right_side);
+        }, {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(right_side),
+            `Nested destructuring is not supported: ${ast_expr_token(right_side).value}`,
+            false,
+            .None
+          ));
+        });
+
+        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(lhs_field),
+            `Label "${label}" being destructured already exists.`,
+            false,
+            .None
+          ));
+        });
+        { ___ := seen_labels.push(String.from(rhs_field_label.as_str())); };
+        { ___ := runtime_destructurings.push(RuntimeDestructuring(
+          label:         String.from(rhs_field_label.as_str()),
+          variable_name: match(variable_name_opt, .Some(s) => s, .None => String.from("")),
+          ty:            rhs_field_type
+        )); };
+      });
+
+      // -------------------------------------------------------------------
+      // Branch 3: nested FnCall pattern (not supported)
+      // -------------------------------------------------------------------
+      if(!(is_labeled) && ast_expr_is_fn_call(lhs_field), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(lhs_field),
+          `Nested destructuring is not supported: ${ast_expr_token(lhs_field).value}`,
+          false,
+          .None
+        ));
+      });
+
+      // -------------------------------------------------------------------
+      // Branch 4: positional atom `name`
+      // -------------------------------------------------------------------
+      _b4_cond1 := (!(is_labeled) && !(ast_expr_is_fn_call(lhs_field)));
+      _b4_cond2 := (ast_expr_is_atom(lhs_field) && is_valid_variable_name(lhs_field));
+      if((_b4_cond1 && _b4_cond2), {
+        if(is_union_type(rhs_type), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(lhs_field),
+            `Cannot destructure union type with positional destructuring, got ${type_to_string(rhs_type)}`,
+            false,
+            .None
+          ));
+        });
+
+        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(lhs_field),
+            `Label "${rhs_field_label}" being destructured already exists.`,
+            false,
+            .None
+          ));
+        });
+        { ___ := seen_labels.push(String.from(rhs_field_label.as_str())); };
+        pos_var_name := String.from(ast_expr_token(lhs_field).value.as_str());
+        { ___ := runtime_destructurings.push(RuntimeDestructuring(
+          label:         String.from(rhs_field_label.as_str()),
+          variable_name: String.from(pos_var_name.as_str()),
+          ty:            rhs_field_type
+        )); };
+
+        field_value_opt    = match(rhs_value,
+          .Some(rv) => _get_eval_value_field(rv, field_index),
+          .None     => Option(EvalValue).None
+        );
+        variable_name_opt  = Option(String).Some(pos_var_name);
+        variable_token_opt = Option(AstExpr).Some(lhs_field);
+      });
+
+      // -------------------------------------------------------------------
+      // Branch 5: unsupported pattern
+      // -------------------------------------------------------------------
+      if(((!(is_labeled) && !(ast_expr_is_fn_call(lhs_field))) && !(ast_expr_is_atom(lhs_field) && is_valid_variable_name(lhs_field))), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(lhs_field),
+          `Unsupported destructuring pattern for: ${ast_expr_token(lhs_field).value}`,
+          false,
+          .None
+        ));
+      });
+
+      // -------------------------------------------------------------------
+      // After determining variable_name and variable_token, add to env.
+      // -------------------------------------------------------------------
+      match(variable_name_opt,
+        .Some(var_name) => {
+          var_tok_expr := match(variable_token_opt, .Some(e) => e, .None => lhs_field);
+
+          if((match(field_value_opt, .None => true, _ => false) && is_compile_time_only), {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(lhs_field),
+              `Destructuring field "${var_name}" is not defined in compile-time only context.`,
+              false,
+              .None
+            ));
+          });
+
+          added_var_opt := add_variable_to_env(
+            &(env),
+            String.from(var_name.as_str()),
+            rhs_field_type,
+            match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv)), .None => Option(EvalValue).None),
+            is_compile_time_only,
+            false,   // is_reassignable
+            false,   // is_owning_the_rc_value (stub)
+            false,   // is_implicit
+            ast_expr_token(var_tok_expr)
+          );
+
+          // Patch is_created_from_destructuring_atom_variable.
+          match(added_var_opt,
+            .Some(added_var) => {
+              added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
+            },
+            .None => ()
+          );
+
+          // Record ExprInfo on the lhs field.
+          lf_info := new_expr_info(env, rhs_field_type);
+          lf_info.value = field_value_opt;
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_field), lf_info);
+
+          // Record ExprInfo on label_expr if present.
+          match(label_expr_opt, .Some(le) => {
+            le_info := new_expr_info(env, rhs_field_type);
+            le_info.value = field_value_opt;
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
+          }, .None => ());
+
+          // Record ExprInfo on rename_expr if present.
+          match(rename_expr_opt, .Some(re) => {
+            re_info := new_expr_info(env, rhs_field_type);
+            re_info.value = field_value_opt;
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(re), re_info);
+          }, .None => ());
+        },
+        .None => ()
+      );
+    });
+
+    i = (i + usize(1));
+  };
+
+  DestructuringResult(
+    env:                    env,
+    runtime_destructurings: Option(ArrayList(RuntimeDestructuring)).Some(runtime_destructurings)
+  )
+});
+
+// ---------------------------------------------------------------------------
+// evaluate_destructuring_assignment
+// ---------------------------------------------------------------------------
+
+/// Evaluate a destructuring initialization assignment.
+///
+/// Mirrors `evaluateDestructuringAssignment` in
+/// `src/evaluator/exprs/destructuring-assignment.ts`.
+evaluate_destructuring_assignment :: (fn(
+  lhs              : AstExpr,
+  rhs              : AstExpr,
+  env              : Environment,
+  is_compile_time_only : bool,
+  ctx              : *(EvalContext),
+  using(exn        : Exception)
+) -> DestructuringResult)({
+  rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
+  if(match(rhs_info_opt, .None => true, _ => false), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(rhs),
+      `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value}`,
+      false,
+      .None
+    ));
+  });
+  rhs_info  := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+  rhs_type  := rhs_info.ty;
+  rhs_value := rhs_info.value;
+
+  is_rhs_atom := ast_expr_is_atom(rhs);
+
+  // -------------------------------------------------------------------
+  // Struct / union / module destructuring
+  // -------------------------------------------------------------------
+  is_struct_union_module := ((is_struct_type(rhs_type) || is_union_type(rhs_type)) || is_module_type(rhs_type));
+  if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
+    field_labels_opt := match(rhs_type,
+      .Struct(_, _, fl, _, _, _, _)  => Option(ArrayList(String)).Some(fl),
+      .Union(_, fl, _)      => Option(ArrayList(String)).Some(fl),
+      .ModuleT(_, _, fl, _)    => Option(ArrayList(String)).Some(fl),
+      _                     => Option(ArrayList(String)).None
+    );
+    field_types_opt  := match(rhs_type,
+      .Struct(_, _, _, ft, _, _, _)  => Option(ArrayList(TypeValue)).Some(ft),
+      .Union(_, _, ft)      => Option(ArrayList(TypeValue)).Some(ft),
+      .ModuleT(_, _, _, ft)    => Option(ArrayList(TypeValue)).Some(ft),
+      _                     => Option(ArrayList(TypeValue)).None
+    );
+    field_labels := match(field_labels_opt, .Some(l) => l, .None => ArrayList(String).new());
+    field_types  := match(field_types_opt,  .Some(t) => t, .None => ArrayList(TypeValue).new());
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
+    return handle_member_destructuring(
+      lhs_func, lhs_args,
+      field_labels, field_types,
+      rhs_value, rhs_type,
+      lhs, env, ctx,
+      is_compile_time_only, is_rhs_atom,
+      using(exn)
+    );
+  });
+
+  // -------------------------------------------------------------------
+  // Tuple destructuring
+  // -------------------------------------------------------------------
+  if(((is_tuple_type(rhs_type) && ast_expr_is_fn_call(lhs)) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None)), {
+    field_labels := match(rhs_type, .Tuple(fl, _) => fl, _ => ArrayList(String).new());
+    field_types  := match(rhs_type, .Tuple(_, ft) => ft, _ => ArrayList(TypeValue).new());
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
+    return handle_member_destructuring(
+      lhs_func, lhs_args,
+      field_labels, field_types,
+      rhs_value, rhs_type,
+      lhs, env, ctx,
+      is_compile_time_only, is_rhs_atom,
+      using(exn)
+    );
+  });
+
+  // -------------------------------------------------------------------
+  // Enum variant destructuring
+  // -------------------------------------------------------------------
+  if(is_enum_type(rhs_type) && ast_expr_is_fn_call(lhs), {
+    svn_opt := match(rhs_type, .EnumT(_, _, _, _, svn, _, _) => svn, _ => Option(String).None);
+    match(svn_opt, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(rhs),
+        `Expected enum variant name to be determined, got ${type_to_string(rhs_type)}`,
+        false,
+        .None
+      ));
+    }, .Some(_) => ());
+    svn := match(svn_opt, .Some(s) => s, .None => String.from(""));
+
+    // Find the variant index.
+    vnames := match(rhs_type, .EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+    vfields := match(rhs_type, .EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+    vi_opt := _find_field_index(vnames, svn.as_str());
+    match(vi_opt, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(rhs),
+        `Expected enum variant "${svn}" to be defined, got ${type_to_string(rhs_type)}`,
+        false,
+        .None
+      ));
+    }, .Some(_) => ());
+    vi := match(vi_opt, .Some(idx) => idx, .None => usize(0));
+
+    selected_fields := match(vfields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+    if((selected_fields.len() == usize(0)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(rhs),
+        `Cannot destructure enum variant "${svn}" without fields, got ${type_to_string(rhs_type)}`,
+        false,
+        .None
+      ));
+    });
+
+    // Enum variant fields are positional — generate labels "0", "1", etc.
+    field_labels := ArrayList(String).new();
+    field_types  := selected_fields;
+    (fi : usize) = usize(0);
+    while runtime((fi < field_types.len())), {
+      ___ := field_labels.push(fi.to_string());
+      fi = (fi + usize(1));
+    };
+
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
+    return handle_member_destructuring(
+      lhs_func, lhs_args,
+      field_labels, field_types,
+      rhs_value, rhs_type,
+      lhs, env, ctx,
+      is_compile_time_only, is_rhs_atom,
+      using(exn)
+    );
+  });
+
+  // -------------------------------------------------------------------
+  // Error: unsupported type
+  // -------------------------------------------------------------------
+  if(!(((is_tuple_type(rhs_type) || is_struct_type(rhs_type)) || (is_union_type(rhs_type) || is_module_type(rhs_type))) || is_enum_type(rhs_type)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(rhs),
+      `Destructuring assignment not supported for the right-hand type: ${type_to_string(rhs_type)}`,
+      false,
+      .None
+    ));
+  });
+
+  exn.throw(dyn format_error_message(
+    ast_expr_token(lhs),
+    `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value}`,
+    false,
+    .None
+  ));
+  panic("unreachable: evaluate_destructuring_assignment")
+});
+
+export DestructuringResult, handle_member_destructuring, evaluate_destructuring_assignment;

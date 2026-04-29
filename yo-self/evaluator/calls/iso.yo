@@ -1,0 +1,65 @@
+//! evaluator/calls/iso — stubs for evaluate_iso_type_call and evaluate_iso_value_call.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/iso.ts`.
+//!
+//! `evaluate_iso_type_call`  — evaluates `Iso(Box(T))` to produce the Iso type value.
+//! `evaluate_iso_value_call` — evaluates `Iso(Box(T))(x)` to wrap a value in an Iso.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Evaluate an Iso type-constructor call, e.g. `Iso(Box(i32))`.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateIsoTypeCall` in `src/evaluator/calls/iso.ts`.
+evaluate_iso_type_call :: (fn(
+  expr      : AstExpr,
+  env       : Environment,
+  ctx       : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_iso_type_call: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// Evaluate an Iso value-constructor call, e.g. `Iso(Box(i32))(x)`.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateIsoValueCall` in `src/evaluator/calls/iso.ts`.
+evaluate_iso_value_call :: (fn(
+  expr      : AstExpr,
+  env       : Environment,
+  ctx       : *(EvalContext),
+  iso_type  : TypeValue,
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  _ := iso_type;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_iso_value_call: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_iso_type_call;
+export evaluate_iso_value_call;

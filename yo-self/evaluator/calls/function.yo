@@ -1,0 +1,47 @@
+//! evaluator/calls/function — stub for evaluate_function_call.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/function.ts`.
+//!
+//! `evaluate_function_call` resolves and dispatches a function call expression,
+//! handling overload resolution, compile-time execution (CTFE), method calls,
+//! and trait dispatch.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, make_err_expr }    :: import "../../expr/expr.yo";
+{ Environment }                               :: import "../../env/env.yo";
+{ TypeValue }                                 :: import "../../types/type.yo";
+{ EvalValue }                                 :: import "../value.yo";
+{ EvalContext }                               :: import "../context.yo";
+{ format_error_message }                      :: import "../../error/error.yo";
+{ Exception }                                 :: import "std/error";
+
+/// Evaluate a function-call expression `expr`, resolving the callee, matching
+/// arguments, running CTFE if applicable, and returning the annotated expression.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateFunctionCall` in `src/evaluator/calls/function.ts`.
+evaluate_function_call :: (fn(
+  expr        : AstExpr,
+  env         : Environment,
+  given_type  : TypeValue,
+  given_value : Option(EvalValue),
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := given_type;
+  _ := given_value;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_function_call: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_function_call;

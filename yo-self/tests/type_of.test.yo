@@ -28,12 +28,12 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
 );
 
 make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
-  .Atom(make_token(kind, value))
+  .Atom(usize(0), make_token(kind, value))
 );
 
 make_fn_call_no_args :: (fn(name : str) -> AstExpr)(
-  .FnCall(
-    box(.Atom(make_token(TokenKind.Identifier, name))),
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
     ArrayList(AstExpr).new(),
     false,
     make_token(TokenKind.Identifier, name)

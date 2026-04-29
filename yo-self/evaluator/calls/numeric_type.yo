@@ -1,0 +1,99 @@
+//! evaluator/calls/numeric_type — stubs for numeric-type helpers.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/numeric-type.ts`.
+//!
+//! Exports:
+//!   `get_numeric_bounds`          — returns the [min, max] range for an integer type.
+//!   `is_convertible_numeric_type` — checks whether a type supports `type(value)` cast syntax.
+//!   `try_to_convert_to_numeric_type` — attempts to cast an argument to a numeric type.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// The inclusive [min, max] numeric bounds for a fixed-width integer type.
+///
+/// Phase 2x stub: placeholder definition. Full bounds logic in Phase 3.
+///
+/// Mirrors `{ min: number | bigint; max: number | bigint }` in
+/// `src/evaluator/calls/numeric-type.ts`.
+NumericBounds :: object(
+  min : i64,
+  max : i64
+);
+
+/// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
+/// has no fixed bounds (e.g. floats).
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `getNumericBounds` in `src/evaluator/calls/numeric-type.ts`.
+get_numeric_bounds :: (fn(
+  type_val  : TypeValue,
+  using(exn : Exception)
+) -> Option(NumericBounds))({
+  _ := type_val;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(make_err_expr()),
+    String.from("get_numeric_bounds: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  Option(NumericBounds).None
+});
+
+/// Return `true` if `type_val` supports the `type(value)` numeric-cast syntax.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `isConvertibleNumericType` in `src/evaluator/calls/numeric-type.ts`.
+is_convertible_numeric_type :: (fn(
+  type_val  : TypeValue,
+  using(exn : Exception)
+) -> bool)({
+  _ := type_val;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(make_err_expr()),
+    String.from("is_convertible_numeric_type: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  false
+});
+
+/// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
+/// Returns `.None` if `target_type` is not a convertible numeric type.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `tryToConvertToNumericType` in `src/evaluator/calls/numeric-type.ts`.
+try_to_convert_to_numeric_type :: (fn(
+  target_type : TypeValue,
+  arg_expr    : AstExpr,
+  expr        : AstExpr,
+  caller_env  : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> Option(AstExpr))({
+  _ := target_type;
+  _ := arg_expr;
+  _ := caller_env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("try_to_convert_to_numeric_type: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  Option(AstExpr).None
+});
+
+export get_numeric_bounds;
+export is_convertible_numeric_type;
+export try_to_convert_to_numeric_type;

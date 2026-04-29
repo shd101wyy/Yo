@@ -69,6 +69,14 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
   e.*.emit_header_line("}");
   e.*.emit_header_line("");
 
+  // Primitive Yo type aliases
+  // `rune` is a zero-cost newtype over u32 (Unicode code point).
+  // `String` is simplified to `const char*` for the self-hosted bootstrap runner.
+  e.*.emit_header_line("// Yo primitive type aliases");
+  e.*.emit_header_line("typedef uint32_t rune;");
+  e.*.emit_header_line("typedef const char* String;");
+  e.*.emit_header_line("");
+
   // Module ID comment
   mod_comment := String.from("// Module ID: ");
   mod_comment.push_str(module_id);

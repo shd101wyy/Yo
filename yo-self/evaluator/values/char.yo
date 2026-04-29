@@ -1,0 +1,73 @@
+//! evaluate_char_literal — evaluates character literal expressions.
+//!
+//! 1:1 port of `src/evaluator/values/char.ts`.
+//!
+//! Char literals produce an IntLit(raw) with type u32. The raw field stores
+//! the decimal string of the Unicode code point (e.g., `'a'` → `"97"`).
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
+{ Environment }                                    :: import "../../env/env.yo";
+{ EvalContext }                                    :: import "../context.yo";
+{ EvalValue }                                      :: import "../value.yo";
+{ TokenKind }                                      :: import "../../lexer/token.yo";
+{ t_comptime_int }                                 :: import "../../types/type.yo";
+{ Exception }                                      :: import "std/error";
+{ format_error_message }                           :: import "../../error/error.yo";
+
+// Parses a char literal token value (e.g., `'a'`, `'\n'`) to its u32 code point.
+// tok_value includes surrounding single quotes.
+parse_char_literal :: (fn(tok_value : str) -> u32)({
+  // b1 is the byte at index 1 (after the opening `'`)
+  b1 := match(tok_value.byte_at(usize(1)), .Some(b) => b, .None => u8(0));
+  cond(
+    // Escape sequence: tok_value looks like '\x' — b1 is backslash (92)
+    (b1 == u8(92)) => {
+      b2 := match(tok_value.byte_at(usize(2)), .Some(b) => b, .None => u8(0));
+      cond(
+        (b2 == u8(110)) => u32(10),  // \n newline
+        (b2 == u8(116)) => u32(9),   // \t tab
+        (b2 == u8(114)) => u32(13),  // \r carriage return
+        (b2 == u8(92))  => u32(92),  // \\ backslash
+        (b2 == u8(39))  => u32(39),  // \' single quote
+        (b2 == u8(34))  => u32(34),  // \" double quote
+        (b2 == u8(48))  => u32(0),   // \0 null
+        (b2 == u8(97))  => u32(7),   // \a bell
+        (b2 == u8(98))  => u32(8),   // \b backspace
+        (b2 == u8(102)) => u32(12),  // \f form feed
+        (b2 == u8(118)) => u32(11),  // \v vertical tab
+        true            => u32(b2)   // unknown: raw byte value
+      )
+    },
+    // Simple character: tok_value looks like 'x' — b1 is the char byte
+    true => u32(b1)
+  )
+});
+
+evaluate_char_literal :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  tok := ast_expr_token(expr);
+  if(!(tok.kind == TokenKind.CharLit), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Expected char literal, got ${tok.value}`,
+      false,
+      .None
+    ));
+  });
+  char_code := parse_char_literal(tok.value.as_str());
+  val  := EvalValue.IntLit(char_code.to_string());
+  info := new_expr_info(env, t_comptime_int());
+  info.value = .Some(val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+
+export evaluate_char_literal;

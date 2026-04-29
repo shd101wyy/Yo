@@ -7,6 +7,7 @@ open import "std/fmt";
 
 { TypeValue, t_func_simple, t_trait, t_trait_simple, t_module, t_module_simple,
   t_some_t, t_ptr, t_slice, t_i32, t_bool, t_unit, t_usize,
+  t_dyn, t_dyn_simple,
   is_function_type, is_trait_type, is_module_type, is_some_type,
   type_value_tag } :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
@@ -293,4 +294,40 @@ test "substitute_all: list of types", {
   t1 := match(res.get(usize(1)), .Some(t) => t, .None => t_unit());
   assert(are_types_compatible(t0, t_bool()), "first should be bool");
   assert(are_types_compatible(t1, t_i32()), "second should be i32");
+};
+
+// ---------------------------------------------------------------------------
+// DynT — construction and tag (Phase 2ar)
+// ---------------------------------------------------------------------------
+
+test "t_dyn_simple: single trait", {
+  required := ArrayList(TypeValue).new();
+  required.push(t_trait_simple(`Eq`));
+  d := t_dyn_simple(required);
+  assert((type_value_tag(d) == TypeTag.TDyn), "tag should be TDyn");
+};
+
+test "t_dyn_simple: empty list still constructs", {
+  required := ArrayList(TypeValue).new();
+  d := t_dyn_simple(required);
+  assert((type_value_tag(d) == TypeTag.TDyn), "tag should be TDyn even with no required traits");
+};
+
+test "t_dyn: required + negative traits", {
+  required := ArrayList(TypeValue).new();
+  required.push(t_trait_simple(`Eq`));
+  req_levels := ArrayList(usize).new();
+  req_levels.push(usize(0));
+  negative := ArrayList(TypeValue).new();
+  negative.push(t_trait_simple(`Send`));
+  neg_levels := ArrayList(usize).new();
+  neg_levels.push(usize(0));
+  d := t_dyn(required, req_levels, negative, neg_levels);
+  assert((type_value_tag(d) == TypeTag.TDyn), "tag should be TDyn");
+  // Pattern-match to verify shape (catches arity drift).
+  ok := match(d,
+    .DynT(req, _, neg, _) => ((req.len() == usize(1)) && (neg.len() == usize(1))),
+    _                     => false
+  );
+  assert(ok, "DynT should carry 1 required + 1 negative trait");
 };

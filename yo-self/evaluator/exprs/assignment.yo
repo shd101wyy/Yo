@@ -1,0 +1,321 @@
+//! evaluate_assignment — the `=` reassignment handler.
+//!
+//! Mirrors `src/evaluator/exprs/assignment.ts` — Phase 2v (simplified) port.
+//!
+//! Phase 2v supports:
+//!   - Simple atom LHS:       x = rhs
+//!   - Typed binding LHS:     (x : T) = rhs
+//!
+//! Phase 3 stubs (not yet implemented):
+//!   - Property / index LHS:  x.a = rhs, arr(0) = rhs
+//!   - Ownership tracking (clone_value, find_rc_value_owner_relationship, etc.)
+//!   - Impl(SomeType) reassignment check
+//!   - EnumType selectedVariant update
+//!   - attachTempVariableToExpr
+//!   - synthesizeExprAndType (type-inference for unknown-length arrays)
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom,
+  ast_expr_is_fn_call, ast_expr_to_string, make_err_expr,
+  BK_COLON, BK_ASSIGN, BK_COND, BK_MATCH, BK_BEGIN } :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get,
+  ControlFlowFlags, has_any_control_flow, control_flow_to_string } :: import "../../expr/expr_info.yo";
+{ Environment, Variable, make_err_variable,
+  get_variables_from_env, update_existing_variable }   :: import "../../env/env.yo";
+{ Token }                                              :: import "../../lexer/token.yo";
+{ EvalContext, ExpectedTypeCtx }                       :: import "../context.yo";
+{ EvalValue }                                          :: import "../value.yo";
+{ t_unit }                                             :: import "../../types/type.yo";
+{ TypeValue }                                          :: import "../../types/type.yo";
+{ are_types_compatible }                               :: import "../../types/compatibility.yo";
+{ convert_comptime_type_to_runtime_type }              :: import "../../types/utils.yo";
+{ type_to_string }                                     :: import "../../types/string.yo";
+{ format_error_message }                               :: import "../../error/error.yo";
+{ evaluate_expression }                                :: import "./expr.yo";
+{ evaluate_binding }                                   :: import "./binding.yo";
+{ Exception }                                          :: import "std/error";
+
+// ---------------------------------------------------------------------------
+// throw_rhs_contains_control_flow_expression_error
+// ---------------------------------------------------------------------------
+
+/// Throw a descriptive error when the RHS of an assignment unconditionally
+/// transfers control flow (return / escape / break / continue).
+///
+/// Mirrors `throwRhsContainsControlFlowExpressionError` in
+/// `src/evaluator/exprs/assignment.ts`.
+throw_rhs_contains_control_flow_expression_error :: (fn(
+  rhs       : AstExpr,
+  cf        : ControlFlowFlags,
+  using(exn : Exception)
+) -> unit)({
+  cf_str := control_flow_to_string(cf);
+  error_msg := cond(
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_COND, .None)) =>
+      `Cannot assign "cond" expression to variable when all cases contain "${cf_str}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`,
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_MATCH, .None)) =>
+      `Cannot assign "match" expression to variable when all cases contain "${cf_str}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`,
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_BEGIN, .None)) =>
+      `Cannot assign "begin" expression to variable when it contains "${cf_str}" statement.`,
+    true =>
+      `Right-hand side contains "${cf_str}" from function.`
+  );
+  exn.throw(dyn format_error_message(
+    ast_expr_token(rhs),
+    error_msg,
+    false,
+    .None
+  ));
+});
+
+// ---------------------------------------------------------------------------
+// resolve_unknown_values_and_some_type_in_type  (Phase 2v stub)
+// ---------------------------------------------------------------------------
+
+/// Resolve unknown values and SomeType instances in a type.
+///
+/// In yo-self all array lengths are concrete, so the full TS logic is not
+/// needed here.  Returns `ty` unchanged.
+///
+/// Mirrors `resolveUnknownValuesAndSomeTypeInType` in
+/// `src/evaluator/exprs/assignment.ts`.
+resolve_unknown_values_and_some_type_in_type :: (fn(
+  ty  : TypeValue,
+  env : Environment
+) -> TypeValue)(
+  ty
+);
+
+// ---------------------------------------------------------------------------
+// evaluate_assignment
+// ---------------------------------------------------------------------------
+
+/// Evaluate an `=` assignment expression.
+///
+/// Handles:
+///   - atom LHS:         `x = rhs`
+///   - typed-binding LHS:`(x : T) = rhs`
+///
+/// Stubs (Phase 3):
+///   - property / index LHS  (`x.a = rhs`, `arr(0) = rhs`)
+///   - ownership tracking, temp-variable attachment, SomeType checks
+///
+/// Mirrors `evaluateAssignment` in `src/evaluator/exprs/assignment.ts`.
+evaluate_assignment :: (fn(
+  expr      : AstExpr,
+  env_in    : Environment,
+  ctx       : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  (env : Environment) = env_in;
+
+  // Validate shape: "=" with exactly 2 args.
+  if(!(ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "=" for assignment.`,
+      false,
+      .None
+    ));
+  });
+
+  (lhs : AstExpr) = match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _)               => make_err_expr()
+  );
+  (rhs : AstExpr) = match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _)               => make_err_expr()
+  );
+
+  // -----------------------------------------------------------------------
+  // Determine branch: atom LHS or typed-binding LHS
+  // -----------------------------------------------------------------------
+  is_atom_lhs          := ast_expr_is_atom(lhs);
+  is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
+
+  // Phase 3 stub: reject complex LHS early so the rest of this function can
+  // assume a simple (atom or typed-binding) LHS.
+  if(!(is_atom_lhs || is_typed_binding_lhs), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs),
+      `Property and index assignment (e.g. x.a = rhs, arr(0) = rhs) are not yet supported in Phase 2v.`,
+      false,
+      .None
+    ));
+  });
+
+  // ------------------------------------------------------------------
+  // Derive variable_name and update env/lhs for both LHS kinds.
+  // ------------------------------------------------------------------
+  (variable_name : String) = String.from("");
+  (lhs_resolved  : AstExpr) = lhs;
+
+  cond(
+    is_atom_lhs => {
+      // Simple identifier: x = rhs
+      // For a plain identifier we just read the name from its token.
+      // (Full evaluateIdentifierAndOperator is a Phase 3 concern.)
+      variable_name = String.from(ast_expr_token(lhs).value.as_str());
+    },
+    true => {
+      // Typed binding: (x : T) = rhs
+      binding := evaluate_binding(lhs, env, ctx);
+      binding_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(binding.expr));
+      match(binding_info_opt,
+        .Some(info) => { env = info.env; },
+        .None       => ()
+      );
+      variable_name  = String.from(binding.variable_name.as_str());
+      lhs_resolved   = binding.variable_expr;
+    }
+  );
+
+  // Disallow reassignment to "_"
+  if((variable_name == String.from("_")), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_resolved),
+      `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`,
+      false,
+      .None
+    ));
+  });
+
+  // Look up the variable.
+  vars := get_variables_from_env(env, variable_name);
+  if((vars.len() == usize(0)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_resolved),
+      `Variable ${variable_name} not found in the environment`,
+      false,
+      .None
+    ));
+  });
+  // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
+  variable := match(vars.get((vars.len() - usize(1))), .Some(v) => v, .None => make_err_variable(env));
+
+  // Check reassignability.
+  if(!(variable.is_reassignable), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_resolved),
+      `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`,
+      false,
+      .None
+    ));
+  });
+
+  // Evaluate the RHS.
+  // Pass the variable type as expected type for coercion hints.
+  old_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
+    ty:  variable.ty,
+    env: env
+  ));
+  (rhs_evaled : AstExpr) = evaluate_expression(rhs, env, ctx);
+  ctx.expected_type = old_expected;
+
+  rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled));
+  if(rhs_info_opt.is_none(), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(rhs),
+      `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
+      false,
+      .None
+    ));
+  });
+  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+  env = rhs_info.env;
+
+  // Check control flow.
+  if(has_any_control_flow(rhs_info.control_flow), {
+    match(rhs_info.control_flow,
+      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf),
+      .None     => ()   // unreachable: has_any_control_flow guarantees .Some
+    );
+  });
+
+  // Resolve the RHS type.
+  (rhs_type : TypeValue) = rhs_info.ty;
+
+  // Convert comptime types to runtime types when the variable is not comptime-only.
+  if(!(variable.is_compile_time_only), {
+    rhs_type = convert_comptime_type_to_runtime_type(rhs_type, env);
+  });
+
+  // Type-compatibility check.
+  if(!(are_types_compatible(variable.ty, rhs_type)), {
+    var_ty_str := type_to_string(variable.ty);
+    rhs_ty_str := type_to_string(rhs_type);
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_resolved),
+      `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`,
+      false,
+      .None
+    ));
+  });
+
+  // Re-fetch variable after RHS evaluation (env may have been updated).
+  updated_vars := get_variables_from_env(env, variable_name);
+  updated_variable := match(updated_vars.get((updated_vars.len() - usize(1))),
+    .Some(v) => v,
+    .None    => make_err_variable(env)
+  );
+
+  // Determine whether this is initialisation (first assignment) or reassignment.
+  is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
+
+  // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
+  value_to_store := cond(
+    (updated_variable.is_compile_time_only) => rhs_info.value,
+    true                                    => Option(EvalValue).None
+  );
+
+  // Update the variable in the environment.
+  new_variable := Variable(
+    id:                                 updated_variable.id,
+    name:                               updated_variable.name,
+    ty:                                 rhs_type,
+    is_compile_time_only:               updated_variable.is_compile_time_only,
+    frame_level:                        updated_variable.frame_level,
+    value:                              value_to_store,
+    is_owning_the_rc_value:             updated_variable.is_owning_the_rc_value,
+    is_owning_the_same_rc_value_as:     Option(Box(Variable)).None,
+    is_reassignable:                    updated_variable.is_reassignable,
+    token:                              updated_variable.token,
+    initialized_at_token:               Option(Token).Some(ast_expr_token(lhs_resolved)),
+    consumed_at_token:                  Option(Token).None,
+    is_implicit:                        updated_variable.is_implicit,
+    is_created_from_destructuring_atom_variable: updated_variable.is_created_from_destructuring_atom_variable,
+    parameter_alias:                    updated_variable.parameter_alias,
+    is_from_effect_spread:              updated_variable.is_from_effect_spread,
+    is_effect_param:                    updated_variable.is_effect_param,
+    is_module_level:                    updated_variable.is_module_level,
+    doc_comment:                        updated_variable.doc_comment
+  );
+  update_existing_variable(env, updated_variable, new_variable);
+
+  // Write ExprInfo for the lhs.
+  lhs_path := ArrayList(String).new();
+  lhs_path.push(variable_name);
+  lhs_info := new_expr_info(env, rhs_type);
+  lhs_info.path_collection.push(lhs_path);
+  lhs_info.variable_name = .Some(variable_name);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info);
+
+  // Write ExprInfo for the whole `=` expression.
+  expr_info := new_expr_info(env, t_unit());
+  expr_info.value = .Some(EvalValue.UnitVal);
+  expr_info.is_compile_time_only_assignment = .Some(updated_variable.is_compile_time_only);
+  // Note: isMutatingDefinedVariable distinction used for temp-variable attachment (Phase 3).
+  // For Phase 2v both init and reassignment emit the same unit info.
+  _unused := is_mutating_defined_variable;
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+
+  expr
+});
+
+export throw_rhs_contains_control_flow_expression_error,
+       resolve_unknown_values_and_some_type_in_type,
+       evaluate_assignment;

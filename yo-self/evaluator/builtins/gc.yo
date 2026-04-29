@@ -1,0 +1,44 @@
+//! evaluator/builtins/gc — implements evaluate_yo_gc_collect.
+//!
+//! 1:1 port of `src/evaluator/builtins/gc.ts`.
+//!
+//! `__yo_gc_collect()` manually triggers cycle-collector GC.
+//! In the evaluator it is a no-op (no actual memory management); the real work
+//! happens in C codegen.  Returns unit.
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id,
+  ast_expr_is_fn_call_of, BF_YO_GC_COLLECT }  :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set } :: import "../../expr/expr_info.yo";
+{ Environment }                                  :: import "../../env/env.yo";
+{ EvalContext }                                  :: import "../context.yo";
+{ EvalValue }                                    :: import "../value.yo";
+{ t_unit }                                       :: import "../../types/type.yo";
+{ format_error_message }                         :: import "../../error/error.yo";
+{ Exception }                                    :: import "std/error";
+
+evaluate_yo_gc_collect :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, .Some(usize(0)))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "__yo_gc_collect" with 0 arguments`,
+      false,
+      .None
+    ));
+  });
+
+  // No-op in evaluator — GC happens in C codegen. Return unit.
+  info := new_expr_info(env, t_unit());
+  info.value = .Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+
+export evaluate_yo_gc_collect;

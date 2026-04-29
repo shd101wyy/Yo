@@ -1,0 +1,90 @@
+//! evaluator/builtins/sizeof — implements evaluate_size_of.
+//!
+//! 1:1 port of `src/evaluator/builtins/sizeof.ts`.
+//!
+//! `sizeof(T)` evaluates the argument expression, resolves it to a type,
+//! and returns the size of that type in bytes as a `usize` value.
+//! If the size is not statically known, returns an unknown `usize`.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, ast_expr_id,
+  ast_expr_is_fn_call_of, BF_SIZEOF }           :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
+{ Environment }                                  :: import "../../env/env.yo";
+{ EvalContext }                                  :: import "../context.yo";
+{ EvalValue }                                    :: import "../value.yo";
+{ TypeValue }                                    :: import "../../types/type.yo";
+{ t_usize }                                      :: import "../../types/type.yo";
+{ get_size_of_type }                             :: import "../../types/utils.yo";
+{ format_error_message }                         :: import "../../error/error.yo";
+{ evaluate_expression }                          :: import "../exprs/expr.yo";
+{ Exception }                                    :: import "std/error";
+
+evaluate_size_of :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BF_SIZEOF, .Some(usize(1)))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "sizeof" with 1 argument`,
+      false,
+      .None
+    ));
+  });
+
+  type_expr := match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+      .Some(a) => a,
+      .None    => { return expr; }
+    ),
+    .Atom(_, _) => { return expr; }
+  );
+
+  evaluated := evaluate_expression(type_expr, env, ctx);
+  info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info      := match(info_opt,
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(type_expr),
+        String.from("Failed to evaluate expression."),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_usize())
+    }
+  );
+  (cur_env : Environment) = info.env;
+
+  // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
+  (type_to_check : TypeValue) = match(info.value,
+    .Some(v) => match(v,
+      .TypeVal(ty_box) => ty_box.*,
+      _                => info.ty
+    ),
+    .None => info.ty
+  );
+
+  // Convert size in bits to bytes (divide by 8). Unknown size → no value.
+  size_bits_opt := get_size_of_type(type_to_check);
+  out_info := new_expr_info(cur_env, t_usize());
+  match(size_bits_opt,
+    .Some(bits) => {
+      bytes := (bits / usize(8));
+      out_info.value = .Some(EvalValue.IntLit(bytes.to_string()));
+    },
+    .None => {
+      // Unknown size: leave out_info.value as .None (runtime unknown)
+    }
+  );
+
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+export evaluate_size_of;

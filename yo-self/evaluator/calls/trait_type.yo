@@ -1,0 +1,75 @@
+//! evaluator/calls/trait_type — stubs for trait-type call helpers.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/trait-type.ts`.
+//!
+//! `try_to_specialize_trait_type`                        — binds associated-type
+//!   constraints via `:=` arguments, e.g. `Iterator(Item := i32)`.
+//! `try_to_implement_trait_with_arguments_by_trait_type` — binds function-typed
+//!   fields to implement a trait, e.g. `Id(Point)(id: ((p) -> p))`.
+
+open import "std/string";
+{ ArrayList }                              :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Specialize `trait_type` by binding associated-type constraints from `arg_exprs`.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `tryToSpecializeTraitType` in `src/evaluator/calls/trait-type.ts`.
+try_to_specialize_trait_type :: (fn(
+  trait_expr  : AstExpr,
+  trait_type  : TypeValue,
+  arg_exprs   : ArrayList(AstExpr),
+  caller_env  : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> Option(AstExpr))({
+  _ := trait_type;
+  _ := arg_exprs;
+  _ := caller_env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(trait_expr),
+    String.from("try_to_specialize_trait_type: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  Option(AstExpr).None
+});
+
+/// Bind `arg_exprs` to the fields of `trait_type` to produce a trait-value instance.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `tryToImplementTraitWithArgumentsByTraitType` in
+/// `src/evaluator/calls/trait-type.ts`.
+try_to_implement_trait_with_arguments_by_trait_type :: (fn(
+  trait_expr  : AstExpr,
+  trait_type  : TypeValue,
+  arg_exprs   : ArrayList(AstExpr),
+  caller_env  : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> Option(AstExpr))({
+  _ := trait_type;
+  _ := arg_exprs;
+  _ := caller_env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(trait_expr),
+    String.from("try_to_implement_trait_with_arguments_by_trait_type: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  Option(AstExpr).None
+});
+
+export try_to_specialize_trait_type;
+export try_to_implement_trait_with_arguments_by_trait_type;

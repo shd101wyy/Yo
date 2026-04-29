@@ -1,0 +1,61 @@
+//! evaluator/builtins/rc — implements evaluate_rc.
+//!
+//! 1:1 port of `src/evaluator/builtins/rc.ts`.
+//!
+//! `rc(value)` returns the reference counter of a value.
+//! For RC types: returns an unknown runtime `usize`.
+//! For value types: always returns `1` as a compile-time `usize`.
+
+open import "std/string";
+{ AstExpr, ast_expr_token, ast_expr_id }        :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
+{ Environment }                                  :: import "../../env/env.yo";
+{ EvalContext }                                  :: import "../context.yo";
+{ EvalValue, create_unknown_val }               :: import "../value.yo";
+{ TypeValue, t_usize }                           :: import "../../types/type.yo";
+{ is_rc_type }                                   :: import "../../types/guards.yo";
+{ format_error_message }                         :: import "../../error/error.yo";
+{ evaluate_expression }                          :: import "../exprs/expr.yo";
+{ attach_temp_variable_to_expr }                 :: import "../utils.yo";
+{ Exception }                                    :: import "std/error";
+
+evaluate_rc :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg_ast := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg := evaluate_expression(arg_ast, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg_ast),
+        String.from("rc: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_usize())
+    }
+  );
+  cur_env := arg_info.env;
+
+  out_info := new_expr_info(cur_env, t_usize());
+  if(is_rc_type(arg_info.ty), {
+    // RC type: count is only known at runtime → unknown value
+    out_info.value = Option(EvalValue).None;
+    attach_temp_variable_to_expr(expr, true, ctx);
+  }, {
+    // Value type: reference count is always 1
+    out_info.value = Option(EvalValue).Some(EvalValue.IntLit(String.from("1")));
+  });
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+export evaluate_rc;

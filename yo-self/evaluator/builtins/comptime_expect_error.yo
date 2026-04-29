@@ -1,0 +1,67 @@
+//! evaluator/builtins/comptime_expect_error — evaluate_comptime_expect_error.
+//!
+//! 1:1 port of `src/evaluator/builtins/comptime-expect-error.ts`.
+//!
+//! Evaluates `comptime_expect_error(expr)` — expects the argument to produce a
+//! compile-time error.  If the argument evaluates without error, this builtin
+//! throws "Expected compile error, but the expression was evaluated successfully".
+//!
+//! Uses `evaluate_expression_raw` (a second global function pointer to the raw
+//! `_evaluate_expression`) so that a custom inner exception handler can intercept
+//! evaluation errors without going through the panic-on-error wrapper.
+
+open import "std/string";
+{ Exception }                                    :: import "std/error";
+{ AstExpr, ast_expr_token, ast_expr_to_string,
+  ast_expr_id, make_err_expr }                   :: import "../../expr/expr.yo";
+{ Environment }                                  :: import "../../env/env.yo";
+{ EvalContext }                                  :: import "../context.yo";
+{ format_error_message }                         :: import "../../error/error.yo";
+{ EvalValue, value_to_string }                   :: import "../value.yo";
+{ t_unit }                                       :: import "../../types/type.yo";
+{ new_expr_info,
+  expr_info_table_set, expr_info_table_get }     :: import "../../expr/expr_info.yo";
+{ evaluate_expression,
+  evaluate_expression_raw }                      :: import "../exprs/expr.yo";
+
+evaluate_comptime_expect_error :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args     := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  // Try to evaluate arg_expr; if a compile error is thrown that's expected — set unit and return.
+  given(inner_exn) := Exception(throw: ((err) -> {
+    out_info       := new_expr_info(env, t_unit());
+    out_info.value  = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    escape expr
+  }));
+  evaluate_expression_raw(arg_expr, env, ctx, using(inner_exn));
+
+  // No error was thrown — evaluate optional message argument for a better diagnostic.
+  match(args.get(usize(1)), .Some(msg_expr) => {
+    eval_msg     := evaluate_expression(msg_expr, env, ctx);
+    msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
+    match(msg_info_opt, .Some(msg_info) => {
+      match(msg_info.value, .Some(v) => {
+        err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(v));
+        exn.throw(dyn format_error_message(ast_expr_token(expr), err_msg, false, .None));
+      }, .None => ());
+    }, .None => ());
+  }, .None => ());
+
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    (String.from("Expected compile error, but the expression was evaluated successfully:\n") +
+      ast_expr_to_string(arg_expr)),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_comptime_expect_error;

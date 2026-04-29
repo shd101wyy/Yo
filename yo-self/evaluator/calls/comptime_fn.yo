@@ -1,0 +1,53 @@
+//! evaluator/calls/comptime_fn — stub for evaluate_comptime_function_call.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/comptime-fn.ts`.
+//!
+//! `evaluate_comptime_function_call` executes a compile-time function (CTFE),
+//! binding forall/regular/variadic arguments into the callee environment and
+//! evaluating the function body to produce a compile-time value and updated
+//! caller/callee environments.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalValue }                              :: import "../value.yo";
+{ EvalContext, ArgValues }                 :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Execute a compile-time function call (CTFE), returning the evaluated result
+/// expression together with updated caller/callee environments.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateComptimeFunctionCall` in `src/evaluator/calls/comptime-fn.ts`.
+evaluate_comptime_function_call :: (fn(
+  function_callee_expr : Option(AstExpr),
+  function_type        : TypeValue,
+  function_value       : EvalValue,
+  arg_values           : ArgValues,
+  caller_env           : Environment,
+  callee_env           : Environment,
+  ctx                  : *(EvalContext),
+  using(exn            : Exception)
+) -> AstExpr)({
+  _ := function_callee_expr;
+  _ := function_type;
+  _ := function_value;
+  _ := arg_values;
+  _ := caller_env;
+  _ := callee_env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(make_err_expr()),
+    String.from("evaluate_comptime_function_call: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_comptime_function_call;

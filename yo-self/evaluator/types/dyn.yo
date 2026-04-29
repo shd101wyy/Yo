@@ -1,0 +1,194 @@
+//! evaluate_dyn_type — handles `Dyn(trait1, !(trait2), …)` type expressions.
+//!
+//! 1:1 port (simplified) of `src/evaluator/types/dyn.ts`.
+//!
+//! Phase 2aq scope: argument iteration, trait-type validation, negation
+//! detection (`!(...)`), duplicate-id detection, and `DynT` construction.
+//!
+//! Deferred to later phases (commented at the relevant call sites):
+//!   * self-constraint / supertrait expansion (needs `selfConstraints` field
+//!     on `TraitT`, not yet added)
+//!   * function-name conflict check across required traits (needs trait-field
+//!     iteration helpers)
+//!   * reserved function-name check (___dup, ___drop, ___dispose, dispose)
+//!   * `addRcFunctionsToDynType` ARC injection (needs rc_fns infra)
+
+open import "std/string";
+open import "std/fmt";
+
+{ ArrayList }                                      :: import "std/collections/array_list";
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
+  ast_expr_is_fn_call_of, BK_DYN_UPPER,
+  make_err_expr }                                  :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_get, expr_info_table_set }       :: import "../../expr/expr_info.yo";
+{ Environment }                                    :: import "../../env/env.yo";
+{ EvalContext }                                    :: import "../context.yo";
+{ EvalValue, create_type_value, is_type_value }    :: import "../value.yo";
+{ TypeValue, t_dyn, t_i32, is_trait_type }         :: import "../../types/type.yo";
+{ type_of_type }                                   :: import "../../types/hierarchy.yo";
+{ type_to_string }                                 :: import "../../types/string.yo";
+{ format_error_message }                           :: import "../../error/error.yo";
+{ Exception }                                      :: import "std/error";
+{ evaluate_expression }                            :: import "../exprs/expr.yo";
+
+/// Returns the canonical id of a trait type for duplicate detection.
+/// Uses the `id` field on `TraitT` when populated; falls back to the
+/// pretty-printed type as an identity proxy.
+trait_id_for_dedup :: (fn(t : TypeValue) -> String)(
+  match(t,
+    .TraitT(_, _, _, _, id, _, _, _) => {
+      if((id.len() > usize(0)), { return id; });
+      type_to_string(t)
+    },
+    _ => type_to_string(t)
+  )
+);
+
+evaluate_dyn_type :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`,
+      false,
+      .None
+    ));
+  });
+
+  args := match(expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _)            => ArrayList(AstExpr).new()
+  );
+
+  required_traits  := ArrayList(TypeValue).new();
+  required_levels  := ArrayList(usize).new();
+  negative_traits  := ArrayList(TypeValue).new();
+  negative_levels  := ArrayList(usize).new();
+  required_ids     := ArrayList(String).new();
+  negative_ids     := ArrayList(String).new();
+  cur_env          := env;
+
+  i := usize(0);
+  while runtime((i < args.len())), {
+    trait_arg := match(args.get(i),
+      .Some(a) => a,
+      .None    => make_err_expr()
+    );
+
+    // Detect a negated trait: `!(Trait)`.
+    is_negated := ast_expr_is_fn_call_of(trait_arg, "!", .Some(usize(1)));
+    actual_arg := if(is_negated,
+      match(trait_arg,
+        .FnCall(_, _, inner_args, _, _) => match(inner_args.get(usize(0)),
+          .Some(a) => a,
+          .None    => trait_arg
+        ),
+        _ => trait_arg
+      ),
+      trait_arg
+    );
+
+    eval_trait := evaluate_expression(actual_arg, cur_env, ctx);
+    info_opt   := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_trait));
+    trait_info := match(info_opt,
+      .Some(inf) => inf,
+      .None      => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(actual_arg),
+          `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`,
+          false, .None
+        ));
+        new_expr_info(cur_env, t_i32())
+      }
+    );
+
+    // Validate it is a TypeVal carrying a TraitT.
+    inner_ty := match(trait_info.value,
+      .Some(v) => match(v,
+        .TypeVal(it) => it.*,
+        _            => t_i32()
+      ),
+      .None => t_i32()
+    );
+
+    if(!(is_type_value(trait_info.value)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(actual_arg),
+        `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`,
+        false, .None
+      ));
+    });
+    if(!(is_trait_type(inner_ty)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(actual_arg),
+        `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(inner_ty)}`,
+        false, .None
+      ));
+    });
+
+    cur_env = trait_info.env;
+    tid := trait_id_for_dedup(inner_ty);
+
+    if(is_negated, {
+      // Duplicate-in-negative check.
+      already := false;
+      j := usize(0);
+      while runtime((j < negative_ids.len())), {
+        existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
+        if((existing == tid), { already = true; });
+        j = (j + usize(1));
+      };
+      if(already, {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(actual_arg),
+          `Trait type ${type_to_string(inner_ty)} is already included in negative constraints of 'Dyn' expression.`,
+          false, .None
+        ));
+      });
+      { negative_traits.push(inner_ty); (); };
+      { negative_levels.push(usize(0)); (); };
+      { negative_ids.push(tid); (); };
+    }, {
+      // Duplicate-in-required check.
+      already := false;
+      j := usize(0);
+      while runtime((j < required_ids.len())), {
+        existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
+        if((existing == tid), { already = true; });
+        j = (j + usize(1));
+      };
+      if(already, {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(actual_arg),
+          `Trait type ${type_to_string(inner_ty)} is already included in 'Dyn' expression.`,
+          false, .None
+        ));
+      });
+      { required_traits.push(inner_ty); (); };
+      { required_levels.push(usize(0)); (); };
+      { required_ids.push(tid); (); };
+    });
+
+    i = (i + usize(1));
+  };
+
+  // Phase 2aq deferred: self-constraint / supertrait expansion.
+  // Phase 2aq deferred: function-name conflict check across required traits.
+  // Phase 2aq deferred: reserved function-name check.
+  // Phase 2aq deferred: addRcFunctionsToDynType ARC injection.
+
+  dyn_ty    := t_dyn(required_traits, required_levels, negative_traits, negative_levels);
+  dyn_val   := create_type_value(dyn_ty);
+  meta_type := type_of_type(dyn_ty);
+  out_info  := new_expr_info(cur_env, meta_type);
+  out_info.value = .Some(dyn_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+export evaluate_dyn_type;

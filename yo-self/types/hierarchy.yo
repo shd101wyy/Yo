@@ -131,7 +131,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     .Func(_, _, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(0)),
 
     // Struct: recurse into fields, guard against cycles by name ------------
-    .Struct(sname, _, ftypes) =>
+    .Struct(_, sname, _, ftypes, _, _, _) =>
       cond(
         _name_in_visited(visited, sname) => TypeValue.TypeUni(usize(0)),
         true => {
@@ -142,7 +142,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
       ),
 
     // EnumT: flatten all variant field types, then check the universe ------
-    .EnumT(ename, _, variant_fields) =>
+    .EnumT(_, ename, _, variant_fields, _, _, _) =>
       cond(
         _name_in_visited(visited, ename) => TypeValue.TypeUni(usize(0)),
         true => {
@@ -176,14 +176,15 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
       ),
 
     // Traits and modules are type-level-1 types ----------------------------
-    .TraitT(_, _, _, _) => TypeValue.TypeUni(usize(1)),
-    .ModuleT(_, _, _)   => TypeValue.TypeUni(usize(1)),
+    .TraitT(_, _, _, _, _, _, _, _)         => TypeValue.TypeUni(usize(1)),
+    .ModuleT(_, _, _, _)           => TypeValue.TypeUni(usize(1)),
+    .FnTraitT(base_name: _)     => TypeValue.TypeUni(usize(1)),
+    .FutureTraitT(base_name: _) => TypeValue.TypeUni(usize(1)),
 
     // SomeT: return its parent_type (meta-type) ----------------------------
     .SomeT(parent_type: pt) => pt.*,
 
-    // Unknown variants not yet ported to self-hosted TypeValue (Dyn,
-    // ExprType, FnTrait, Iso, FutureTrait, EffectsRow, ComptimeList) ------
+    // Remaining Phase 2f variants that live at type level 0 ---------------
     _ => TypeValue.TypeUni(usize(0))
   )
 );

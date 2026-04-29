@@ -14,8 +14,8 @@
 //! * TypeScript `Type` → `TypeValue` (our enum-based type representation).
 //! * TypeScript `Value | ModuleValue | TraitValue | FunctionValue` → `EvalValue`.
 //! * TypeScript `Expr | FnCallExpr` → `AstExpr`.
-//! * TypeScript `PathCollection` (Path[]) → `ArrayList(AstExpr)` (Phase 2b stub;
-//!   a proper Path type will be added when expr.yo is extended).
+//! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
+//!   imported from `yo-self/expr/expr_info.yo` (Phase 2k).
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
@@ -25,23 +25,12 @@ open import "std/string";
 { EvalValue }  :: import "./value.yo";
 { Environment, Variable } :: import "../env/env.yo";
 { AstExpr }    :: import "../expr/expr.yo";
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import "../expr/expr_info.yo";
 { Token }      :: import "../lexer/token.yo";
 
 // ---------------------------------------------------------------------------
-// PathCollection stub (Phase 2b)
+// PathCollection now imported from ../expr/expr_info.yo (Phase 2k)
 // ---------------------------------------------------------------------------
-
-/// In `src/expr.ts`, PathCollection is `Path[]` — a tracking structure for
-/// mutable reference paths used by the ownership / codegen pass.
-///
-/// Phase 2b: `Path` will be a proper struct once expr.yo is extended.
-/// For now, represent a path collection as an opaque list of AST expressions.
-PathCollection :: ArrayList(AstExpr);
-
-/// Create an empty path collection.
-path_collection_new :: (fn() -> PathCollection)(
-  ArrayList(AstExpr).new()
-);
 
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
@@ -245,7 +234,10 @@ EvalContext :: object(
   currently_specializing_function_stack  : Option(ArrayList(SpecializingFunctionInfo)),
 
   /// Doc-comment lookup table (position key → comment text).
-  doc_comment_lookup                     : Option(HashMap(String, String))
+  doc_comment_lookup                     : Option(HashMap(String, String)),
+
+  /// Side-table for expression evaluation results (replaces TypeScript's `expr.$` mutation).
+  expr_info_table                        : ExprInfoTable
 );
 
 /// Create a minimal execution context with sensible defaults.
@@ -281,7 +273,8 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     is_evaluating_generic_impl_specialization:   false,
     currently_specializing_function:             Option(SpecializingFunctionInfo).None,
     currently_specializing_function_stack:       Option(ArrayList(SpecializingFunctionInfo)).None,
-    doc_comment_lookup:                          Option(HashMap(String, String)).None
+    doc_comment_lookup:                          Option(HashMap(String, String)).None,
+    expr_info_table:                             expr_info_table_new()
   )
 );
 
@@ -318,7 +311,6 @@ ArgValues :: object(
 FuncCallResult :: object(
   callee_env                    : Environment,
   caller_env                    : Environment,
-  /// Phase 2b: PathCollection is simplified to ArrayList(AstExpr).
   path_collection               : PathCollection,
   return_type                   : TypeValue,
   return_value                  : Option(EvalValue),

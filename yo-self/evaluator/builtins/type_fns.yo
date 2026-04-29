@@ -1,0 +1,494 @@
+//! evaluator/builtins/type_fns — type introspection builtin functions.
+//!
+//! Implements the simpler type introspection functions (1:1 port of
+//! `src/evaluator/builtins/type-fns.ts`).
+//!
+//! Functions implemented: evaluate_yo_type_to_string, evaluate_yo_are_types_compatible,
+//!   evaluate_yo_are_types_equal, evaluate_yo_type_contains_rc_type,
+//!   evaluate_yo_type_can_form_rc_cycle.
+//!
+//! Functions kept as stubs (require generate_expr_from_code / Phase 3):
+//!   evaluate_yo_type_impls, evaluate_yo_type_get_info, evaluate_comptime_eval,
+//!   evaluate_comptime_string_to_expr, evaluate_type_join_fields,
+//!   evaluate_type_map_variants.
+
+open import "std/string";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
+{ Environment }                             :: import "../../env/env.yo";
+{ EvalContext, ExpectedTypeCtx }             :: import "../context.yo";
+{ EvalValue, is_type_val, create_unknown_val } :: import "../value.yo";
+{ TypeValue, t_unit, t_bool, t_comptime_string } :: import "../../types/type.yo";
+{ is_type_hierarchy_type, is_trait_type }   :: import "../../types/guards.yo";
+{ are_types_compatible, are_types_compatible_exact } :: import "../../types/compatibility.yo";
+{ type_to_string }                          :: import "../../types/string.yo";
+{ type_contains_rc_type, can_type_form_rc_cycle } :: import "../../types/utils.yo";
+{ format_error_message }                    :: import "../../error/error.yo";
+{ evaluate_expression }                     :: import "../exprs/expr.yo";
+{ Exception }                               :: import "std/error";
+
+/// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
+/// If value is .None (runtime expression), throws.
+/// If value is .Some(.TypeVal(tv)), returns tv.*.
+/// If value is .Some(other), throws with a descriptive error.
+_extract_type_val :: (fn(
+  arg      : AstExpr,
+  info     : ExprInfo,
+  fn_name  : str,
+  using(exn : Exception)
+) -> TypeValue)(
+  match(info.value,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg),
+        `${fn_name}: expected a type value, got runtime expression`,
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    },
+    .Some(v) => match(v,
+      .TypeVal(tv) => tv.*,
+      _ => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg),
+          `${fn_name}: expected a TypeVal, got a non-type value`,
+          false,
+          .None
+        ));
+        TypeValue.Unit
+      }
+    )
+  )
+);
+
+/// __yo_type_to_comptime_string(T) -> comptime_string
+/// Returns the string representation of type T.
+evaluate_yo_type_to_string :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg  := evaluate_expression(arg0, env, ctx);
+  arg_info  := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_to_comptime_string: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_to_comptime_string: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  // Default output: unknown comptime_string value.
+  out_info := new_expr_info(arg_info.env, t_comptime_string());
+  out_info.value = Option(EvalValue).Some(create_unknown_val(t_comptime_string()));
+
+  // If the type is concretely known, compute the string.
+  match(arg_info.value,
+    .Some(v) => match(v,
+      .TypeVal(tv) => {
+        s := type_to_string(tv.*);
+        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(s));
+      },
+      _ => ()
+    ),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_to_comptime_string: expected type value, got runtime expression"),
+        false,
+        .None
+      ));
+    }
+  );
+
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_are_types_compatible(expected, given) -> bool
+/// Returns true if `given` type is compatible with `expected` type.
+evaluate_yo_are_types_compatible :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  // Evaluate expected type (clear expected_type and self_type for arg eval).
+  saved_expected := ctx.expected_type;
+  saved_self     := ctx.self_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_0 := evaluate_expression(arg0, env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_0 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_are_types_compatible: failed to evaluate first argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  if(!(is_type_hierarchy_type(info_0.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_are_types_compatible: expected a Type for first argument, got: ${type_to_string(info_0.ty)}`,
+      false,
+      .None
+    ));
+  });
+  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible");
+  cur_env       := info_0.env;
+
+  // Evaluate given type.
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_1 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_are_types_compatible: failed to evaluate second argument"),
+        false,
+        .None
+      ));
+      new_expr_info(cur_env, t_unit())
+    }
+  );
+  if(!(is_type_hierarchy_type(info_1.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg1),
+      `__yo_are_types_compatible: expected a Type for second argument, got: ${type_to_string(info_1.ty)}`,
+      false,
+      .None
+    ));
+  });
+  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible");
+  cur_env     = info_1.env;
+
+  // are_types_compatible(actual, expected) — yo-self param order
+  compatible := are_types_compatible(given_type, expected_type);
+
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(compatible));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_are_types_equal(a, b) -> bool
+/// Returns true if the two types are exactly equal (no implicit conversions).
+evaluate_yo_are_types_equal :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  saved_expected := ctx.expected_type;
+  saved_self     := ctx.self_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_0 := evaluate_expression(arg0, env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_0 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_are_types_equal: failed to evaluate first argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal");
+  cur_env := info_0.env;
+
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_1 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_are_types_equal: failed to evaluate second argument"),
+        false,
+        .None
+      ));
+      new_expr_info(cur_env, t_unit())
+    }
+  );
+  type_b  := _extract_type_val(arg1, info_1, "__yo_are_types_equal");
+  cur_env  = info_1.env;
+
+  // Use exact match (requireExactMatch = true in TS).
+  equal := are_types_compatible_exact(type_a, type_b);
+
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(equal));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_contains_rc_type(T) -> bool
+/// Returns true if the type contains an RC-managed type.
+/// Delegates to type_contains_rc_type (stub: always false in Phase 2).
+evaluate_yo_type_contains_rc_type :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg := evaluate_expression(arg0, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_contains_rc_type: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_contains_rc_type: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type");
+  flag     := type_contains_rc_type(type_val);
+
+  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_can_form_rc_cycle(T) -> bool
+/// Returns true if the type can form an RC reference cycle.
+/// Delegates to can_type_form_rc_cycle (stub: always false in Phase 2).
+evaluate_yo_type_can_form_rc_cycle :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg := evaluate_expression(arg0, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_can_form_rc_cycle: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_can_form_rc_cycle: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle");
+  flag     := can_type_form_rc_cycle(type_val);
+
+  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_impls(T, Trait) -> bool
+/// Returns true if T implements the given Trait.
+/// Stub: requires type_implements_trait_bool (Phase 3).
+evaluate_yo_type_impls :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_yo_type_impls: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// __yo_type_get_info(T) -> TypeInfo
+/// Returns a TypeInfo enum value with metadata about the type.
+/// Stub: requires generate_expr_from_code (Phase 3).
+evaluate_yo_type_get_info :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_yo_type_get_info: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// comptime_eval(code_string) -> ()
+/// Parses and evaluates a comptime_string as Yo code.
+/// Stub: requires generate_exprs_from_code (Phase 3).
+evaluate_comptime_eval :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_comptime_eval: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// __yo_comptime_string_to_expr(code) -> comptime(Expr)
+/// Parses a comptime_string as a Yo expression.
+/// Stub: requires generate_expr_from_code (Phase 3).
+evaluate_comptime_string_to_expr :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_comptime_string_to_expr: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// __yo_type_join_fields(T, mapper, combiner) -> comptime(Expr)
+/// Iterates struct fields and combines mapped Exprs with the combiner.
+/// Stub: requires generate_expr_from_code (Phase 3).
+evaluate_type_join_fields :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_type_join_fields: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+/// __yo_type_map_variants(T, mapper) -> comptime(Expr)
+/// Iterates enum variants and combines mapped Exprs.
+/// Stub: requires generate_expr_from_code (Phase 3).
+evaluate_type_map_variants :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_type_map_variants: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_yo_are_types_compatible, evaluate_yo_are_types_equal,
+       evaluate_yo_type_can_form_rc_cycle, evaluate_yo_type_contains_rc_type,
+       evaluate_yo_type_impls, evaluate_yo_type_to_string, evaluate_yo_type_get_info,
+       evaluate_comptime_eval, evaluate_comptime_string_to_expr,
+       evaluate_type_join_fields, evaluate_type_map_variants;

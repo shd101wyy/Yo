@@ -1,0 +1,158 @@
+//! evaluator/builtins/and_or — implements evaluate_and_or.
+//!
+//! 1:1 port of `src/evaluator/builtins/and-or.ts`.
+//!
+//! Handles short-circuit evaluation of `&&` and `||` operations.
+//! - Empty and → true; empty or → false.
+//! - Short-circuits on definitive compile-time values.
+//! - Returns unknown if any unknown values are encountered without short-circuit.
+//! - Returns undefined (runtime) value if any runtime values are encountered.
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, ast_expr_id,
+  ast_expr_to_string, ast_expr_is_fn_call_of,
+  BK_OP_AND, BK_OP_OR }                             :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
+{ Environment }                                      :: import "../../env/env.yo";
+{ EvalContext }                                      :: import "../context.yo";
+{ EvalValue, is_bool_val, is_unknown_val,
+  create_unknown_val }                               :: import "../value.yo";
+{ TypeValue }                                        :: import "../../types/type.yo";
+{ t_bool, is_bool_type }                             :: import "../../types/type.yo";
+{ format_error_message }                             :: import "../../error/error.yo";
+{ evaluate_expression }                              :: import "../exprs/expr.yo";
+{ Exception }                                        :: import "std/error";
+
+evaluate_and_or :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  is_and := ast_expr_is_fn_call_of(expr, BK_OP_AND, .None);
+  // "and" for &&, "or" for ||
+
+  args := match(expr,
+    .FnCall(_, _, a, _, _) => a,
+    _                      => { return expr; }
+  );
+
+  // Empty and → true, empty or → false.
+  if((args.len() == usize(0)), {
+    bool_result := is_and;
+    out_info := new_expr_info(env, t_bool());
+    out_info.value = .Some(EvalValue.BoolVal(bool_result));
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    return expr;
+  });
+
+  // Short-circuiting evaluation.
+  (cur_env : Environment) = env;
+  (result_val : Option(EvalValue)) = .None;
+  (has_unknown : bool) = false;
+  (has_runtime : bool) = false;
+
+  (i : usize) = usize(0);
+  while runtime((i < args.len())), {
+    arg_opt := args.get(i);
+    i = (i + usize(1));
+
+    match(arg_opt,
+      .None => {},
+      .Some(arg) => {
+        evaluated_arg := evaluate_expression(arg, cur_env, ctx);
+        arg_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+
+        arg_info := match(arg_info_opt,
+          .Some(ai) => ai,
+          .None     => {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(arg),
+              `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`,
+              false,
+              .None
+            ));
+            new_expr_info(env, t_bool())
+          }
+        );
+
+        if(!(is_bool_type(arg_info.ty)), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(arg),
+            `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`,
+            false,
+            .None
+          ));
+        });
+
+        cur_env = arg_info.env;
+        arg_val_opt := arg_info.value;
+
+        match(arg_val_opt,
+          .None => {
+            // Runtime value — can't determine at compile time.
+            has_runtime = true;
+          },
+          .Some(av) => {
+            if(is_unknown_val(av), {
+              has_unknown = true;
+            }, {
+              if(is_bool_val(av), {
+                bv := match(av, .BoolVal(b) => b, _ => false);
+                if(is_and, {
+                  if(!(bv), {
+                    // Short-circuit: false && anything = false.
+                    result_val = .Some(EvalValue.BoolVal(false));
+                    i = args.len();
+                  }, {
+                    if((!(has_unknown) && !(has_runtime)), {
+                      result_val = .Some(EvalValue.BoolVal(true));
+                    });
+                  });
+                }, {
+                  if(bv, {
+                    // Short-circuit: true || anything = true.
+                    result_val = .Some(EvalValue.BoolVal(true));
+                    i = args.len();
+                  }, {
+                    if((!(has_unknown) && !(has_runtime)), {
+                      result_val = .Some(EvalValue.BoolVal(false));
+                    });
+                  });
+                });
+              }, {
+                // Runtime value.
+                has_runtime = true;
+              });
+            });
+          }
+        );
+      }
+    );
+  };
+
+  // Determine final result.
+  (final_val : Option(EvalValue)) = match(result_val,
+    .Some(rv) => cond(
+      // Short-circuited with definitive answer — keep it.
+      (is_bool_val(rv)) => .Some(rv),
+      has_runtime       => .None,
+      has_unknown       => .Some(create_unknown_val(t_bool())),
+      true              => result_val
+    ),
+    .None => cond(
+      has_runtime => .None,
+      has_unknown => .Some(create_unknown_val(t_bool())),
+      true        => result_val
+    )
+  );
+
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = final_val;
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+export evaluate_and_or;

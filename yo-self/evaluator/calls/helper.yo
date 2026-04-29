@@ -1,0 +1,81 @@
+//! evaluator/calls/helper — stub for try_to_call_function_with_arguments.
+//!
+//! Phase 2x stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/helper.ts`.
+//!
+//! `try_to_call_function_with_arguments` is the core function-call helper that:
+//!   1. Resolves forall type variables from argument types.
+//!   2. Matches arguments against function parameters (type-checks).
+//!   3. Optionally executes CTFE (unless skip_ctfe_execution is true).
+//!   4. Returns a `FuncCallResult` with the resolved return type, runtime arg
+//!      expressions, updated caller env, and deferred drop expressions.
+
+open import "std/string";
+{ ArrayList }                                 :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token }                   :: import "../../expr/expr.yo";
+{ Environment }                               :: import "../../env/env.yo";
+{ TypeValue, t_unit }                         :: import "../../types/type.yo";
+{ EvalValue }                                 :: import "../value.yo";
+{ EvalContext,
+  FuncCallResult,
+  ArgValues, ArgEntry, VarArgEntry }          :: import "../context.yo";
+{ PathCollection, path_collection_new }       :: import "../../expr/expr_info.yo";
+{ format_error_message }                      :: import "../../error/error.yo";
+{ Exception }                                 :: import "std/error";
+
+/// Type-check the arguments of a function call against `func_type` and
+/// (optionally) execute CTFE. Returns a `FuncCallResult` with the resolved
+/// return type, runtime arg expressions, updated caller env, and deferred
+/// drop expressions.
+///
+/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `tryToCallFunctionWithArguments` in `src/evaluator/calls/helper.ts`.
+try_to_call_function_with_arguments :: (fn(
+  func_val            : Option(EvalValue),
+  func_type           : TypeValue,
+  expr                : AstExpr,
+  callee_expr         : AstExpr,
+  arg_exprs           : ArrayList(AstExpr),
+  caller_env          : Environment,
+  ctx                 : *(EvalContext),
+  is_method_call      : bool,
+  skip_specialization : bool,
+  skip_ctfe_execution : bool,
+  using(exn           : Exception)
+) -> FuncCallResult)({
+  _ := func_val;
+  _ := func_type;
+  _ := callee_expr;
+  _ := arg_exprs;
+  _ := ctx;
+  _ := is_method_call;
+  _ := skip_specialization;
+  _ := skip_ctfe_execution;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("try_to_call_function_with_arguments: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  // Unreachable: satisfies type checker after the throw.
+  FuncCallResult(
+    callee_env:                 caller_env,
+    caller_env:                 caller_env,
+    path_collection:            path_collection_new(),
+    return_type:                t_unit(),
+    return_value:               Option(EvalValue).None,
+    arg_values:                 ArgValues(
+      forall_args:   ArrayList(ArgEntry).new(),
+      args:          ArrayList(ArgEntry).new(),
+      implicit_args: Option(ArrayList(ArgEntry)).None,
+      variadic_args: ArrayList(VarArgEntry).new()
+    ),
+    runtime_arg_exprs_in_order: ArrayList(AstExpr).new(),
+    specialized_function_value: Option(EvalValue).None,
+    deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+  )
+});
+
+export try_to_call_function_with_arguments;

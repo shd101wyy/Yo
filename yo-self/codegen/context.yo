@@ -10,25 +10,38 @@ open import "std/string";
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
-///   `emitter`     — the three-section C output accumulator
-///   `temp_count`  — counter used to generate unique temp variable names
+///   `emitter`      — the three-section C output accumulator
+///   `temp_count`   — counter used to generate unique temp variable names
 /// Phase 5c fields:
-///   `defined_fns` — Yo names of user-defined functions in the current module.
-///                   Call sites check this to decide whether to add `fn_` prefix.
+///   `defined_fns`  — Yo names of user-defined functions in the current module.
+///                    Call sites check this to decide whether to add `fn_` prefix.
 /// Phase 5e fields:
 ///   `defined_enums` — Yo names of enum types declared in this module.
 ///                     Dot-access `EnumName.Variant` is rewritten to `EnumName_Variant`.
+/// Phase 5h fields:
+///   `variant_names` / `variant_enums` — parallel lists mapping each registered
+///                    enum variant name to its owning enum name.  Used to resolve
+///                    bare `.Variant` patterns in match arms.
 CodegenContext :: object(
-  emitter      : Emitter,
-  temp_count   : usize,
-  defined_fns  : ArrayList(String),
-  defined_enums : ArrayList(String)
+  emitter       : Emitter,
+  temp_count    : usize,
+  defined_fns   : ArrayList(String),
+  defined_enums : ArrayList(String),
+  variant_names : ArrayList(String),
+  variant_enums : ArrayList(String)
 );
 
 impl(CodegenContext,
   /// Create a new empty context.
   new : (fn() -> Self)(
-    Self(emitter: Emitter.new(), temp_count: usize(0), defined_fns: ArrayList(String).new(), defined_enums: ArrayList(String).new())
+    Self(
+      emitter:       Emitter.new(),
+      temp_count:    usize(0),
+      defined_fns:   ArrayList(String).new(),
+      defined_enums: ArrayList(String).new(),
+      variant_names: ArrayList(String).new(),
+      variant_enums: ArrayList(String).new()
+    )
   ),
 
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
@@ -83,6 +96,35 @@ impl(CodegenContext,
       i = (i + usize(1));
     };
     found
+  }),
+
+  /// Register a (variant_name, enum_name) pair so bare `.Variant` patterns
+  /// can be resolved to `EnumName_Variant` during match codegen.
+  register_variant : (fn(self : *(Self), variant : str, enum_name : str) -> unit)({
+    self.*.variant_names.push(String.from(variant));
+    self.*.variant_enums.push(String.from(enum_name));
+  }),
+
+  /// Return the enum name for `variant`, or `None` if not registered.
+  get_enum_for_variant : (fn(self : *(Self), variant : str) -> Option(String))({
+    n := self.*.variant_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+      match(self.*.variant_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == variant), {
+            result = match(self.*.variant_enums.get(i),
+              .Some(e) => Option(String).Some(e),
+              .None    => Option(String).None
+            );
+          });
+        }
+      );
+      i = (i + usize(1));
+    };
+    result
   })
 );
 

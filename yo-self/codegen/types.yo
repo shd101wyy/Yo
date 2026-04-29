@@ -197,11 +197,12 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
 /// } __yo_enum_...;
 /// ```
 emit_simple_enum :: (fn(
-  name           : String,
-  variant_names  : ArrayList(String),
-  module_id      : str,
-  type_id        : usize,
-  ctx            : *(CodegenContext)
+  name                  : String,
+  variant_names         : ArrayList(String),
+  variant_discriminants : ArrayList(i64),
+  module_id             : str,
+  type_id               : usize,
+  ctx                   : *(CodegenContext)
 ) -> String)({
   c_name     := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
@@ -219,12 +220,16 @@ emit_simple_enum :: (fn(
     match(variant_names.get(i),
       .None => (),
       .Some(vname) => {
+        disc_val := match(variant_discriminants.get(i),
+          .Some(d) => d.to_string(),
+          .None    => i64(i).to_string()
+        );
         entry := String.from("  ");
         entry.push_string(tag_prefix);
         entry.push_str("_");
         entry.push_string(vname.to_uppercase());
         entry.push_str(" = ");
-        entry.push_string(i.to_string());
+        entry.push_string(disc_val);
         // Comma for all but last variant
         if((i < (n - usize(1))), { entry.push_str(","); });
         ctx.*.emitter.emit_declaration_string_line(entry);
@@ -257,12 +262,13 @@ emit_simple_enum :: (fn(
 /// };
 /// ```
 emit_data_enum :: (fn(
-  name           : String,
-  variant_names  : ArrayList(String),
-  variant_fields : ArrayList(ArrayList(TypeValue)),
-  module_id      : str,
-  type_id        : usize,
-  ctx            : *(CodegenContext)
+  name                  : String,
+  variant_names         : ArrayList(String),
+  variant_fields        : ArrayList(ArrayList(TypeValue)),
+  variant_discriminants : ArrayList(i64),
+  module_id             : str,
+  type_id               : usize,
+  ctx                   : *(CodegenContext)
 ) -> String)({
   c_name     := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
@@ -289,7 +295,11 @@ emit_data_enum :: (fn(
         entry.push_str("_");
         entry.push_string(vname.to_uppercase());
         entry.push_str(" = ");
-        entry.push_string(i.to_string());
+        disc_val_de := match(variant_discriminants.get(i),
+          .Some(d) => d.to_string(),
+          .None    => i64(i).to_string()
+        );
+        entry.push_string(disc_val_de);
         if((i < (n - usize(1))), { entry.push_str(","); });
         ctx.*.emitter.emit_declaration_string_line(entry);
       }
@@ -392,14 +402,14 @@ generate_type_decl :: (fn(
   ctx       : *(CodegenContext)
 ) -> Option(String))(
   match(type_val,
-    .Struct(name, field_labels, field_types) =>
+    .Struct(_, name, field_labels, field_types, _, _, _) =>
       .Some(generate_struct_decl(name, field_labels, field_types, module_id, type_id, ctx)),
 
-    .EnumT(name, variant_names, variant_fields) => cond(
+    .EnumT(_, name, variant_names, variant_fields, _, _, discs) => cond(
       all_unit_variants(variant_fields) =>
-        .Some(emit_simple_enum(name, variant_names, module_id, type_id, ctx)),
+        .Some(emit_simple_enum(name, variant_names, discs, module_id, type_id, ctx)),
       true =>
-        .Some(emit_data_enum(name, variant_names, variant_fields, module_id, type_id, ctx))
+        .Some(emit_data_enum(name, variant_names, variant_fields, discs, module_id, type_id, ctx))
     ),
 
     _ => Option(String).None

@@ -59,11 +59,16 @@ open import "std/fmt";
   t_f32, t_f64,
   t_usize, t_isize,
   t_comptime_int, t_comptime_float, t_comptime_string,
-  t_type }
+  t_type, t_expr_t }
   :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
-{ EvalValue, EvalResult, eval_result } :: import "./value.yo";
+{ EvalValue, EvalResult, eval_result,
+  is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref,
+  is_enum_val, is_func_val, is_return_val, is_type_val, is_struct_val, is_module_val,
+  is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val,
+  is_comptime_list_val, is_expr_val,
+  value_to_string } :: import "./value.yo";
 
 // ---------------------------------------------------------------------------
 // Module-level function pointer slot for evaluate (Phase 3j)
@@ -185,7 +190,17 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .ReturnVal(_, _) => true,
     .TypeVal(_)    => true,
     .StructVal(_, _, _) => true,
-    .ModuleVal(_, _) => true
+    .ModuleVal(_, _) => true,
+    // Phase 2h variants
+    .TupleVal(_)           => true,
+    .ArrayVal(_)           => true,
+    .SliceVal(_, _, _)     => true,
+    .PtrVal(_, _)          => true,
+    .TraitVal(_, _, _)     => true,
+    .ComptimeListVal(_)    => true,
+    .ExprVal(_)            => true,
+    // Phase 2u variants
+    .UnknownVal(_)         => true
   )
 );
 
@@ -194,8 +209,8 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
 /// `usize`, `str`, etc.). Returns `t_unit()` for complex types like `Option(T)`.
 eval_type_annotation_expr :: (fn(type_expr : AstExpr) -> TypeValue)(
   match(type_expr,
-    .Atom(tok) => type_from_name(tok.value.as_str()),
-    .FnCall(_, _, _, _) => t_unit()
+    .Atom(_, tok) => type_from_name(tok.value.as_str()),
+    .FnCall(_, _, _, _, _) => t_unit()
   )
 );
 
@@ -264,7 +279,17 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .ReturnVal(_, _) => t_unit(),
     .TypeVal(_)      => t_type(),
     .StructVal(_, _, _) => t_unit(),
-    .ModuleVal(_, _) => t_unit()
+    .ModuleVal(_, _) => t_unit(),
+    // Phase 2h variants
+    .TupleVal(_)        => t_unit(),
+    .ArrayVal(_)        => t_unit(),
+    .SliceVal(_, _, _)  => t_unit(),
+    .PtrVal(_, _)       => t_unit(),
+    .TraitVal(_, _, _)  => t_unit(),
+    .ComptimeListVal(_) => t_unit(),
+    .ExprVal(_)         => t_expr_t(),
+    // Phase 2u
+    .UnknownVal(ty)     => ty.*
   )
 );
 
@@ -283,7 +308,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
     // -----------------------------------------------------------------------
     // Atom patterns: wildcard `_` or bare variable binding
     // -----------------------------------------------------------------------
-    .Atom(ptok) =>
+    .Atom(_, ptok) =>
       cond(
         (ptok.value.as_str() == "_") =>
           true,
@@ -297,18 +322,18 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
     // -----------------------------------------------------------------------
     // FnCall patterns
     // -----------------------------------------------------------------------
-    .FnCall(pat_func, pat_args, _, _) =>
+    .FnCall(_, pat_func, pat_args, _, _) =>
       match(pat_func.*,
         // Fieldless variant: FnCall(Atom(Dot), [Atom("None")], _)
-        .Atom(dot_tok) =>
+        .Atom(_, dot_tok) =>
           cond(
             (dot_tok.kind != TokenKind.Dot) => false,
             true => {
               // variant name is pat_args[0]
               vname := match(pat_args.get(usize(0)),
                 .Some(vne) => match(vne,
-                  .Atom(vntok) => vntok.value.as_str(),
-                  .FnCall(_, _, _, _) => { return false; }
+                  .Atom(_, vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _, _) => { return false; }
                 ),
                 .None => { return false; }
               );
@@ -321,19 +346,19 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
           ),
 
         // Variant-with-args: FnCall(FnCall(Atom(Dot), [Atom("Some")], _), [x, …], false)
-        .FnCall(inner_dot_func, inner_dot_args, _, _) => {
+        .FnCall(_, inner_dot_func, inner_dot_args, _, _) => {
           // Verify inner func is a dot
           (is_dot : bool) = match(inner_dot_func.*,
-            .Atom(dt) => (dt.kind == TokenKind.Dot),
-            .FnCall(_, _, _, _) => false
+            .Atom(_, dt) => (dt.kind == TokenKind.Dot),
+            .FnCall(_, _, _, _, _) => false
           );
           cond(
             (!(is_dot)) => false,
             true => {
               vname := match(inner_dot_args.get(usize(0)),
                 .Some(vne) => match(vne,
-                  .Atom(vntok) => vntok.value.as_str(),
-                  .FnCall(_, _, _, _) => { return false; }
+                  .Atom(_, vntok) => vntok.value.as_str(),
+                  .FnCall(_, _, _, _, _) => { return false; }
                 ),
                 .None => { return false; }
               );
@@ -353,7 +378,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                             match(pat_args.get(i),
                               .Some(binding_expr) =>
                                 match(binding_expr,
-                                  .Atom(btok) =>
+                                  .Atom(_, btok) =>
                                     cond(
                                       (btok.value.as_str() == "_") => (),
                                       true => {
@@ -362,7 +387,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                                         ()
                                       }
                                     ),
-                                  .FnCall(_, _, _, _) => { ok = false; }
+                                  .FnCall(_, _, _, _, _) => { ok = false; }
                                 ),
                               .None => { ok = false; }
                             ),
@@ -625,8 +650,8 @@ handle_method_dispatch :: (fn(
   env              : *(Environment)
 ) -> Option(EvalResult))(
   match(method_func_box.*,
-    .FnCall(_, _, _, _) => Option(EvalResult).None,
-    .Atom(mtok) => {
+    .FnCall(_, _, _, _, _) => Option(EvalResult).None,
+    .Atom(_, mtok) => {
       mname := mtok.value.as_str();
       ty_nm := match(recv_val,
         .StructVal(tn, _, _) => tn.as_str(),
@@ -687,8 +712,8 @@ handle_impl_form :: (fn(
     .None => Option(EvalResult).None,
     .Some(ty_expr) =>
       match(ty_expr,
-        .FnCall(_, _, _, _) => Option(EvalResult).None,
-        .Atom(ty_tok) => {
+        .FnCall(_, _, _, _, _) => Option(EvalResult).None,
+        .Atom(_, ty_tok) => {
           ty_nm := ty_tok.value.as_str();
           n_margs := args.len();
           (mi : usize) = usize(1);
@@ -697,17 +722,17 @@ handle_impl_form :: (fn(
             match(args.get(mi),
               .Some(meth_expr) =>
                 match(meth_expr,
-                  .FnCall(colon_func, colon_args, colon_infix, _) => {
+                  .FnCall(_, colon_func, colon_args, colon_infix, _) => {
                     cond(
                       (colon_infix) =>
                         match(colon_func.*,
-                          .Atom(colon_tok) => {
+                          .Atom(_, colon_tok) => {
                             cond(
                               (colon_tok.value.as_str() == ":") => {
                                 match(colon_args.get(usize(0)),
                                   .Some(name_expr) =>
                                     match(name_expr,
-                                      .Atom(name_tok) => {
+                                      .Atom(_, name_tok) => {
                                         match(colon_args.get(usize(1)),
                                           .Some(fn_expr) => {
                                             match(match(g_eval_fn,
@@ -729,7 +754,7 @@ handle_impl_form :: (fn(
                                           .None => ()
                                         );
                                       },
-                                      .FnCall(_, _, _, _) => ()
+                                      .FnCall(_, _, _, _, _) => ()
                                     ),
                                   .None => ()
                                 );
@@ -737,7 +762,7 @@ handle_impl_form :: (fn(
                               true => ()
                             );
                           },
-                          .FnCall(_, _, _, _) => ()
+                          .FnCall(_, _, _, _, _) => ()
                         ),
                       true => ()
                     );
@@ -776,9 +801,9 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
       .Some(expr) =>
         match(expr,
           // export(name1, name2, …) — collect exported bindings
-          .FnCall(fb, fargs, _, _) =>
+          .FnCall(_, fb, fargs, _, _) =>
             match(fb.*,
-              .Atom(ftok) =>
+              .Atom(_, ftok) =>
                 cond(
                   (ftok.value.as_str() == BK_EXPORT) => {
                     j  := usize(0);
@@ -787,7 +812,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                       match(fargs.get(j),
                         .Some(export_expr) =>
                           match(export_expr,
-                            .Atom(name_tok) => {
+                            .Atom(_, name_tok) => {
                               match(env.*.lookup(String.from(name_tok.value.as_str())),
                                 .Some(var) => {
                                   exported_val := match(var.value,
@@ -800,7 +825,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                                 .None => { ok = false; }
                               );
                             },
-                            .FnCall(_, _, _, _) => { ok = false; }
+                            .FnCall(_, _, _, _, _) => { ok = false; }
                           ),
                         .None => { ok = false; }
                       );
@@ -818,7 +843,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                       .None => { ok = false; }
                     )
                 ),
-              .FnCall(_, _, _, _) =>
+              .FnCall(_, _, _, _, _) =>
                 // Complex func head — evaluate normally
                 match(g_eval_fn,
                   .Some(eval_fn) =>
@@ -830,7 +855,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                 )
             ),
           // Atom at module level — evaluate normally
-          .Atom(_) =>
+          .Atom(_, _) =>
             match(g_eval_fn,
               .Some(eval_fn) =>
                 match(eval_fn(expr, env),
@@ -950,20 +975,20 @@ extract_comptime_param_name :: (fn(
   ct_args : ArrayList(AstExpr)
 ) -> Option(String))(
   match(ct_box.*,
-    .Atom(ct_tok) =>
+    .Atom(_, ct_tok) =>
       cond(
         (ct_tok.value.as_str() == "comptime") =>
           match(ct_args.get(usize(0)),
             .Some(ct_name_e) =>
               match(ct_name_e,
-                .Atom(ct_name_tok) => .Some(ct_name_tok.value),
-                .FnCall(_, _, _, _) => Option(String).None
+                .Atom(_, ct_name_tok) => .Some(ct_name_tok.value),
+                .FnCall(_, _, _, _, _) => Option(String).None
               ),
             .None => Option(String).None
           ),
         true => Option(String).None
       ),
-    .FnCall(_, _, _, _) => Option(String).None
+    .FnCall(_, _, _, _, _) => Option(String).None
   )
 );
 
@@ -975,24 +1000,24 @@ extract_comptime_param_name :: (fn(
 /// For `using(name)` the inner expression is `Atom("name")` → returns `"name"`.
 extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
   match(ev_inner,
-    .FnCall(ev_kw_box, ev_kw_args, _, _) =>
+    .FnCall(_, ev_kw_box, ev_kw_args, _, _) =>
       match(ev_kw_box.*,
-        .Atom(ev_kw_tok) =>
+        .Atom(_, ev_kw_tok) =>
           cond(
             (ev_kw_tok.value.as_str() == ":") =>
               match(ev_kw_args.get(usize(0)),
                 .Some(ev_name_expr) =>
                   match(ev_name_expr,
-                    .Atom(ev_name_tok) => Option(String).Some(ev_name_tok.value),
-                    .FnCall(_, _, _, _) => Option(String).None
+                    .Atom(_, ev_name_tok) => Option(String).Some(ev_name_tok.value),
+                    .FnCall(_, _, _, _, _) => Option(String).None
                   ),
                 .None => Option(String).None
               ),
             true => Option(String).None
           ),
-        .FnCall(_, _, _, _) => Option(String).None
+        .FnCall(_, _, _, _, _) => Option(String).None
       ),
-    .Atom(ev_bare_tok) => Option(String).Some(ev_bare_tok.value)
+    .Atom(_, ev_bare_tok) => Option(String).Some(ev_bare_tok.value)
   )
 );
 
@@ -1020,10 +1045,10 @@ handle_using_call :: (fn(
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
 evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
   match(e,
-    .Atom(tok) =>
+    .Atom(_, tok) =>
       eval_atom(tok, env),
 
-    .FnCall(func_box, args, is_infix, _tok) =>
+    .FnCall(_, func_box, args, is_infix, _tok) =>
       match(func_box.*,
         // -----------------------------------------------------------------
         // Enum variant construction with args: .Some(42), .Ok(x), …
@@ -1034,16 +1059,16 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
         //   func_box.* = FnCall(Atom("->"), [FnCall(Atom("fn"), [...]), RetType], true)
         //   outer args = [body_expr]
         // -----------------------------------------------------------------
-        .FnCall(inner_func, inner_args, _, _) => 
+        .FnCall(_, inner_func, inner_args, _, _) => 
           match(inner_func.*,
-            .Atom(dt) =>
+            .Atom(_, dt) =>
               cond(
                 // ---- enum variant with args ----
                 (dt.kind == TokenKind.Dot) => {
                   vname := match(inner_args.get(usize(0)),
                     .Some(vne) => match(vne,
-                      .Atom(vntok) => vntok.value.as_str(),
-                      .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                      .Atom(_, vntok) => vntok.value.as_str(),
+                      .FnCall(_, _, _, _, _) => { return Option(EvalResult).None; }
                     ),
                     .None => { return Option(EvalResult).None; }
                   );
@@ -1075,12 +1100,12 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(fn_call_expr) =>
                       match(fn_call_expr,
-                        .Atom(_) => Option(EvalResult).None,
-                        .FnCall(fn_func_box, fn_params_list, _, _) => {
+                        .Atom(_, _) => Option(EvalResult).None,
+                        .FnCall(_, fn_func_box, fn_params_list, _, _) => {
                           // Verify func_box is `fn` atom
                           ok_fn := match(fn_func_box.*,
-                            .Atom(fntok) => (fntok.value.as_str() == "fn"),
-                            .FnCall(_, _, _, _) => false
+                            .Atom(_, fntok) => (fntok.value.as_str() == "fn"),
+                            .FnCall(_, _, _, _, _) => false
                           );
                           cond(
                             (!(ok_fn)) => Option(EvalResult).None,
@@ -1109,29 +1134,29 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 match(fn_params_list.get(pi),
                                   .Some(pd) =>
                                     match(pd,
-                                      .FnCall(kw_box, kw_args, _, _) =>
+                                      .FnCall(_, kw_box, kw_args, _, _) =>
                                         match(kw_box.*,
-                                          .Atom(kw_tok) =>
+                                          .Atom(_, kw_tok) =>
                                             cond(
                                               (kw_tok.value.as_str() == ":") =>
                                                 // Value param: extract name + type annotation
                                                 match(kw_args.get(usize(0)),
                                                   .Some(name_expr) =>
                                                     match(name_expr,
-                                                      .Atom(name_tok) => {
+                                                      .Atom(_, name_tok) => {
                                                         params_f.push(name_tok.value);
                                                         // Capture simple identifier type annotation
                                                         ptn_s := match(kw_args.get(usize(1)),
                                                           .Some(te) =>
                                                             match(te,
-                                                              .Atom(type_tok) => type_tok.value.as_str(),
-                                                              .FnCall(_, _, _, _) => ""
+                                                              .Atom(_, type_tok) => type_tok.value.as_str(),
+                                                              .FnCall(_, _, _, _, _) => ""
                                                             ),
                                                           .None => ""
                                                         );
                                                         param_type_names_f.push(String.from(ptn_s));
                                                       },
-                                                      .FnCall(ct_box, ct_args, _, _) =>
+                                                      .FnCall(_, ct_box, ct_args, _, _) =>
                                                         match(extract_comptime_param_name(ct_box, ct_args),
                                                           .Some(ct_name) => {
                                                             params_f.push(ct_name);
@@ -1148,28 +1173,28 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                   .Some(fa_expr) =>
                                                     match(fa_expr,
                                                       // Simple: forall(T)
-                                                      .Atom(fa_tok) => {
+                                                      .Atom(_, fa_tok) => {
                                                         forall_names_f.push(fa_tok.value);
                                                       },
                                                       // Constrained: forall(T: Constraint)
-                                                      .FnCall(fa_c_box, fa_c_args, _, _) =>
+                                                      .FnCall(_, fa_c_box, fa_c_args, _, _) =>
                                                         match(fa_c_box.*,
-                                                          .Atom(fa_c_tok) =>
+                                                          .Atom(_, fa_c_tok) =>
                                                             cond(
                                                               (fa_c_tok.value.as_str() == ":") =>
                                                                 match(fa_c_args.get(usize(0)),
                                                                   .Some(fa_name_e) =>
                                                                     match(fa_name_e,
-                                                                      .Atom(fa_name_tok) => {
+                                                                      .Atom(_, fa_name_tok) => {
                                                                         forall_names_f.push(fa_name_tok.value);
                                                                       },
-                                                                      .FnCall(_, _, _, _) => ()
+                                                                      .FnCall(_, _, _, _, _) => ()
                                                                     ),
                                                                   .None => ()
                                                                 ),
                                                               true => ()
                                                             ),
-                                                          .FnCall(_, _, _, _) => ()
+                                                          .FnCall(_, _, _, _, _) => ()
                                                         )
                                                     ),
                                                   .None => { param_ok = false; }
@@ -1190,9 +1215,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                               // where/other — skip
                                               true => ()
                                             ),
-                                          .FnCall(_, _, _, _) => { param_ok = false; }
+                                          .FnCall(_, _, _, _, _) => { param_ok = false; }
                                         ),
-                                      .Atom(bare_tok) => {
+                                      .Atom(_, bare_tok) => {
                                         params_f.push(bare_tok.value);
                                         param_type_names_f.push(String.from(""));
                                       }
@@ -1269,10 +1294,10 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
 
                 true => Option(EvalResult).None
               ),
-            .FnCall(_, _, _, _) => Option(EvalResult).None
+            .FnCall(_, _, _, _, _) => Option(EvalResult).None
           )
         ,
-        .Atom(ftok) => {
+        .Atom(_, ftok) => {
           fval := ftok.value.as_str();
           cond(
             // -----------------------------------------------------------------
@@ -1332,7 +1357,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 match(args.get(i),
                   .Some(arm) =>
                     match(arm,
-                      .FnCall(_, arm_args, _, _) =>
+                      .FnCall(_, _, arm_args, _, _) =>
                         match(arm_args.get(usize(0)),
                           .Some(cond_expr) =>
                             match(recur(cond_expr, env),
@@ -1357,7 +1382,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                             ),
                           .None => ()
                         ),
-                      .Atom(_) => ()
+                      .Atom(_, _) => ()
                     ),
                   .None => ()
                 );
@@ -1379,7 +1404,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         .Some(rhs) =>
                           match(lhs,
                             // bare name: x := rhs  (type inferred from rhs)
-                            .Atom(name_tok) =>
+                            .Atom(_, name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
                                   is_ct := value_is_comptime(rhs_res.value);
@@ -1394,15 +1419,15 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 .None => Option(EvalResult).None
                               ),
                             // typed: (x : T) := rhs  — declare with explicit type
-                            .FnCall(colon_box_a, colon_args_a, _, _) =>
+                            .FnCall(_, colon_box_a, colon_args_a, _, _) =>
                               match(colon_box_a.*,
-                                .Atom(colon_tok_a) =>
+                                .Atom(_, colon_tok_a) =>
                                   cond(
                                     (colon_tok_a.value.as_str() == ":") =>
                                       match(colon_args_a.get(usize(0)),
                                         .Some(name_expr_a) =>
                                           match(name_expr_a,
-                                            .Atom(name_tok_a) =>
+                                            .Atom(_, name_tok_a) =>
                                               match(recur(rhs, env),
                                                 .Some(rhs_res) => {
                                                   decl_ty := match(colon_args_a.get(usize(1)),
@@ -1415,13 +1440,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                 },
                                                 .None => Option(EvalResult).None
                                               ),
-                                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                                            .FnCall(_, _, _, _, _) => Option(EvalResult).None
                                           ),
                                         .None => Option(EvalResult).None
                                       ),
                                     true => Option(EvalResult).None
                                   ),
-                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                                .FnCall(_, _, _, _, _) => Option(EvalResult).None
                               )
                           ),
                         .None => Option(EvalResult).None
@@ -1443,7 +1468,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         .Some(rhs) =>
                           match(lhs,
                             // bare name: x = rhs  (mutation of existing binding)
-                            .Atom(name_tok) =>
+                            .Atom(_, name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
                                   _found := env.set_value(
@@ -1455,15 +1480,15 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 .None => Option(EvalResult).None
                               ),
                             // typed: (x : T) = rhs  — typed variable declaration
-                            .FnCall(colon_box_b, colon_args_b, _, _) =>
+                            .FnCall(_, colon_box_b, colon_args_b, _, _) =>
                               match(colon_box_b.*,
-                                .Atom(colon_tok_b) =>
+                                .Atom(_, colon_tok_b) =>
                                   cond(
                                     (colon_tok_b.value.as_str() == ":") =>
                                       match(colon_args_b.get(usize(0)),
                                         .Some(name_expr_b) =>
                                           match(name_expr_b,
-                                            .Atom(name_tok_b) =>
+                                            .Atom(_, name_tok_b) =>
                                               match(recur(rhs, env),
                                                 .Some(rhs_res) => {
                                                   decl_ty := match(colon_args_b.get(usize(1)),
@@ -1476,13 +1501,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                 },
                                                 .None => Option(EvalResult).None
                                               ),
-                                            .FnCall(_, _, _, _) => Option(EvalResult).None
+                                            .FnCall(_, _, _, _, _) => Option(EvalResult).None
                                           ),
                                         .None => Option(EvalResult).None
                                       ),
                                     true => Option(EvalResult).None
                                   ),
-                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                                .FnCall(_, _, _, _, _) => Option(EvalResult).None
                               )
                           ),
                         .None => Option(EvalResult).None
@@ -1679,7 +1704,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .StructVal(_, fnames, fvals) =>
                       match(rhs,
                         // Field access: receiver.field_name
-                        .Atom(field_tok) => {
+                        .Atom(_, field_tok) => {
                           field_name := field_tok.value.as_str();
                           n_f := fnames.len();
                           (fi : usize) = usize(0);
@@ -1712,7 +1737,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         },
                         // Method call on struct: receiver.method(args)  — Phase 3j
                         // Delegated to handle_method_dispatch to keep evaluate's frame small.
-                        .FnCall(method_func_box, method_call_args, _, _) =>
+                        .FnCall(_, method_func_box, method_call_args, _, _) =>
                           handle_method_dispatch(recv_res.value, method_func_box, method_call_args, env),
                         _ => Option(EvalResult).None
                       ),
@@ -1729,17 +1754,17 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .Some(vne) =>
                       match(vne,
                         // Fieldless: .None, .True, etc. — Atom arg
-                        .Atom(vntok) => {
+                        .Atom(_, vntok) => {
                           variant_str := `.${ vntok.value }`;
                           ev_fields := ArrayList(EvalValue).new();
                           .Some(eval_result(.EnumVal(variant_str, ev_fields), t_unit()))
                         },
                         // With fields — self-hosted format: .Some(42) etc.
                         // FnCall(Atom(Dot), [FnCall(Atom("Some"), [Atom("42")], false)], false)
-                        .FnCall(vfunc, vargs, _, _) => {
+                        .FnCall(_, vfunc, vargs, _, _) => {
                           vname := match(vfunc.*,
-                            .Atom(vntok) => vntok.value.as_str(),
-                            .FnCall(_, _, _, _) => { return Option(EvalResult).None; }
+                            .Atom(_, vntok) => vntok.value.as_str(),
+                            .FnCall(_, _, _, _, _) => { return Option(EvalResult).None; }
                           );
                           variant_str := `.${ String.from(vname) }`;
                           ev_fields := ArrayList(EvalValue).new();
@@ -1790,9 +1815,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           .Some(arm_expr) =>
                             match(arm_expr,
                               // Each arm: FnCall(Atom("=>"), [pattern, body], _)
-                              .FnCall(arrow_func, arm_sub, _, _) =>
+                              .FnCall(_, arrow_func, arm_sub, _, _) =>
                                 match(arrow_func.*,
-                                  .Atom(arrtok) =>
+                                  .Atom(_, arrtok) =>
                                     cond(
                                       (!(arrtok.value.as_str() == "=>")) => (),
                                       true => {
@@ -1827,9 +1852,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                         );
                                       }
                                     ),
-                                  .FnCall(_, _, _, _) => ()
+                                  .FnCall(_, _, _, _, _) => ()
                                 ),
-                              .Atom(_) => ()
+                              .Atom(_, _) => ()
                             ),
                           .None => ()
                         );
@@ -1856,9 +1881,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .Some(body_expr) => {
                       // Unwrap `runtime(cond_inner)` wrapper if present
                       cond_expr := match(raw_cond,
-                        .FnCall(rt_func, rt_args, _, _) =>
+                        .FnCall(_, rt_func, rt_args, _, _) =>
                           match(rt_func.*,
-                            .Atom(rttok) =>
+                            .Atom(_, rttok) =>
                               cond(
                                 (rttok.value.as_str() == "runtime") =>
                                   match(rt_args.get(usize(0)),
@@ -1867,9 +1892,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                   ),
                                 true => raw_cond
                               ),
-                            .FnCall(_, _, _, _) => raw_cond
+                            .FnCall(_, _, _, _, _) => raw_cond
                           ),
-                        .Atom(_) => raw_cond
+                        .Atom(_, _) => raw_cond
                       );
                       (last : EvalResult) = eval_result(.UnitVal, t_unit());
                       (keep_going : bool) = true;
@@ -2008,7 +2033,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         .Some(rhs) =>
                           match(lhs,
                             // Simple: name :: rhs
-                            .Atom(name_tok) =>
+                            .Atom(_, name_tok) =>
                               match(recur(rhs, env),
                                 .Some(rhs_res) => {
                                   _idx := env.define_val(
@@ -2022,9 +2047,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 .None => Option(EvalResult).None
                               ),
                             // Destructuring: { A, B, … } :: rhs (anon-struct LHS)
-                            .FnCall(lhs_fb, lhs_args, _, _) =>
+                            .FnCall(_, lhs_fb, lhs_args, _, _) =>
                               match(lhs_fb.*,
-                                .Atom(lhs_tok) =>
+                                .Atom(_, lhs_tok) =>
                                   cond(
                                     (lhs_tok.value.as_str() == BK_ANON_STRUCT) =>
                                       match(recur(rhs, env),
@@ -2039,7 +2064,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                 match(lhs_args.get(di),
                                                   .Some(name_expr) =>
                                                     match(name_expr,
-                                                      .Atom(req_tok) => {
+                                                      .Atom(_, req_tok) => {
                                                         // Find the requested name in the module
                                                         (dj : usize) = usize(0);
                                                         dm := mnames.len();
@@ -2073,7 +2098,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                           true => ()
                                                         );
                                                       },
-                                                      .FnCall(_, _, _, _) => { dok = false; }
+                                                      .FnCall(_, _, _, _, _) => { dok = false; }
                                                     ),
                                                   .None => { dok = false; }
                                                 );
@@ -2090,7 +2115,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                       ),
                                     true => Option(EvalResult).None
                                   ),
-                                .FnCall(_, _, _, _) => Option(EvalResult).None
+                                .FnCall(_, _, _, _, _) => Option(EvalResult).None
                               )
                           ),
                         .None => Option(EvalResult).None
@@ -2115,7 +2140,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
               match(args.get(usize(0)),
                 .Some(path_expr) =>
                   match(path_expr,
-                    .Atom(path_tok) => {
+                    .Atom(_, path_tok) => {
                       raw := path_tok.value.as_str();
                       rn  := raw.len();
                       cond(
@@ -2134,7 +2159,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         }
                       )
                     },
-                    .FnCall(_, _, _, _) => Option(EvalResult).None
+                    .FnCall(_, _, _, _, _) => Option(EvalResult).None
                   ),
                 .None => Option(EvalResult).None
               ),
@@ -2209,16 +2234,16 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
               is_struct_ctor := match(args.get(usize(0)),
                 .Some(a0) =>
                   match(a0,
-                    .FnCall(a0f, _, a0infix, _) =>
+                    .FnCall(_, a0f, _, a0infix, _) =>
                       cond(
                         a0infix =>
                           match(a0f.*,
-                            .Atom(a0tok) => (a0tok.value.as_str() == ":"),
-                            .FnCall(_, _, _, _) => false
+                            .Atom(_, a0tok) => (a0tok.value.as_str() == ":"),
+                            .FnCall(_, _, _, _, _) => false
                           ),
                         true => false
                       ),
-                    .Atom(_) => false
+                    .Atom(_, _) => false
                   ),
                 .None => false
               );
@@ -2233,11 +2258,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     match(args.get(si),
                       .Some(arg_e) =>
                         match(arg_e,
-                          .FnCall(_, na, _, _) =>
+                          .FnCall(_, _, na, _, _) =>
                             match(na.get(usize(0)),
                               .Some(ne) =>
                                 match(ne,
-                                  .Atom(ntok) =>
+                                  .Atom(_, ntok) =>
                                     match(na.get(usize(1)),
                                       .Some(ve) =>
                                         match(recur(ve, env),
@@ -2249,11 +2274,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                         ),
                                       .None => { sok = false; }
                                     ),
-                                  .FnCall(_, _, _, _) => { sok = false; }
+                                  .FnCall(_, _, _, _, _) => { sok = false; }
                                 ),
                               .None => { sok = false; }
                             ),
-                          .Atom(_) => { sok = false; }
+                          .Atom(_, _) => { sok = false; }
                         ),
                       .None => { sok = false; }
                     );

@@ -24,7 +24,7 @@ open import "std/fmt";
 { AstExpr }       :: import "./expr/expr.yo";
 { TokenKind }     :: import "./lexer/token.yo";
 { parse }         :: import "./parser/parser.yo";
-{ compile_module_to_c, compile_test_body_to_c } :: import "./codegen/driver.yo";
+{ compile_module_to_c, compile_test_body_to_c, extract_import_path } :: import "./codegen/driver.yo";
 
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -42,19 +42,19 @@ module_id_from_path :: (fn(path : String) -> String)(
 /// Returns None if the expression is not a 2-arg test call.
 extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
   match(expr,
-    .Atom(_) => Option(String).None,
-    .FnCall(func_box, fn_args, is_infix, _) => cond(
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, func_box, fn_args, is_infix, _) => cond(
       (is_infix) => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       (!(match(func_box.*,
-        .Atom(ftok) => (ftok.value.as_str() == "test"),
-        .FnCall(_, _, _, _) => false
+        .Atom(_, ftok) => (ftok.value.as_str() == "test"),
+        .FnCall(_, _, _, _, _) => false
       ))) => Option(String).None,
       true => match(fn_args.get(usize(0)),
         .None => Option(String).None,
         .Some(name_expr) => match(name_expr,
-          .FnCall(_, _, _, _) => Option(String).None,
-          .Atom(ntok) => cond(
+          .FnCall(_, _, _, _, _) => Option(String).None,
+          .Atom(_, ntok) => cond(
             (ntok.kind == TokenKind.StringLit) => {
               // StringLit token values include surrounding double-quotes: "name"
               // Strip them with substring(1, len-1).
@@ -76,13 +76,122 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
 /// Returns the second argument (the body expression).
 extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
   match(expr,
-    .Atom(_) => Option(AstExpr).None,
-    .FnCall(_, fn_args, _, _) => cond(
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, _, fn_args, _, _) => cond(
       (fn_args.len() < usize(2)) => Option(AstExpr).None,
       true => fn_args.get(usize(1))
     )
   )
 );
+
+// ---------------------------------------------------------------------------
+// Phase 5g: import resolution helpers
+// ---------------------------------------------------------------------------
+
+/// Normalize an import path: append `.yo` if not already present.
+normalize_import_path :: (fn(path_str : str) -> String)(
+  cond(
+    (String.from(path_str).ends_with(String.from(".yo"))) => String.from(path_str),
+    true => `${path_str}.yo`
+  )
+);
+
+/// Recursively collect all transitive module declarations for a given import.
+///
+/// - `path_str`: unquoted import path (e.g. `"../types/tags.yo"`)
+/// - `base_dir`: directory of the importing file (for relative path resolution)
+/// - `visited`: pointer to set of already-visited absolute paths (deduplication)
+/// - `all_exprs`: pointer to accumulator; declarations are appended in post-order
+///
+/// Skips `std/` imports — those are provided by the C preamble headers.
+/// Uses DFS post-order so each module's dependencies appear before it.
+collect_module_deps :: (fn(
+  path_str  : str,
+  base_dir  : str,
+  visited   : *(ArrayList(String)),
+  all_exprs : *(ArrayList(AstExpr)),
+  using(io : IO, exn : Exception)
+) -> unit)({
+  // Skip standard library imports (handled via C preamble)
+  if(String.from(path_str).starts_with(String.from("std/")), {
+    return ();
+  });
+
+  // Normalize extension: append .yo if missing
+  norm_path := normalize_import_path(path_str);
+
+  // Resolve absolute path by normalizing base_dir/norm_path as one string.
+  // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
+  // (Path.join does NOT re-normalize ".." in the second argument.)
+  abs_path := Path.new(`${base_dir}/${norm_path.as_str()}`).to_string();
+
+  // Deduplication: skip if already visited (also handles import cycles)
+  nv := visited.*.len();
+  (iv : usize) = usize(0);
+  (already_visited : bool) = false;
+  while runtime(((iv < nv) && (!(already_visited)))), {
+    iv = (iv + usize(1));
+    match(visited.*.get((iv - usize(1))),
+      .None => (),
+      .Some(v) => {
+        if((v.as_str() == abs_path.as_str()), {
+          already_visited = true;
+        });
+      }
+    );
+  };
+  if(already_visited, {
+    return ();
+  });
+
+  // Mark as visited before recursing (prevents infinite loops on cycles)
+  visited.*.push(String.from(abs_path.as_str()));
+
+  // Compute the base directory of the imported module for recursive resolution
+  mod_base_dir := match(Path.new(String.from(abs_path.as_str())).parent(),
+    .None => String.from("."),
+    .Some(p) => p.to_string()
+  );
+
+  // Read and parse the imported module
+  src_bytes := io.await(read_file(Path.new(abs_path)));
+  src := String.from_bytes(src_bytes);
+  mod_exprs := parse(src, String.from(mod_base_dir.as_str()), using(exn));
+
+  // Recursively collect dependencies of this module first (post-order DFS)
+  nm := mod_exprs.len();
+  (im : usize) = usize(0);
+  while runtime((im < nm)), {
+    im = (im + usize(1));
+    match(mod_exprs.get((im - usize(1))),
+      .None => (),
+      .Some(e) => match(extract_import_path(e),
+        .None => (),
+        .Some(child_path) => {
+          recur(
+            child_path.as_str(),
+            mod_base_dir.as_str(),
+            visited,
+            all_exprs,
+            using(io, exn)
+          );
+        }
+      )
+    );
+  };
+
+  // Append this module's declarations to all_exprs (after its deps)
+  (im = usize(0));
+  while runtime((im < nm)), {
+    im = (im + usize(1));
+    match(mod_exprs.get((im - usize(1))),
+      .None => (),
+      .Some(e) => {
+        all_exprs.*.push(e);
+      }
+    );
+  };
+});
 
 /// Run the `compile` subcommand.
 run_compile :: (fn(
@@ -127,6 +236,7 @@ run_compile :: (fn(
   // Compile C with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
+  cc.arg(`-w`);
   cc.arg(`-o`);
   cc.arg(output_path);
   st := io.await(cc.status());
@@ -163,6 +273,57 @@ run_test :: (fn(
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path, using(exn));
 
+  // Phase 5g: resolve transitive imports and collect all module declarations.
+  // dep_exprs will contain declarations from all transitively imported modules,
+  // in post-order (dependencies before dependents) for correct C ordering.
+  visited   := ArrayList(String).new();
+  dep_exprs := ArrayList(AstExpr).new();
+  input_base_dir := match(Path.new(String.from(input_path.as_str())).parent(),
+    .None => String.from("."),
+    .Some(p) => p.to_string()
+  );
+  (nip : usize) = exprs.len();
+  (iip : usize) = usize(0);
+  while runtime((iip < nip)), {
+    iip = (iip + usize(1));
+    match(exprs.get((iip - usize(1))),
+      .None => (),
+      .Some(e) => match(extract_import_path(e),
+        .None => (),
+        .Some(imp_path) => {
+          collect_module_deps(
+            imp_path.as_str(),
+            input_base_dir.as_str(),
+            &(visited),
+            &(dep_exprs),
+            using(io, exn)
+          );
+        }
+      )
+    );
+  };
+
+  // Build all_module_exprs: dep declarations first, then test file declarations.
+  all_module_exprs := ArrayList(AstExpr).new();
+  (ndep : usize) = dep_exprs.len();
+  (idep : usize) = usize(0);
+  while runtime((idep < ndep)), {
+    idep = (idep + usize(1));
+    match(dep_exprs.get((idep - usize(1))),
+      .None => (),
+      .Some(e) => { all_module_exprs.push(e); }
+    );
+  };
+  (nexp : usize) = exprs.len();
+  (iexp : usize) = usize(0);
+  while runtime((iexp < nexp)), {
+    iexp = (iexp + usize(1));
+    match(exprs.get((iexp - usize(1))),
+      .None => (),
+      .Some(e) => { all_module_exprs.push(e); }
+    );
+  };
+
   // Extract all test declarations
   n := exprs.len();
   (i : usize) = usize(0);
@@ -186,8 +347,8 @@ run_test :: (fn(
             match(extract_test_body(expr),
               .None => (),
               .Some(body) => {
-                // Generate C for this test body
-                c_src := compile_test_body_to_c(body, "test_module", exprs);
+                // Generate C for this test body (includes all imported declarations)
+                c_src := compile_test_body_to_c(body, "test_module", all_module_exprs);
 
                 // Write to temp C file
                 io.await(write_file(Path.new(String.from(C_TMP)), c_src));
@@ -195,6 +356,7 @@ run_test :: (fn(
                 // Compile with cc
                 cc := Command.new(`cc`);
                 cc.arg(String.from(C_TMP));
+                cc.arg(`-w`);
                 cc.arg(`-o`);
                 cc.arg(String.from(TEST_BIN_TMP));
                 compile_st := io.await(cc.status());

@@ -17,7 +17,7 @@
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
-{ AstExpr }           :: import "../expr/expr.yo";
+{ AstExpr, BK_IMPORT, BK_OPEN } :: import "../expr/expr.yo";
 { TokenKind }         :: import "../lexer/token.yo";
 { CodegenContext }    :: import "./context.yo";
 { type_expr_to_c }    :: import "./exprs.yo";
@@ -75,12 +75,12 @@ EnumDef :: struct(
 /// Check whether `func_expr` is an infix `->` operator FnCall.
 is_arrow_op :: (fn(func_expr : AstExpr) -> bool)(
   match(func_expr,
-    .Atom(_)                              => false,
-    .FnCall(inner_func, _, is_infix, _) => cond(
+    .Atom(_, _)                              => false,
+    .FnCall(_, inner_func, _, is_infix, _) => cond(
       (!(is_infix)) => false,
       true          => match(inner_func.*,
-        .Atom(ftok) => (ftok.value.as_str() == "->"),
-        .FnCall(_, _, _, _) => false
+        .Atom(_, ftok) => (ftok.value.as_str() == "->"),
+        .FnCall(_, _, _, _, _) => false
       )
     )
   )
@@ -89,11 +89,11 @@ is_arrow_op :: (fn(func_expr : AstExpr) -> bool)(
 /// Return the identifier string if `expr` is an Identifier Atom, else None.
 atom_ident :: (fn(expr : AstExpr) -> Option(str))(
   match(expr,
-    .Atom(tok) => cond(
+    .Atom(_, tok) => cond(
       (tok.kind == TokenKind.Identifier) => .Some(tok.value.as_str()),
       true                               => Option(str).None
     ),
-    .FnCall(_, _, _, _) => Option(str).None
+    .FnCall(_, _, _, _, _) => Option(str).None
   )
 );
 
@@ -115,12 +115,12 @@ atom_ident :: (fn(expr : AstExpr) -> Option(str))(
 extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
   // Step 1: must be an infix `::` FnCall with exactly 2 args.
   match(expr,
-    .Atom(_) => Option(FnDef).None,
-    .FnCall(top_func, top_args, top_infix, _) => cond(
+    .Atom(_, _) => Option(FnDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
       (!(top_infix)) => Option(FnDef).None,
       true => match(top_func.*,
-        .FnCall(_, _, _, _) => Option(FnDef).None,
-        .Atom(ttok) => cond(
+        .FnCall(_, _, _, _, _) => Option(FnDef).None,
+        .Atom(_, ttok) => cond(
           (ttok.value.as_str() != "::") => Option(FnDef).None,
           (top_args.len() != usize(2))  => Option(FnDef).None,
           true => {
@@ -141,18 +141,18 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
             );
 
             match(fn_app,
-              .Atom(_) => Option(FnDef).None,
-              .FnCall(app_func, app_args, _, _) => cond(
+              .Atom(_, _) => Option(FnDef).None,
+              .FnCall(_, app_func, app_args, _, _) => cond(
                 // The fn type must be `->` infix.
                 (!(is_arrow_op(app_func.*))) => Option(FnDef).None,
                 true => match(app_func.*,
-                  .Atom(_) => Option(FnDef).None,
-                  .FnCall(arrow_func, arrow_args, _, _) => {
+                  .Atom(_, _) => Option(FnDef).None,
+                  .FnCall(_, arrow_func, arrow_args, _, _) => {
                     // arrow_args[0] = FnCall(Atom("fn"), params_list)
                     // arrow_args[1] = return type expression
                     (ignore : str) = match(arrow_func.*,
-                      .Atom(_) => "",
-                      .FnCall(_, _, _, _) => ""
+                      .Atom(_, _) => "",
+                      .FnCall(_, _, _, _, _) => ""
                     );
                     (ignore);
 
@@ -173,11 +173,11 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 
                     // fn_expr must be FnCall(Atom("fn"), params)
                     params_list := match(fn_expr,
-                      .Atom(_) => { return Option(FnDef).None; },
-                      .FnCall(fn_func, fn_params, _, _) => cond(
+                      .Atom(_, _) => { return Option(FnDef).None; },
+                      .FnCall(_, fn_func, fn_params, _, _) => cond(
                         (!(match(fn_func.*,
-                          .Atom(fntok) => (fntok.value.as_str() == "fn"),
-                          .FnCall(_, _, _, _) => false
+                          .Atom(_, fntok) => (fntok.value.as_str() == "fn"),
+                          .FnCall(_, _, _, _, _) => false
                         ))) => { return Option(FnDef).None; },
                         true => fn_params
                       )
@@ -199,16 +199,16 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                         .None => (),
                         .Some(param_expr) => match(param_expr,
                           // bare Atom identifier → untyped param (void*)
-                          .Atom(ptok) => cond(
+                          .Atom(_, ptok) => cond(
                             (ptok.kind == TokenKind.Identifier) => {
                               out_params.push(String.from(ptok.value.as_str()));
                               out_param_tys.push(String.from("void*"));
                             },
                             true => ()
                           ),
-                          .FnCall(pf, pargs, pinfix, _) => match(pf.*,
-                            .FnCall(_, _, _, _) => (),
-                            .Atom(pftok) => cond(
+                          .FnCall(_, pf, pargs, pinfix, _) => match(pf.*,
+                            .FnCall(_, _, _, _, _) => (),
+                            .Atom(_, pftok) => cond(
                               // typed param:  FnCall(Atom(":"), [name, type], true)
                               ((pftok.value.as_str() == ":") && pinfix) => {
                                 p_name := match(pargs.get(usize(0)),
@@ -237,10 +237,10 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                 .Some(using_inner) => {
                                 ev_name := match(using_inner,
                                   // using(name) — bare evidence reference
-                                  .Atom(utok) => utok.value.as_str(),
+                                  .Atom(_, utok) => utok.value.as_str(),
                                   // using(name : Type) — typed evidence
-                                  .FnCall(uf, uargs, _, _) => match(uf.*,
-                                    .Atom(uftok) => cond(
+                                  .FnCall(_, uf, uargs, _, _) => match(uf.*,
+                                    .Atom(_, uftok) => cond(
                                       (uftok.value.as_str() == ":") => match(uargs.get(usize(0)),
                                         .Some(une) => match(atom_ident(une),
                                           .Some(n) => n,
@@ -250,7 +250,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                       ),
                                       true => "ev"
                                     ),
-                                    .FnCall(_, _, _, _) => "ev"
+                                    .FnCall(_, _, _, _, _) => "ev"
                                   )
                                 );
                                 ev_param_name := `ev_${ String.from(ev_name) }`;
@@ -306,12 +306,12 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 /// ```
 extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
   match(expr,
-    .Atom(_) => Option(StructDef).None,
-    .FnCall(top_func, top_args, top_infix, _) => cond(
+    .Atom(_, _) => Option(StructDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
       (!(top_infix)) => Option(StructDef).None,
       true => match(top_func.*,
-        .FnCall(_, _, _, _) => Option(StructDef).None,
-        .Atom(op_tok) => cond(
+        .FnCall(_, _, _, _, _) => Option(StructDef).None,
+        .Atom(_, op_tok) => cond(
           (!(op_tok.value.as_str() == "::")) => Option(StructDef).None,
           (top_args.len() < usize(2)) => Option(StructDef).None,
           true => match(top_args.get(usize(0)),
@@ -321,13 +321,13 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
               .Some(name_str) => match(top_args.get(usize(1)),
                 .None => Option(StructDef).None,
                 .Some(rhs) => match(rhs,
-                  .Atom(_) => Option(StructDef).None,
-                  .FnCall(rhs_func, rhs_args, rhs_infix, _) => cond(
+                  .Atom(_, _) => Option(StructDef).None,
+                  .FnCall(_, rhs_func, rhs_args, rhs_infix, _) => cond(
                     // rhs must be a non-infix call to "struct"
                     (rhs_infix) => Option(StructDef).None,
                     true => match(rhs_func.*,
-                      .FnCall(_, _, _, _) => Option(StructDef).None,
-                      .Atom(rhs_tok) => cond(
+                      .FnCall(_, _, _, _, _) => Option(StructDef).None,
+                      .Atom(_, rhs_tok) => cond(
                         (!(rhs_tok.value.as_str() == "struct")) => Option(StructDef).None,
                         true => {
                           // Extract field names and C types from the struct args.
@@ -340,12 +340,12 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                             match(rhs_args.get(fi - usize(1)),
                               .None => (),
                               .Some(field_expr) => match(field_expr,
-                                .Atom(_) => (),
-                                .FnCall(ff, fa, f_infix, _) => cond(
+                                .Atom(_, _) => (),
+                                .FnCall(_, ff, fa, f_infix, _) => cond(
                                   (!(f_infix)) => (),
                                   true => match(ff.*,
-                                    .FnCall(_, _, _, _) => (),
-                                    .Atom(ftok) => cond(
+                                    .FnCall(_, _, _, _, _) => (),
+                                    .Atom(_, ftok) => cond(
                                       (!(ftok.value.as_str() == ":")) => (),
                                       (fa.len() < usize(2)) => (),
                                       true => match(fa.get(usize(0)),
@@ -433,13 +433,13 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
 /// where each variant is an Identifier Atom.
 extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
   match(expr,
-    .Atom(_) => Option(EnumDef).None,
-    .FnCall(top_func, top_args, top_infix, _) => cond(
+    .Atom(_, _) => Option(EnumDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
       (!(top_infix)) => Option(EnumDef).None,
       (top_args.len() < usize(2)) => Option(EnumDef).None,
       true => match(top_func.*,
-        .FnCall(_, _, _, _) => Option(EnumDef).None,
-        .Atom(op_tok) => cond(
+        .FnCall(_, _, _, _, _) => Option(EnumDef).None,
+        .Atom(_, op_tok) => cond(
           (!(op_tok.value.as_str() == "::")) => Option(EnumDef).None,
           true => match(top_args.get(usize(0)),
             .None => Option(EnumDef).None,
@@ -448,12 +448,12 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
               .Some(name_str) => match(top_args.get(usize(1)),
                 .None => Option(EnumDef).None,
                 .Some(rhs) => match(rhs,
-                  .Atom(_) => Option(EnumDef).None,
-                  .FnCall(rhs_func, rhs_args, rhs_infix, _) => cond(
+                  .Atom(_, _) => Option(EnumDef).None,
+                  .FnCall(_, rhs_func, rhs_args, rhs_infix, _) => cond(
                     (rhs_infix) => Option(EnumDef).None,
                     true => match(rhs_func.*,
-                      .FnCall(_, _, _, _) => Option(EnumDef).None,
-                      .Atom(rhs_tok) => cond(
+                      .FnCall(_, _, _, _, _) => Option(EnumDef).None,
+                      .Atom(_, rhs_tok) => cond(
                         (!(rhs_tok.value.as_str() == "enum")) => Option(EnumDef).None,
                         true => {
                           variants := ArrayList(String).new();
@@ -490,7 +490,9 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
 /// ```c
 /// typedef enum { Color_Red, Color_Green, Color_Blue } Color;
 /// ```
-/// Also registers the enum name in the context so dot-access is rewritten.
+/// Also registers the enum name and each variant in the context so that:
+/// - `EnumName.Variant` dot-access is rewritten to `EnumName_Variant`
+/// - bare `.Variant` patterns in match arms are resolved to `EnumName_Variant`
 emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.register_enum(String.from(ed.name.as_str()));
   line := String.from("typedef enum { ");
@@ -501,6 +503,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
     match(ed.variants.get(vi - usize(1)),
       .None => (),
       .Some(vname) => {
+        ctx.*.register_variant(vname.as_str(), ed.name.as_str());
         line.push_string(ed.name);
         line.push_str("_");
         line.push_string(vname);
@@ -527,21 +530,21 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
 extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))({
   results := ArrayList(FnDef).new();
   match(expr,
-    .Atom(_) => results,
-    .FnCall(top_func, top_args, top_infix, _) => cond(
+    .Atom(_, _) => results,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
       (top_infix) => results,
       (top_args.len() < usize(2)) => results,
       true => match(top_func.*,
-        .FnCall(_, _, _, _) => results,
-        .Atom(ftok) => cond(
+        .FnCall(_, _, _, _, _) => results,
+        .Atom(_, ftok) => cond(
           (!(ftok.value.as_str() == "impl")) => results,
           true => match(top_args.get(usize(1)),
             .None => results,
             .Some(body_expr) => match(body_expr,
-              .Atom(_) => results,
-              .FnCall(bf, ba, _, _) => match(bf.*,
-                .FnCall(_, _, _, _) => results,
-                .Atom(btok) => cond(
+              .Atom(_, _) => results,
+              .FnCall(_, bf, ba, _, _) => match(bf.*,
+                .FnCall(_, _, _, _, _) => results,
+                .Atom(_, btok) => cond(
                   (!(btok.value.as_str() == "begin")) => results,
                   true => {
                     nm := ba.len();
@@ -671,13 +674,13 @@ compile_module_to_c :: (fn(
                 // We detect `impl(TypeName, { ... })` by checking if the
                 // expression starts with `impl` and has 2 args.
                 impl_fns := match(expr,
-                  .Atom(_) => ArrayList(FnDef).new(),
-                  .FnCall(imp_func, imp_args, imp_infix, _) => cond(
+                  .Atom(_, _) => ArrayList(FnDef).new(),
+                  .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
                     (imp_infix) => ArrayList(FnDef).new(),
                     (imp_args.len() < usize(2)) => ArrayList(FnDef).new(),
                     true => match(imp_func.*,
-                      .FnCall(_, _, _, _) => ArrayList(FnDef).new(),
-                      .Atom(itok) => cond(
+                      .FnCall(_, _, _, _, _) => ArrayList(FnDef).new(),
+                      .Atom(_, itok) => cond(
                         (!(itok.value.as_str() == "impl")) => ArrayList(FnDef).new(),
                         true => match(imp_args.get(usize(0)),
                           .None => ArrayList(FnDef).new(),
@@ -734,6 +737,75 @@ compile_module_to_c :: (fn(
 export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
        EnumDef, extract_enum_def, emit_enum_to_c,
        extract_impl_fns, compile_module_to_c;
+
+// ---------------------------------------------------------------------------
+// extract_import_path — Phase 5g import resolution
+// ---------------------------------------------------------------------------
+
+/// Extract the path string from a bare `import("path")` expression.
+/// Returns the path without surrounding double-quotes, or .None if not a bare import.
+extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
+  match(e,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, func_box, fn_args, is_infix, _) => cond(
+      is_infix => Option(String).None,
+      (fn_args.len() != usize(1)) => Option(String).None,
+      (!(match(func_box.*,
+        .Atom(_, tok) => (tok.value.as_str() == BK_IMPORT),
+        .FnCall(_, _, _, _, _) => false
+      ))) => Option(String).None,
+      true => match(fn_args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(path_arg) => match(path_arg,
+          .FnCall(_, _, _, _, _) => Option(String).None,
+          .Atom(_, ptok) => {
+            raw := ptok.value.as_str();
+            n := raw.len();
+            cond(
+              (n < usize(2)) => Option(String).None,
+              true => .Some(String.from(raw).substring(usize(1), (n - usize(1))))
+            )
+          }
+        )
+      )
+    )
+  )
+);
+
+/// Extract the import path from any import form:
+///   - `{ Names } :: import "path"` (infix `::`, RHS is import call)
+///   - `open import "path"` (`open` wrapping import call)
+///   - `import "path"` (bare import call)
+/// Returns the path without surrounding quotes, or .None if not an import expression.
+extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
+  match(expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, func_box, fn_args, is_infix, _) => {
+      fval := match(func_box.*,
+        .Atom(_, tok) => tok.value.as_str(),
+        .FnCall(_, _, _, _, _) => ""
+      );
+      cond(
+        // Pattern: open import "path"
+        ((fval == BK_OPEN) && (fn_args.len() >= usize(1))) =>
+          match(fn_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(inner) => extract_bare_import_path(inner)
+          ),
+        // Pattern: { Names } :: import "path" (infix ::)
+        (((fval == "::") && is_infix) && (fn_args.len() >= usize(2))) =>
+          match(fn_args.get(usize(1)),
+            .None => Option(String).None,
+            .Some(rhs) => extract_bare_import_path(rhs)
+          ),
+        // Pattern: bare import "path"
+        true => extract_bare_import_path(expr)
+      )
+    }
+  )
+);
+
+export extract_bare_import_path, extract_import_path;
 
 // ---------------------------------------------------------------------------
 // Test body compilation

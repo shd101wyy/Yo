@@ -1,0 +1,524 @@
+//! EvaluatedExprData annotation types and helpers.
+//!
+//! Mirrors the type definitions in `src/expr.ts` — 1:1 port.
+//!
+//! Key design decisions vs TypeScript:
+//!
+//! * `Path = string[]` → `Path :: ArrayList(String)` type alias.
+//! * `PathCollection = Path[]` → `PathCollection :: ArrayList(ArrayList(String))` type alias.
+//!   This replaces the `PathCollection :: ArrayList(AstExpr)` stub in `evaluator/context.yo`.
+//!
+//! * `ControlFlowFlags { return?, escape?, break?, continue? }` →
+//!   `ControlFlowFlags :: struct(return_flag, escape_flag, break_flag, continue_flag : bool)`.
+//!   Using `bool` fields (not `Option(bool)`) because `false` and TypeScript `undefined`
+//!   are semantically equivalent for flag fields.
+//!
+//! * `ControlFlowKind` enum replaces the TypeScript string literal union
+//!   `"return" | "escape" | "break" | "continue"` for type-safe function parameterisation.
+//!
+//! * `ComptimeRef` discriminated union → Yo enum carrying the inner `ArrayList(EvalValue)`
+//!   directly (not the full EvalValue wrapper), preserving the type invariant and
+//!   enabling in-place mutation via the shared ArrayList reference handle.
+//!   The mutation semantics work because ArrayList is a ref-counted object; copying
+//!   the variant still shares the same underlying list.
+//!
+//! * `EvaluatedExprData` interface → `ExprInfo :: object(...)` with `Option(T)` for all
+//!   optional TypeScript fields (`field?: T`); required fields stay non-optional.
+//!   `new_expr_info(env, ty)` factory initialises all optional fields to `.None`.
+//!
+
+
+open import "std/string";
+open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list";
+{ HashMap }   :: import "std/collections/hash_map";
+{ TypeValue }  :: import "../types/type.yo";
+{ EvalValue }  :: import "../evaluator/value.yo";
+{ AstExpr, ExprId,
+  ast_expr_is_fn_call_of, ast_expr_is_atom_of, make_err_expr,
+  BK_COND, BK_MATCH, BK_RETURN, BF_ESCAPE, BK_BREAK } :: import "./expr.yo";
+{ Environment, Variable, Frame } :: import "../env/env.yo";
+{ AwaitAnalysisResult }  :: import "../evaluator/async/await_analysis_types.yo";
+{ EffectAnalysisResult } :: import "../evaluator/effects/effect_analysis_types.yo";
+
+// ---------------------------------------------------------------------------
+// Path and PathCollection
+// ---------------------------------------------------------------------------
+
+/// A compile-time ownership path.  Mirrors TypeScript `type Path = string[]`.
+Path :: ArrayList(String);
+
+/// A collection of ownership paths.  Mirrors TypeScript `type PathCollection = Path[]`.
+PathCollection :: ArrayList(ArrayList(String));
+
+/// Create an empty PathCollection.
+path_collection_new :: (fn() -> PathCollection)(
+  ArrayList(ArrayList(String)).new()
+);
+
+// ---------------------------------------------------------------------------
+// Path utility functions
+// ---------------------------------------------------------------------------
+
+/// True if `path1` starts with all segments of `path2` (prefix check).
+///
+/// Mirrors `pathContainsPath` in `src/expr.ts`.
+///
+///   path_contains_path(["x"], ["x", "a"])     => false
+///   path_contains_path(["x", "a"], ["x"])     => true
+///   path_contains_path(["x", "a"], ["x", "a"]) => true
+///   path_contains_path(["x", "a"], ["y"])     => false
+path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)({
+  n1 := path1.len();
+  n2 := path2.len();
+  if((n1 < n2), { return false; });
+  i := usize(0);
+  while runtime((i < n2)), {
+    s1 := match(path1.get(i), .Some(s) => s, .None => String.from(""));
+    s2 := match(path2.get(i), .Some(s) => s, .None => String.from("~"));
+    if((s1 != s2), { return false; });
+    i = (i + usize(1));
+  };
+  true
+});
+
+/// True if `path1` and `path2` are in conflict: one is a prefix of the other.
+///
+/// Mirrors `pathConflictsWithPath` in `src/expr.ts`.
+path_conflicts_with_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)(
+  (path_contains_path(path2, path1) || path_contains_path(path1, path2))
+);
+
+/// True if any path in `c1` conflicts with any path in `c2`.
+///
+/// Mirrors `pathCollectionConflictsWithPathCollection` in `src/expr.ts`.
+path_collection_conflicts_with_path_collection :: (fn(
+  c1 : ArrayList(ArrayList(String)),
+  c2 : ArrayList(ArrayList(String))
+) -> bool)({
+  n1 := c1.len();
+  n2 := c2.len();
+  i := usize(0);
+  while runtime((i < n1)), {
+    p1 := match(c1.get(i), .Some(p) => p, .None => ArrayList(String).new());
+    j := usize(0);
+    while runtime((j < n2)), {
+      p2 := match(c2.get(j), .Some(p) => p, .None => ArrayList(String).new());
+      if(path_conflicts_with_path(p1, p2), { return true; });
+      j = (j + usize(1));
+    };
+    i = (i + usize(1));
+  };
+  false
+});
+
+// ---------------------------------------------------------------------------
+// ControlFlowKind
+// ---------------------------------------------------------------------------
+
+/// Discriminator for control-flow flag operations.
+/// Replaces the TypeScript string literal union `"return" | "escape" | "break" | "continue"`.
+ControlFlowKind :: enum(Return, Escape, Break, Continue);
+
+derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
+
+// ---------------------------------------------------------------------------
+// ControlFlowFlags
+// ---------------------------------------------------------------------------
+
+/// Whether an expression carries control flow.
+/// Multiple flags can be simultaneously true (e.g., a cond where some branches
+/// return and others escape).
+///
+/// Mirrors `ControlFlowFlags` in `src/expr.ts`.
+/// All fields use `bool` rather than `Option(bool)` because `false` and
+/// TypeScript's `undefined` are semantically equivalent for flag fields.
+ControlFlowFlags :: struct(
+  return_flag   : bool,
+  escape_flag   : bool,
+  break_flag    : bool,
+  continue_flag : bool
+);
+
+derive(ControlFlowFlags, Clone, Eq(ControlFlowFlags));
+
+/// Create a ControlFlowFlags with exactly one flag set.
+///
+/// Mirrors `controlFlowOf` in `src/expr.ts`.
+///
+/// Note: uses mutable flag variables rather than struct literals directly
+/// in match arms due to a codegen bug (see issues/struct-literal-in-match-arm-not-assigned.md).
+control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
+  r := false;
+  e := false;
+  b := false;
+  c := false;
+  match(kind,
+    .Return   => { r = true; },
+    .Escape   => { e = true; },
+    .Break    => { b = true; },
+    .Continue => { c = true; }
+  );
+  ControlFlowFlags(return_flag: r, escape_flag: e, break_flag: b, continue_flag: c)
+});
+
+/// True if `cf` has the given flag set.
+///
+/// Mirrors `hasControlFlow` in `src/expr.ts`.
+///
+/// Note: uses early-return pattern instead of struct literal in match arm
+/// due to codegen bug (see issues/struct-literal-in-match-arm-not-assigned.md).
+has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -> bool)({
+  f := match(cf,
+    .None    => { return false; },
+    .Some(x) => x
+  );
+  match(kind,
+    .Return   => f.return_flag,
+    .Escape   => f.escape_flag,
+    .Break    => f.break_flag,
+    .Continue => f.continue_flag
+  )
+});
+
+/// True if `cf` has any flag set.
+///
+/// Mirrors `hasAnyControlFlow` in `src/expr.ts`.
+has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
+  f := match(cf,
+    .None    => { return false; },
+    .Some(x) => x
+  );
+  (f.return_flag || (f.escape_flag || (f.break_flag || f.continue_flag)))
+});
+
+/// Union multiple ControlFlowFlags into one (OR of all flags).
+///
+/// Mirrors `mergeControlFlows` in `src/expr.ts`.
+merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFlags)({
+  r := false;
+  e := false;
+  b := false;
+  c := false;
+  n := flows.len();
+  i := usize(0);
+  while runtime((i < n)), {
+    cf := match(flows.get(i),
+      .Some(f) => f,
+      .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
+    );
+    if(cf.return_flag,   { r = true; });
+    if(cf.escape_flag,   { e = true; });
+    if(cf.break_flag,    { b = true; });
+    if(cf.continue_flag, { c = true; });
+    i = (i + usize(1));
+  };
+  ControlFlowFlags(return_flag: r, escape_flag: e, break_flag: b, continue_flag: c)
+});
+
+/// Format ControlFlowFlags as a `+`-joined string for error messages.
+///
+/// Mirrors `controlFlowToString` in `src/expr.ts`.
+control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
+  parts := ArrayList(String).new();
+  if(cf.return_flag,   { parts.push(String.from("return")); });
+  if(cf.escape_flag,   { parts.push(String.from("escape")); });
+  if(cf.break_flag,    { parts.push(String.from("break")); });
+  if(cf.continue_flag, { parts.push(String.from("continue")); });
+  String.from("+").join(parts)
+});
+
+// ---------------------------------------------------------------------------
+// ComptimeRef
+// ---------------------------------------------------------------------------
+
+/// Unified compile-time element/field reference for mutation and pointer creation.
+/// Enables compile-time operations like `arr(0) = value`, `&(arr(0))`.
+///
+/// Mirrors the `ComptimeRef` discriminated union in `src/expr.ts`.
+///
+/// Each variant stores the inner `ArrayList(EvalValue)` directly rather than
+/// the full `EvalValue` wrapper, preserving the type invariant.
+/// Mutation works because `ArrayList` is a ref-counted object — copying the
+/// variant shares the same underlying list, so writes are visible to all holders.
+ComptimeRef :: enum(
+  /// Array or slice element.  Mutates `elements[index]`.
+  ArrayRef(elements : ArrayList(EvalValue), index : usize),
+  /// ComptimeList element.  Mutates `elements[index]`.
+  ComptimeListRef(elements : ArrayList(EvalValue), index : usize),
+  /// Struct field via ComptimeIndex.  Mutates `field_values[field_index]`.
+  StructRef(field_values : ArrayList(EvalValue), field_index : usize),
+  /// Tuple field via ComptimeIndex.  Mutates `fields[field_index]`.
+  TupleRef(fields : ArrayList(EvalValue), field_index : usize)
+);
+
+// No derives for ComptimeRef — ArrayList(EvalValue) fields are mutable ref-counted
+// objects shared by reference; deep clone/eq is not needed.
+
+// ---------------------------------------------------------------------------
+// RuntimeDestructuring
+// ---------------------------------------------------------------------------
+
+/// Runtime destructuring binding produced during evaluation of
+/// `{ x, y : another_y } := some_point`.
+///
+/// Mirrors `RuntimeDestructuring` in `src/expr.ts`.
+RuntimeDestructuring :: struct(
+  label         : String,
+  ty            : TypeValue,
+  variable_name : String
+);
+
+derive(RuntimeDestructuring, Clone);
+
+// ---------------------------------------------------------------------------
+// ExprInfo
+// ---------------------------------------------------------------------------
+
+/// Per-expression annotation object set by the evaluator.
+/// Mirrors the `EvaluatedExprData` interface in `src/expr.ts`.
+///
+/// In TypeScript, this is attached to each `Expr` node via the `$` field.
+/// In the Yo self-hosted compiler, `ExprInfo` objects are stored separately;
+/// the chosen storage strategy (inline enum field vs. `ExprInfoTable` side-table)
+/// is finalised in Phase 3.
+///
+/// Required fields:
+///   `env`             – environment after evaluating this expression.
+///   `ty`              – resolved type of this expression.
+///   `path_collection` – ownership paths tracked by the evaluator.
+///
+/// All other fields are optional (`Option(T)`), mirroring TypeScript `field?: T`.
+ExprInfo :: object(
+  // --- Required ---
+  env             : Environment,
+  ty              : TypeValue,
+  path_collection : ArrayList(ArrayList(String)),
+
+  // --- Optional ---
+  /// Compile-time value; `.None` for runtime expressions.
+  value                              : Option(EvalValue),
+  /// Runtime type after comptime-to-runtime conversion (e.g. comptime_string → str).
+  converted_runtime_type             : Option(TypeValue),
+  /// Name of the temporary variable holding the value in `env`.
+  variable_name                      : Option(String),
+  /// Root object type in a property-access chain (used for mutability analysis).
+  origin_type                        : Option(TypeValue),
+  /// True when this expression is a property-access dereference (`p.*`).
+  is_accessing_property              : Option(bool),
+  /// Runtime arguments in call order (used by codegen).
+  runtime_arg_exprs_in_order         : Option(ArrayList(AstExpr)),
+  /// Runtime destructuring bindings for `{ x, y } := point`.
+  runtime_destructurings             : Option(ArrayList(RuntimeDestructuring)),
+  /// Control-flow flags (return, escape, break, continue).
+  control_flow                       : Option(ControlFlowFlags),
+  /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
+  dyn_call_trait_values              : Option(ArrayList(EvalValue)),
+  /// For cond/match: true when this branch was executed.
+  case_executed                      : Option(bool),
+  /// True when this match expression dispatches on primitive types (int/bool).
+  is_primitive_match                 : Option(bool),
+  /// Compile-time pattern values for primitive match (used by codegen C switch).
+  primitive_pattern_values           : Option(ArrayList(Option(EvalValue))),
+  /// Doc comment preceding this declaration.
+  doc_comment                        : Option(String),
+  /// `___dup` call expressions for RC variables captured by a closure.
+  deferred_dup_expressions           : Option(ArrayList(AstExpr)),
+  /// `___drop` call expressions for variables needing cleanup at scope exit.
+  deferred_drop_expressions          : Option(ArrayList(AstExpr)),
+  /// Drop expressions for RC variables consumed by the return value
+  /// (needed when `escape` propagates through the function).
+  consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
+  /// Optional runtime stack size expression for `async` spawns.
+  async_stack_size                   : Option(AstExpr),
+  /// C struct name for the async state machine (used by codegen).
+  async_state_machine_struct_name    : Option(String),
+  /// Capture struct type for closures / async blocks that close over RC vars.
+  capture_type                       : Option(TypeValue),
+  /// Await-analysis result for async block expressions.
+  await_analysis                     : Option(AwaitAnalysisResult),
+  /// Effect-analysis result for effectful function calls.
+  effect_analysis                    : Option(EffectAnalysisResult),
+  /// FunctionValue implementing the closure body.
+  closure_function_value             : Option(EvalValue),
+  /// Evaluated macro-expanded expression.
+  macro_expansion                    : Option(AstExpr),
+  /// Environment frame popped after a begin block.
+  popped_env_frame                   : Option(Frame),
+  /// Original un-evaluated expression (used for test codegen).
+  original_expr                      : Option(AstExpr),
+  /// Variable object for identifier expressions (used by compile-time pointer creation).
+  source_variable                    : Option(Variable),
+  /// Compile-time element/field reference for mutation (`arr(0) = v`, `&(arr(0))`).
+  comptime_ref                       : Option(ComptimeRef),
+  /// Pointer type returned by the Index trait `index()` method (before auto-deref).
+  index_trait_ptr_type               : Option(TypeValue),
+  /// Specialised FunctionType of the Index trait `index()` method.
+  index_method_type                  : Option(TypeValue),
+  /// Specialised FunctionValue of the Index trait `index()` method.
+  index_method_value                 : Option(EvalValue),
+  /// True when `&(value(i))` skips the auto-deref and uses the pointer directly.
+  is_index_trait_address_of          : Option(bool),
+  /// True when the assignment is compile-time only (no C code emitted).
+  is_compile_time_only_assignment    : Option(bool),
+  /// True when `->` / `=>` defines an anonymous function (new function boundary).
+  is_anonymous_function_definition   : Option(bool),
+  /// Unrolled loop bodies for comptime-terminated while loops.
+  comptime_unrolled_bodies           : Option(ArrayList(AstExpr))
+);
+
+/// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
+///
+/// Mirrors the common pattern of constructing `EvaluatedExprData` with only `env`,
+/// `type`, and `pathCollection` set in TypeScript, then populating other fields as needed.
+new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
+  ExprInfo(
+    env:                                env,
+    ty:                                 ty,
+    path_collection:                    ArrayList(ArrayList(String)).new(),
+    value:                              Option(EvalValue).None,
+    converted_runtime_type:             Option(TypeValue).None,
+    variable_name:                      Option(String).None,
+    origin_type:                        Option(TypeValue).None,
+    is_accessing_property:              Option(bool).None,
+    runtime_arg_exprs_in_order:         Option(ArrayList(AstExpr)).None,
+    runtime_destructurings:             Option(ArrayList(RuntimeDestructuring)).None,
+    control_flow:                       Option(ControlFlowFlags).None,
+    dyn_call_trait_values:              Option(ArrayList(EvalValue)).None,
+    case_executed:                      Option(bool).None,
+    is_primitive_match:                 Option(bool).None,
+    primitive_pattern_values:           Option(ArrayList(Option(EvalValue))).None,
+    doc_comment:                        Option(String).None,
+    deferred_dup_expressions:           Option(ArrayList(AstExpr)).None,
+    deferred_drop_expressions:          Option(ArrayList(AstExpr)).None,
+    consumed_variable_drop_expressions: Option(ArrayList(AstExpr)).None,
+    async_stack_size:                   Option(AstExpr).None,
+    async_state_machine_struct_name:    Option(String).None,
+    capture_type:                       Option(TypeValue).None,
+    await_analysis:                     Option(AwaitAnalysisResult).None,
+    effect_analysis:                    Option(EffectAnalysisResult).None,
+    closure_function_value:             Option(EvalValue).None,
+    macro_expansion:                    Option(AstExpr).None,
+    popped_env_frame:                   Option(Frame).None,
+    original_expr:                      Option(AstExpr).None,
+    source_variable:                    Option(Variable).None,
+    comptime_ref:                       Option(ComptimeRef).None,
+    index_trait_ptr_type:               Option(TypeValue).None,
+    index_method_type:                  Option(TypeValue).None,
+    index_method_value:                 Option(EvalValue).None,
+    is_index_trait_address_of:          Option(bool).None,
+    is_compile_time_only_assignment:    Option(bool).None,
+    is_anonymous_function_definition:   Option(bool).None,
+    comptime_unrolled_bodies:           Option(ArrayList(AstExpr)).None
+  )
+);
+
+
+// ---------------------------------------------------------------------------
+// ExprInfoTable
+// ---------------------------------------------------------------------------
+
+/// Side-table storing evaluation results for each expression node.
+/// Keys are ExprId values assigned during parsing.
+/// Mirrors the TypeScript evaluator's inline `expr.$` mutation with an
+/// immutable-AST equivalent.
+ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo));
+
+/// Create a new empty ExprInfoTable.
+expr_info_table_new :: (fn() -> ExprInfoTable)(
+  ExprInfoTable(data: HashMap(ExprId, ExprInfo).new())
+);
+
+/// Store an ExprInfo for the given expression id.
+expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
+  _ := table.data.set(id, info);
+  ()
+});
+
+/// Retrieve the ExprInfo for the given expression id, or None.
+expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+  table.data.get(id)
+);
+
+// ---------------------------------------------------------------------------
+// expr_contains_loop_terminator
+// ---------------------------------------------------------------------------
+
+/// Walk `expr` looking for any loop-terminator atom or call (break, return, escape).
+/// Stops at function/closure boundaries (`=>` arrows) but recurses directly
+/// into the condition and body parts of `cond`/`match` branch arms, bypassing
+/// the `=>` boundary check for those specific arguments.
+///
+/// Uses `recur` for self-recursion (Yo does not allow direct self-calls).
+///
+/// Mirrors `exprContainsLoopTerminator` in `src/expr-traversal.ts`.
+expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_, tok) => {
+      s := tok.value.as_str();
+      ((s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_ESCAPE)))
+    },
+    .FnCall(_, fn_box, args, _, _) => {
+      // return / escape as a direct function call
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN, .None), { return true; });
+      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE, .None), { return true; });
+      // => is a function boundary: do not recurse into it
+      if(ast_expr_is_fn_call_of(expr, "=>", .None), { return false; });
+      // cond/match: recurse into branch parts directly (bypassing => at arg level)
+      (is_cond_or_match : bool) = (
+        ast_expr_is_fn_call_of(expr, BK_COND, .None) ||
+        ast_expr_is_fn_call_of(expr, BK_MATCH, .None)
+      );
+      if(is_cond_or_match, {
+        if(recur(fn_box.*), { return true; });
+        (n_cm : usize) = args.len();
+        (i_cm : usize) = usize(0);
+        while runtime((i_cm < n_cm)), {
+          arg := match(args.get(i_cm), .Some(a) => a, .None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>", .None), {
+            // Branch arrow: recurse into each child (condition and body)
+            match(arg,
+              .Atom(_, _) => (),
+              .FnCall(_, _, branch_args, _, _) => {
+                (n_ba : usize) = branch_args.len();
+                (j : usize) = usize(0);
+                while runtime((j < n_ba)), {
+                  ba := match(branch_args.get(j), .Some(a) => a, .None => make_err_expr());
+                  if(recur(ba), { return true; });
+                  j = (j + usize(1));
+                };
+              }
+            );
+          }, {
+            if(recur(arg), { return true; });
+          });
+          i_cm = (i_cm + usize(1));
+        };
+        return false;
+      });
+      // General case: recurse into func and all args
+      if(recur(fn_box.*), { return true; });
+      (n : usize) = args.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        if(recur(arg), { return true; });
+        i = (i + usize(1));
+      };
+      false
+    }
+  )
+);
+
+
+
+
+export Path, PathCollection, path_collection_new;
+export path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection;
+export ControlFlowKind, ControlFlowFlags;
+export control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string;
+export ComptimeRef;
+export RuntimeDestructuring;
+export ExprInfo, new_expr_info;
+export ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get;
+export expr_contains_loop_terminator;

@@ -1,0 +1,157 @@
+//! evaluator/builtins/impl_constraint — implements evaluate_impl_constraint.
+//!
+//! 1:1 port of `src/evaluator/builtins/impl-constraint.ts`.
+//!
+//! Evaluates `Impl(Trait1, Trait2, ...)` — creates a SomeType whose trait
+//! constraints contain the given traits. Supports negated traits via
+//! `!(Trait)` syntax. `Concrete(T)` support is a stub (returns false).
+
+open import "std/string";
+{ ArrayList }                               :: import "std/collections/array_list";
+{ AstExpr, ast_expr_token, ast_expr_id,
+  ast_expr_to_string, ast_expr_is_fn_call_of,
+  BK_IMPL_UPPER }                           :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
+{ Environment }                             :: import "../../env/env.yo";
+{ EvalContext }                             :: import "../context.yo";
+{ EvalValue, create_type_value,
+  is_type_value }                           :: import "../value.yo";
+{ TypeValue }                               :: import "../../types/type.yo";
+{ is_trait_type, is_concrete_trait_type }   :: import "../../types/guards.yo";
+{ generate_some_type_id }                   :: import "../../types/type.yo";
+{ format_error_message }                    :: import "../../error/error.yo";
+{ evaluate_expression }                     :: import "../exprs/expr.yo";
+{ Exception }                               :: import "std/error";
+
+evaluate_impl_constraint :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+
+  if((args.len() == usize(0)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("Impl requires at least one trait argument."),
+      false,
+      .None
+    ));
+  });
+
+  required_trait_types  := ArrayList(TypeValue).new();
+  required_trait_levels := ArrayList(usize).new();
+  negative_trait_types  := ArrayList(TypeValue).new();
+  negative_trait_levels := ArrayList(usize).new();
+
+  (cur_env : Environment) = env;
+  (i : usize)            = usize(0);
+
+  while runtime((i < args.len())), {
+    arg_opt := args.get(i);
+    match(arg_opt,
+      .None    => { i = args.len(); },
+      .Some(arg) => {
+        // Check if this argument is a negated trait: !(Trait)
+        is_negated := ast_expr_is_fn_call_of(arg, "!", .Some(usize(1)));
+
+        // Get the actual module expression (inner arg if negated)
+        module_expr := match(is_negated,
+          true  => match(arg,
+            .FnCall(_, _, neg_args, _, _) => match(neg_args.get(usize(0)),
+              .Some(a) => a,
+              .None    => arg
+            ),
+            _ => arg
+          ),
+          false => arg
+        );
+
+        // Evaluate the trait expression
+        eval_mod := evaluate_expression(module_expr, cur_env, ctx);
+        mod_info := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mod)),
+          .Some(info) => info,
+          .None       => {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(module_expr),
+              String.from("Failed to evaluate Impl argument."),
+              false,
+              .None
+            ));
+            new_expr_info(cur_env, TypeValue.TypeUni(usize(0)))
+          }
+        );
+        cur_env = mod_info.env;
+
+        // Expect a TypeVal containing a trait type
+        if(!(is_type_value(mod_info.value)), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(module_expr),
+            (`Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`),
+            false,
+            .None
+          ));
+        });
+
+        trait_tv := match(mod_info.value,
+          .Some(v) => match(v,
+            .TypeVal(tv_box) => tv_box.*,
+            _                => TypeValue.TypeUni(usize(0))
+          ),
+          .None => TypeValue.TypeUni(usize(0))
+        );
+
+        if(!(is_trait_type(trait_tv)), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(module_expr),
+            (`Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`),
+            false,
+            .None
+          ));
+        });
+
+        // Note: is_concrete_trait_type is a stub that returns false.
+        // Concrete(T) support is deferred.
+        if(is_negated, {
+          negative_trait_types.push(trait_tv);
+          negative_trait_levels.push(usize(0));
+        }, {
+          required_trait_types.push(trait_tv);
+          required_trait_levels.push(usize(0));
+        });
+      }
+    );
+    i = (i + usize(1));
+  };
+
+  // Compute frame_level for the SomeType.
+  fl := match((cur_env.frame_count() > usize(0)),
+    true  => (cur_env.frame_count() - usize(1)),
+    false => usize(0)
+  );
+
+  // Create the SomeT with required and negative trait constraints.
+  some_type := TypeValue.SomeT(
+    generate_some_type_id(),
+    String.from("Impl"),
+    fl,
+    Box(TypeValue)(TypeValue.TypeUni(usize(0))),
+    required_trait_types,
+    required_trait_levels,
+    negative_trait_types,
+    negative_trait_levels
+  );
+
+  type_val := create_type_value(some_type);
+
+  out_info       := new_expr_info(cur_env, TypeValue.TypeUni(usize(0)));
+  out_info.value = Option(EvalValue).Some(type_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+
+  expr
+});
+
+export evaluate_impl_constraint;

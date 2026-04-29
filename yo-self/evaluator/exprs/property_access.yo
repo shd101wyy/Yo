@@ -212,7 +212,7 @@ evaluate_property_access :: (fn(
         variant_name_1 := ast_expr_token(prop_expr_1).value;
 
         match(exp_ctx_1.ty,
-          .EnumT(en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1) => {
+          .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
             // Find the variant.
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
             match(fidx_1,
@@ -226,11 +226,13 @@ evaluate_property_access :: (fn(
               },
               .Some(vi_1) => {
                 new_en_ty_1 := TypeValue.EnumT(
+                  en_id_1,
                   en_name_1,
                   en_vnames_1,
                   en_vfields_1,
                   Option(String).Some(variant_name_1),
-                  en_vflabels_1
+                  en_vflabels_1,
+                  en_discs_1
                 );
 
                 has_fields_1 := match(en_vfields_1.get(vi_1),
@@ -404,7 +406,7 @@ evaluate_property_access :: (fn(
       variant_name_tv := ast_expr_token(property_expr).value;
 
       match(type_val_inner,
-        .EnumT(tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels) => {
+        .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
           fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.as_str());
           match(fidx_tv_en,
             .None => {
@@ -418,11 +420,13 @@ evaluate_property_access :: (fn(
             },
             .Some(tv_vi) => {
               new_en_tv := TypeValue.EnumT(
+                tv_en_id,
                 tv_en_name,
                 tv_en_vnames,
                 tv_en_vfields,
                 Option(String).Some(variant_name_tv),
-                tv_en_vflabels
+                tv_en_vflabels,
+                tv_en_discs
               );
 
               has_fields_tv := match(tv_en_vfields.get(tv_vi),
@@ -468,12 +472,12 @@ evaluate_property_access :: (fn(
       prop_name_su := ast_expr_token(property_expr).value;
 
       su_labels := match(type_val_inner,
-        .Struct(_, labels, _) => labels,
+        .Struct(_, _, labels, _, _, _, _) => labels,
         .Union(_, labels, _)  => labels,
         _                     => ArrayList(String).new()
       );
       su_types := match(type_val_inner,
-        .Struct(_, _, types) => types,
+        .Struct(_, _, _, types, _, _, _) => types,
         .Union(_, _, types)  => types,
         _                    => ArrayList(TypeValue).new()
       );
@@ -538,11 +542,11 @@ evaluate_property_access :: (fn(
       prop_name_mt := ast_expr_token(property_expr).value;
 
       mt_labels := match(type_val_inner,
-        .ModuleT(_, labels, _) => labels,
+        .ModuleT(_, _, labels, _) => labels,
         _                      => ArrayList(String).new()
       );
       mt_types := match(type_val_inner,
-        .ModuleT(_, _, types) => types,
+        .ModuleT(_, _, _, types) => types,
         _                     => ArrayList(TypeValue).new()
       );
 
@@ -566,7 +570,7 @@ evaluate_property_access :: (fn(
 
     // --- TypeVal + TraitT -------------------------------------------------
     // Phase 3 skip: receiverType block (TS lines 651-723).
-    is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _) => true, _ => false);
+    is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
       if(!(is_valid_variable_name(property_expr)), {
         exn.throw(dyn format_error_message(
@@ -580,11 +584,11 @@ evaluate_property_access :: (fn(
       prop_name_tt := ast_expr_token(property_expr).value;
 
       tt_labels := match(type_val_inner,
-        .TraitT(_, _, labels, _) => labels,
+        .TraitT(_, _, labels, _, _, _, _, _) => labels,
         _                        => ArrayList(String).new()
       );
       tt_types := match(type_val_inner,
-        .TraitT(_, _, _, types) => types,
+        .TraitT(_, _, _, types, _, _, _, _) => types,
         _                       => ArrayList(TypeValue).new()
       );
 
@@ -631,16 +635,16 @@ evaluate_property_access :: (fn(
   // -------------------------------------------------------------------------
   if(((is_tuple_type(base_ty) || is_struct_type(base_ty)) || is_union_type(base_ty)), {
     fields_labels := match(base_ty,
-      .Tuple(labels, _)    => labels,
-      .Struct(_, labels, _) => labels,
-      .Union(_, labels, _)  => labels,
-      _                    => ArrayList(String).new()
+      .Tuple(labels, _)       => labels,
+      .Struct(_, _, labels, _, _, _, _) => labels,
+      .Union(_, labels, _)    => labels,
+      _                       => ArrayList(String).new()
     );
     fields_types := match(base_ty,
-      .Tuple(_, types)    => types,
-      .Struct(_, _, types) => types,
-      .Union(_, _, types)  => types,
-      _                   => ArrayList(TypeValue).new()
+      .Tuple(_, types)        => types,
+      .Struct(_, _, _, types, _, _, _) => types,
+      .Union(_, _, types)     => types,
+      _                       => ArrayList(TypeValue).new()
     );
 
     if(ast_expr_is_atom(property_expr), {
@@ -824,11 +828,11 @@ evaluate_property_access :: (fn(
         mod_label := ast_expr_token(property_expr).value;
 
         mod_labels_rt := match(base_ty,
-          .ModuleT(_, labels, _) => labels,
+          .ModuleT(_, _, labels, _) => labels,
           _                      => ArrayList(String).new()
         );
         mod_types_rt := match(base_ty,
-          .ModuleT(_, _, types) => types,
+          .ModuleT(_, _, _, types) => types,
           _                     => ArrayList(TypeValue).new()
         );
 
@@ -904,7 +908,7 @@ evaluate_property_access :: (fn(
       prop_name_ev := ast_expr_token(property_expr).value;
 
       match(base_ty,
-        .EnumT(_, ev_vnames, ev_vfields, ev_sel, ev_vflabels) => {
+        .EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _) => {
           match(ev_sel,
             .Some(sel_vname) => {
               sel_vi_opt := find_first_field_index(ev_vnames, sel_vname.as_str());
