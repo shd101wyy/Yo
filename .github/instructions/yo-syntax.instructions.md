@@ -246,7 +246,9 @@ func(&s, label, extra);  // parsed as func(&(s, label, extra)) — one tuple arg
 // CORRECT — take address first, then pass separately:
 p := &s;
 func(p, label, extra);
-// OR — wrap operand only:
+// OR — wrap the operand only (preferred — matches how the parser thinks about it):
+func(&(s), label, extra);
+// Equivalent — outer parens around the whole unary expression:
 func((&s), label, extra);
 ```
 

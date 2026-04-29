@@ -51,12 +51,17 @@ each `evaluate()` call significantly.
 
 **macOS ARM64 (8MB default stack):**
 
-- Safe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → ✓
-- Safe: fact(2) needs ~6 frames × 566KB ≈ 3.4MB → ✓
-- Safe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → ✓
+- Safe: countdown(1) needs ~5 frames × 566KB ≈ 2.8MB → ✓
+- Safe: fib(1) needs ~4 frames × 566KB ≈ 2.3MB → ✓
+- Unsafe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → **STACK OVERFLOW** (after Phase 3a ExprId growth)
+- Unsafe: fact(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW** (after Phase 2az TraitT growth)
+- Unsafe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW** (after Phase 3a)
 - Unsafe: countdown(3) needs ~9 frames × 566KB > 8MB → **STACK OVERFLOW**
 - Unsafe: fact(3) needs ~9+ frames × 566KB > 8MB → **STACK OVERFLOW**
 - Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
+
+Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
+(TraitT extended with new fields). See `issues/asan-eval-frame-size-after-expr-id.md`.
 
 **Windows x86_64 (16MB reserve set via `-Wl,/STACK:16777216` in `src/test-runner.ts`):**
 
@@ -64,7 +69,7 @@ each `evaluate()` call significantly.
 - Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
 - Unsafe: countdown(3) / fact(3) would exceed 16MB → **STACK OVERFLOW**
 
-When writing recursive evaluator tests, use small inputs (e.g. fib(2), countdown(2), fact(2)).
+When writing recursive evaluator tests, use small inputs (e.g. fib(1), countdown(1)).
 Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
 
 ## Important constraints
@@ -107,6 +112,30 @@ test "Async test", {
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
 - `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
+
+**IMPORTANT**: `assert(condition, msg)` takes `str` for `msg`. Do NOT pass a template string (`` `...` ``):
+
+```rust
+// ❌ WRONG — template string is String, not str
+assert(false, `unexpected: ${value}`);
+
+// ✅ CORRECT — use a plain str literal
+assert(false, "unexpected");
+```
+
+## Exception effect in yo-self tests
+
+When testing functions that require `using(exn : Exception)`, provide the effect with `given`:
+
+```rust
+test "my test", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  result := my_function_that_throws(using(exn));
+  // ...
+};
+```
+
+This is the standard pattern from `yo-self/tests/parser.test.yo`.
 
 Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
 

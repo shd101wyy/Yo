@@ -1,10 +1,15 @@
-import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import {
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import type { Expr } from "../../expr";
 import type { FuncValueId } from "../../function-value";
 import type {
   FunctionImplicitParameter,
   FunctionType,
   ModuleType,
+  SomeType,
+  Type,
 } from "../../types/definitions";
 import {
   isEffectsRowType,
@@ -491,12 +496,21 @@ export function generateFunctionDeclaration(
 
   // For specialized functions where the body's return type is more specific than the signature's
   // (e.g., when generic type parameters have been substituted but the signature still uses generic types)
-  // Use the body's concrete return type
+  // Use the body's concrete return type.
+  //
+  // IMPORTANT: Only apply this override when the signature return type is generic (SomeType).
+  // If the signature is concrete (e.g., `unit` → `void`), the body type may have been
+  // mutated by effect escape analysis and should NOT override the declared signature type.
+  // Applying the override for concrete types causes "conflicting types" C errors when the
+  // same function is called with an escaping handler (body gets annotated with the escape
+  // type, but the forward declaration must match the signature, not the escape type).
   if (
     !overrideReturnType &&
     functionBody &&
     functionBody.$?.type &&
-    !typeImplementsFuture(functionType.return.type)
+    !typeImplementsFuture(functionType.return.type) &&
+    (isSomeType(functionType.return.type) ||
+      typeContainsSomeType(functionType.return.type))
   ) {
     const signatureReturnTypeCName = getTypeString(
       functionType.return.type,
@@ -685,11 +699,25 @@ export function generateSpecializedFunctionDeclarations(
     }
 
     // Skip if the specialized type still has unresolved type parameters.
-    // Use the "hard generic" check, which excludes SomeType params with
-    // resolvedConcreteType (e.g., closure-typed params like `f : F` where
-    // F = Impl(Fn(...)) resolves to the closure's capture struct). Such
-    // params are concrete at codegen time.
-    if (isFunctionTypeHardGeneric(specializedFunctionType)) {
+    // Use the same "isUnresolvedSomeType" logic as generateSpecializedFunctions:
+    // Fn and Future SomeTypes are treated as concrete at codegen time (void*
+    // and state-machine struct respectively), so they must NOT be counted as
+    // unresolved. This ensures forward declarations are emitted for functions
+    // like `walk_expr_` whose `get_info : Impl(Fn(...))` param is void* in C.
+    const isUnresolvedSomeTypeForDecl = (t: Type): boolean => {
+      if (!isSomeType(t)) return false;
+      if ((t as SomeType).resolvedConcreteType) return false;
+      if (typeImplementsFuture(t)) return false;
+      if (typeImplementsFn(t)) return false;
+      return true;
+    };
+    const hasForallOrCompileTimeSpecDecl =
+      specializedFunctionType.forallParameters.length > 0 ||
+      specializedFunctionType.parameters.some((p) => p.isCompileTimeOnly);
+    const hasSomeTypeParamsSpecDecl = specializedFunctionType.parameters.some(
+      (p) => !p.isCompileTimeOnly && isUnresolvedSomeTypeForDecl(p.type)
+    );
+    if (hasForallOrCompileTimeSpecDecl || hasSomeTypeParamsSpecDecl) {
       continue;
     }
 

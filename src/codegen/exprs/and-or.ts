@@ -107,6 +107,7 @@ function emitDropsForConditionalBranch(
     functionContext.shortCircuitHandledDropVarNames = new Set<string>();
   }
 
+  const handledDropExprs = new Set<Expr>();
   for (const dropExpr of pendingDrops) {
     const targetVarName = getDeferredDropTargetAtomName(dropExpr);
     if (targetVarName && varNames.has(targetVarName)) {
@@ -115,7 +116,17 @@ function emitDropsForConditionalBranch(
         context.emitter.emitLine(`${indent}${dropCode};`);
       }
       functionContext.shortCircuitHandledDropVarNames.add(targetVarName);
+      handledDropExprs.add(dropExpr);
     }
+  }
+
+  // Remove the conditionally-emitted drops from pendingDeferredDrops so that
+  // early-return sites in nested scopes (loops, match arms) do not attempt to
+  // drop variables that are already out of scope at that point.
+  if (handledDropExprs.size > 0) {
+    functionContext.pendingDeferredDrops = pendingDrops.filter(
+      (d) => !handledDropExprs.has(d)
+    );
   }
 }
 

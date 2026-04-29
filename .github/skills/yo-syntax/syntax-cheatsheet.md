@@ -597,6 +597,36 @@ if(!cond, { do_thing(); });
 if((!cond), { do_thing(); });
 ```
 
+### `escape` is only valid inside `given` handler lambdas
+
+`escape value` exits the function that installed the `given` handler. It is
+**NOT** valid in `if` blocks, `match` arms, regular lambdas, or top-level
+function bodies. If you need to exit a function early from one of those
+positions, use `return`.
+
+```rust
+// CORRECT — escape inside a given handler lambda:
+given(exn) := Exception(throw: ((err) -> {
+  escape result   // exits the enclosing function that called given
+}));
+do_something(using(exn));
+
+// WRONG — escape inside an if block:
+if(cond, {
+  escape result   // ERROR: "escape can only be used inside a given handler"
+});
+
+// CORRECT — use return instead for early exit from a lambda:
+if(cond, {
+  return result   // exits the if-lambda (the if call returns result)
+});
+```
+
+`return` inside a lambda exits that lambda only; `escape` exits the OUTER function
+(the one that installed the `given` handler). To exit a function early without a
+`given` handler, structure the function so the early path uses `return` at the
+top level of the function body, or use a match that covers all cases.
+
 ### Template strings produce `String`, literals are `str`
 
 ```rust
