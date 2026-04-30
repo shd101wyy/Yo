@@ -111,6 +111,11 @@ is_binary_op :: (fn(op : str) -> bool)(
     (op == ">=") => true,
     (op == "&&") => true,
     (op == "||") => true,
+    (op == "|")  => true,
+    (op == "&")  => true,
+    (op == "^")  => true,
+    (op == "<<") => true,
+    (op == ">>") => true,
     true         => false
   )
 );
@@ -121,6 +126,7 @@ is_unary_prefix_op :: (fn(op : str) -> bool)(
     (op == "-") => true,
     (op == "!") => true,
     (op == "&") => true,
+    (op == "~") => true,
     true        => false
   )
 );
@@ -470,11 +476,13 @@ gen_cond_arm :: (fn(
       .None => Option(String).None,
       .Some(body_expr) => {
         // Constant folding: `true =>` always takes this branch; `false =>` skips it.
+        // Note: constant folding at codegen level is important for avoiding dead code
+        // (e.g. `cond(true => 42, false => undefined_fn())` must not emit `undefined_fn`).
         is_lit_true  := _is_atom_value(cond_expr, "true");
         is_lit_false := _is_atom_value(cond_expr, "false");
         cond(
           is_lit_true  => call_gen_expr(body_expr, ctx, indent),
-          is_lit_false => .Some(rest),
+          is_lit_false => Option(String).Some(rest),
           true => {
             c_opt := call_gen_expr(cond_expr, ctx, indent);
             b_opt := call_gen_expr(body_expr, ctx, indent);
@@ -490,7 +498,7 @@ gen_cond_arm :: (fn(
                   result.push_str(" : ");
                   result.push_string(rest);
                   result.push_str(")");
-                  .Some(result)
+                  Option(String).Some(result)
                 }
               )
             )
@@ -1305,6 +1313,256 @@ step_to_c_expr :: (fn(
   )
 });
 
+/// Handle `for iter_expr, (param) => { body }` — iterator for-loop macro.
+///
+/// In the Yo language, `for` is a macro that expands to:
+///   iter_var := iter_expr;
+///   while runtime(true), {
+///     temp := &iter_var.next();
+///     match(temp, .Some(param) => body, .None => { break; })
+///   }
+///
+/// In the prototype codegen:
+/// - If `iter_expr` is `(&arr_var).iter()` where `arr_var` is a registered C array,
+///   emit a direct C `for` loop: `for (size_t _i = 0; _i < N; _i++) { T* param = &arr[_i]; body }`.
+/// - Otherwise, fall through to emitting a `while(1)` loop calling `.next()`.
+handle_for :: (fn(
+  args   : ArrayList(AstExpr),
+  ctx    : *(CodegenContext),
+  indent : String
+) -> Option(String))({
+  (nargs : usize) = args.len();
+  cond(
+    (nargs != usize(2)) => Option(String).None,
+    true => match(args.get(usize(0)),
+      .None => Option(String).None,
+      .Some(iter_expr) => match(args.get(usize(1)),
+        .None => Option(String).None,
+        .Some(handle_expr) => {
+          // Destructure handle: should be `(param) => { body }` — infix `=>` with 2 args
+          handle_opt := match(handle_expr,
+            .Atom(_, _) => Option(String).None,
+            .FnCall(_, hfn, hargs, hinfix, _) => cond(
+              (!(hinfix)) => Option(String).None,
+              (hargs.len() != usize(2)) => Option(String).None,
+              true => match(hfn.*,
+                .FnCall(_, _, _, _, _) => Option(String).None,
+                .Atom(_, htok) => cond(
+                  (htok.value.as_str() != "=>") => Option(String).None,
+                  true => Option(String).Some(String.from("ok"))
+                )
+              )
+            )
+          );
+          match(handle_opt,
+            .None => Option(String).None,
+            .Some(_) => match(handle_expr,
+              .Atom(_, _) => Option(String).None,
+              .FnCall(_, _, hargs2, _, _) => {
+                param_expr_opt := hargs2.get(usize(0));
+                body_expr_opt  := hargs2.get(usize(1));
+                // Extract param name
+                param_name_opt := match(param_expr_opt,
+                  .None => Option(String).None,
+                  .Some(pe) => match(pe,
+                    .FnCall(_, _, _, _, _) => Option(String).None,
+                    .Atom(_, ptok) => cond(
+                      (ptok.kind != TokenKind.Identifier) => Option(String).None,
+                      true => Option(String).Some(ptok.value)
+                    )
+                  )
+                );
+                // Try to detect `(&arr_var).iter()` pattern for array iteration
+                // `(&arr_var)` = FnCall(Atom("*"?), no wait — `&arr_var` = FnCall(Atom("&"), [arr_var])
+                // `(&arr_var).iter()` = method call on `(&arr_var)` with method `iter`
+                // After parsing: FnCall(FnCall(Atom("."), [&arr_var, "iter"]), [], ...)
+                // Detect: iter_expr is a method call `.iter()` with no args on `(&arr_var)`
+                arr_iter_name_opt := match(iter_expr,
+                  .Atom(_, _) => Option(String).None,
+                  .FnCall(_, iter_fn, iter_args, _, _) => cond(
+                    (iter_args.len() != usize(0)) => Option(String).None,
+                    true => match(iter_fn.*,
+                      .Atom(_, _) => Option(String).None,
+                      .FnCall(_, dot_fn, dot_args, dot_infix, _) => cond(
+                        (!(dot_infix)) => Option(String).None,
+                        (dot_args.len() != usize(2)) => Option(String).None,
+                        true => match(dot_fn.*,
+                          .FnCall(_, _, _, _, _) => Option(String).None,
+                          .Atom(_, dtok) => cond(
+                            (dtok.value.as_str() != ".") => Option(String).None,
+                            true => match(dot_args.get(usize(1)),
+                              .None => Option(String).None,
+                              .Some(method_e) => match(method_e,
+                                .FnCall(_, _, _, _, _) => Option(String).None,
+                                .Atom(_, mtok) => cond(
+                                  (mtok.value.as_str() != "iter") => Option(String).None,
+                                  true =>
+                                    // Receiver is dot_args[0]: should be `&arr_var`
+                                    match(dot_args.get(usize(0)),
+                                      .None => Option(String).None,
+                                      .Some(recv_e) => match(recv_e,
+                                        .Atom(_, _) => Option(String).None,
+                                        .FnCall(_, ref_fn, ref_args, ref_infix, _) => cond(
+                                          ref_infix => Option(String).None,
+                                          (ref_args.len() != usize(1)) => Option(String).None,
+                                          true => match(ref_fn.*,
+                                            .FnCall(_, _, _, _, _) => Option(String).None,
+                                            .Atom(_, rftok) => cond(
+                                              (rftok.value.as_str() != "&") => Option(String).None,
+                                              true => match(ref_args.get(usize(0)),
+                                                .None => Option(String).None,
+                                                .Some(arr_name_e) => match(arr_name_e,
+                                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                                  .Atom(_, antok) => cond(
+                                                    (!(ctx.*.is_array_var(antok.value.as_str()) || ctx.*.is_slice_var(antok.value.as_str()))) => Option(String).None,
+                                                    true => Option(String).Some(antok.value)
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
+                inner := {
+                  r := String.from(indent.as_str());
+                  r.push_str("  ");
+                  r
+                };
+                cond(
+                  // Fast path: emit C for loop over array or slice
+                  match(arr_iter_name_opt, .Some(_) => true, .None => false) =>
+                    match(arr_iter_name_opt,
+                      .None => Option(String).None,
+                      .Some(arr_name) => match(param_name_opt,
+                        .None => Option(String).None,
+                        .Some(param_name) => match(body_expr_opt,
+                          .None => Option(String).None,
+                          .Some(body_expr) => {
+                            san_arr  := sanitize_c_ident(arr_name.as_str());
+                            san_param := sanitize_c_ident(param_name.as_str());
+                            iter_var := ctx.*.fresh_temp();
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("for (size_t ");
+                            ctx.*.emitter.emit_string(iter_var);
+                            ctx.*.emitter.emit(" = 0; ");
+                            ctx.*.emitter.emit_string(iter_var);
+                            ctx.*.emitter.emit(" < ");
+                            cond(
+                              ctx.*.is_slice_var(arr_name.as_str()) => {
+                                // slice: use slice.length
+                                ctx.*.emitter.emit_string(san_arr);
+                                ctx.*.emitter.emit(".length");
+                              },
+                              true => {
+                                // array: use known size constant
+                                size_str := match(ctx.*.get_array_var_size(arr_name.as_str()),
+                                  .None => String.from("0"),
+                                  .Some(sz) => sz
+                                );
+                                ctx.*.emitter.emit_string(size_str);
+                              }
+                            );
+                            ctx.*.emitter.emit("; ");
+                            ctx.*.emitter.emit_string(iter_var);
+                            ctx.*.emitter.emit_line("++) {");
+                            ctx.*.emitter.emit_string(inner);
+                            ctx.*.emitter.emit("__auto_type* ");
+                            ctx.*.emitter.emit_string(san_param);
+                            ctx.*.emitter.emit(" = &");
+                            ctx.*.emitter.emit_string(san_arr);
+                            cond(
+                              ctx.*.is_slice_var(arr_name.as_str()) => {
+                                ctx.*.emitter.emit(".data[");
+                              },
+                              true => {
+                                ctx.*.emitter.emit("[");
+                              }
+                            );
+                            ctx.*.emitter.emit_string(iter_var);
+                            ctx.*.emitter.emit_line("];");
+                            match(call_gen_expr(body_expr, ctx, inner),
+                              .None => (),
+                              .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
+                            );
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit_line("}");
+                            Option(String).Some(String.from("0"))
+                          }
+                        )
+                      )
+                    ),
+                  // Fallback: emit while(1) { var = iter.next(); if None break; body }
+                  true => match(param_name_opt,
+                    .None => Option(String).None,
+                    .Some(param_name) => match(body_expr_opt,
+                      .None => Option(String).None,
+                      .Some(body_expr) => match(call_gen_expr(iter_expr, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(iter_code) => {
+                          san_param := sanitize_c_ident(param_name.as_str());
+                          iter_var := ctx.*.fresh_temp();
+                          next_var := ctx.*.fresh_temp();
+                          // iter_var = iter;
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit("__auto_type ");
+                          ctx.*.emitter.emit_string(iter_var);
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(iter_code);
+                          ctx.*.emitter.emit_line(";");
+                          // while (1) { ... }
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit_line("while (1) {");
+                          // next_var = iter_var.next()
+                          ctx.*.emitter.emit_string(inner);
+                          ctx.*.emitter.emit("__auto_type ");
+                          ctx.*.emitter.emit_string(next_var);
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(iter_var);
+                          ctx.*.emitter.emit_line(".next();");
+                          // if (next_var.is_none) break;
+                          ctx.*.emitter.emit_string(inner);
+                          ctx.*.emitter.emit("if (!");
+                          ctx.*.emitter.emit_string(next_var);
+                          ctx.*.emitter.emit_line(") break;");
+                          // param = *next_var  (unwrap Some)
+                          ctx.*.emitter.emit_string(inner);
+                          ctx.*.emitter.emit("__auto_type ");
+                          ctx.*.emitter.emit_string(san_param);
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(next_var);
+                          ctx.*.emitter.emit_line(";");
+                          // body
+                          match(call_gen_expr(body_expr, ctx, inner),
+                            .None => (),
+                            .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
+                          );
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit_line("}");
+                          Option(String).Some(String.from("0"))
+                        }
+                      )
+                    )
+                  )
+                )
+              }
+            )
+          )
+        }
+      )
+    )
+  )
+});
+
 handle_while :: (fn(
   args   : ArrayList(AstExpr),
   ctx    : *(CodegenContext),
@@ -1749,6 +2007,41 @@ is_primitive_type_cast :: (fn(name : str) -> bool)(
   )
 );
 
+/// Check whether all identifier atoms referenced in `expr` are available as C variables
+/// (either known to ctx or previously-emitted `::` constants). Used to determine if a
+/// `::` infix binary op binding is safe to emit.
+expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
+  match(expr,
+    .Atom(_, tok) => cond(
+      (tok.kind == TokenKind.Identifier) => (
+        is_primitive_type_cast(tok.value.as_str()) ||
+        ctx.*.is_defined_fn(tok.value.as_str()) ||
+        ctx.*.is_struct_name(tok.value.as_str()) ||
+        ctx.*.is_enum_name(tok.value.as_str()) ||
+        ctx.*.is_const_var(tok.value.as_str()) ||
+        ctx.*.is_array_var(tok.value.as_str()) ||
+        ctx.*.is_slice_var(tok.value.as_str())
+      ),
+      true => true
+    ),
+    .FnCall(_, fn2, args2, _, _) => {
+      (ok2 : bool) = recur(fn2.*, ctx);
+      n2 := args2.len();
+      (i2 : usize) = usize(0);
+      while runtime(((i2 < n2) && ok2)), {
+        match(args2.get(i2),
+          .None => { ok2 = false; },
+          .Some(ae2) => {
+            if((!(recur(ae2, ctx))), { ok2 = false; });
+          }
+        );
+        i2 = (i2 + usize(1));
+      };
+      ok2
+    }
+  )
+);
+
 /// Handle a primitive type cast: `i32(x)` → `(int32_t)(x)`.
 handle_type_cast :: (fn(
   type_name : String,
@@ -1877,18 +2170,71 @@ handle_bare_colon_decl :: (fn(
     .Some(lhs_expr) => match(rhs_opt,
       .None => Option(String).None,
       .Some(ty_expr) => match(lhs_expr,
-        // x : T  →  emit "T_c x;"
-        .Atom(_, name_tok) => match(type_expr_to_c(ty_expr),
-          .None => Option(String).None,
-          .Some(c_ty) => {
-            san_name := sanitize_c_ident(name_tok.value.as_str());
-            decl := build_typed_decl(c_ty.as_str(), san_name.as_str());
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_string(decl);
-            ctx.*.emitter.emit_line(";");
-            .Some(String.from("0"))
-          }
-        ),
+        // x : T  →  emit "T_c x;"  (or "T_c x[N] = {0};" for Array types)
+        .Atom(_, name_tok) => {
+          san_name := sanitize_c_ident(name_tok.value.as_str());
+          // Special case: Array(T, N) or [T; N] bare declaration
+          array_decl_emitted := match(ty_expr,
+            .Atom(_, _) => false,
+            .FnCall(_, atf, ata, ati, _) => cond(
+              ati => false,
+              (ata.len() != usize(2)) => false,
+              true => match(atf.*,
+                .FnCall(_, _, _, _, _) => false,
+                .Atom(_, attok) => cond(
+                  (attok.value.as_str() != "Array") => false,
+                  true => {
+                    elem_c_opt := match(ata.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(e) => type_expr_to_c(e)
+                    );
+                    size_opt := match(ata.get(usize(1)),
+                      .None => Option(String).None,
+                      .Some(s) => match(s,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, stok) => cond(
+                          (stok.kind == TokenKind.Integer)    => Option(String).Some(stok.value),
+                          (stok.kind == TokenKind.Identifier) => Option(String).Some(stok.value),
+                          true => Option(String).None
+                        )
+                      )
+                    );
+                    match(elem_c_opt,
+                      .None => false,
+                      .Some(ec) => match(size_opt,
+                        .None => false,
+                        .Some(sz) => {
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit_string(ec);
+                          ctx.*.emitter.emit(" ");
+                          ctx.*.emitter.emit_string(san_name);
+                          ctx.*.emitter.emit("[");
+                          ctx.*.emitter.emit_string(sz);
+                          ctx.*.emitter.emit_line("] = {0};");
+                          ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                          true
+                        }
+                      )
+                    )
+                  }
+                )
+              )
+            )
+          );
+          cond(
+            array_decl_emitted => Option(String).Some(String.from("0")),
+            true => match(type_expr_to_c(ty_expr),
+              .None => Option(String).None,
+              .Some(c_ty) => {
+                decl := build_typed_decl(c_ty.as_str(), san_name.as_str());
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit_string(decl);
+                ctx.*.emitter.emit_line(";");
+                Option(String).Some(String.from("0"))
+              }
+            )
+          )
+        },
         // comptime(x) : T — emit "T_c x;" for primitive T; skip for Type (meta-type)
         .FnCall(_, cf_box, cf_args, cf_infix, _) => cond(
           cf_infix => .Some(String.from("0")),
@@ -2054,9 +2400,199 @@ handle_define :: (fn(
             },
             .Some(csv_s) => { ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str()); }
           );
+          // Special case: `b := arr_var` where arr_var is a registered C array — array copy.
+          // Emit `__typeof__(arr_var[0]) b[N]; memcpy(b, arr_var, sizeof(b));`
+          // and register b as an array var with the same size.
+          arr_copy_emitted := match(rhs_expr,
+            .FnCall(_, _, _, _, _) => false,
+            .Atom(_, arr_cp_tok) => cond(
+              (arr_cp_tok.kind != TokenKind.Identifier) => false,
+              (!(ctx.*.is_array_var(arr_cp_tok.value.as_str()))) => false,
+              true => match(ctx.*.get_array_var_size(arr_cp_tok.value.as_str()),
+                .None => false,
+                .Some(sz) => {
+                  san_src  := sanitize_c_ident(arr_cp_tok.value.as_str());
+                  san_dst  := sanitize_c_ident(name_tok.value.as_str());
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit("__typeof__(");
+                  ctx.*.emitter.emit_string(san_src);
+                  ctx.*.emitter.emit("[0]) ");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit("[");
+                  ctx.*.emitter.emit_string(sz);
+                  ctx.*.emitter.emit_line("];");
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit("memcpy(");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit(", ");
+                  ctx.*.emitter.emit_string(san_src);
+                  ctx.*.emitter.emit(", sizeof(");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit_line("));");
+                  ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                  true
+                }
+              )
+            )
+          );
+          // Special case: `b := Array(T, N)()` or `b := Array(T, N)(v0, v1, ...)`.
+          // Array type-constructor call: FnCall(FnCall(Atom("Array"), [T, N], false), args, false).
+          // Emit `T_c b[N] = {v0, v1, ...};` (or `= {0}` for empty args).
+          arr_constructor_emitted := cond(
+            arr_copy_emitted => false,
+            true => match(rhs_expr,
+              .Atom(_, _) => false,
+              .FnCall(_, ac_fn_box, ac_fn_args, ac_fn_infix, _) => cond(
+                ac_fn_infix => false,
+                true => match(ac_fn_box.*,
+                  .Atom(_, _) => false,
+                  .FnCall(_, ac_inner_fn, ac_inner_args, ac_inner_infix, _) => cond(
+                    ac_inner_infix => false,
+                    (ac_inner_args.len() != usize(2)) => false,
+                    true => match(ac_inner_fn.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, ac_name_tok) => cond(
+                        (ac_name_tok.value.as_str() != "Array") => false,
+                        true => {
+                          elem_c_opt := match(ac_inner_args.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(e) => type_expr_to_c(e)
+                          );
+                          size_opt := match(ac_inner_args.get(usize(1)),
+                            .None => Option(String).None,
+                            .Some(s) => match(s,
+                              .FnCall(_, _, _, _, _) => Option(String).None,
+                              .Atom(_, stok) => cond(
+                                (stok.kind == TokenKind.Integer)    => Option(String).Some(stok.value),
+                                (stok.kind == TokenKind.Identifier) => Option(String).Some(stok.value),
+                                true => Option(String).None
+                              )
+                            )
+                          );
+                          match(elem_c_opt,
+                            .None => false,
+                            .Some(ec) => match(size_opt,
+                              .None => false,
+                              .Some(sz) => {
+                                san_dst2 := sanitize_c_ident(name_tok.value.as_str());
+                                // Build initializer list from constructor args (or {0} if empty)
+                                init_buf := cond(
+                                  (ac_fn_args.len() == usize(0)) => String.from("{0}"),
+                                  true => {
+                                    ib := String.from("{");
+                                    (ib_i : usize) = usize(0);
+                                    (ib_ok : bool) = true;
+                                    while runtime(((ib_i < ac_fn_args.len()) && ib_ok)), {
+                                      match(ac_fn_args.get(ib_i),
+                                        .None => { ib_ok = false; },
+                                        .Some(av) => match(call_gen_expr(av, ctx, indent),
+                                          .None => { ib_ok = false; },
+                                          .Some(avc) => {
+                                            if((ib_i > usize(0)), { ib.push_str(", "); });
+                                            ib.push_string(avc);
+                                            ib_i = (ib_i + usize(1));
+                                          }
+                                        )
+                                      );
+                                    };
+                                    ib.push_str("}");
+                                    ib
+                                  }
+                                );
+                                ctx.*.emitter.emit_string(indent);
+                                ctx.*.emitter.emit_string(ec);
+                                ctx.*.emitter.emit(" ");
+                                ctx.*.emitter.emit_string(san_dst2);
+                                ctx.*.emitter.emit("[");
+                                ctx.*.emitter.emit_string(sz);
+                                ctx.*.emitter.emit("] = ");
+                                ctx.*.emitter.emit_string(init_buf);
+                                ctx.*.emitter.emit_line(";");
+                                ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                                true
+                              }
+                            )
+                          )
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          );
+          // Special case: `b := [v0, v1, v2]` — inline array literal.
+          // `array` FnCall: FnCall(Atom("array"), [v0, v1, ...], false).
+          // Emit `__typeof__(v0) b[N] = {v0, v1, ...};` using first element type via __typeof__.
+          inline_array_emitted := match(rhs_expr,
+            .Atom(_, _) => false,
+            .FnCall(_, il_fn_box, il_fn_args, il_fn_infix, _) => cond(
+              il_fn_infix => false,
+              (il_fn_args.len() == usize(0)) => false,
+              true => match(il_fn_box.*,
+                .FnCall(_, _, _, _, _) => false,
+                .Atom(_, il_fn_tok) => cond(
+                  (il_fn_tok.value.as_str() != "array") => false,
+                  true => {
+                    n_il := il_fn_args.len();
+                    // Generate all element expressions
+                    init_il := String.from("{");
+                    (il_i : usize) = usize(0);
+                    (il_ok : bool) = true;
+                    while runtime(((il_i < n_il) && il_ok)), {
+                      match(il_fn_args.get(il_i),
+                        .None => { il_ok = false; },
+                        .Some(il_e) => match(call_gen_expr(il_e, ctx, indent),
+                          .None => { il_ok = false; },
+                          .Some(il_c) => {
+                            if((il_i > usize(0)), { init_il.push_str(", "); });
+                            init_il.push_string(il_c);
+                            il_i = (il_i + usize(1));
+                          }
+                        )
+                      );
+                    };
+                    cond(
+                      (!il_ok) => false,
+                      true => {
+                        init_il.push_str("}");
+                        // Emit: `__typeof__(v0) name[N] = {v0, v1, ...};`
+                        // We regenerate first element for __typeof__ — or use
+                        // the already-generated init_il[0] via a compound literal.
+                        first_code_opt := match(il_fn_args.get(usize(0)),
+                          .None => Option(String).None,
+                          .Some(fe) => call_gen_expr(fe, ctx, indent)
+                        );
+                        match(first_code_opt,
+                          .None => false,
+                          .Some(first_c) => {
+                            san_name := sanitize_c_ident(name_tok.value.as_str());
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("__typeof__(");
+                            ctx.*.emitter.emit_string(first_c);
+                            ctx.*.emitter.emit(") ");
+                            ctx.*.emitter.emit_string(san_name);
+                            ctx.*.emitter.emit("[");
+                            ctx.*.emitter.emit_string(n_il.to_string());
+                            ctx.*.emitter.emit("] = ");
+                            ctx.*.emitter.emit_string(init_il);
+                            ctx.*.emitter.emit_line(";");
+                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), n_il.to_string().as_str());
+                            true
+                          }
+                        )
+                      }
+                    )
+                  }
+                )
+              )
+            )
+          );
           // Special case: `b := ArrayAlias(v0, v1, ...)` where `ArrayAlias :: [T; N]`.
           // Emit `elem_type b[N] = {v0, v1, ...};` instead of `__auto_type b = ...`.
-          array_decl_emitted := match(rhs_expr,
+          array_decl_emitted := cond(
+            inline_array_emitted => true,
+            true => match(rhs_expr,
             .Atom(_, _) => false,
             .FnCall(_, arr_fn_box, arr_fn_args, arr_fn_infix, _) => cond(
               arr_fn_infix => false,
@@ -2101,6 +2637,8 @@ handle_define :: (fn(
                             ctx.*.emitter.emit("] = ");
                             ctx.*.emitter.emit_string(init_buf);
                             ctx.*.emitter.emit_line(";");
+                            // Register as C array variable so arr(idx) → arr[idx]
+                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), arr_sz.to_string().as_str());
                             true
                           }
                         )
@@ -2112,17 +2650,49 @@ handle_define :: (fn(
             )
           );
           cond(
+            (arr_copy_emitted || arr_constructor_emitted) => Option(String).Some(String.from("0")),
             array_decl_emitted => Option(String).Some(String.from("0")),
             true => match(call_gen_expr(rhs_expr, ctx, indent),
               .None => Option(String).None,
               .Some(rhs_code) => {
                 ctx.*.emitter.emit_string(indent);
                 ctx.*.emitter.emit("__auto_type ");
-                ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                san_def_name := sanitize_c_ident(name_tok.value.as_str());
+                ctx.*.emitter.emit_string(san_def_name);
                 ctx.*.emitter.emit(" = ");
                 ctx.*.emitter.emit_string(rhs_code);
                 ctx.*.emitter.emit_line(";");
-                .Some(String.from("0"))
+                // If RHS was an array/slice range call, register LHS as slice var
+                is_slice_rhs := match(rhs_expr,
+                  .Atom(_, _) => false,
+                  .FnCall(_, def_rhs_fn, def_rhs_args, def_rhs_infix, _) => cond(
+                    def_rhs_infix => false,
+                    (def_rhs_args.len() != usize(1)) => false,
+                    true => match(def_rhs_fn.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, def_rhs_tok) => cond(
+                        (!(ctx.*.is_array_var(def_rhs_tok.value.as_str()) || ctx.*.is_slice_var(def_rhs_tok.value.as_str()))) => false,
+                        true => match(def_rhs_args.get(usize(0)),
+                          .None => false,
+                          .Some(range_arg) => match(range_arg,
+                            .Atom(_, _) => false,
+                            .FnCall(_, range_fn2, range_args2, range_infix2, _) => cond(
+                              (!(range_infix2 && (range_args2.len() == usize(2)))) => false,
+                              true => match(range_fn2.*,
+                                .FnCall(_, _, _, _, _) => false,
+                                .Atom(_, rtok2) => (rtok2.value.as_str() == "..")
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
+                if(is_slice_rhs, {
+                  ctx.*.register_slice_var(name_tok.value.as_str());
+                });
+                Option(String).Some(String.from("0"))
               }
             )
           )
@@ -2314,6 +2884,7 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == BK_BEGIN)               => true,
     (name == "cond")                 => true,
     (name == "while")                => true,
+    (name == "for")                  => true,
     (name == "if")                   => true,
     (name == "runtime")              => true,
     (name == "match")                => true,
@@ -2636,9 +3207,210 @@ handle_regular_call :: (fn(
 ) -> Option(String))(
   match(ident_opt,
     .None     => Option(String).None,
-    .Some(id) => {
-      // Build arg list, lifting non-capturing lambda args when the function's
-      // expected param type is a function pointer type containing "_FP_".
+    .Some(id) =>
+      // Check array var first, then do regular arg list + call building.
+      cond(
+        // consume(expr) — no-op: just return the expression (emitted as stmt by caller)
+        ((id.as_str() == "consume") && (args.len() == usize(1))) =>
+          match(args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(e) => call_gen_expr(e, ctx, indent)
+          ),
+        // arr(start..end) — slice creation: emit compound literal {.data=&arr[start], .length=end-start}
+        (ctx.*.is_array_var(id.as_str()) && (args.len() == usize(1))) =>
+          match(args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(arg_e) =>
+              // Check if arg is a range `..` expression
+              match(arg_e,
+                .Atom(_, _) =>
+                  // Plain index: arr[idx]
+                  match(call_gen_expr(arg_e, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(idx_c) => {
+                      r := String.new();
+                      r.push_string(id);
+                      r.push_str("[");
+                      r.push_string(idx_c);
+                      r.push_str("]");
+                      Option(String).Some(r)
+                    }
+                  ),
+                .FnCall(_, range_fn, range_args, range_infix, _) => cond(
+                  // Is it an infix `..` with 2 args?
+                  (range_infix && (range_args.len() == usize(2))) =>
+                    match(range_fn.*,
+                      .FnCall(_, _, _, _, _) =>
+                        // Not a range — treat as regular index
+                        match(call_gen_expr(arg_e, ctx, indent),
+                          .None => Option(String).None,
+                          .Some(idx_c) => {
+                            r2 := String.new();
+                            r2.push_string(id);
+                            r2.push_str("[");
+                            r2.push_string(idx_c);
+                            r2.push_str("]");
+                            Option(String).Some(r2)
+                          }
+                        ),
+                      .Atom(_, rtok) => cond(
+                        (rtok.value.as_str() != "..") =>
+                          // Not a range — treat as regular index
+                          match(call_gen_expr(arg_e, ctx, indent),
+                            .None => Option(String).None,
+                            .Some(idx_c) => {
+                              r3 := String.new();
+                              r3.push_string(id);
+                              r3.push_str("[");
+                              r3.push_string(idx_c);
+                              r3.push_str("]");
+                              Option(String).Some(r3)
+                            }
+                          ),
+                        true =>
+                          // Range! emit slice compound literal
+                          match(range_args.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(start_e) => match(range_args.get(usize(1)),
+                              .None => Option(String).None,
+                              .Some(end_e) => match(call_gen_expr(start_e, ctx, indent),
+                                .None => Option(String).None,
+                                .Some(start_c) => match(call_gen_expr(end_e, ctx, indent),
+                                  .None => Option(String).None,
+                                  .Some(end_c) => {
+                                    san_arr := sanitize_c_ident(id.as_str());
+                                    // (struct { __typeof__(arr[0])* data; size_t length; }){.data=&arr[start], .length=end-start}
+                                    r4 := String.from("(struct { __typeof__(");
+                                    r4.push_string(san_arr);
+                                    r4.push_str("[0])* data; size_t length; }){.data = &");
+                                    r4.push_string(san_arr);
+                                    r4.push_str("[");
+                                    r4.push_string(start_c);
+                                    r4.push_str("], .length = (");
+                                    r4.push_string(end_c);
+                                    r4.push_str(") - (");
+                                    r4.push_string(start_c);
+                                    r4.push_str(")}");
+                                    Option(String).Some(r4)
+                                  }
+                                )
+                              )
+                            )
+                          )
+                      )
+                    ),
+                  true =>
+                    // Not range — treat as regular index
+                    match(call_gen_expr(arg_e, ctx, indent),
+                      .None => Option(String).None,
+                      .Some(idx_c) => {
+                        r5 := String.new();
+                        r5.push_string(id);
+                        r5.push_str("[");
+                        r5.push_string(idx_c);
+                        r5.push_str("]");
+                        Option(String).Some(r5)
+                      }
+                    )
+                )
+              )
+          ),
+        // slice(idx) or slice(start..end) — slice element access or slice-of-slice
+        (ctx.*.is_slice_var(id.as_str()) && (args.len() == usize(1))) =>
+          match(args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(sidx_e) =>
+              match(sidx_e,
+                .Atom(_, _) =>
+                  // Plain index: slice.data[idx]
+                  match(call_gen_expr(sidx_e, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(sidx_c) => {
+                      rs := String.new();
+                      rs.push_string(id);
+                      rs.push_str(".data[");
+                      rs.push_string(sidx_c);
+                      rs.push_str("]");
+                      Option(String).Some(rs)
+                    }
+                  ),
+                .FnCall(_, srange_fn, srange_args, srange_infix, _) => cond(
+                  (srange_infix && (srange_args.len() == usize(2))) =>
+                    match(srange_fn.*,
+                      .FnCall(_, _, _, _, _) =>
+                        match(call_gen_expr(sidx_e, ctx, indent),
+                          .None => Option(String).None,
+                          .Some(sc) => {
+                            rss := String.new();
+                            rss.push_string(id);
+                            rss.push_str(".data[");
+                            rss.push_string(sc);
+                            rss.push_str("]");
+                            Option(String).Some(rss)
+                          }
+                        ),
+                      .Atom(_, srtok) => cond(
+                        (srtok.value.as_str() != "..") =>
+                          match(call_gen_expr(sidx_e, ctx, indent),
+                            .None => Option(String).None,
+                            .Some(sc2) => {
+                              rss2 := String.new();
+                              rss2.push_string(id);
+                              rss2.push_str(".data[");
+                              rss2.push_string(sc2);
+                              rss2.push_str("]");
+                              Option(String).Some(rss2)
+                            }
+                          ),
+                        true =>
+                          // Slice-of-slice: {.data = &slice.data[start], .length = end-start}
+                          match(srange_args.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(ss_start) => match(srange_args.get(usize(1)),
+                              .None => Option(String).None,
+                              .Some(ss_end) => match(call_gen_expr(ss_start, ctx, indent),
+                                .None => Option(String).None,
+                                .Some(ss_start_c) => match(call_gen_expr(ss_end, ctx, indent),
+                                  .None => Option(String).None,
+                                  .Some(ss_end_c) => {
+                                    san_sl := sanitize_c_ident(id.as_str());
+                                    rss3 := String.from("(struct { __typeof__(");
+                                    rss3.push_string(san_sl);
+                                    rss3.push_str(".data[0])* data; size_t length; }){.data = &");
+                                    rss3.push_string(san_sl);
+                                    rss3.push_str(".data[");
+                                    rss3.push_string(ss_start_c);
+                                    rss3.push_str("], .length = (");
+                                    rss3.push_string(ss_end_c);
+                                    rss3.push_str(") - (");
+                                    rss3.push_string(ss_start_c);
+                                    rss3.push_str(")}");
+                                    Option(String).Some(rss3)
+                                  }
+                                )
+                              )
+                            )
+                          )
+                      )
+                    ),
+                  true =>
+                    match(call_gen_expr(sidx_e, ctx, indent),
+                      .None => Option(String).None,
+                      .Some(sc3) => {
+                        rss4 := String.new();
+                        rss4.push_string(id);
+                        rss4.push_str(".data[");
+                        rss4.push_string(sc3);
+                        rss4.push_str("]");
+                        Option(String).Some(rss4)
+                      }
+                    )
+                )
+              )
+          ),
+        // slice(start..end) — handled in the slice branch above.
+        // (No dead branch needed here.)
+        true => {
       n_rc  := args.len();
       result_args := String.new();
       (i_rc : usize) = usize(0);
@@ -2684,10 +3456,11 @@ handle_regular_call :: (fn(
           result.push_str("(");
           result.push_string(result_args);
           result.push_str(")");
-          .Some(result)
+          Option(String).Some(result)
         }
       )
-    }
+        }
+      )
   )
 );
 
@@ -2828,6 +3601,19 @@ handle_method_call :: (fn(
       .Some(method_name) => match(call_gen_expr(recv_expr, ctx, indent),
         .None => Option(String).None,
         .Some(recv_code) => cond(
+          // `arr.len()` on a registered C array variable — emit the known size constant.
+          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_array_var(recv_code.as_str()))) =>
+            match(ctx.*.get_array_var_size(recv_code.as_str()),
+              .None => Option(String).None,
+              .Some(sz) => Option(String).Some(sz)
+            ),
+          // `slice.len()` on a registered C slice variable — emit `slice.length`.
+          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_slice_var(recv_code.as_str()))) => {
+            sl_len := String.new();
+            sl_len.push_string(recv_code);
+            sl_len.push_str(".length");
+            Option(String).Some(sl_len)
+          },
           // `x.to_string()` — template string part: strip to_string, pass receiver through.
           ((method_name.as_str() == "to_string") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
@@ -3125,6 +3911,126 @@ handle_assignment :: (fn(
     .Some(lhs_expr) => match(rhs_opt,
       .None => Option(String).None,
       .Some(rhs_expr) => {
+        // --- Special path: (arr : [T; N]) = [v0, v1, ...] --- 
+        // typed-decl with Array type + array literal RHS → emit `T arr[N] = {v0, v1, ...};`
+        arr_typed_decl_opt := match(lhs_expr,
+          .Atom(_, _) => Option(String).None,
+          .FnCall(_, lcolon_box, lcolon_args, lcolon_infix, _) => cond(
+            (!(lcolon_infix && match(lcolon_box.*,
+              .Atom(_, lctok) => ((lctok.kind == TokenKind.Operator) && (lctok.value.as_str() == ":")),
+              .FnCall(_, _, _, _, _) => false
+            ))) => Option(String).None,
+            true => match(lcolon_args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(lname_e) => match(lname_e,
+                .FnCall(_, _, _, _, _) => Option(String).None,
+                .Atom(_, lname_tok) => cond(
+                  (lname_tok.kind != TokenKind.Identifier) => Option(String).None,
+                  true => match(lcolon_args.get(usize(1)),
+                    .None => Option(String).None,
+                    .Some(lty_e) => match(lty_e,
+                      .Atom(_, _) => Option(String).None,
+                      .FnCall(_, lty_fn, lty_args, lty_infix, _) => cond(
+                        lty_infix => Option(String).None,
+                        (lty_args.len() != usize(2)) => Option(String).None,
+                        true => match(lty_fn.*,
+                          .FnCall(_, _, _, _, _) => Option(String).None,
+                          .Atom(_, ltytok) => cond(
+                            (ltytok.value.as_str() != "Array") => Option(String).None,
+                            true => {
+                              // [T; N] or Array(T, N) → extract elem type and size
+                              elem_c_opt := match(lty_args.get(usize(0)),
+                                .None => Option(String).None,
+                                .Some(elem_e) => type_expr_to_c(elem_e)
+                              );
+                              size_str_opt := match(lty_args.get(usize(1)),
+                                .None => Option(String).None,
+                                .Some(sz_e) => match(sz_e,
+                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                  .Atom(_, sz_tok) => cond(
+                                    (sz_tok.kind == TokenKind.Integer) => Option(String).Some(sz_tok.value),
+                                    (sz_tok.value.as_str() == "_") => Option(String).None,
+                                    true => Option(String).None
+                                  )
+                                )
+                              );
+                              match(elem_c_opt,
+                                .None => Option(String).None,
+                                .Some(elem_c) => match(size_str_opt,
+                                  .None => Option(String).None,
+                                  .Some(size_str) => {
+                                    // Now emit the array declaration
+                                    san_arr_name := sanitize_c_ident(lname_tok.value.as_str());
+                                    // RHS must be an array literal or generate as initializer
+                                    rhs_init_opt := match(rhs_expr,
+                                      .Atom(_, _) => call_gen_expr(rhs_expr, ctx, indent),
+                                      .FnCall(_, rhs_arr_fn, rhs_arr_args, rhs_arr_infix, _) => cond(
+                                        rhs_arr_infix => call_gen_expr(rhs_expr, ctx, indent),
+                                        true => match(rhs_arr_fn.*,
+                                          .FnCall(_, _, _, _, _) => call_gen_expr(rhs_expr, ctx, indent),
+                                          .Atom(_, ratok) => cond(
+                                            (ratok.value.as_str() != "array") => call_gen_expr(rhs_expr, ctx, indent),
+                                            true => {
+                                              // Build `{v0, v1, ...}` initializer
+                                              n_rv := rhs_arr_args.len();
+                                              init_rv := String.from("{");
+                                              (rvi : usize) = usize(0);
+                                              (rv_ok : bool) = true;
+                                              while runtime(((rvi < n_rv) && rv_ok)), {
+                                                match(rhs_arr_args.get(rvi),
+                                                  .None => { rv_ok = false; },
+                                                  .Some(rv_e) => match(call_gen_expr(rv_e, ctx, indent),
+                                                    .None => { rv_ok = false; },
+                                                    .Some(rv_c) => {
+                                                      if((rvi > usize(0)), { init_rv.push_str(", "); });
+                                                      init_rv.push_string(rv_c);
+                                                      rvi = (rvi + usize(1));
+                                                    }
+                                                  )
+                                                );
+                                              };
+                                              cond(
+                                                (!rv_ok) => Option(String).None,
+                                                true => {
+                                                  init_rv.push_str("}");
+                                                  Option(String).Some(init_rv)
+                                                }
+                                              )
+                                            }
+                                          )
+                                        )
+                                      )
+                                    );
+                                    match(rhs_init_opt,
+                                      .None => Option(String).None,
+                                      .Some(rhs_init) => {
+                                        ctx.*.emitter.emit_string(indent);
+                                        ctx.*.emitter.emit_string(elem_c);
+                                        ctx.*.emitter.emit(" ");
+                                        ctx.*.emitter.emit_string(san_arr_name);
+                                        ctx.*.emitter.emit("[");
+                                        ctx.*.emitter.emit_string(size_str);
+                                        ctx.*.emitter.emit("] = ");
+                                        ctx.*.emitter.emit_string(rhs_init);
+                                        ctx.*.emitter.emit_line(";");
+                                        ctx.*.register_array_var_with_size(lname_tok.value.as_str(), size_str.as_str());
+                                        Option(String).Some(String.from("0"))
+                                      }
+                                    )
+                                  }
+                                )
+                              )
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        );
         // Detect: RHS is a non-empty anonymous struct init `_(args…)`.
         // When combined with a typed-decl LHS `(x : T) = _(…)`, we need the LHS
         // type to generate the C compound literal `(T){…}`.  We must handle this
@@ -3141,6 +4047,56 @@ handle_assignment :: (fn(
           )
         );
         cond(
+          // --- Special path: (arr : [T; N]) = [v0, v1, ...] ---
+          match(arr_typed_decl_opt, .Some(_) => true, .None => false) => arr_typed_decl_opt,
+          // --- Special path: arr = [v0, v1, ...] for known array var (element-by-element) ---
+          match(lhs_expr,
+            .Atom(_, lna_tok) => ctx.*.is_array_var(lna_tok.value.as_str()),
+            .FnCall(_, _, _, _, _) => false
+          ) =>
+            match(lhs_expr,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, lna_tok) => match(rhs_expr,
+                .Atom(_, _) => Option(String).None,
+                .FnCall(_, ala_fn, ala_args, ala_infix, _) => cond(
+                  ala_infix => Option(String).None,
+                  true => match(ala_fn.*,
+                    .FnCall(_, _, _, _, _) => Option(String).None,
+                    .Atom(_, ala_tok) => cond(
+                      (ala_tok.value.as_str() != "array") => Option(String).None,
+                      true => {
+                        san_arr := sanitize_c_ident(lna_tok.value.as_str());
+                        n_ala := ala_args.len();
+                        (ala_i : usize) = usize(0);
+                        (ala_ok : bool) = true;
+                        while runtime(((ala_i < n_ala) && ala_ok)), {
+                          match(ala_args.get(ala_i),
+                            .None => { ala_ok = false; },
+                            .Some(ala_e) => match(call_gen_expr(ala_e, ctx, indent),
+                              .None => { ala_ok = false; },
+                              .Some(ala_c) => {
+                                ctx.*.emitter.emit_string(indent);
+                                ctx.*.emitter.emit_string(san_arr);
+                                ctx.*.emitter.emit("[");
+                                ctx.*.emitter.emit_string(ala_i.to_string());
+                                ctx.*.emitter.emit("] = ");
+                                ctx.*.emitter.emit_string(ala_c);
+                                ctx.*.emitter.emit_line(";");
+                                ala_i = (ala_i + usize(1));
+                              }
+                            )
+                          );
+                        };
+                        cond(
+                          (!ala_ok) => Option(String).None,
+                          true => Option(String).Some(String.from("0"))
+                        )
+                      }
+                    )
+                  )
+                )
+              )
+            ),
           // --- Special path: typed-decl + anon-struct RHS ---
           rhs_is_anon_struct => match(lhs_expr,
             // Not a typed decl (just an atom LHS) — skip to general path
@@ -4056,6 +5012,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(id) => (id.as_str() == "while")
         ) => handle_while(args, ctx, indent),
+        // for iter_expr, (param) => { body } — iterator for-loop macro
+        match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "for")
+        ) => handle_for(args, ctx, indent),
         // if(cond, then) / if(cond, then, else)
         match(ident_opt,
           .None    => false,
@@ -4284,6 +5245,32 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   .Atom(_, rftok_i) => (rftok_i.value.as_str() == "->"),
                   .FnCall(_, _, _, _, _) => false
                 )) => false,
+                // Infix `=`, `:=`, `::`, `:` — assignment/definition patterns — not values
+                (rhs_infix && match(rhs_func.*,
+                  .Atom(_, rftok_asgn) => {
+                    v := rftok_asgn.value.as_str();
+                    (((v == "=") || (v == ":=")) || ((v == "::") || (v == ":")))
+                  },
+                  .FnCall(_, _, _, _, _) => false
+                )) => false,
+                // Dot-access infix `.` — field/method access — not a simple const value
+                (rhs_infix && match(rhs_func.*,
+                  .Atom(_, rftok_dot) => (rftok_dot.value.as_str() == "."),
+                  .FnCall(_, _, _, _, _) => false
+                )) => false,
+                // Other infix binary arithmetic/bitwise/comparison ops (|, &, ^, +, -, *, /, <<, >>, %, ==, !=, <, >, &&, ||)
+                // are runtime-eligible if all referenced identifiers are known C variables.
+                (rhs_infix && match(rhs_func.*,
+                  .Atom(_, rftok_b) => is_binary_op(rftok_b.value.as_str()),
+                  .FnCall(_, _, _, _, _) => false
+                )) => {
+                  // Check both args to ensure all identifiers are available
+                  all_ok := match(args.get(usize(1)),
+                    .None => false,
+                    .Some(rhs_check) => expr_all_ids_known(rhs_check, ctx)
+                  );
+                  all_ok
+                },
                 rhs_infix => false,
                 // Non-empty tuple literal: (a, b, …) — always eligible
                 (match(rhs_func.*,
@@ -4301,34 +5288,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     (rftok.value.as_str() == "impl")   => false,
                     (rftok.value.as_str() == "forall") => false,
                     (rftok.value.as_str() == "where")  => false,
-                    // Unary/binary operator symbol (non-identifier) applied only to literals → allow.
+                    // Unary/binary operator symbol (non-identifier) → eligible if all identifier
+                    // args reference known C variables.
                     // e.g., `n :: (-1000)` → `__auto_type n = (-1000);`
-                    // Reject if any arg is an identifier atom (might not be a C variable).
-                    (rftok.kind != TokenKind.Identifier) => {
-                      all_lit := {
-                        (ali : bool) = true;
-                        (ali_i : usize) = usize(0);
-                        n_rfa := rhs_fargs.len();
-                        while runtime(((ali_i < n_rfa) && ali)), {
-                          match(rhs_fargs.get(ali_i),
-                            .None => { ali = false; },
-                            .Some(rfa) => match(rfa,
-                              .FnCall(_, _, _, _, _) => { ali = false; },
-                              .Atom(_, rfa_tok) => cond(
-                                (rfa_tok.kind == TokenKind.Integer)   => (),
-                                (rfa_tok.kind == TokenKind.Float)     => (),
-                                (rfa_tok.kind == TokenKind.Bool)      => (),
-                                (rfa_tok.kind == TokenKind.StringLit) => (),
-                                true => { ali = false; }
-                              )
-                            )
-                          );
-                          ali_i = (ali_i + usize(1));
-                        };
-                        ali
-                      };
-                      all_lit
-                    },
+                    // e.g., `not_mask :: ~(u32(0xFF))` → `__auto_type not_mask = (~(uint32_t)(0xFF));`
+                    (rftok.kind != TokenKind.Identifier) => match(args.get(usize(1)),
+                      .None => false,
+                      .Some(rhs_unary_chk) => expr_all_ids_known(rhs_unary_chk, ctx)
+                    ),
                     // Registered function call: callee is a known Yo function
                     (ctx.*.is_defined_fn(rftok.value.as_str())) => true,
                     // Registered struct constructor: callee starts uppercase and is a known struct
@@ -4357,6 +5324,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     ctx.*.emitter.emit(" = ");
                     ctx.*.emitter.emit_string(rhs_code);
                     ctx.*.emitter.emit_line(";");
+                    ctx.*.register_const_var(c_name.as_str());
                     .Some(String.from("0"))
                   }
                 )

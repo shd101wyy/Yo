@@ -70,7 +70,19 @@ CodegenContext :: object(
   pre_fn_code    : String,
   // Parallel to `defined_fns`: pipe-separated C param type strings for each function.
   // Used for lambda lifting to infer callback param types.
-  fn_param_ty_lists : ArrayList(String)
+  fn_param_ty_lists : ArrayList(String),
+  // C array variables: variable names that are declared as C arrays (e.g. `int32_t arr[3]`).
+  // Indexing syntax `arr(idx)` → `arr[idx]` for these variables.
+  array_var_names : ArrayList(String),
+  // Parallel to `array_var_names`: the size (as string) of each C array variable.
+  // Used to emit the constant for `arr.len()`.
+  array_var_sizes : ArrayList(String),
+  // C slice variables: variable names that are declared as C slices ({data, length} structs).
+  // Indexing syntax `slice(idx)` → `slice.data[idx]` for these variables.
+  slice_var_names : ArrayList(String),
+  // Emitted `::` constant bindings: names that have been emitted as C `__auto_type` variables.
+  // Used to check if a `::` binding's dependencies are all available.
+  emitted_const_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -98,7 +110,11 @@ impl(CodegenContext,
       current_fn_return_type: String.new(),
       lambda_count:           usize(0),
       pre_fn_code:            String.new(),
-      fn_param_ty_lists:      ArrayList(String).new()
+      fn_param_ty_lists:      ArrayList(String).new(),
+      array_var_names:        ArrayList(String).new(),
+      array_var_sizes:        ArrayList(String).new(),
+      slice_var_names:        ArrayList(String).new(),
+      emitted_const_names:    ArrayList(String).new()
     )
   ),
 
@@ -174,6 +190,99 @@ impl(CodegenContext,
         }
       )
     )
+  }),
+
+  /// Register a variable as a C array (so `name(idx)` emits `name[idx]`).
+  register_array_var : (fn(self : *(Self), name : str) -> unit)({
+    self.*.array_var_names.push(String.from(name));
+    self.*.array_var_sizes.push(String.from("0"));
+  }),
+
+  /// Register a variable as a C array with its size string.
+  register_array_var_with_size : (fn(self : *(Self), name : str, size : str) -> unit)({
+    self.*.array_var_names.push(String.from(name));
+    self.*.array_var_sizes.push(String.from(size));
+  }),
+
+  /// Return the size string for a C array variable, or None.
+  get_array_var_size : (fn(self : *(Self), name : str) -> Option(String))({
+    n := self.*.array_var_names.len();
+    (i : usize) = usize(0);
+    (found_idx : Option(usize)) = Option(usize).None;
+    while runtime(((i < n) && match(found_idx, .None => true, .Some(_) => false))), {
+      match(self.*.array_var_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found_idx = .Some(i); });
+        }
+      );
+      i = (i + usize(1));
+    };
+    match(found_idx,
+      .None => Option(String).None,
+      .Some(idx) => self.*.array_var_sizes.get(idx)
+    )
+  }),
+
+  /// True if `name` was registered as a C array variable.
+  is_array_var : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.array_var_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.array_var_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register a variable as a C slice (so `name(idx)` → `name.data[idx]`).
+  register_slice_var : (fn(self : *(Self), name : str) -> unit)({
+    self.*.slice_var_names.push(String.from(name));
+  }),
+
+  /// True if `name` was registered as a C slice variable.
+  is_slice_var : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.slice_var_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.slice_var_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register a `::` constant binding as emitted (so it can be referenced by later bindings).
+  register_const_var : (fn(self : *(Self), name : str) -> unit)({
+    self.*.emitted_const_names.push(String.from(name));
+  }),
+
+  /// True if `name` was registered as an emitted `::` C constant.
+  is_const_var : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.emitted_const_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.emitted_const_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
   }),
 
   /// True if `name` was registered via `register_fn` — i.e., it is a
