@@ -532,6 +532,14 @@ function compileBatchedBinary(
       compileArgs.splice(-2, 0, "-fno-exceptions");
       if (isWasi) {
         compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+        // Increase stack and initial memory for WASI builds.  The yo-self
+        // evaluator's `evaluate()` function has 693+ local variables, which
+        // inflates each call frame significantly.  Emscripten's default stack
+        // size (64KB) and initial memory (16MB) are insufficient for batch
+        // test binaries that include the full evaluator.  8MB stack + 64MB
+        // initial memory provides enough headroom for all tests.
+        compileArgs.splice(-2, 0, "-sSTACK_SIZE=8388608");
+        compileArgs.splice(-2, 0, "-sINITIAL_MEMORY=67108864");
       } else {
         compileArgs.splice(-2, 0, "-sNODERAWFS=1");
       }
