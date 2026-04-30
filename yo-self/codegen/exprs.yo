@@ -4965,6 +4965,30 @@ handle_assignment :: (fn(
                     )
                   )
                 },
+                // Comptime field mutation: `const_var.field = val` or `const_var.0 = val`
+                // where `const_var` was declared with `::`.
+                // Skip (no-op): `::` bindings are comptime constants; any mutations to their
+                // fields are comptime-only and all dependent asserts are `comptime_assert` (no-ops).
+                (match(lhs_expr,
+                  .Atom(_, _) => false,
+                  .FnCall(_, cm_fn, cm_args, cm_infix, _) => (
+                    cm_infix &&
+                    match(cm_fn.*,
+                      .Atom(_, cm_tok) => (cm_tok.value.as_str() == "."),
+                      .FnCall(_, _, _, _, _) => false
+                    ) &&
+                    match(cm_args.get(usize(0)),
+                      .None => false,
+                      .Some(cm_recv) => match(cm_recv,
+                        .Atom(_, cm_recv_tok) => (
+                          (cm_recv_tok.kind == TokenKind.Identifier) &&
+                          ctx.*.is_const_var(cm_recv_tok.value.as_str())
+                        ),
+                        .FnCall(_, _, _, _, _) => false
+                      )
+                    )
+                  )
+                )) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
                 // Guard: if LHS is a non-infix FnCall where the callee is neither a
                 // registered array var nor a registered function (i.e., it's a struct
@@ -5881,6 +5905,40 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 (match(rhs_func.*,
                   .Atom(_, rftok2) => ((rhs_fargs.len() > usize(0)) && (rftok2.value.as_str() == BK_TUPLE)),
                   .FnCall(_, _, _, _, _) => false
+                )) => true,
+                // Enum constructor: `EnumName.Variant(args)` where EnumName is registered.
+                // e.g. `c1 :: Shape.Circle(5.0)` → eligible (emits full enum struct init).
+                // Also requires that the variant has registered C fields (non-comptime-only).
+                (match(rhs_func.*,
+                  .FnCall(_, ect_fn, ect_args, ect_infix, _) => (
+                    ect_infix &&
+                    match(ect_fn.*,
+                      .Atom(_, ectok) => (ectok.value.as_str() == "."),
+                      .FnCall(_, _, _, _, _) => false
+                    ) &&
+                    match(ect_args.get(usize(0)),
+                      .None => false,
+                      .Some(ect_recv) => match(ect_recv,
+                        .Atom(_, ect_recv_tok) => (
+                          ctx.*.is_enum_name(ect_recv_tok.value.as_str()) &&
+                          // Variant must have registered non-empty C fields; if fields are
+                          // comptime-only (e.g. comptime_int), get_variant_fields returns None
+                          // and we fall through to the no-op path.
+                          match(ect_args.get(usize(1)),
+                            .None => false,
+                            .Some(ect_var) => match(ect_var,
+                              .Atom(_, ect_var_tok) => ctx.*.get_variant_fields(
+                                ect_recv_tok.value.as_str(), ect_var_tok.value.as_str()
+                              ).is_some(),
+                              .FnCall(_, _, _, _, _) => false
+                            )
+                          )
+                        ),
+                        .FnCall(_, _, _, _, _) => false
+                      )
+                    )
+                  ),
+                  .Atom(_, _) => false
                 )) => true,
                 // Method call on a compound func (e.g. `5.neg()`, `arr.len()`) — eligible if
                 // all referenced identifiers are known C variables.
