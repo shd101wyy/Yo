@@ -2168,9 +2168,67 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
   );
 });
 
-// ---------------------------------------------------------------------------
-// derive(ToString) code generation helpers
-// ---------------------------------------------------------------------------
+/// Scan `expr` and register any `name :: fn...` definition that `extract_fn_def` would skip
+/// (because the function has a comptime-only return type) into `ctx.skipped_fn_names`.
+/// Call sites to these names will later emit `0` instead of an undeclared-function call.
+collect_skipped_fn_names :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
+  match(expr,
+    .Atom(_, _) => (),
+    .FnCall(_, top_func, top_args, top_infix, _) => {
+      // Check if this is a `name :: ...` (infix `::`) with 2 args.
+      cond(
+        (!top_infix) => (),
+        true => match(top_func.*,
+          .FnCall(_, _, _, _, _) => (),
+          .Atom(_, ttok) => cond(
+            (ttok.value.as_str() != "::") => (),
+            (top_args.len() != usize(2)) => (),
+            true => match(extract_fn_def(expr),
+              .Some(_) => (),
+              // Only register as skipped if the RHS is a function application
+              // (i.e., it has the `->` arrow operator pattern).
+              // Non-function `::` bindings like `arr :: [1, 2, 3]` or `n :: 42`
+              // should NOT be registered as skipped functions.
+              .None => match(top_args.get(usize(1)),
+                .None => (),
+                .Some(rhs_check) => match(rhs_check,
+                  .Atom(_, _) => (),
+                  .FnCall(_, app_func_chk, _, _, _) => cond(
+                    (!(is_arrow_op(app_func_chk.*))) => (),
+                    true => match(top_args.get(usize(0)),
+                      .None => (),
+                      .Some(name_expr) => match(atom_ident(name_expr),
+                        .None => (),
+                        .Some(name_s) => ctx.*.register_skipped_fn(name_s)
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      );
+      // Recurse into begin blocks.
+      cond(
+        is_begin_block(expr) => {
+          n := top_args.len();
+          (i : usize) = usize(0);
+          while runtime((i < n)), {
+            match(top_args.get(i),
+              .None => (),
+              .Some(s) => recur(s, ctx)
+            );
+            i = (i + usize(1));
+          };
+        },
+        true => ()
+      );
+    }
+  );
+});
+
+
 
 /// True if the C type `c_ty` needs an snprintf buffer (i.e. is not already a string).
 _c_type_needs_snprintf :: (fn(c_ty : str) -> bool)(
@@ -3517,6 +3575,8 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
       .Some(mexpr) => {
         match(extract_fn_def(mexpr),
           .None => {
+            // Register any skipped (comptime-return) function names from module-level exprs.
+            collect_skipped_fn_names(mexpr, pctx);
             // Also register impl methods so static calls get fn_ prefix
             impl_fns_pass1 := extract_impl_fns(mexpr, "");
             // The prefix is "" here; actual name is already prefixed in extract_impl_fns
@@ -3693,6 +3753,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // detect them.
   local_fns := ArrayList(FnDef).new();
   collect_local_fn_defs(body, &local_fns);
+  collect_skipped_fn_names(body, pctx);
   nf := local_fns.len();
 
   // First pass: register impl method names so call sites get fn_ prefix.

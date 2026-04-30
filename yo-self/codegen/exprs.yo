@@ -3795,6 +3795,8 @@ handle_regular_call :: (fn(
       };
       cond(
         (!ok_rc) => Option(String).None,
+        // If the callee is a comptime-only function, emit `0` (a no-op placeholder).
+        ctx.*.is_skipped_fn(id.as_str()) => Option(String).Some(String.from("0")),
         true => {
           result := String.new();
           if(ctx.*.is_defined_fn(id.as_str()), {
@@ -4036,7 +4038,7 @@ handle_method_call :: (fn(
                   true => {
                     clone_expr_a := String.from("fn_");
                     clone_expr_a.push_string(ty_name_a);
-                    clone_expr_a.push_str("(&");
+                    clone_expr_a.push_str("_clone(&");
                     clone_expr_a.push_string(recv_code);
                     clone_expr_a.push_str(")");
                     Option(String).Some(clone_expr_a)
@@ -4963,6 +4965,27 @@ handle_assignment :: (fn(
                     )
                   )
                 },
+                // Compound LHS: e.g. c.*.field = val, arr.data = val
+                // Guard: if LHS is a non-infix FnCall where the callee is neither a
+                // registered array var nor a registered function (i.e., it's a struct
+                // variable being indexed via the Index trait), emit a no-op.
+                // This handles comptime-only mutations like `p(0) = val` where `p` is a
+                // struct with a ComptimeIndex impl — all asserts around it are comptime.
+                (match(lhs_expr,
+                  .Atom(_, _) => false,
+                  .FnCall(_, nai_fn, nai_args, nai_infix, _) => (
+                    ((!nai_infix) && (nai_args.len() == usize(1))) &&
+                    match(nai_fn.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, nai_tok) => (
+                        (nai_tok.kind == TokenKind.Identifier) &&
+                        ((!ctx.*.is_array_var(nai_tok.value.as_str())) &&
+                        ((!ctx.*.is_slice_var(nai_tok.value.as_str())) &&
+                        (!ctx.*.is_defined_fn(nai_tok.value.as_str()))))
+                      )
+                    )
+                  )
+                )) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
                 // Generate the LHS as an expression and return "lhs = rhs"
                 true => match(call_gen_expr(lhs_expr, ctx, indent),
@@ -5904,6 +5927,67 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(c_name) => match(args.get(usize(1)),
               .None => .Some(String.from("0")),
               .Some(rhs_e2) => cond(
+                // Inline array literal: `arr :: [v0, v1, ...]`
+                // Emit C array declaration and register as array var, same as `:=`.
+                ((!rhs_is_eligible) && match(rhs_e2,
+                  .Atom(_, _) => false,
+                  .FnCall(_, il_fn_b, il_fn_a, il_fi, _) => (
+                    ((!il_fi) && (il_fn_a.len() > usize(0))) &&
+                    match(il_fn_b.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, il_tok) => (il_tok.value.as_str() == "array")
+                    )
+                  )
+                )) => match(rhs_e2,
+                  .Atom(_, _) => .Some(String.from("0")),
+                  .FnCall(_, _, il_args2, _, _) => {
+                    n_il2 := il_args2.len();
+                    init_il2 := String.from("{");
+                    (il2_i : usize) = usize(0);
+                    (il2_ok : bool) = true;
+                    while runtime(((il2_i < n_il2) && il2_ok)), {
+                      match(il_args2.get(il2_i),
+                        .None => { il2_ok = false; },
+                        .Some(il_e2) => match(call_gen_expr(il_e2, ctx, indent),
+                          .None => { il2_ok = false; },
+                          .Some(il_c2) => {
+                            if((il2_i > usize(0)), { init_il2.push_str(", "); });
+                            init_il2.push_string(il_c2);
+                            il2_i = (il2_i + usize(1));
+                          }
+                        )
+                      );
+                    };
+                    cond(
+                      (!il2_ok) => .Some(String.from("0")),
+                      true => {
+                        init_il2.push_str("}");
+                        first_opt2 := match(il_args2.get(usize(0)),
+                          .None => Option(String).None,
+                          .Some(fe2) => call_gen_expr(fe2, ctx, indent)
+                        );
+                        match(first_opt2,
+                          .None => .Some(String.from("0")),
+                          .Some(first2) => {
+                            san_il := sanitize_c_ident(c_name.as_str());
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("__typeof__(");
+                            ctx.*.emitter.emit_string(first2);
+                            ctx.*.emitter.emit(") ");
+                            ctx.*.emitter.emit_string(san_il);
+                            ctx.*.emitter.emit("[");
+                            ctx.*.emitter.emit_string(n_il2.to_string());
+                            ctx.*.emitter.emit("] = ");
+                            ctx.*.emitter.emit_string(init_il2);
+                            ctx.*.emitter.emit_line(";");
+                            ctx.*.register_array_var_with_size(c_name.as_str(), n_il2.to_string().as_str());
+                            .Some(String.from("0"))
+                          }
+                        )
+                      }
+                    )
+                  }
+                ),
                 // Skip if RHS is a function definition (pre-hoisted) or not eligible
                 (!rhs_is_eligible) => .Some(String.from("0")),
                 true => match(call_gen_expr(rhs_e2, ctx, indent),

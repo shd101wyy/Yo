@@ -108,7 +108,11 @@ CodegenContext :: object(
   // Types that have `derive(Ord(...))` registered.
   // When comparing two values with `<`, `<=`, `>`, `>=`, dispatch to
   // `fn_TypeName_cmp` C function.
-  derive_ord_names : ArrayList(String)
+  derive_ord_names : ArrayList(String),
+  // Function names that were skipped during codegen because their return type
+  // is a comptime-only meta-type (Trait, Type, DeriveContext, …).
+  // Call sites to these names emit `0` instead of a real C call.
+  skipped_fn_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -147,7 +151,8 @@ impl(CodegenContext,
       derive_clone_names:     ArrayList(String).new(),
       derive_eq_names:        ArrayList(String).new(),
       derive_hash_names:      ArrayList(String).new(),
-      derive_ord_names:       ArrayList(String).new()
+      derive_ord_names:       ArrayList(String).new(),
+      skipped_fn_names:       ArrayList(String).new()
     )
   ),
 
@@ -866,6 +871,28 @@ impl(CodegenContext,
         .None => (),
         .Some(s) => {
           if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register `name` as a comptime-only function whose call sites should emit `0`.
+  register_skipped_fn : (fn(self : *(Self), name : str) -> unit)({
+    self.*.skipped_fn_names.push(String.from(name));
+  }),
+
+  /// True if `name` was registered as a comptime-only skipped function.
+  is_skipped_fn : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.skipped_fn_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.skipped_fn_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
         }
       );
       i = (i + usize(1));
