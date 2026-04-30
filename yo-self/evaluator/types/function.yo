@@ -13,7 +13,7 @@
 //!   - effect-row forall `...(E)` → throws "not yet implemented"
 //!   - concrete-type where-clause validation (needs typeImplementsTrait) → throws "not yet implemented"
 //!   - `findSomeTypeMissingComptimeConstraint` → check skipped
-//!   - `evaluate_function_parameter_type_again` / `evaluate_function_return_type_again` → stubs
+//!   - `evaluate_function_parameter_type_again` / `evaluate_function_return_type_again` → IMPLEMENTED (Phase 3b)
 
 open import "std/string";
 open import "std/fmt";
@@ -37,6 +37,7 @@ open import "std/fmt";
   type_prohibits_comptime_modifier, type_contains_some_type,
   convert_comptime_type_to_runtime_type }
   :: import "../../types/utils.yo";
+{ get_value_of_some_type_from_env }         :: import "../../types/env_lookup.yo";
 { format_error_message }                    :: import "../../error/error.yo";
 { type_to_string }                          :: import "../../types/string.yo";
 { is_valid_variable_name }                  :: import "../exprs/binding.yo";
@@ -2168,47 +2169,56 @@ evaluate_function_type :: (fn(
 });
 
 // ---------------------------------------------------------------------------
-// evaluate_function_parameter_type_again (stub)
+// evaluate_function_parameter_type_again
 // ---------------------------------------------------------------------------
 
-/// Re-evaluate a function parameter's type at call site.
-/// Required for generic function specialization.
-/// Phase 3 stub — needs the original param type expressions stored in Func.
+/// Re-evaluate (resolve) a function parameter's type at call site.
+///
+/// In TypeScript, this re-evaluates the stored type expression (`.exprs.typeExpr`)
+/// to resolve any generic type variables that have been bound since the function
+/// was defined.  In Yo, `TypeValue.Func` stores only the pre-evaluated types
+/// (not the original expressions), so we resolve the type by walking the callee
+/// env with `get_value_of_some_type_from_env`.  This handles the common case of
+/// a SomeT parameter being resolved to a concrete type at call time.
+///
+/// Input:
+///   `param_type`  — pre-evaluated parameter type from `TypeValue.Func.param_types[i]`
+///   `callee_env`  — callee-side environment (has forall bindings)
+/// Output: the resolved parameter type (concrete if a SomeT was bound, else unchanged)
+///
+/// Mirrors `evaluateFunctionParameterTypeAgain` in
+/// `src/evaluator/types/function.ts`.
 evaluate_function_parameter_type_again :: (fn(
-  _expr : AstExpr,
-  _env  : Environment,
-  _ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  exn.throw(dyn format_error_message(
-    ast_expr_token(_expr),
-    String.from("evaluate_function_parameter_type_again: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  make_err_expr()
-});
+  param_type  : TypeValue,
+  callee_env  : Environment,
+  _ctx        : *(EvalContext)
+) -> TypeValue)(
+  get_value_of_some_type_from_env(callee_env, param_type)
+);
 
 // ---------------------------------------------------------------------------
-// evaluate_function_return_type_again (stub)
+// evaluate_function_return_type_again
 // ---------------------------------------------------------------------------
 
-/// Re-evaluate a function's return type at call site.
-/// Phase 3 stub — needs the original return type expression stored in Func.
+/// Re-evaluate (resolve) a function's return type at call site.
+///
+/// Same semantics as `evaluate_function_parameter_type_again` but for the
+/// return type.  Resolves any SomeT in the return type from the callee env.
+///
+/// Input:
+///   `return_type` — pre-evaluated return type from `TypeValue.Func`
+///   `callee_env`  — callee-side environment (has forall bindings)
+/// Output: the resolved return type
+///
+/// Mirrors `evaluateFunctionReturnTypeAgain` in
+/// `src/evaluator/types/function.ts`.
 evaluate_function_return_type_again :: (fn(
-  _expr : AstExpr,
-  _env  : Environment,
-  _ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  exn.throw(dyn format_error_message(
-    ast_expr_token(_expr),
-    String.from("evaluate_function_return_type_again: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  make_err_expr()
-});
+  return_type : TypeValue,
+  callee_env  : Environment,
+  _ctx        : *(EvalContext)
+) -> TypeValue)(
+  get_value_of_some_type_from_env(callee_env, return_type)
+);
 
 // ---------------------------------------------------------------------------
 // Exports
