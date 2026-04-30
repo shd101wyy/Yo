@@ -3020,8 +3020,10 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                           .None => match(found_enum,
                             .None => (),
                             .Some(ed) => {
-                              ctx.*.register_derive_eq(type_name);
+                              // Only register and emit eq function for complex enums.
+                              // Simple enums are represented as C integers and C == works natively.
                               if(ed.is_complex, {
+                                ctx.*.register_derive_eq(type_name);
                                 emit_complex_enum_eq_fn(ed, ctx);
                               });
                             }
