@@ -100,7 +100,15 @@ CodegenContext :: object(
   // Types that have `derive(Eq(...))` registered.
   // When comparing two values of one of these types with `==` or `!=`, dispatch
   // to the pre-generated `fn_TypeName_eq` C function.
-  derive_eq_names : ArrayList(String)
+  derive_eq_names : ArrayList(String),
+  // Types that have `derive(Hash)` registered.
+  // When calling `.hash()` on a pointer to one of these types, dispatch to
+  // the pre-generated `fn_TypeName_hash` C function.
+  derive_hash_names : ArrayList(String),
+  // Types that have `derive(Ord(...))` registered.
+  // When comparing two values with `<`, `<=`, `>`, `>=`, dispatch to
+  // `fn_TypeName_cmp` C function.
+  derive_ord_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -137,7 +145,9 @@ impl(CodegenContext,
       struct_field_type_csvs: ArrayList(String).new(),
       derive_tostring_names:  ArrayList(String).new(),
       derive_clone_names:     ArrayList(String).new(),
-      derive_eq_names:        ArrayList(String).new()
+      derive_eq_names:        ArrayList(String).new(),
+      derive_hash_names:      ArrayList(String).new(),
+      derive_ord_names:       ArrayList(String).new()
     )
   ),
 
@@ -809,6 +819,50 @@ impl(CodegenContext,
     (found : bool) = false;
     while runtime(((i < n) && (!found))), {
       match(self.*.derive_eq_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register `type_name` as having `derive(Hash)`.
+  register_derive_hash : (fn(self : *(Self), type_name : str) -> unit)({
+    self.*.derive_hash_names.push(String.from(type_name));
+  }),
+
+  /// True if `type_name` was registered via `register_derive_hash`.
+  has_derive_hash : (fn(self : *(Self), type_name : str) -> bool)({
+    n := self.*.derive_hash_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.derive_hash_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register `type_name` as having `derive(Ord(...))`.
+  register_derive_ord : (fn(self : *(Self), type_name : str) -> unit)({
+    self.*.derive_ord_names.push(String.from(type_name));
+  }),
+
+  /// True if `type_name` was registered via `register_derive_ord`.
+  has_derive_ord : (fn(self : *(Self), type_name : str) -> bool)({
+    n := self.*.derive_ord_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.derive_ord_names.get(i),
         .None => (),
         .Some(s) => {
           if((s.as_str() == type_name), { found = true; });

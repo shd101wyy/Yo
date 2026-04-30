@@ -206,6 +206,15 @@ handle_infix_op :: (fn(
             true                            => Option(String).None
           )
         );
+        // Derive-Ord type check: look up type of lhs and check for registered Ord.
+        lhs_ord_type := match(ctx.*.get_var_type(l.as_str()),
+          .None    => Option(String).None,
+          .Some(t) => cond(
+            ctx.*.has_derive_ord(t.as_str()) => Option(String).Some(t),
+            true                             => Option(String).None
+          )
+        );
+        is_cmp_op := ((op.as_str() == "<") || ((op.as_str() == "<=") || ((op.as_str() == ">") || (op.as_str() == ">="))));
         cond(
           ((lhs_is_str || rhs_is_str) && (op.as_str() == "==")) => {
             out := String.from("(strcmp(");
@@ -247,6 +256,29 @@ handle_infix_op :: (fn(
               out4.push_string(r);
               out4.push_str("))");
               Option(String).Some(out4)
+            }
+          ),
+          // Derive-Ord: dispatch `<`, `<=`, `>`, `>=` to fn_TypeName_cmp
+          (is_cmp_op && lhs_ord_type.is_some()) => match(lhs_ord_type,
+            .None => .Some(gen_binary_op(op, l, r)),
+            .Some(ord_ty) => {
+              cmp_call := String.from("fn_");
+              cmp_call.push_string(ord_ty);
+              cmp_call.push_str("_cmp(&");
+              cmp_call.push_string(l);
+              cmp_call.push_str(", &");
+              cmp_call.push_string(r);
+              cmp_call.push_str(")");
+              // `< 0`, `<= 0`, `> 0`, `>= 0`
+              cmp_rhs := String.from("0");
+              out_cmp := String.from("(");
+              out_cmp.push_string(cmp_call);
+              out_cmp.push_str(" ");
+              out_cmp.push_string(op);
+              out_cmp.push_str(" ");
+              out_cmp.push_string(cmp_rhs);
+              out_cmp.push_str(")");
+              Option(String).Some(out_cmp)
             }
           ),
           true => .Some(gen_binary_op(op, l, r))
@@ -2929,7 +2961,81 @@ handle_define :: (fn(
                   )
                 );
                 match(rhs_ctor_type,
-                  .None => (),
+                  .None => {
+                    // Also propagate type for `v2 := (&v1).clone()` or `v2 := v1.clone()`
+                    // by detecting clone() method calls and copying the source var's type.
+                    // If the RHS is a dot-method call with 0 args, extract the receiver var name.
+                    clone_recv_var := match(rhs_expr,
+                      .Atom(_, _) => Option(String).None,
+                      .FnCall(_, dot_box, dot_args, dot_infix, _) => cond(
+                        dot_infix => Option(String).None,
+                        (dot_args.len() != usize(0)) => Option(String).None,
+                        true => match(dot_box.*,
+                          .Atom(_, _) => Option(String).None,
+                          .FnCall(_, dot_fn2, dot_args2, dot_infix2, _) => cond(
+                            (!dot_infix2) => Option(String).None,
+                            (dot_args2.len() != usize(2)) => Option(String).None,
+                            true => match(dot_fn2.*,
+                              .FnCall(_, _, _, _, _) => Option(String).None,
+                              .Atom(_, dot_tok2) => cond(
+                                (dot_tok2.value.as_str() != ".") => Option(String).None,
+                                true => match(dot_args2.get(usize(1)),
+                                  .None => Option(String).None,
+                                  .Some(mname_e) => match(mname_e,
+                                    .FnCall(_, _, _, _, _) => Option(String).None,
+                                    .Atom(_, mname_tok) => cond(
+                                      (mname_tok.value.as_str() != "clone") => Option(String).None,
+                                      true => match(dot_args2.get(usize(0)),
+                                        .None => Option(String).None,
+                                        // Direct receiver: `v1.clone()` → receiver var is "v1"
+                                        .Some(recv_e) => match(recv_e,
+                                          .Atom(_, recv_tok) => cond(
+                                            (recv_tok.kind != TokenKind.Identifier) => Option(String).None,
+                                            true => Option(String).Some(recv_tok.value)
+                                          ),
+                                          // Ref receiver: `(&v1).clone()` → unwrap the `&`
+                                          .FnCall(_, ref_fn3, ref_args3, ref_infix3, _) => cond(
+                                            ref_infix3 => Option(String).None,
+                                            (ref_args3.len() != usize(1)) => Option(String).None,
+                                            true => match(ref_fn3.*,
+                                              .FnCall(_, _, _, _, _) => Option(String).None,
+                                              .Atom(_, ref_tok3) => cond(
+                                                (ref_tok3.value.as_str() != "&") => Option(String).None,
+                                                true => match(ref_args3.get(usize(0)),
+                                                  .None => Option(String).None,
+                                                  .Some(rv3) => match(rv3,
+                                                    .FnCall(_, _, _, _, _) => Option(String).None,
+                                                    .Atom(_, rvtok3) => cond(
+                                                      (rvtok3.kind != TokenKind.Identifier) => Option(String).None,
+                                                      true => Option(String).Some(rvtok3.value)
+                                                    )
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    );
+                    // Propagate type from the clone source var to the define target
+                    match(clone_recv_var,
+                      .None => (),
+                      .Some(src_var) => match(ctx.*.get_var_type(src_var.as_str()),
+                        .None => (),
+                        .Some(src_ty) => {
+                          ctx.*.register_var_type(name_tok.value.as_str(), src_ty.as_str());
+                        }
+                      )
+                    );
+                  },
                   .Some(ctor_ty) => {
                     ctx.*.register_var_type(name_tok.value.as_str(), ctor_ty.as_str());
                   }
@@ -3975,6 +4081,66 @@ handle_method_call :: (fn(
                 result_cl.push_string(recv_code);
                 result_cl.push_str(".clone()");
                 Option(String).Some(result_cl)
+              }
+            )
+          },
+          // `x.hash()` — check for derive(Hash) on receiver type, emit fn_TypeName_hash(recv).
+          // Supports both `(&x).hash()` and `x.hash()` forms.
+          ((method_name.as_str() == "hash") && (args.len() == usize(0))) => {
+            hash_result := match(recv_expr,
+              // Direct atom: `orig.hash()` → fn_TypeName_hash(&orig)
+              .Atom(_, vatok_h) => match(ctx.*.get_var_type(vatok_h.value.as_str()),
+                .None => Option(String).None,
+                .Some(ty_name_ha) => cond(
+                  (!ctx.*.has_derive_hash(ty_name_ha.as_str())) => Option(String).None,
+                  true => {
+                    hash_expr_a := String.from("fn_");
+                    hash_expr_a.push_string(ty_name_ha);
+                    hash_expr_a.push_str("_hash(&");
+                    hash_expr_a.push_string(recv_code);
+                    hash_expr_a.push_str(")");
+                    Option(String).Some(hash_expr_a)
+                  }
+                )
+              ),
+              .FnCall(_, ref_fn_h, ref_args_h, ref_infix_h, _) => cond(
+                ref_infix_h => Option(String).None,
+                (ref_args_h.len() != usize(1)) => Option(String).None,
+                true => match(ref_fn_h.*,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, rftok_h) => cond(
+                    (rftok_h.value.as_str() != "&") => Option(String).None,
+                    true => match(ref_args_h.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(var_expr_h) => match(var_expr_h,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, vtok_h) => match(ctx.*.get_var_type(vtok_h.value.as_str()),
+                          .None => Option(String).None,
+                          .Some(ty_name_h) => cond(
+                            (!ctx.*.has_derive_hash(ty_name_h.as_str())) => Option(String).None,
+                            true => {
+                              hash_expr := String.from("fn_");
+                              hash_expr.push_string(ty_name_h);
+                              hash_expr.push_str("_hash(");
+                              hash_expr.push_string(recv_code);
+                              hash_expr.push_str(")");
+                              Option(String).Some(hash_expr)
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            );
+            match(hash_result,
+              .Some(_) => hash_result,
+              .None    => {
+                result_hf := String.new();
+                result_hf.push_string(recv_code);
+                result_hf.push_str(".hash()");
+                Option(String).Some(result_hf)
               }
             )
           },

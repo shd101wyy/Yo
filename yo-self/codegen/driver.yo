@@ -2860,6 +2860,395 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line("}");
 });
 
+// ---------------------------------------------------------------------------
+// derive(Hash) code generation helpers
+// ---------------------------------------------------------------------------
+
+/// Emit `static size_t fn_TypeName_hash(const TypeName* self)` for a struct.
+/// Uses a simple multiplicative hash mix: h ^= field * 2654435761.
+emit_struct_hash_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
+  type_name := sd.name.as_str();
+  n := sd.field_names.len();
+
+  ctx.*.emitter.emit_declaration("static size_t fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_hash(const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+  ctx.*.emitter.emit_declaration_line("  size_t h = 0;");
+
+  (fi : usize) = usize(0);
+  while runtime((fi < n)), {
+    match(sd.field_names.get(fi),
+      .None => (),
+      .Some(fname) => match(sd.field_tys.get(fi),
+        .None => (),
+        .Some(fty) => {
+          cond(
+            (_c_field_needs_strdup(fty.as_str())) => {
+              // str field: hash each character
+              ctx.*.emitter.emit_declaration("  { const char* __s = self->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line("; size_t __sh = 0; while(*__s) __sh = __sh * 31 + (unsigned char)*__s++; h ^= __sh * 2654435761ULL; }");
+            },
+            (ctx.*.has_derive_hash(fty.as_str())) => {
+              // Nested struct/enum: use recursive hash dispatch
+              ctx.*.emitter.emit_declaration("  h ^= fn_");
+              ctx.*.emitter.emit_declaration(fty.as_str());
+              ctx.*.emitter.emit_declaration("_hash(&self->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line(");");
+            },
+            true => {
+              ctx.*.emitter.emit_declaration("  h ^= (size_t)self->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line(" * 2654435761ULL;");
+            }
+          );
+        }
+      )
+    );
+    fi = (fi + usize(1));
+  };
+
+  ctx.*.emitter.emit_declaration_line("  return h;");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// Emit `static size_t fn_TypeName_hash(const TypeName* self)` for a fieldless enum.
+emit_fieldless_enum_hash_fn :: (fn(type_name : str, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.emitter.emit_declaration("static size_t fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_hash(const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+  ctx.*.emitter.emit_declaration_line("  return (size_t)*self;");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+// ---------------------------------------------------------------------------
+// derive(Ord) code generation helpers
+// ---------------------------------------------------------------------------
+
+/// Emit `static int32_t fn_TypeName_cmp(const TypeName* a, const TypeName* b)` for a struct.
+/// Lexicographic: compare fields in order.
+emit_struct_ord_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
+  type_name := sd.name.as_str();
+  n := sd.field_names.len();
+
+  ctx.*.emitter.emit_declaration("static int32_t fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_cmp(const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("* a, const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* b) {");
+
+  (fi : usize) = usize(0);
+  while runtime((fi < n)), {
+    match(sd.field_names.get(fi),
+      .None => (),
+      .Some(fname) => match(sd.field_tys.get(fi),
+        .None => (),
+        .Some(fty) => {
+          cond(
+            (ctx.*.has_derive_ord(fty.as_str())) => {
+              // Nested struct: use recursive cmp dispatch
+              ctx.*.emitter.emit_declaration("  { int32_t __c = fn_");
+              ctx.*.emitter.emit_declaration(fty.as_str());
+              ctx.*.emitter.emit_declaration("_cmp(&a->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration(", &b->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line("); if (__c != 0) return __c; }");
+            },
+            true => {
+              ctx.*.emitter.emit_declaration("  if (a->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration(" != b->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line(") return (a->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration(" < b->");
+              ctx.*.emitter.emit_declaration_string(fname);
+              ctx.*.emitter.emit_declaration_line(") ? -1 : 1;");
+            }
+          );
+        }
+      )
+    );
+    fi = (fi + usize(1));
+  };
+
+  ctx.*.emitter.emit_declaration_line("  return 0;");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// Emit `static int32_t fn_TypeName_cmp(const TypeName* a, const TypeName* b)` for a fieldless enum.
+emit_fieldless_enum_ord_fn :: (fn(type_name : str, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.emitter.emit_declaration("static int32_t fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_cmp(const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("* a, const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* b) {");
+  ctx.*.emitter.emit_declaration_line("  return ((int32_t)*a) - ((int32_t)*b);");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+// ---------------------------------------------------------------------------
+// derive(Clone) for fieldless enum
+// ---------------------------------------------------------------------------
+
+/// Emit `static TypeName fn_TypeName_clone(const TypeName* self)` for a fieldless enum.
+emit_fieldless_enum_clone_fn :: (fn(type_name : str, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.emitter.emit_declaration("static ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration(" fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_clone(const ");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+  ctx.*.emitter.emit_declaration_line("  return *self;");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// True if the `Hash` atom appears in a list of derive trait arguments (starting from index 1).
+_has_hash_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  n := args.len();
+  (i : usize) = usize(1);
+  (found : bool) = false;
+  while runtime(((i < n) && (!found))), {
+    match(args.get(i),
+      .None => (),
+      .Some(a) => match(a,
+        .FnCall(_, _, _, _, _) => (),
+        .Atom(_, tok) => {
+          if(((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Hash")), {
+            found = true;
+          });
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  found
+});
+
+/// True if `Ord` or `Ord(TypeName)` appears in a list of derive trait arguments (starting from index 1).
+_has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  n := args.len();
+  (i : usize) = usize(1);
+  (found : bool) = false;
+  while runtime(((i < n) && (!found))), {
+    match(args.get(i),
+      .None => (),
+      .Some(a) => match(a,
+        // `Ord(TypeName)` call form
+        .FnCall(_, ord_fn, _, ord_infix, _) => {
+          if((!ord_infix), {
+            match(ord_fn.*,
+              .FnCall(_, _, _, _, _) => (),
+              .Atom(_, etok) => {
+                if((etok.value.as_str() == "Ord"), { found = true; });
+              }
+            );
+          });
+        },
+        // bare `Ord` atom form
+        .Atom(_, tok) => {
+          if(((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Ord")), {
+            found = true;
+          });
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  found
+});
+
+/// Scan `exprs` for `derive(TypeName, ..., Hash, ...)` calls and emit hash functions.
+process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
+  n := exprs.len();
+  (ie : usize) = usize(0);
+  while runtime((ie < n)), {
+    match(exprs.get(ie),
+      .None => (),
+      .Some(mexpr) => match(mexpr,
+        .Atom(_, _) => (),
+        .FnCall(_, mf, margs, minfix, _) => cond(
+          (minfix || (margs.len() < usize(2))) => (),
+          true => match(mf.*,
+            .FnCall(_, _, _, _, _) => (),
+            .Atom(_, dtok) => cond(
+              (dtok.value.as_str() != "derive") => (),
+              (!(_has_hash_trait(margs))) => (),
+              true => {
+                match(margs.get(usize(0)),
+                  .None => (),
+                  .Some(ty_arg) => match(atom_ident(ty_arg),
+                    .None => (),
+                    .Some(type_name) => {
+                      if((!(ctx.*.has_derive_hash(type_name))), {
+                        found_struct := {
+                          (je : usize) = usize(0);
+                          (sd_opt : Option(StructDef)) = Option(StructDef).None;
+                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(je),
+                              .None => (),
+                              .Some(def_expr) => match(extract_struct_def(def_expr),
+                                .None => (),
+                                .Some(sd) => {
+                                  if((sd.name.as_str() == type_name), {
+                                    sd_opt = Option(StructDef).Some(sd);
+                                  });
+                                }
+                              )
+                            );
+                            je = (je + usize(1));
+                          };
+                          sd_opt
+                        };
+                        found_enum := {
+                          (ke : usize) = usize(0);
+                          (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
+                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(ke),
+                              .None => (),
+                              .Some(def_expr) => match(extract_enum_def(def_expr),
+                                .None => (),
+                                .Some(ed) => {
+                                  if((ed.name.as_str() == type_name), {
+                                    ed_opt = Option(EnumDef).Some(ed);
+                                  });
+                                }
+                              )
+                            );
+                            ke = (ke + usize(1));
+                          };
+                          ed_opt
+                        };
+                        match(found_struct,
+                          .Some(sd) => {
+                            ctx.*.register_derive_hash(type_name);
+                            emit_struct_hash_fn(sd, ctx);
+                          },
+                          .None => match(found_enum,
+                            .None => (),
+                            .Some(ed) => {
+                              ctx.*.register_derive_hash(type_name);
+                              if((!ed.is_complex), {
+                                emit_fieldless_enum_hash_fn(type_name, ctx);
+                              });
+                            }
+                          )
+                        );
+                      });
+                    }
+                  )
+                );
+              }
+            )
+          )
+        )
+      )
+    );
+    ie = (ie + usize(1));
+  };
+});
+
+/// Scan `exprs` for `derive(TypeName, ..., Ord(...), ...)` calls and emit cmp functions.
+process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
+  n := exprs.len();
+  (ie : usize) = usize(0);
+  while runtime((ie < n)), {
+    match(exprs.get(ie),
+      .None => (),
+      .Some(mexpr) => match(mexpr,
+        .Atom(_, _) => (),
+        .FnCall(_, mf, margs, minfix, _) => cond(
+          (minfix || (margs.len() < usize(2))) => (),
+          true => match(mf.*,
+            .FnCall(_, _, _, _, _) => (),
+            .Atom(_, dtok) => cond(
+              (dtok.value.as_str() != "derive") => (),
+              (!(_has_ord_trait(margs))) => (),
+              true => {
+                match(margs.get(usize(0)),
+                  .None => (),
+                  .Some(ty_arg) => match(atom_ident(ty_arg),
+                    .None => (),
+                    .Some(type_name) => {
+                      if((!(ctx.*.has_derive_ord(type_name))), {
+                        found_struct := {
+                          (je : usize) = usize(0);
+                          (sd_opt : Option(StructDef)) = Option(StructDef).None;
+                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(je),
+                              .None => (),
+                              .Some(def_expr) => match(extract_struct_def(def_expr),
+                                .None => (),
+                                .Some(sd) => {
+                                  if((sd.name.as_str() == type_name), {
+                                    sd_opt = Option(StructDef).Some(sd);
+                                  });
+                                }
+                              )
+                            );
+                            je = (je + usize(1));
+                          };
+                          sd_opt
+                        };
+                        found_enum := {
+                          (ke : usize) = usize(0);
+                          (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
+                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(ke),
+                              .None => (),
+                              .Some(def_expr) => match(extract_enum_def(def_expr),
+                                .None => (),
+                                .Some(ed) => {
+                                  if((ed.name.as_str() == type_name), {
+                                    ed_opt = Option(EnumDef).Some(ed);
+                                  });
+                                }
+                              )
+                            );
+                            ke = (ke + usize(1));
+                          };
+                          ed_opt
+                        };
+                        match(found_struct,
+                          .Some(sd) => {
+                            ctx.*.register_derive_ord(type_name);
+                            emit_struct_ord_fn(sd, ctx);
+                          },
+                          .None => match(found_enum,
+                            .None => (),
+                            .Some(ed) => {
+                              ctx.*.register_derive_ord(type_name);
+                              if((!ed.is_complex), {
+                                emit_fieldless_enum_ord_fn(type_name, ctx);
+                              });
+                            }
+                          )
+                        );
+                      });
+                    }
+                  )
+                );
+              }
+            )
+          )
+        )
+      )
+    );
+    ie = (ie + usize(1));
+  };
+});
+
 /// True if the `Clone` atom appears in a list of derive trait arguments (starting from index 1).
 _has_clone_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
@@ -2985,9 +3374,10 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
                             .None => (),
                             .Some(ed) => {
                               ctx.*.register_derive_clone(type_name);
-                              if(ed.is_complex, {
-                                emit_complex_enum_clone_fn(ed, ctx);
-                              });
+                              cond(
+                                ed.is_complex => emit_complex_enum_clone_fn(ed, ctx),
+                                true => emit_fieldless_enum_clone_fn(type_name, ctx)
+                              );
                             }
                           )
                         );
@@ -3276,13 +3666,15 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   emit_local_type_defs(body, pctx);
   emit_comptime_const_defs(body, pctx);
 
-  // === Pass 2.7: emit derive(ToString) / derive(Clone) / derive(Eq) functions ===
+  // === Pass 2.7: emit derive(ToString) / derive(Clone) / derive(Eq) / derive(Hash) / derive(Ord) functions ===
   //
-  // Scan module_exprs for `derive(TypeName, ..., ToString/Clone/Eq, ...)` and emit
+  // Scan module_exprs for `derive(TypeName, ..., ToString/Clone/Eq/Hash/Ord, ...)` and emit
   // the corresponding C helper functions for each such type.
   process_derive_tostring(module_exprs, body, pctx);
   process_derive_clone(module_exprs, pctx);
   process_derive_eq(module_exprs, pctx);
+  process_derive_hash(module_exprs, pctx);
+  process_derive_ord(module_exprs, pctx);
 
   // === Pass 3: hoist local function definitions from inside the test body ===
   //
