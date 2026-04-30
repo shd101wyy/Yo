@@ -198,6 +198,14 @@ handle_infix_op :: (fn(
         // a to_string() call (contains "_to_string(").
         lhs_is_str := (l.starts_with(String.from("\"")) || l.contains(String.from("_to_string(")));
         rhs_is_str := (r.starts_with(String.from("\"")) || r.contains(String.from("_to_string(")));
+        // Derive-Eq type check: look up the type of lhs variable and check for registered Eq.
+        lhs_eq_type := match(ctx.*.get_var_type(l.as_str()),
+          .None    => Option(String).None,
+          .Some(t) => cond(
+            ctx.*.has_derive_eq(t.as_str()) => Option(String).Some(t),
+            true                            => Option(String).None
+          )
+        );
         cond(
           ((lhs_is_str || rhs_is_str) && (op.as_str() == "==")) => {
             out := String.from("(strcmp(");
@@ -215,6 +223,32 @@ handle_infix_op :: (fn(
             out2.push_str(") != 0)");
             Option(String).Some(out2)
           },
+          ((op.as_str() == "==") && lhs_eq_type.is_some()) => match(lhs_eq_type,
+            .None => .Some(gen_binary_op(op, l, r)),
+            .Some(ty_name) => {
+              out3 := String.from("fn_");
+              out3.push_string(ty_name);
+              out3.push_str("_eq(&");
+              out3.push_string(l);
+              out3.push_str(", &");
+              out3.push_string(r);
+              out3.push_str(")");
+              Option(String).Some(out3)
+            }
+          ),
+          ((op.as_str() == "!=") && lhs_eq_type.is_some()) => match(lhs_eq_type,
+            .None => .Some(gen_binary_op(op, l, r)),
+            .Some(ty_name2) => {
+              out4 := String.from("(!fn_");
+              out4.push_string(ty_name2);
+              out4.push_str("_eq(&");
+              out4.push_string(l);
+              out4.push_str(", &");
+              out4.push_string(r);
+              out4.push_str("))");
+              Option(String).Some(out4)
+            }
+          ),
           true => .Some(gen_binary_op(op, l, r))
         )
       }
@@ -3862,6 +3896,51 @@ handle_method_call :: (fn(
             match(tostr_result,
               .Some(_) => tostr_result,
               .None    => Option(String).Some(recv_code)
+            )
+          },
+          // `x.clone()` — check for derive(Clone) on receiver type, emit fn_TypeName_clone(recv).
+          ((method_name.as_str() == "clone") && (args.len() == usize(0))) => {
+            clone_result := match(recv_expr,
+              .Atom(_, _) => Option(String).None,
+              .FnCall(_, ref_fn2, ref_args2, ref_infix2, _) => cond(
+                ref_infix2 => Option(String).None,
+                (ref_args2.len() != usize(1)) => Option(String).None,
+                true => match(ref_fn2.*,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, rftok2) => cond(
+                    (rftok2.value.as_str() != "&") => Option(String).None,
+                    true => match(ref_args2.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(var_expr2) => match(var_expr2,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, vtok2) => match(ctx.*.get_var_type(vtok2.value.as_str()),
+                          .None => Option(String).None,
+                          .Some(ty_name2) => cond(
+                            (!ctx.*.has_derive_clone(ty_name2.as_str())) => Option(String).None,
+                            true => {
+                              clone_expr := String.from("fn_");
+                              clone_expr.push_string(ty_name2);
+                              clone_expr.push_str("_clone(");
+                              clone_expr.push_string(recv_code);
+                              clone_expr.push_str(")");
+                              Option(String).Some(clone_expr)
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            );
+            match(clone_result,
+              .Some(_) => clone_result,
+              .None    => {
+                result_cl := String.new();
+                result_cl.push_string(recv_code);
+                result_cl.push_str(".clone()");
+                Option(String).Some(result_cl)
+              }
             )
           },
           // `a.+(b)` — template string concatenation: emit __yo_str_concat(a, b).

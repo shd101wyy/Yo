@@ -92,7 +92,15 @@ CodegenContext :: object(
   // Types that have `derive(ToString)` registered.
   // When calling `to_string()` on a pointer to one of these types, dispatch to
   // the pre-generated `fn_TypeName_to_string` C function.
-  derive_tostring_names : ArrayList(String)
+  derive_tostring_names : ArrayList(String),
+  // Types that have `derive(Clone)` registered.
+  // When calling `.clone()` on a pointer to one of these types, dispatch to
+  // the pre-generated `fn_TypeName_clone` C function.
+  derive_clone_names : ArrayList(String),
+  // Types that have `derive(Eq(...))` registered.
+  // When comparing two values of one of these types with `==` or `!=`, dispatch
+  // to the pre-generated `fn_TypeName_eq` C function.
+  derive_eq_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -127,7 +135,9 @@ impl(CodegenContext,
       emitted_const_names:    ArrayList(String).new(),
       string_const_names:     ArrayList(String).new(),
       struct_field_type_csvs: ArrayList(String).new(),
-      derive_tostring_names:  ArrayList(String).new()
+      derive_tostring_names:  ArrayList(String).new(),
+      derive_clone_names:     ArrayList(String).new(),
+      derive_eq_names:        ArrayList(String).new()
     )
   ),
 
@@ -755,6 +765,50 @@ impl(CodegenContext,
     (found : bool) = false;
     while runtime(((i < n) && (!found))), {
       match(self.*.derive_tostring_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register `type_name` as having `derive(Clone)`.
+  register_derive_clone : (fn(self : *(Self), type_name : str) -> unit)({
+    self.*.derive_clone_names.push(String.from(type_name));
+  }),
+
+  /// True if `type_name` was registered via `register_derive_clone`.
+  has_derive_clone : (fn(self : *(Self), type_name : str) -> bool)({
+    n := self.*.derive_clone_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.derive_clone_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register `type_name` as having `derive(Eq(...))`.
+  register_derive_eq : (fn(self : *(Self), type_name : str) -> unit)({
+    self.*.derive_eq_names.push(String.from(type_name));
+  }),
+
+  /// True if `type_name` was registered via `register_derive_eq`.
+  has_derive_eq : (fn(self : *(Self), type_name : str) -> bool)({
+    n := self.*.derive_eq_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.derive_eq_names.get(i),
         .None => (),
         .Some(s) => {
           if((s.as_str() == type_name), { found = true; });
