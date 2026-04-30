@@ -69,6 +69,7 @@ open import "std/fmt";
   is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val,
   is_comptime_list_val, is_expr_val,
   value_to_string } :: import "./value.yo";
+{ random_id } :: import "./utils.yo";
 
 // ---------------------------------------------------------------------------
 // Module-level function pointer slot for evaluate (Phase 3j)
@@ -186,7 +187,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .StrLit(_)     => true,
     .VarRef(_)     => false,
     .EnumVal(_, _) => true,
-    .FuncVal(_, _, _, _, _, _, _, _) => true,
+    .FuncVal(_, _, _, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .TypeVal(_)    => true,
     .StructVal(_, _, _) => true,
@@ -275,7 +276,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_)       => t_comptime_string(),
     .VarRef(_)       => t_unit(),
     .EnumVal(_, _)   => t_unit(),
-    .FuncVal(_, _, _, _, _, _, _, _)   => t_unit(),
+    .FuncVal(_, _, _, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .TypeVal(_)      => t_type(),
     .StructVal(_, _, _) => t_unit(),
@@ -511,7 +512,7 @@ call_funcval_with_args :: (fn(
     .None => Option(EvalResult).None,
     .Some(ef) =>
       match(fv,
-        .FuncVal(forall_names_h, params, param_type_names_h, evidence_params_h, body, cap_names, cap_tys, cap_vals) => {
+        .FuncVal(forall_names_h, params, param_type_names_h, evidence_params_h, body, cap_names, cap_tys, cap_vals, _func_id_h) => {
           n_p  := params.len();
           n_ev := evidence_params_h.len();
           n_a  := already_evaled.len();
@@ -1350,7 +1351,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                           box(body_expr),
                                           cap_names_f,
                                           cap_tys_f,
-                                          cap_vals_f
+                                          cap_vals_f,
+                                          random_id(String.from(""))
                                         ),
                                         t_unit()
                                       ))
@@ -2062,7 +2064,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(func_val_r) =>
                       match(func_val_r,
-                        .FuncVal(_, _, _, _, _, _, _, _) => {
+                        .FuncVal(_, _, _, _, _, _, _, _, _) => {
                           evaled_r := ArrayList(EvalResult).new();
                           n_recur_args := args.len();
                           (ri : usize) = usize(0);
@@ -2374,7 +2376,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(_, _, _, _, _, _, _, _) => {
+                        .FuncVal(_, _, _, _, _, _, _, _, _) => {
                           evaled_g := ArrayList(EvalResult).new();
                           n_gargs := args.len();
                           (gi : usize) = usize(0);

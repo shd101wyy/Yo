@@ -81,7 +81,8 @@ EvalValue :: enum(
     body             : Box(AstExpr),
     cap_names        : ArrayList(String),
     cap_tys          : ArrayList(TypeValue),
-    cap_vals         : ArrayList(Self)
+    cap_vals         : ArrayList(Self),
+    func_id          : String
   ),
 
   /// Control-flow signal emitted by a `return expr` statement.
@@ -246,7 +247,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal(_, _, _, _, _, _, _, _) => false,
+    .FuncVal(_, _, _, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
@@ -554,7 +555,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           `${variant}(${parts})`
         }
       ),
-    .FuncVal(_, params, _, _, _, _, _, _) => {
+    .FuncVal(_, params, _, _, _, _, _, _, _) => {
       param_str := String.from("");
       (pi : usize) = usize(0);
       n_p := params.len();
@@ -785,7 +786,7 @@ is_float_lit         :: (fn(v : EvalValue) -> bool)(match(v, .FloatLit(_)      =
 is_str_lit           :: (fn(v : EvalValue) -> bool)(match(v, .StrLit(_)        => true, _ => false));
 is_var_ref           :: (fn(v : EvalValue) -> bool)(match(v, .VarRef(_)        => true, _ => false));
 is_enum_val          :: (fn(v : EvalValue) -> bool)(match(v, .EnumVal(_, _)    => true, _ => false));
-is_func_val          :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _, _, _, _, _, _, _) => true, _ => false));
+is_func_val          :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false));
 is_return_val        :: (fn(v : EvalValue) -> bool)(match(v, .ReturnVal(_, _)  => true, _ => false));
 is_type_val          :: (fn(v : EvalValue) -> bool)(match(v, .TypeVal(_)       => true, _ => false));
 is_struct_val        :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));

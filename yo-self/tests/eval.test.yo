@@ -947,7 +947,7 @@ test "evaluate: fn def stores FuncVal", {
   check_some(f_res, "f is bound");
   match(f_res,
     .Some(r) => match(r.value,
-      .FuncVal(_, ps, _, _, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
+      .FuncVal(_, ps, _, _, _, _, _, _, _) => assert((ps.len() == usize(1)), "1 param"),
       _ => assert(false, "expected FuncVal")
     ),
     .None => ()
@@ -1780,7 +1780,7 @@ test "evaluate: forall param name is extracted into FuncVal.forall_names", {
   check_some(id_res, "id is bound");
   match(id_res,
     .Some(r) => match(r.value,
-      .FuncVal(fnames, ps, ptnames, _, _, _, _, _) => {
+      .FuncVal(fnames, ps, ptnames, _, _, _, _, _, _) => {
         assert((fnames.len() == usize(1)), "1 forall name");
         assert((ps.len() == usize(1)), "1 value param");
         assert((ptnames.len() == usize(1)), "1 param type name");
@@ -2408,7 +2408,7 @@ test "evaluate: using param is extracted into FuncVal.evidence_params", {
   match(f_var,
     .Some(v) => match(v.value,
       .Some(fval) => match(fval,
-        .FuncVal(_, ps, _, ev_ps, _, _, _, _) => {
+        .FuncVal(_, ps, _, ev_ps, _, _, _, _, _) => {
           assert((ps.len() == usize(0)), "no regular params");
           assert((ev_ps.len() == usize(1)), "1 evidence param");
           match(ev_ps.get(usize(0)),
@@ -2633,7 +2633,7 @@ test "validation milestone: evaluate hello_world module", {
           );
           match(mod_values.get(usize(0)),
             .Some(fn_val) => match(fn_val,
-              .FuncVal(_, ps, _, ev_ps, _, _, _, _) => {
+              .FuncVal(_, ps, _, ev_ps, _, _, _, _, _) => {
                 assert((ps.len() == usize(0)), "main has no regular params");
                 assert((ev_ps.len() == usize(1)), "main has 1 evidence param");
                 match(ev_ps.get(usize(0)),
