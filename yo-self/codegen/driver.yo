@@ -126,6 +126,25 @@ atom_ident :: (fn(expr : AstExpr) -> Option(str))(
 );
 
 // ---------------------------------------------------------------------------
+// is_comptime_expr
+// ---------------------------------------------------------------------------
+
+/// Returns true if `expr` is a `comptime(...)` wrapper — i.e. a non-infix FnCall whose function
+/// is the atom "comptime".
+is_comptime_expr :: (fn(expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_, _) => false,
+    .FnCall(_, f, _, infix, _) => cond(
+      infix => false,
+      true => match(f.*,
+        .FnCall(_, _, _, _, _) => false,
+        .Atom(_, tok) => (tok.value.as_str() == "comptime")
+      )
+    )
+  )
+);
+
+// ---------------------------------------------------------------------------
 // extract_fn_def
 // ---------------------------------------------------------------------------
 
@@ -192,6 +211,30 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                       .Some(e) => e,
                       .None    => { return Option(FnDef).None; }
                     );
+
+                    // Skip functions whose return type is comptime(X) where X has no C representation.
+                    // e.g. comptime(Trait), comptime(Expr), comptime(Type) → skip.
+                    // But comptime(i32), comptime(bool) etc. → don't skip (inner type is C-representable).
+                    should_skip_fn := match(ret_ty_expr,
+                      .Atom(_, _) => false,
+                      .FnCall(_, cf_sk, cargs_sk, cinfix_sk, _) => cond(
+                        cinfix_sk => false,
+                        true => match(cf_sk.*,
+                          .FnCall(_, _, _, _, _) => false,
+                          .Atom(_, ctok_sk) => cond(
+                            (ctok_sk.value.as_str() != "comptime") => false,
+                            true => match(cargs_sk.get(usize(0)),
+                              .None => true,
+                              .Some(inner_e) => match(type_expr_to_c(inner_e),
+                                .Some(_) => false,
+                                .None    => true
+                              )
+                            )
+                          )
+                        )
+                      )
+                    );
+                    if(should_skip_fn, { return Option(FnDef).None; });
 
                     // ret_ty_expr → C return type string
                     ret_ty_c := match(type_expr_to_c(ret_ty_expr),
@@ -1588,7 +1631,7 @@ compile_module_to_c :: (fn(
   )
 });
 
-export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
+export FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, emit_struct_to_c,
        c_type_has_self, struct_has_self_fields,
        EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
        extract_impl_fns, compile_module_to_c;
@@ -1805,10 +1848,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
               .None => (),
               .Some(stmt) => {
                 match(extract_struct_def(stmt),
-                  .Some(sd) => cond(
-                    (sd.field_names.len() == usize(0)) => (),
-                    true => emit_struct_to_c(sd, c)
-                  ),
+                  .Some(sd) => emit_struct_to_c(sd, c),
                   .None => match(extract_union_def(stmt),
                     .Some(ud) => emit_union_to_c(ud, c),
                     .None => {
@@ -2703,11 +2743,25 @@ emit_struct_eq_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
               ctx.*.emitter.emit_declaration_line(") != 0) return false;");
             },
             true => {
-              ctx.*.emitter.emit_declaration("  if (a->");
-              ctx.*.emitter.emit_declaration_string(fname);
-              ctx.*.emitter.emit_declaration(" != b->");
-              ctx.*.emitter.emit_declaration_string(fname);
-              ctx.*.emitter.emit_declaration_line(") return false;");
+              cond(
+                (ctx.*.has_derive_eq(fty.as_str())) => {
+                  // Nested struct/enum: use recursive eq dispatch
+                  ctx.*.emitter.emit_declaration("  if (!fn_");
+                  ctx.*.emitter.emit_declaration(fty.as_str());
+                  ctx.*.emitter.emit_declaration("_eq(&a->");
+                  ctx.*.emitter.emit_declaration_string(fname);
+                  ctx.*.emitter.emit_declaration(", &b->");
+                  ctx.*.emitter.emit_declaration_string(fname);
+                  ctx.*.emitter.emit_declaration_line(")) return false;");
+                },
+                true => {
+                  ctx.*.emitter.emit_declaration("  if (a->");
+                  ctx.*.emitter.emit_declaration_string(fname);
+                  ctx.*.emitter.emit_declaration(" != b->");
+                  ctx.*.emitter.emit_declaration_string(fname);
+                  ctx.*.emitter.emit_declaration_line(") return false;");
+                }
+              );
             }
           );
         }
@@ -3150,10 +3204,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
               .None => {
             // Emit struct definitions
             match(extract_struct_def(mexpr),
-              .Some(sd) => cond(
-                (sd.field_names.len() == usize(0)) => (),
-                true => { emit_struct_to_c(sd, pctx); }
-              ),
+              .Some(sd) => { emit_struct_to_c(sd, pctx); },
               .None => {
             // Emit union definitions
             match(extract_union_def(mexpr),

@@ -1965,9 +1965,12 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
     .Atom(_, ttok) => cond(
       (ttok.kind != TokenKind.Identifier) => Option(String).None,
       // Yo meta-types have no C equivalent — return None so callers fall back to void*.
-      // (Type, Expr, comptime_int, comptime_float, comptime_string, ComptimeList)
+      // (Type, Expr, Trait, DeriveContext, Module, comptime_int, comptime_float, comptime_string, ComptimeList)
       (ttok.value.as_str() == "Type")           => Option(String).None,
       (ttok.value.as_str() == "Expr")           => Option(String).None,
+      (ttok.value.as_str() == "Trait")          => Option(String).None,
+      (ttok.value.as_str() == "DeriveContext")  => Option(String).None,
+      (ttok.value.as_str() == "Module")         => Option(String).None,
       (ttok.value.as_str() == "comptime_int")   => Option(String).None,
       (ttok.value.as_str() == "comptime_float") => Option(String).None,
       (ttok.value.as_str() == "comptime_string") => Option(String).None,
@@ -2066,6 +2069,9 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 (itok.kind != TokenKind.Identifier)               => Option(String).None,
                 (itok.value.as_str() == "Type")                   => Option(String).None,
                 (itok.value.as_str() == "Expr")                   => Option(String).None,
+                (itok.value.as_str() == "Trait")                  => Option(String).None,
+                (itok.value.as_str() == "DeriveContext")          => Option(String).None,
+                (itok.value.as_str() == "Module")                 => Option(String).None,
                 (itok.value.as_str() == "comptime_int")           => Option(String).None,
                 (itok.value.as_str() == "comptime_float")         => Option(String).None,
                 (itok.value.as_str() == "comptime_string")        => Option(String).None,
@@ -3859,9 +3865,23 @@ handle_method_call :: (fn(
           },
           // `x.to_string()` — check for derive(ToString) first, else strip (template string part).
           ((method_name.as_str() == "to_string") && (args.len() == usize(0))) => {
-            // Try to detect `(&var_name).to_string()` where var_name has derive(ToString).
+            // Try to detect `var_name.to_string()` or `(&var_name).to_string()` where var_name has derive(ToString).
             tostr_result := match(recv_expr,
-              .Atom(_, _) => Option(String).None,
+              // Direct atom receiver: `x.to_string()` → fn_TypeName_to_string(&x)
+              .Atom(_, vatok_ts) => match(ctx.*.get_var_type(vatok_ts.value.as_str()),
+                .None => Option(String).None,
+                .Some(ty_name_a) => cond(
+                  (!ctx.*.has_derive_tostring(ty_name_a.as_str())) => Option(String).None,
+                  true => {
+                    call_expr_a := String.from("fn_");
+                    call_expr_a.push_string(ty_name_a);
+                    call_expr_a.push_str("_to_string(&");
+                    call_expr_a.push_string(recv_code);
+                    call_expr_a.push_str(")");
+                    Option(String).Some(call_expr_a)
+                  }
+                )
+              ),
               .FnCall(_, ref_fn, ref_args, ref_infix, _) => cond(
                 ref_infix => Option(String).None,
                 (ref_args.len() != usize(1)) => Option(String).None,
@@ -3899,9 +3919,24 @@ handle_method_call :: (fn(
             )
           },
           // `x.clone()` — check for derive(Clone) on receiver type, emit fn_TypeName_clone(recv).
+          // Supports both `(&x).clone()` and `x.clone()` forms.
           ((method_name.as_str() == "clone") && (args.len() == usize(0))) => {
             clone_result := match(recv_expr,
-              .Atom(_, _) => Option(String).None,
+              // Direct atom: `orig.clone()` → fn_TypeName_clone(&orig)
+              .Atom(_, vatok2) => match(ctx.*.get_var_type(vatok2.value.as_str()),
+                .None => Option(String).None,
+                .Some(ty_name_a) => cond(
+                  (!ctx.*.has_derive_clone(ty_name_a.as_str())) => Option(String).None,
+                  true => {
+                    clone_expr_a := String.from("fn_");
+                    clone_expr_a.push_string(ty_name_a);
+                    clone_expr_a.push_str("(&");
+                    clone_expr_a.push_string(recv_code);
+                    clone_expr_a.push_str(")");
+                    Option(String).Some(clone_expr_a)
+                  }
+                )
+              ),
               .FnCall(_, ref_fn2, ref_args2, ref_infix2, _) => cond(
                 ref_infix2 => Option(String).None,
                 (ref_args2.len() != usize(1)) => Option(String).None,
