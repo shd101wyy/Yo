@@ -13,6 +13,10 @@ Affected tests and applied workarounds:
 - `evaluate: recur simple countdown` — was `count(2)`, now reduced to `count(1)`
 - `evaluate: typed fibonacci fib(2)=1` — renamed/reduced to `fib(1)=1`
 - `evaluate: recur factorial` — was `fact(2)`, reduced to `fact(1)` (base case only) after Phase 2az
+- `evaluate: typed decl counter with while loop` — Phase 2bk added `handle_anon_struct_form`
+  helper + one new cond case in `evaluate`. The 3 new temp variables (~210 bytes × 7 frames = 1.5KB
+  extra) pushed the margin over the 8MB limit. Fixed by replacing `usize(N)` literals in the test
+  with raw `Atom` integers to reduce recursion depth by 1 (max depth 7→6 for eval_atom).
 
 ## Root cause
 
@@ -27,7 +31,11 @@ stack now overflow.
 Per `.github/instructions/testing.instructions.md`, the per-frame overhead
 on macOS ARM64 was ~566KB before. After Phase 3a, `count(2)` (~7 frames)
 no longer fits in 8MB. After Phase 2az's TraitT growth, `fact(2)` (~8 frames
-with extra `*` dispatch) also overflows.
+with extra `*` dispatch) also overflows. After Phase 2bk (adding
+`handle_anon_struct_form` helper and one new cond case), the margin tightened
+further — `evaluate` now has ~1189 unique ASAN-tracked temp variables (up
+from ~1186 in baseline). Even 3 extra temps × ~210 bytes × 7 recursive frames
+≈ 1.5KB extra is enough to tip the counter-loop test over the 8MB limit.
 
 ## Workaround applied
 

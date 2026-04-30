@@ -1,26 +1,44 @@
-//! evaluator/calls/function — stub for evaluate_function_call.
+//! evaluator/calls/function — simplified evaluate_function_call.
 //!
-//! Phase 2x stub. Full implementation planned for Phase 3.
+//! Phase 2bn — partial implementation.
 //! 1:1 port of `src/evaluator/calls/function.ts`.
 //!
-//! `evaluate_function_call` resolves and dispatches a function call expression,
-//! handling overload resolution, compile-time execution (CTFE), method calls,
-//! and trait dispatch.
+//! Phase 2bn handles two core call patterns:
+//!   1. `(fn(params) -> T)(body)` — function definition call. The callee
+//!      evaluates to `TypeVal(Func(...))` and there is exactly one body arg.
+//!      Delegates to `try_to_implement_function_by_function_type`.
+//!   2. `f(arg1, arg2, ...)` — simple FuncVal call. The callee evaluates to
+//!      `FuncVal(...)`. Args are evaluated, params bound in a fresh env, and
+//!      the body is evaluated via `evaluate_begin_expression`. The `Return`
+//!      control flow is consumed and not propagated to callers.
+//!
+//! All other call patterns (overload resolution, CTFE, method calls, trait
+//! dispatch, macros, etc.) throw "not yet implemented (Phase 3)" and are
+//! deferred to the full Phase 3 port.
 
 open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token, make_err_expr }    :: import "../../expr/expr.yo";
-{ Environment }                               :: import "../../env/env.yo";
-{ TypeValue }                                 :: import "../../types/type.yo";
-{ EvalValue }                                 :: import "../value.yo";
-{ EvalContext }                               :: import "../context.yo";
-{ format_error_message }                      :: import "../../error/error.yo";
-{ Exception }                                 :: import "std/error";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }  :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_get, expr_info_table_set }              :: import "../../expr/expr_info.yo";
+{ Variable,
+  Environment, add_variable_to_env, synthetic_token }    :: import "../../env/env.yo";
+{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
+{ EvalValue }                                            :: import "../value.yo";
+{ EvalContext,
+  FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind }            :: import "../context.yo";
+{ evaluate_expression }                                  :: import "../exprs/expr.yo";
+{ evaluate_begin_expression }                            :: import "../exprs/begin.yo";
+{ try_to_implement_function_by_function_type }           :: import "./function_type.yo";
+{ format_error_message }                                 :: import "../../error/error.yo";
+{ Exception }                                            :: import "std/error";
 
 /// Evaluate a function-call expression `expr`, resolving the callee, matching
-/// arguments, running CTFE if applicable, and returning the annotated expression.
+/// arguments, and returning the annotated expression.
 ///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+/// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
+/// Complex dispatch (overloads, CTFE, method calls, trait dispatch) deferred to Phase 3.
 ///
 /// Mirrors `evaluateFunctionCall` in `src/evaluator/calls/function.ts`.
 evaluate_function_call :: (fn(
@@ -31,17 +49,275 @@ evaluate_function_call :: (fn(
   ctx         : *(EvalContext),
   using(exn   : Exception)
 ) -> AstExpr)({
-  _ := env;
   _ := given_type;
   _ := given_value;
-  _ := ctx;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("evaluate_function_call: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  make_err_expr()
+
+  tok := ast_expr_token(expr);
+
+  // Decompose the call: func_expr = callee, args = argument list.
+  func_expr := match(expr,
+    .FnCall(_, func_box, _, _, _) => func_box.*,
+    .Atom(_, _)                   => make_err_expr()
+  );
+  args := match(expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _)            => ArrayList(AstExpr).new()
+  );
+
+  // Evaluate the callee.
+  evaluated_callee := evaluate_expression(func_expr, env, ctx);
+  callee_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
+
+  callee_value := match(callee_info_opt,
+    .Some(ci) => ci.value,
+    .None     => Option(EvalValue).None
+  );
+  callee_env := match(callee_info_opt,
+    .Some(ci) => ci.env,
+    .None     => env
+  );
+
+  match(callee_value,
+    // ------------------------------------------------------------------
+    // Path 1: callee is TypeVal(Func) → function definition expression.
+    //   `(fn(params) -> T)(body)`
+    // ------------------------------------------------------------------
+    .Some(cv) => match(cv,
+      .TypeVal(func_type_box) => {
+        func_type := func_type_box.*;
+        match(func_type,
+          .Func(_, _, _, _, _, _, _, _, _) => {
+            if((args.len() != usize(1)), {
+              exn.throw(dyn format_error_message(
+                tok,
+                `Expected 1 body argument for function definition, got ${args.len()}`,
+                false,
+                .None
+              ));
+            });
+            try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, using(exn))
+          },
+          _ => {
+            // ------------------------------------------------------------------
+            // Path 2: callee is FuncVal → evaluate the call.
+            // ------------------------------------------------------------------
+            exn.throw(dyn format_error_message(
+              tok,
+              String.from("evaluate_function_call: TypeVal callee is not a Func type (Phase 3)"),
+              false,
+              .None
+            ));
+            make_err_expr()
+          }
+        )
+      },
+      .FuncVal(
+          forall_names, param_names, param_type_names, evidence_names,
+          body_box, cap_names, cap_tys, cap_vals
+      ) => {
+      n_p   := param_names.len();
+      n_ev  := evidence_names.len();
+      n_a   := args.len();
+
+      if(((n_p + n_ev) != n_a), {
+        exn.throw(dyn format_error_message(
+          tok,
+          `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`,
+          false,
+          .None
+        ));
+      });
+
+      // Evaluate all arguments.
+      evaled_arg_infos := ArrayList(ExprInfo).new();
+      (ai : usize) = usize(0);
+      while runtime((ai < n_a)), {
+        arg_expr := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
+        evaled_arg := evaluate_expression(arg_expr, env, ctx);
+        arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
+        arg_info := match(arg_info_opt,
+          .Some(i) => i,
+          .None    => {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(arg_expr),
+              String.from("evaluate_function_call: arg not evaluated"),
+              false,
+              .None
+            ));
+            new_expr_info(env, t_unit())
+          }
+        );
+        _push_arg := evaled_arg_infos.push(arg_info);
+        ai = (ai + usize(1));
+      };
+
+      // Build a fresh environment for the function body.
+      fresh_env := Environment.new(env.module_path);
+
+      // Bind captures.
+      (cap_i : usize) = usize(0);
+      n_cap := cap_names.len();
+      while runtime((cap_i < n_cap)), {
+        cn := match(cap_names.get(cap_i), .Some(n) => n, .None => String.from(""));
+        ct := match(cap_tys.get(cap_i),   .Some(t) => t, .None => t_unit());
+        cap_v := match(cap_vals.get(cap_i),  .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
+        is_ct_only := match(cap_v, .Some(_) => true, .None => false);
+        _add_cap := add_variable_to_env(&(fresh_env), cn, ct, cap_v, is_ct_only, false, false, false,
+                                   synthetic_token(cn, env.module_path));
+        cap_i = (cap_i + usize(1));
+      };
+
+      // Push a frame and bind `__recur_fn`.
+      _fr := fresh_env.push_frame(false);
+      fv_for_recur := EvalValue.FuncVal(
+        forall_names, param_names, param_type_names, evidence_names,
+        body_box, cap_names, cap_tys, cap_vals
+      );
+      _add_recur := add_variable_to_env(
+        &(fresh_env),
+        String.from("__recur_fn"),
+        t_unit(),
+        Option(EvalValue).Some(fv_for_recur),
+        true,
+        false, false, false,
+        synthetic_token(String.from("__recur_fn"), env.module_path)
+      );
+
+      // Infer forall type params from argument types.
+      n_forall := forall_names.len();
+      (fa_i : usize) = usize(0);
+      while runtime((fa_i < n_forall)), {
+        fa_name := match(forall_names.get(fa_i), .Some(n) => n, .None => String.from(""));
+        n_ptn := param_type_names.len();
+        (ptn_i : usize) = usize(0);
+        (fa_bound : bool) = false;
+        while runtime(((ptn_i < n_ptn) && (!(fa_bound)))), {
+          ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
+          if((ptn.as_str() == fa_name.as_str()), {
+            arg_info := match(evaled_arg_infos.get(ptn_i),
+              .Some(i) => i, .None => new_expr_info(env, t_unit())
+            );
+            _add_forall := add_variable_to_env(
+              &(fresh_env),
+              fa_name,
+              TypeValue.TypeUni(usize(0)),
+              Option(EvalValue).Some(EvalValue.TypeVal(box(arg_info.ty))),
+              true,
+              false, false, false,
+              synthetic_token(fa_name, env.module_path)
+            );
+            fa_bound = true;
+          });
+          ptn_i = (ptn_i + usize(1));
+        };
+        fa_i = (fa_i + usize(1));
+      };
+
+      // Bind regular params.
+      param_vars := ArrayList(Variable).new();
+      (pi : usize) = usize(0);
+      while runtime((pi < n_p)), {
+        pname    := match(param_names.get(pi),       .Some(n) => n, .None => String.from(""));
+        arg_info := match(evaled_arg_infos.get(pi),  .Some(i) => i, .None => new_expr_info(env, t_unit()));
+        is_ct    := match(arg_info.value, .Some(_) => true, .None => false);
+        var_opt  := add_variable_to_env(
+          &(fresh_env),
+          pname, arg_info.ty, arg_info.value,
+          is_ct, false, false, false,
+          synthetic_token(pname, env.module_path)
+        );
+        match(var_opt, .Some(v) => { _push_pv := param_vars.push(v); }, .None => ());
+        pi = (pi + usize(1));
+      };
+
+      // Bind evidence params (implicit args at indices n_p..n_p+n_ev).
+      (evi : usize) = usize(0);
+      while runtime((evi < n_ev)), {
+        ev_name  := match(evidence_names.get(evi),          .Some(n) => n, .None => String.from(""));
+        ev_info  := match(evaled_arg_infos.get((n_p + evi)), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+        is_ct_ev := match(ev_info.value, .Some(_) => true, .None => false);
+        _add_ev := add_variable_to_env(
+          &(fresh_env),
+          ev_name, ev_info.ty, ev_info.value,
+          is_ct_ev, false, false, true,
+          synthetic_token(ev_name, env.module_path)
+        );
+        evi = (evi + usize(1));
+      };
+
+      // Set function body context on ctx.
+      // We need the declared return type from the callee's type (if available).
+      ret_type := match(callee_info_opt,
+        .Some(ci) => match(ci.ty,
+          .Func(_, _, _, _, _, _, _, _, result_b) => result_b.*,
+          _ => t_unit()
+        ),
+        .None => t_unit()
+      );
+
+      callee_func_type_opt := match(callee_info_opt,
+        .Some(ci) => Option(TypeValue).Some(ci.ty),
+        .None     => Option(TypeValue).None
+      );
+      old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
+      old_ret_ty := ctx.enclosing_function_return_type;
+      fn_ctx     := FuncOrAsyncBlockCtx(
+        kind:       .FunctionBody,
+        func_type:  callee_func_type_opt,
+        func_value: callee_value,
+        eval_env:   fresh_env
+      );
+      ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
+      ctx.enclosing_function_return_type             = Option(TypeValue).Some(ret_type);
+
+      // Evaluate the function body.
+      evaled_body := evaluate_begin_expression(
+        body_box.*, fresh_env, ctx, ArrayList(Variable).new(), true, using(exn)
+      );
+
+      ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
+      ctx.enclosing_function_return_type             = old_ret_ty;
+
+      body_info := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_body)),
+        .Some(i) => i,
+        .None    => new_expr_info(env, ret_type)
+      );
+
+      // Build the call's ExprInfo, consuming the Return control flow.
+      out := new_expr_info(env, ret_type);
+      out.value = body_info.value;
+      // control_flow is intentionally NOT propagated (Return is consumed here).
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+
+      _ := param_vars;
+      expr
+    },
+
+    // ------------------------------------------------------------------
+    // Fallthrough: all other EvalValue shapes are Phase 3.
+    // ------------------------------------------------------------------
+    _ => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("evaluate_function_call: complex dispatch not yet implemented (Phase 3)"),
+        false,
+        .None
+      ));
+      make_err_expr()
+    }
+  ),
+  // Callee produced no compile-time value: Phase 3 dispatch needed.
+  .None => {
+    exn.throw(dyn format_error_message(
+      tok,
+      String.from("evaluate_function_call: callee has no compile-time value (Phase 3)"),
+      false,
+      .None
+    ));
+    make_err_expr()
+  }
+)
 });
 
 export evaluate_function_call;

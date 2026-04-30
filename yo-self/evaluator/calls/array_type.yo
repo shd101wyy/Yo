@@ -1,29 +1,39 @@
-//! evaluator/calls/array_type — stub for try_to_implement_array_by_array_type.
+//! evaluator/calls/array_type — try_to_implement_array_by_array_type.
 //!
-//! Phase 2x stub. Full implementation planned for Phase 3.
 //! 1:1 port of `src/evaluator/calls/array-type.ts`.
 //!
-//! `try_to_implement_array_by_array_type` creates an array value from an
-//! ArrayType and a list of initial-value arguments,  e.g.:
+//! Creates an array value from an ArrayType and initial arguments, e.g.:
 //!
 //!   ArrayType :: Array(i32, 3);
 //!   arr := ArrayType(1, 2, 3);
+//!
+//! Note: `Array(T, _)` length inference is NOT supported in yo-self
+//! because `TypeValue.Array` stores a concrete `usize` length.
 
 open import "std/string";
-{ ArrayList }                              :: import "std/collections/array_list";
+{ ArrayList } :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                            :: import "../../env/env.yo";
-{ TypeValue }                              :: import "../../types/type.yo";
-{ EvalContext }                            :: import "../context.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ Exception }                              :: import "std/error";
+{ AstExpr, ast_expr_token, ast_expr_id }              :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_get, expr_info_table_set }           :: import "../../expr/expr_info.yo";
+{ Environment }                                        :: import "../../env/env.yo";
+{ TypeValue, is_array_type }                           :: import "../../types/type.yo";
+{ type_to_string }                                     :: import "../../types/string.yo";
+{ are_types_compatible }                               :: import "../../types/compatibility.yo";
+{ EvalContext, ExpectedTypeCtx }                       :: import "../context.yo";
+{ EvalValue, create_unknown_val }                      :: import "../value.yo";
+{ set_expr_as_needs_to_call_dup }                      :: import "../utils.yo";
+{ evaluate_expression }                                :: import "../exprs/expr.yo";
+{ format_error_message }                               :: import "../../error/error.yo";
+{ Exception }                                          :: import "std/error";
 
 /// Construct an array value from `array_type` and the provided `arg_exprs`.
 ///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
-///
 /// Mirrors `tryToImplementArrayByArrayType` in `src/evaluator/calls/array-type.ts`.
+///
+/// Note: The TypeScript version supports `isUnknownValue(length)` for array-length
+/// inference (`Array(i32, _)`). yo-self's `TypeValue.Array` stores a concrete `usize`
+/// so only the known-length path is implemented here.
 try_to_implement_array_by_array_type :: (fn(
   expr       : AstExpr,
   array_type : TypeValue,
@@ -31,18 +41,106 @@ try_to_implement_array_by_array_type :: (fn(
   caller_env : Environment,
   ctx        : *(EvalContext),
   using(exn  : Exception)
-) -> Option(AstExpr))({
-  _ := array_type;
-  _ := arg_exprs;
-  _ := caller_env;
-  _ := ctx;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("try_to_implement_array_by_array_type: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  Option(AstExpr).None
+) -> AstExpr)({
+  // Extract element type and concrete length from TypeValue.Array.
+  elem_type := match(array_type,
+    .Array(elem_box, _) => elem_box.*,
+    _ => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        `try_to_implement_array_by_array_type: expected Array type, got ${type_to_string(array_type)}`,
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    }
+  );
+  expected_len := match(array_type,
+    .Array(_, len) => len,
+    _ => usize(0)
+  );
+
+  // Validate argument count matches array length.
+  n_args := arg_exprs.len();
+  if((n_args != expected_len), {
+    func_tok := match(expr,
+      .FnCall(_, func_box, _, _, _) => ast_expr_token(func_box.*),
+      .Atom(_, tok) => tok
+    );
+    exn.throw(dyn format_error_message(
+      func_tok,
+      `Array constructor expects ${expected_len.to_string()} elements, got ${n_args.to_string()}.`,
+      false,
+      .None
+    ));
+  });
+
+  // Evaluate each argument and collect elements.
+  elements := ArrayList(EvalValue).new();
+  (env : Environment) = caller_env;
+  (expected_element_type : TypeValue) = elem_type;
+  (i : usize) = usize(0);
+  while runtime((i < n_args)), {
+    arg_expr := match(arg_exprs.get(i),
+      .Some(a) => a,
+      .None    => { return expr; }
+    );
+
+    // Evaluate with expected element type set in context.
+    saved_expected := ctx.expected_type;
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty: expected_element_type, env: env));
+    evaluated_arg := evaluate_expression(arg_expr, env, ctx);
+    ctx.expected_type = saved_expected;
+
+    arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+    if(arg_info_opt.is_none(), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg_expr),
+        `Failed to evaluate array element at index ${i.to_string()}.`,
+        false,
+        .None
+      ));
+    });
+    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, expected_element_type));
+
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
+
+    env = arg_info.env;
+
+    // For first element: if expected element type is Array with unknown-length child,
+    // update expected element type based on actual evaluated type.
+    if(((i == usize(0)) && is_array_type(expected_element_type)), {
+      if(is_array_type(arg_info.ty), {
+        expected_element_type = arg_info.ty;
+      });
+    });
+
+    // Type compatibility check.
+    if(!(are_types_compatible(arg_info.ty, expected_element_type)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg_expr),
+        `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(expected_element_type)}\n- Given   : ${type_to_string(arg_info.ty)}`,
+        false,
+        .None
+      ));
+    });
+
+    // Store value (compile-time) or unknown placeholder (runtime).
+    match(arg_info.value,
+      .Some(v) => { elements.push(v); },
+      .None    => { elements.push(create_unknown_val(arg_info.ty)); }
+    );
+
+    i = (i + usize(1));
+  };
+
+  // Store result in expr_info_table.
+  // Re-use array_type but with refined element type (may have been updated from first element).
+  final_array_type := TypeValue.Array(box(expected_element_type), expected_len);
+  out_info := new_expr_info(env, final_array_type);
+  out_info.value = .Some(EvalValue.ArrayVal(elements));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
 });
 
 export try_to_implement_array_by_array_type;

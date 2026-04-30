@@ -69,6 +69,16 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
   e.*.emit_header_line("}");
   e.*.emit_header_line("");
 
+  // box(v) — heap-allocate a value and return a typed pointer to it.
+  // Uses __typeof__ (GCC/Clang extension enabled via _GNU_SOURCE) and C99/C11
+  // compound literals to create a temporary lvalue without statement expressions.
+  e.*.emit_header_line("// box(v) — heap allocate and return a typed pointer");
+  e.*.emit_header_line("static inline void* __yo_box_impl(void* src, size_t sz) {");
+  e.*.emit_header_line("  void* p = __yo_malloc(sz); memcpy(p, src, sz); return p;");
+  e.*.emit_header_line("}");
+  e.*.emit_header_line("#define __yo_box(v) ((__typeof__(v)*)__yo_box_impl(&(__typeof__(v)){(v)}, sizeof(__typeof__(v))))");
+  e.*.emit_header_line("");
+
   // Primitive Yo type aliases
   // `rune` is a zero-cost newtype over u32 (Unicode code point).
   // `String` is simplified to `const char*` for the self-hosted bootstrap runner.

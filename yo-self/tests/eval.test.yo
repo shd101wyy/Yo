@@ -1329,16 +1329,14 @@ test "evaluate: typed decl then mutate then read", {
 
 test "evaluate: typed decl counter with while loop", {
   env := Environment.new(`test`);
-  // (i : usize) = usize(0); while runtime(i < usize(3)), { i = (i + usize(1)) }
-  i_init_args := ArrayList(AstExpr).new();
-  i_init_args.push(make_atom(TokenKind.Integer, "0"));
-  i_init := make_call("usize", i_init_args);
-  three_a := ArrayList(AstExpr).new();
-  three_a.push(make_atom(TokenKind.Integer, "3"));
-  limit := make_call("usize", three_a);
-  one_a := ArrayList(AstExpr).new();
-  one_a.push(make_atom(TokenKind.Integer, "1"));
-  step := make_call("usize", one_a);
+  // (i : usize) = 0; while runtime(i < 3), { i = (i + 1) }
+  // NOTE: raw integer atoms are used (not usize(N)) to keep recursion depth ≤ 6.
+  // Using usize(N) would add one more evaluate() frame per literal and
+  // overflow the ASAN stack when run after many preceding tests.
+  // See: issues/asan-eval-frame-size-after-expr-id.md
+  i_init := make_atom(TokenKind.Integer, "0");
+  limit := make_atom(TokenKind.Integer, "3");
+  step := make_atom(TokenKind.Integer, "1");
   cond_e := make_infix("<", make_ident("i"), limit);
   body_stmts := ArrayList(AstExpr).new();
   body_stmts.push(make_infix("=", make_ident("i"), make_infix("+", make_ident("i"), step)));
@@ -2514,6 +2512,87 @@ test "evaluate: function with only using params (no regular params)", {
 // and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
 // with evidence_params=["io"] and no regular params.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 2bk — anonymous struct literal evaluation
+// ---------------------------------------------------------------------------
+
+test "evaluate: anonymous struct literal _(x: 42, y: true)", {
+  env := empty_env();
+
+  // Build: _(x: 42, y: true)
+  //   = FnCall(Atom("_"), [infix ":" (Atom("x"), Atom("42")), infix ":" (Atom("y"), Atom("true"))], false)
+  field_x := make_infix(":", make_ident("x"), make_atom(TokenKind.Integer, "42"));
+  field_y := make_infix(":", make_ident("y"), make_atom(TokenKind.Bool, "true"));
+  as_args := ArrayList(AstExpr).new();
+  as_args.push(field_x);
+  as_args.push(field_y);
+  anon_struct_expr := make_call(BK_ANON_STRUCT, as_args);
+
+  result := evaluate(anon_struct_expr, &env);
+
+  match(result,
+    .None => assert(false, "evaluate returned None for anonymous struct"),
+    .Some(res) => match(res.value,
+      .StructVal(_, field_names, field_vals) => {
+        assert((field_names.len() == usize(2)), "struct has 2 fields");
+        assert((field_vals.len()  == usize(2)), "struct has 2 values");
+        match(field_names.get(usize(0)),
+          .Some(n) => assert((n.as_str() == "x"), "first field is x"),
+          .None    => assert(false, "no first field name")
+        );
+        match(field_names.get(usize(1)),
+          .Some(n) => assert((n.as_str() == "y"), "second field is y"),
+          .None    => assert(false, "no second field name")
+        );
+        match(field_vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(raw) => assert((raw.as_str() == "42"), "x value is 42"),
+            _ => assert(false, "x value is not IntLit")
+          ),
+          .None => assert(false, "no x value")
+        );
+        match(field_vals.get(usize(1)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert(b, "y value is true"),
+            _ => assert(false, "y value is not BoolVal")
+          ),
+          .None => assert(false, "no y value")
+        );
+      },
+      _ => assert(false, "result is not StructVal")
+    )
+  );
+};
+
+test "evaluate: anonymous struct shorthand _(val) — unlabeled field", {
+  env := empty_env();
+
+  // Build: _(42)  — positional/unlabeled single field
+  pos_args := ArrayList(AstExpr).new();
+  pos_args.push(make_atom(TokenKind.Integer, "42"));
+  anon_expr := make_call(BK_ANON_STRUCT, pos_args);
+
+  result := evaluate(anon_expr, &env);
+
+  match(result,
+    .None => assert(false, "evaluate returned None for unlabeled anon struct"),
+    .Some(res) => match(res.value,
+      .StructVal(_, names, vals) => {
+        assert((names.len() == usize(1)), "struct has 1 field");
+        assert((vals.len()  == usize(1)), "struct has 1 value");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(raw) => assert((raw.as_str() == "42"), "field value is 42"),
+            _ => assert(false, "field value is not IntLit")
+          ),
+          .None => assert(false, "no field value")
+        );
+      },
+      _ => assert(false, "result is not StructVal")
+    )
+  );
+};
 
 test "validation milestone: evaluate hello_world module", {
   env := empty_env();

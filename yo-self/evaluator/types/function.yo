@@ -170,7 +170,7 @@ _add_where_clause_constraint :: (fn(
   is_negated : bool
 ) -> unit)(
   match(some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _) => {
       if(is_negated, {
         negative_trait_types.push(trait_ty);
         negative_trait_levels.push(usize(0));
@@ -670,7 +670,7 @@ use_id :: (fn(forall(T : Type),
         if(is_some_type(av_box.*), {
           new_some := av_box.*;
           match(new_some,
-            .SomeT(_, _, _, _, new_rtt, _, new_ntt, _) => {
+            .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _) => {
               // Merge required traits
               (ri : usize) = usize(0);
               while runtime((ri < new_rtt.len())), {
@@ -2134,7 +2134,7 @@ evaluate_function_type :: (fn(
   while runtime((wci < params_result.forall_params.len())), {
     fp := match(params_result.forall_params.get(wci), .Some(p) => p, .None => { wci = params_result.forall_params.len(); break; });
     match(fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while runtime((ti2 < required_trait_types.len())), {
           tt := match(required_trait_types.get(ti2), .Some(t) => t, .None => { ti2 = required_trait_types.len(); break; });

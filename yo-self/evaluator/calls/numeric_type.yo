@@ -1,76 +1,184 @@
-//! evaluator/calls/numeric_type — stubs for numeric-type helpers.
+//! evaluator/calls/numeric_type — numeric-type conversion helpers.
 //!
-//! Phase 2x stub. Full implementation planned for Phase 3.
 //! 1:1 port of `src/evaluator/calls/numeric-type.ts`.
 //!
 //! Exports:
-//!   `get_numeric_bounds`          — returns the [min, max] range for an integer type.
-//!   `is_convertible_numeric_type` — checks whether a type supports `type(value)` cast syntax.
+//!   `get_numeric_bounds`             — returns the [min, max] range for an integer type.
+//!   `is_convertible_numeric_type`    — checks whether a type supports `type(value)` cast syntax.
 //!   `try_to_convert_to_numeric_type` — attempts to cast an argument to a numeric type.
 
 open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                            :: import "../../env/env.yo";
-{ TypeValue }                              :: import "../../types/type.yo";
-{ EvalContext }                            :: import "../context.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ Exception }                              :: import "std/error";
-
-/// The inclusive [min, max] numeric bounds for a fixed-width integer type.
-///
-/// Phase 2x stub: placeholder definition. Full bounds logic in Phase 3.
-///
-/// Mirrors `{ min: number | bigint; max: number | bigint }` in
-/// `src/evaluator/calls/numeric-type.ts`.
-NumericBounds :: object(
-  min : i64,
-  max : i64
-);
+{ AstExpr, ExprId, ast_expr_token, ast_expr_id, ast_expr_to_string, make_err_expr,
+  BF_YO_AS }                                                     :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_get, expr_info_table_set }                     :: import "../../expr/expr_info.yo";
+{ Environment }                                                  :: import "../../env/env.yo";
+{ TypeValue,
+  is_float_type, is_numeric_type }                               :: import "../../types/type.yo";
+{ is_comptime_int_type, is_comptime_float_type,
+  is_c_compatible_type, is_enum_type }                           :: import "../../types/guards.yo";
+{ IntRange, get_integer_type_range }                             :: import "../../types/utils.yo";
+{ type_to_string }                                               :: import "../../types/string.yo";
+{ EvalContext }                                                   :: import "../context.yo";
+{ EvalValue, create_unknown_val,
+  is_int_lit, is_float_lit, is_enum_val }                        :: import "../value.yo";
+{ parse_raw_int }                                                :: import "../utils.yo";
+{ evaluate_expression }                                          :: import "../exprs/expr.yo";
+{ format_error_message }                                         :: import "../../error/error.yo";
+{ Token, TokenKind }                                             :: import "../../lexer/token.yo";
+{ Exception }                                                    :: import "std/error";
 
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
-/// has no fixed bounds (e.g. floats).
-///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+/// has no fixed bounds (floats, ComptimeInt, non-numeric types).
 ///
 /// Mirrors `getNumericBounds` in `src/evaluator/calls/numeric-type.ts`.
-get_numeric_bounds :: (fn(
-  type_val  : TypeValue,
-  using(exn : Exception)
-) -> Option(NumericBounds))({
-  _ := type_val;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(make_err_expr()),
-    String.from("get_numeric_bounds: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  Option(NumericBounds).None
-});
+/// Note: returns `.None` for `ComptimeInt` (unbounded) — callers skip bounds checking.
+get_numeric_bounds :: (fn(type_val : TypeValue) -> Option(IntRange))(
+  get_integer_type_range(type_val)
+);
 
 /// Return `true` if `type_val` supports the `type(value)` numeric-cast syntax.
 ///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
-///
 /// Mirrors `isConvertibleNumericType` in `src/evaluator/calls/numeric-type.ts`.
-is_convertible_numeric_type :: (fn(
-  type_val  : TypeValue,
-  using(exn : Exception)
-) -> bool)({
-  _ := type_val;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(make_err_expr()),
-    String.from("is_convertible_numeric_type: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  false
+/// Covers: all integer types (Int, Usize, Isize, ComptimeInt), Float, ComptimeFloat,
+/// and all C-compatible types.
+is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
+  cond(
+    is_numeric_type(type_val)      => true,
+    is_c_compatible_type(type_val) => true,
+    true                           => false
+  )
+);
+
+/// Extract the discriminant of an `EnumVal` from its parent `EnumT` type.
+/// `variant` is stored as `".Some"` (with leading dot);
+/// `variant_names` in `EnumT` stores `"Some"` (without leading dot).
+/// Strips the leading dot before comparison.
+///
+/// Mirrors `getEnumDiscriminant` in `src/evaluator/calls/numeric-type.ts`.
+_get_enum_discriminant :: (fn(
+  variant       : String,
+  variant_names : ArrayList(String),
+  discs         : ArrayList(i64)
+) -> Option(i64))({
+  // Strip leading '.' from variant name (e.g. ".Some" → "Some")
+  stripped := cond(
+    variant.starts_with(`.`) => variant.substring(usize(1), variant.len()),
+    true => String.from(variant.as_str())
+  );
+  n := variant_names.len();
+  (i : usize) = usize(0);
+  (result : Option(i64)) = Option(i64).None;
+  while runtime(((i < n) && result.is_none())), {
+    match(variant_names.get(i),
+      .Some(name) => {
+        if((name.as_str() == stripped.as_str()), {
+          match(discs.get(i),
+            .Some(d) => { result = .Some(d); },
+            .None    => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  result
+});
+
+/// Check whether `raw` (a decimal integer string) fits in the bounds `[range.min, range.max]`.
+/// Returns `true` if in bounds, or `true` conservatively if the string can't be parsed.
+_int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
+  i_opt := parse_raw_int(raw);
+  match(i_opt,
+    .Some(iv) => {
+      if((iv < range.min), {
+        return false;
+      });
+      if((iv >= i64(0)), {
+        match(String.from(raw.as_str()).parse_u64(),
+          .Some(uv) => {
+            if((uv > range.max), {
+              return false;
+            });
+          },
+          .None => ()
+        );
+      });
+      true
+    },
+    .None => true
+  )
+});
+
+/// Create an `ExprInfo` with a comptime numeric value of the target type from a raw string.
+/// `raw` is the decimal representation of the integer/float.
+/// Mirrors `createComptimeValueOfType` in `src/evaluator/calls/numeric-type.ts`.
+_make_comptime_info :: (fn(
+  raw         : String,
+  target_type : TypeValue,
+  env         : Environment,
+  expr_tok    : Token,
+  using(exn   : Exception)
+) -> ExprInfo)({
+  // Bounds check for integer types
+  bounds_opt := get_numeric_bounds(target_type);
+  match(bounds_opt,
+    .Some(bounds) => {
+      if(!((_int_raw_in_range(raw, bounds))), {
+        exn.throw(dyn format_error_message(
+          expr_tok,
+          `Value ${raw} is out of range for type ${type_to_string(target_type)} (${bounds.min.to_string()} to ${bounds.max.to_string()})`,
+          false,
+          .None
+        ));
+      });
+    },
+    .None => ()
+  );
+  out := new_expr_info(env, target_type);
+  val := cond(
+    is_comptime_float_type(target_type) => EvalValue.FloatLit(String.from(raw.as_str())),
+    is_float_type(target_type)          => EvalValue.FloatLit(String.from(raw.as_str())),
+    true                                => EvalValue.IntLit(String.from(raw.as_str()))
+  );
+  out.value = .Some(val);
+  out
+});
+
+/// Build a synthetic `__yo_as(arg, TargetType)` FnCall node.
+/// Reuses the original expression's `ExprId` so ExprInfo lookups remain consistent.
+/// Mirrors `replaceExprWithFuncCallExpr(expr, yoAsFuncExpr)` from
+/// `src/evaluator/calls/numeric-type.ts`.
+_make_yo_as_node :: (fn(
+  orig_id   : ExprId,
+  orig_tok  : Token,
+  evaluated : AstExpr,
+  type_expr : AstExpr
+) -> AstExpr)({
+  func_atom := AstExpr.Atom(
+    orig_id,
+    Token(
+      kind:        TokenKind.Identifier,
+      value:       String.from(BF_YO_AS),
+      row:         orig_tok.row,
+      column:      orig_tok.column,
+      character:   orig_tok.character,
+      module_path: String.from(orig_tok.module_path.as_str()),
+      input:       String.from(orig_tok.input.as_str())
+    )
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(evaluated);
+  args.push(type_expr);
+  AstExpr.FnCall(orig_id, box(func_atom), args, false, orig_tok)
 });
 
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.
-///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+/// Returns `.Some(result_expr)` on success.
 ///
 /// Mirrors `tryToConvertToNumericType` in `src/evaluator/calls/numeric-type.ts`.
 try_to_convert_to_numeric_type :: (fn(
@@ -81,17 +189,192 @@ try_to_convert_to_numeric_type :: (fn(
   ctx         : *(EvalContext),
   using(exn   : Exception)
 ) -> Option(AstExpr))({
-  _ := target_type;
-  _ := arg_expr;
-  _ := caller_env;
-  _ := ctx;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("try_to_convert_to_numeric_type: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  Option(AstExpr).None
+  if(!(is_convertible_numeric_type(target_type)), {
+    return Option(AstExpr).None;
+  });
+
+  // Evaluate the argument with no expectedType (let it resolve its natural type).
+  saved_expected := ctx.expected_type;
+  ctx.expected_type = .None;
+  evaluated := evaluate_expression(arg_expr, caller_env, ctx);
+  ctx.expected_type = saved_expected;
+
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  if(info_opt.is_none(), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg_expr),
+      `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`,
+      false,
+      .None
+    ));
+  });
+  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
+
+  env      := arg_info.env;
+  arg_val  := arg_info.value;
+  arg_type := arg_info.ty;
+
+  // -----------------------------------------------------------------------
+  // Case 0: Enum value → integer discriminant
+  // -----------------------------------------------------------------------
+  (enum_disc_raw : Option(String)) = Option(String).None;
+  if(is_enum_type(arg_type), {
+    match(arg_val,
+      .Some(v) => {
+        if(is_enum_val(v), {
+          match(v,
+            .EnumVal(variant, _) => {
+              match(arg_type,
+                .EnumT(_, _, vnames, _, _, _, discs) => {
+                  match(_get_enum_discriminant(variant, vnames, discs),
+                    .Some(d) => { enum_disc_raw = .Some(d.to_string()); },
+                    .None    => {
+                      exn.throw(dyn format_error_message(
+                        ast_expr_token(arg_expr),
+                        `Failed to get discriminant for enum variant "${variant}"`,
+                        false,
+                        .None
+                      ));
+                    }
+                  );
+                },
+                _ => ()
+              );
+            },
+            _ => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    // Enum with known discriminant + comptime-capable target → direct comptime conversion
+    match(enum_disc_raw,
+      .Some(disc_raw) => {
+        if(is_numeric_type(target_type), {
+          out_info := _make_comptime_info(disc_raw, target_type, env, ast_expr_token(expr), using(exn));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+          return .Some(expr);
+        });
+      },
+      .None => ()
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // Validate source type — must be numeric, comptime-numeric, or enum
+  // -----------------------------------------------------------------------
+  if((!(is_convertible_numeric_type(arg_type)) &&
+      !(is_comptime_int_type(arg_type))        &&
+      !(is_comptime_float_type(arg_type))      &&
+      !(is_enum_type(arg_type))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg_expr),
+      `Cannot convert ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a numeric type.`,
+      false,
+      .None
+    ));
+  });
+
+  // -----------------------------------------------------------------------
+  // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.
+  // -----------------------------------------------------------------------
+  (comptime_raw : Option(String)) = match(enum_disc_raw,
+    .Some(r) => .Some(r),
+    .None    => match(arg_val,
+      .Some(v) => cond(
+        is_int_lit(v)   => match(v, .IntLit(r)   => Option(String).Some(String.from(r.as_str())), _ => .None),
+        is_float_lit(v) => match(v, .FloatLit(r) => Option(String).Some(String.from(r.as_str())), _ => .None),
+        true => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  );
+
+  // -----------------------------------------------------------------------
+  // Case 1: Compile-time value → comptime-capable target type
+  // -----------------------------------------------------------------------
+  match(comptime_raw,
+    .Some(raw) => {
+      if(is_numeric_type(target_type), {
+        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+        return .Some(expr);
+      });
+    },
+    .None => ()
+  );
+
+  // -----------------------------------------------------------------------
+  // Case 2: Converting TO comptime_int or comptime_float requires comptime source
+  // -----------------------------------------------------------------------
+  if((is_comptime_int_type(target_type) || is_comptime_float_type(target_type)), {
+    if(comptime_raw.is_none(), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg_expr),
+        `Cannot convert runtime value to ${type_to_string(target_type)}. Only compile-time values can be converted to ${type_to_string(target_type)}.`,
+        false,
+        .None
+      ));
+    });
+    // comptime_raw is Some here — already handled in Case 1 (unreachable)
+  });
+
+  // -----------------------------------------------------------------------
+  // Case 2.5: Arg type is comptime (checking phase — no value yet) and target
+  //           supports comptime → produce UnknownVal with target type.
+  // -----------------------------------------------------------------------
+  if(((is_comptime_int_type(arg_type) || is_comptime_float_type(arg_type)) &&
+       is_numeric_type(target_type)), {
+    match(comptime_raw,
+      .Some(raw) => {
+        // Already covered by Case 1, but handle here for completeness.
+        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+        return .Some(expr);
+      },
+      .None => {
+        out_info := new_expr_info(env, target_type);
+        out_info.value = .Some(create_unknown_val(target_type));
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+        return .Some(expr);
+      }
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // Case 3: Runtime conversion → __yo_as(arg, TargetType) call
+  // -----------------------------------------------------------------------
+  if((is_c_compatible_type(target_type) || comptime_raw.is_none()), {
+    type_expr := match(expr,
+      .FnCall(_, func_box, _, _, _) => func_box.*,
+      .Atom(_, _)                   => make_err_expr()
+    );
+    yo_as_node := _make_yo_as_node(ast_expr_id(expr), ast_expr_token(expr), evaluated, type_expr);
+    out_info := new_expr_info(env, target_type);
+    out_info.value = .None;
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
+    return .Some(yo_as_node);
+  });
+
+  // -----------------------------------------------------------------------
+  // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
+  // -----------------------------------------------------------------------
+  match(comptime_raw,
+    .Some(raw) => {
+      out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+      .Some(expr)
+    },
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        String.from("Unexpected case in numeric type conversion"),
+        false,
+        .None
+      ));
+      Option(AstExpr).None
+    }
+  )
 });
 
 export get_numeric_bounds;

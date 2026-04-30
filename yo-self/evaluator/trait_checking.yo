@@ -1,0 +1,911 @@
+//! Trait checking functions.
+//!
+//! 1:1 port of `src/evaluator/trait-checking.ts`.
+//!
+//! Provides `type_implements_trait` (the core function) and all helpers:
+//! `type_implements_comptime`, `type_implements_runtime`,
+//! `type_implements_fn`, `type_implements_future`,
+//! `extract_fn_trait_from_type`, `extract_future_trait_from_type`,
+//! `type_implements_send`, `type_implements_dispose`,
+//! `type_implements_acyclic`, `validate_type_availability`,
+//! `find_some_type_missing_comptime_constraint`,
+//! `check_type_implements_self_constraints`.
+//!
+//! Phase 3 stubs (returns conservative fallback):
+//!   * `_find_matching_generic_impl` — always returns false (generic impl registry needed)
+//!   * `_find_associated_type_from_generic_impls` — always returns false
+//!   * `_is_concrete_impl_being_registered` — always returns false
+//!   * `synthesize_types` calls in `type_implements_trait` step 3 and
+//!     `_check_associated_type_constraints` are deferred; env binding
+//!     propagation is not yet implemented (returns original env unchanged).
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ Exception } :: import "std/error";
+{ TypeValue, is_function_type, is_some_type, is_pointer_type, is_struct_type
+} :: import "../types/type.yo";
+{ is_fn_trait_type, is_future_trait_type, is_dyn_type, is_type_hierarchy_type
+} :: import "../types/guards.yo";
+{ are_types_compatible } :: import "../types/compatibility.yo";
+{ get_trait_type_from_env, get_value_of_some_type_from_env
+} :: import "../types/env_lookup.yo";
+{ type_contains_some_type, type_implements_runtime_builtin
+} :: import "../types/utils.yo";
+{ type_to_string } :: import "../types/string.yo";
+{ Environment } :: import "../env/env.yo";
+{ Token } :: import "../lexer/token.yo";
+{ YoError, ErrorKind, format_error_message } :: import "../error/error.yo";
+
+// ---------------------------------------------------------------------------
+// TraitCheckResult — mirrors { implemented: boolean; env: Environment }
+// ---------------------------------------------------------------------------
+
+/// Return type of `type_implements_trait`.
+///
+/// Mirrors the `{ implemented: boolean; env: Environment }` return type of
+/// `typeImplementsTrait` in `src/evaluator/trait-checking.ts`.
+TraitCheckResult :: struct(
+  implemented : bool,
+  env         : Environment
+);
+
+/// Return type of `_check_associated_type_constraints`.
+///
+/// Mirrors `{ satisfied: boolean; env: Environment }`.
+AssocTypeCheckResult :: struct(
+  satisfied : bool,
+  env       : Environment
+);
+
+// ---------------------------------------------------------------------------
+// Global recursion guard for type_implements_trait
+// ---------------------------------------------------------------------------
+
+/// Recursion guard to prevent infinite loops when checking trait implementations.
+/// Mirrors `traitCheckRecursionGuard: Set<string>` in TypeScript.
+(g_trait_check_recursion_guard : ArrayList(String)) = ArrayList(String).new();
+
+/// Send derivation in-progress set.
+/// Mirrors `sendDerivationInProgress: Set<string>` in TypeScript.
+(g_send_derivation_in_progress : ArrayList(String)) = ArrayList(String).new();
+
+// ---------------------------------------------------------------------------
+// Helper: extract trait ID
+// ---------------------------------------------------------------------------
+
+/// Extract the nominal ID string from a trait TypeValue.
+/// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
+/// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
+_trait_type_id :: (fn(ty : TypeValue) -> String)(
+  match(ty,
+    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .FnTraitT(base_name, _, _, _)    => base_name,
+    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    _ => String.from("")
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_comptime_builtin
+// ---------------------------------------------------------------------------
+
+/// Tag-only fast path for the Comptime trait.
+///
+/// Returns:
+///   * `Some(true)`  — type definitely implements Comptime
+///   * `Some(false)` — type definitely does NOT implement Comptime
+///   * `.None`       — undecided (caller must check the `Comptime` trait in env)
+///
+/// Mirrors `typeImplementsComptimeBuiltin` in `src/evaluator/trait-checking.ts`.
+type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(ty,
+    // Object types (reference semantics) — always runtime, never comptime.
+    .Struct(_, _, _, _, is_ref, _, _) => cond(
+      is_ref => Option(bool).Some(false),
+      true   => Option(bool).None
+    ),
+
+    // Comptime-only types — always comptime.
+    .ComptimeInt          => Option(bool).Some(true),
+    .ComptimeFloat        => Option(bool).Some(true),
+    .ComptimeString       => Option(bool).Some(true),
+    .TypeUni(_)           => Option(bool).Some(true),
+    .ModuleT(_, _, _, _)  => Option(bool).Some(true),
+    .TraitT(name: _)      => Option(bool).Some(true),
+    .FnTraitT(base_name: _)      => Option(bool).Some(true),
+    .FutureTraitT(base_name: _)  => Option(bool).Some(true),
+    .ExprT                => Option(bool).Some(true),
+    .ComptimeListT(_)     => Option(bool).Some(true),
+
+    // Runtime-only types — not comptime.
+    .IsoT(_)      => Option(bool).Some(false),
+    .DynT(_, _, _, _) => Option(bool).Some(false),
+    .Void         => Option(bool).Some(false),
+    .Union(_, _, _) => Option(bool).Some(false),
+    .CChar        => Option(bool).Some(false),
+    .CShort       => Option(bool).Some(false),
+    .CUShort      => Option(bool).Some(false),
+    .CInt         => Option(bool).Some(false),
+    .CUInt        => Option(bool).Some(false),
+    .CLong        => Option(bool).Some(false),
+    .CULong       => Option(bool).Some(false),
+    .CLongLong    => Option(bool).Some(false),
+    .CULongLong   => Option(bool).Some(false),
+    .CLongDouble  => Option(bool).Some(false),
+
+    // Primitives available in both contexts — comptime-capable.
+    .Unit         => Option(bool).Some(true),
+    .BoolT        => Option(bool).Some(true),
+    .Usize        => Option(bool).Some(true),
+    .Isize        => Option(bool).Some(true),
+    .Int(_, _)    => Option(bool).Some(true),
+    .Float(_)     => Option(bool).Some(true),
+    .Func(result: _) => Option(bool).Some(true),
+
+    // Undecided — env / Comptime trait lookup needed.
+    _ => Option(bool).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 3 stubs
+// ---------------------------------------------------------------------------
+
+/// Phase 3 stub for `findMatchingGenericImpl`.
+/// Always returns false — the generic impl registry is not yet ported.
+_find_matching_generic_impl :: (fn(_target : TypeValue, _trait_ty : TypeValue, _env : Environment) -> bool)(false);
+
+/// Phase 3 stub for `findAssociatedTypeFromGenericImpls`.
+/// Always returns false.
+_find_associated_type_from_generic_impls :: (fn(_target : TypeValue, _prop_name : String, _env : Environment) -> bool)(false);
+
+/// Phase 3 stub for `isConcreteImplBeingRegistered`.
+/// Always returns false.
+_is_concrete_impl_being_registered :: (fn(_type_id : String, _trait_name : String) -> bool)(false);
+
+// ---------------------------------------------------------------------------
+// _check_associated_type_constraints
+// ---------------------------------------------------------------------------
+
+/// Check if a concrete type satisfies associated type constraints on a trait.
+///
+/// Phase 3 stub: associated type constraints from the generic impl registry are
+/// not yet checked (step 2 is skipped). Only direct field checks and the
+/// compatibility check are performed.
+///
+/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts`.
+_check_associated_type_constraints :: (fn(
+  _target_type : TypeValue,
+  _trait_type  : TypeValue,
+  env          : Environment
+) -> AssocTypeCheckResult)(
+  // Phase 3 stub: the full implementation needs the generic impl registry to
+  // resolve associated types. For now, conservatively return satisfied=true
+  // (permissive — avoids false-negative rejections at the cost of not catching
+  // mismatched associated types until Phase 3).
+  AssocTypeCheckResult(satisfied: true, env: env)
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_trait
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements a specific trait.
+///
+/// Returns both an `implemented` bool and the updated `env` with any type
+/// bindings inferred during trait matching propagated back (Phase 3: binding
+/// propagation via `synthesize_types` is deferred; env is returned unchanged).
+///
+/// Use `type_implements_trait_bool` when only the boolean result is needed.
+///
+/// Mirrors `typeImplementsTrait` in `src/evaluator/trait-checking.ts`.
+type_implements_trait :: (fn(
+  target_type : TypeValue,
+  trait_type  : TypeValue,
+  env         : Environment
+) -> TraitCheckResult)({
+  (target : TypeValue) = target_type;
+
+  // 1. Comptime builtin fast path.
+  match(get_trait_type_from_env(env, String.from("Comptime")),
+    .None    => (),
+    .Some(ct) => {
+      if((_trait_type_id(trait_type) == _trait_type_id(ct)), {
+        match(type_implements_comptime_builtin(target),
+          .Some(b) => { return TraitCheckResult(implemented: b, env: env); },
+          .None    => ()
+        );
+      });
+    }
+  );
+
+  // 2. Runtime builtin fast path.
+  match(get_trait_type_from_env(env, String.from("Runtime")),
+    .None    => (),
+    .Some(rt) => {
+      if((_trait_type_id(trait_type) == _trait_type_id(rt)), {
+        match(type_implements_runtime_builtin(target),
+          .Some(b) => { return TraitCheckResult(implemented: b, env: env); },
+          .None    => ()
+        );
+      });
+    }
+  );
+
+  // 3. Fn-trait satisfaction: FnTraitT + Func → check compatibility.
+  // Phase 3 TODO: call synthesize_types for binding propagation.
+  if((is_fn_trait_type(trait_type) && is_function_type(target)), {
+    fn_trait_call_ty := match(trait_type,
+      .FnTraitT(_, param_labels, param_types, result) => TypeValue.Func(
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        param_labels,
+        param_types,
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(bool).new(),
+        ArrayList(TypeValue).new(),
+        result
+      ),
+      _ => {
+        return TraitCheckResult(implemented: false, env: env);
+      }
+    );
+    if(!(are_types_compatible(fn_trait_call_ty, target)), {
+      return TraitCheckResult(implemented: false, env: env);
+    });
+    return TraitCheckResult(implemented: true, env: env);
+  });
+
+  // 4. Direct trait field match.
+  // Phase 3: requires the `trait` field on Struct/Enum types (impl registry).
+  // Skipped for now — conservative (may miss some implementations).
+
+  // 5. DynType: check required traits and selfConstraints.
+  match(target,
+    .DynT(required_trait_types, _, negative_trait_types, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        req_trait := match(required_trait_types.get(i),
+          .Some(t) => t, .None => { i = (i + usize(1)); continue; }
+        );
+        // Direct match.
+        if((_trait_type_id(req_trait) == _trait_type_id(trait_type)), {
+          return TraitCheckResult(implemented: true, env: env);
+        });
+        // selfConstraints of the required trait.
+        match(req_trait,
+          .TraitT(_, _, _, _, _, _, self_constraints, _) => {
+            ns := self_constraints.len();
+            (j : usize) = usize(0);
+            while runtime((j < ns)), {
+              sc := match(self_constraints.get(j),
+                .Some(t) => t, .None => { j = (j + usize(1)); continue; }
+              );
+              if((_trait_type_id(sc) == _trait_type_id(trait_type)), {
+                return TraitCheckResult(implemented: true, env: env);
+              });
+              j = (j + usize(1));
+            };
+          },
+          _ => ()
+        );
+        i = (i + usize(1));
+      };
+      // Negative trait check.
+      nn := negative_trait_types.len();
+      (k : usize) = usize(0);
+      while runtime((k < nn)), {
+        neg_trait := match(negative_trait_types.get(k),
+          .Some(t) => t, .None => { k = (k + usize(1)); continue; }
+        );
+        if((_trait_type_id(neg_trait) == _trait_type_id(trait_type)), {
+          return TraitCheckResult(implemented: false, env: env);
+        });
+        k = (k + usize(1));
+      };
+    },
+    _ => ()
+  );
+
+  // 6. SomeType where-clause check.
+  // In yo-self, constraints stored directly on SomeT.required_trait_types
+  // via _add_where_clause_constraint (no separate env lookup needed).
+  match(target,
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _) => {
+      (found_req  : bool) = false;
+      (found_neg  : bool) = false;
+
+      // Check required_trait_types.
+      nr := required_trait_types.len();
+      (ir : usize) = usize(0);
+      while runtime((ir < nr)), {
+        req_t := match(required_trait_types.get(ir),
+          .Some(t) => t, .None => { ir = (ir + usize(1)); continue; }
+        );
+        if((_trait_type_id(req_t) == _trait_type_id(trait_type)), {
+          found_req = true;
+        });
+        ir = (ir + usize(1));
+      };
+
+      // Check negative_trait_types.
+      nn2 := negative_trait_types.len();
+      (in2 : usize) = usize(0);
+      while runtime((in2 < nn2)), {
+        neg_t := match(negative_trait_types.get(in2),
+          .Some(t) => t, .None => { in2 = (in2 + usize(1)); continue; }
+        );
+        if((_trait_type_id(neg_t) == _trait_type_id(trait_type)), {
+          found_neg = true;
+        });
+        in2 = (in2 + usize(1));
+      };
+
+      if(found_req, {
+        return TraitCheckResult(implemented: !(found_neg), env: env);
+      }, {
+        if(found_neg, { return TraitCheckResult(implemented: false, env: env); });
+      });
+    },
+    _ => ()
+  );
+
+  // 7. Resolve SomeType to its concrete type before generic impl check.
+  if(is_some_type(target), {
+    resolved := get_value_of_some_type_from_env(env, target);
+    if(is_some_type(resolved), {
+      return TraitCheckResult(implemented: false, env: env);
+    });
+    target = resolved;
+  });
+
+  // 7.5. Concrete impl currently being registered (recursive types).
+  // Phase 3 stub: always returns false.
+  if(_is_concrete_impl_being_registered(
+    _trait_type_id(target),
+    _trait_type_id(trait_type)
+  ), {
+    return TraitCheckResult(implemented: true, env: env);
+  });
+
+  // 8. Generic impl registry (Phase 3 stub — always returns false).
+  guard_key := _trait_type_id(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // Recursion guard: return false if already checking this pair.
+  (already_checking : bool) = false;
+  gn := g_trait_check_recursion_guard.len();
+  (gi : usize) = usize(0);
+  while runtime((gi < gn)), {
+    entry := match(g_trait_check_recursion_guard.get(gi),
+      .Some(s) => s, .None => { gi = (gi + usize(1)); continue; }
+    );
+    if((entry == guard_key), { already_checking = true; });
+    gi = (gi + usize(1));
+  };
+  if(already_checking, {
+    return TraitCheckResult(implemented: false, env: env);
+  });
+
+  g_trait_check_recursion_guard.push(guard_key);
+  result := _find_matching_generic_impl(target, trait_type, env);
+  // Pop the guard key.
+  last_idx := (g_trait_check_recursion_guard.len() - usize(1));
+  g_trait_check_recursion_guard.remove(last_idx);
+
+  TraitCheckResult(implemented: result, env: env)
+});
+
+// ---------------------------------------------------------------------------
+// type_implements_trait_bool
+// ---------------------------------------------------------------------------
+
+/// Boolean wrapper around `type_implements_trait`.
+///
+/// Mirrors `typeImplementsTraitBool` in `src/evaluator/trait-checking.ts`.
+type_implements_trait_bool :: (fn(
+  target_type : TypeValue,
+  trait_type  : TypeValue,
+  env         : Environment
+) -> bool)(
+  type_implements_trait(target_type, trait_type, env).implemented
+);
+
+// ---------------------------------------------------------------------------
+// check_type_implements_self_constraints
+// ---------------------------------------------------------------------------
+
+/// Check that a type satisfies all positive and negative selfConstraints on a
+/// trait. Throws if any constraint is not satisfied.
+///
+/// Mirrors `checkTypeImplementsSelfConstraints` in
+/// `src/evaluator/trait-checking.ts`.
+check_type_implements_self_constraints :: (fn(
+  target_type  : TypeValue,
+  trait_type   : TypeValue,
+  env          : Environment,
+  error_token  : Token,
+  using(exn : Exception)
+) -> unit)(
+  match(trait_type,
+    .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints) => {
+      // Check positive constraints (must implement).
+      np := self_constraints.len();
+      (ip : usize) = usize(0);
+      while runtime((ip < np)), {
+        constraint := match(self_constraints.get(ip),
+          .Some(c) => c, .None => { ip = (ip + usize(1)); continue; }
+        );
+        if(!(type_implements_trait_bool(target_type, constraint, env)), {
+          msg := `Type "`
+            .concat(type_to_string(target_type))
+            .concat(`" does not implement required constraint "`)
+            .concat(type_to_string(constraint))
+            .concat(`" from trait "`)
+            .concat(name)
+            .concat(`"'s where clause.`);
+          exn.throw(dyn format_error_message(error_token, msg, false, Option(ErrorKind).None));
+        });
+        ip = (ip + usize(1));
+      };
+
+      // Check negative constraints (must NOT implement).
+      nn := neg_self_constraints.len();
+      (in_ : usize) = usize(0);
+      while runtime((in_ < nn)), {
+        constraint := match(neg_self_constraints.get(in_),
+          .Some(c) => c, .None => { in_ = (in_ + usize(1)); continue; }
+        );
+        if(type_implements_trait_bool(target_type, constraint, env), {
+          msg := `Type "`
+            .concat(type_to_string(target_type))
+            .concat(`" implements "`)
+            .concat(type_to_string(constraint))
+            .concat(`" but the trait "`)
+            .concat(name)
+            .concat(`"'s where clause requires it to NOT implement this trait.`);
+          exn.throw(dyn format_error_message(error_token, msg, false, Option(ErrorKind).None));
+        });
+        in_ = (in_ + usize(1));
+      };
+    },
+    _ => ()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_comptime
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements the Comptime trait.
+///
+/// Mirrors `typeImplementsComptime` in `src/evaluator/trait-checking.ts`.
+type_implements_comptime :: (fn(ty : TypeValue, env : Environment) -> bool)({
+  match(type_implements_comptime_builtin(ty),
+    .Some(b) => { return b; },
+    .None    => ()
+  );
+  match(get_trait_type_from_env(env, String.from("Comptime")),
+    .None    => false,
+    .Some(comptime_trait) => type_implements_trait_bool(ty, comptime_trait, env)
+  )
+});
+
+// ---------------------------------------------------------------------------
+// type_implements_runtime (full evaluator-layer version)
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements the Runtime trait (full env-aware version).
+///
+/// Mirrors `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
+type_implements_runtime_full :: (fn(ty : TypeValue, env : Environment) -> bool)({
+  match(type_implements_runtime_builtin(ty),
+    .Some(b) => { return b; },
+    .None    => ()
+  );
+  match(get_trait_type_from_env(env, String.from("Runtime")),
+    .None    => false,
+    .Some(runtime_trait) => type_implements_trait_bool(ty, runtime_trait, env)
+  )
+});
+
+// ---------------------------------------------------------------------------
+// begin/end_send_derivation
+// ---------------------------------------------------------------------------
+
+/// Mark a type as currently undergoing Send auto-derivation.
+///
+/// Mirrors `beginSendDerivation` in `src/evaluator/trait-checking.ts`.
+begin_send_derivation :: (fn(type_id : String) -> unit)({
+  g_send_derivation_in_progress.push(type_id);
+});
+
+/// Remove a type from the Send auto-derivation in-progress set.
+///
+/// Mirrors `endSendDerivation` in `src/evaluator/trait-checking.ts`.
+end_send_derivation :: (fn(type_id : String) -> unit)({
+  n := g_send_derivation_in_progress.len();
+  (i : usize) = usize(0);
+  (found_idx : Option(usize)) = Option(usize).None;
+  while runtime((i < n)), {
+    entry := match(g_send_derivation_in_progress.get(i),
+      .Some(s) => s, .None => { i = (i + usize(1)); continue; }
+    );
+    if((entry == type_id), {
+      found_idx = Option(usize).Some(i);
+    });
+    i = (i + usize(1));
+  };
+  match(found_idx, .Some(idx) => { g_send_derivation_in_progress.remove(idx); }, .None => ());
+});
+
+// ---------------------------------------------------------------------------
+// type_implements_send
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements the Send trait.
+///
+/// Mirrors `typeImplementsSend` in `src/evaluator/trait-checking.ts`.
+type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
+  // Cycle break: if this type is currently being checked for Send derivation,
+  // optimistically assume it implements Send.
+  ty_id := _trait_type_id(ty);
+  (in_derivation : bool) = false;
+  nd := g_send_derivation_in_progress.len();
+  (id : usize) = usize(0);
+  while runtime((id < nd)), {
+    entry := match(g_send_derivation_in_progress.get(id),
+      .Some(s) => s, .None => { id = (id + usize(1)); continue; }
+    );
+    if((entry == ty_id), { in_derivation = true; });
+    id = (id + usize(1));
+  };
+  if(in_derivation, { return true; });
+
+  match(get_trait_type_from_env(env, String.from("Send")),
+    .None    => false,
+    .Some(send_trait) => type_implements_trait_bool(ty, send_trait, env)
+  )
+});
+
+// ---------------------------------------------------------------------------
+// type_implements_dispose
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements the Dispose trait.
+///
+/// Mirrors `typeImplementsDispose` in `src/evaluator/trait-checking.ts`.
+type_implements_dispose :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  match(get_trait_type_from_env(env, String.from("Dispose")),
+    .None    => false,
+    .Some(dispose_trait) => type_implements_trait_bool(ty, dispose_trait, env)
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_acyclic
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements the Acyclic trait.
+///
+/// Mirrors `typeImplementsAcyclic` in `src/evaluator/trait-checking.ts`.
+type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  match(get_trait_type_from_env(env, String.from("Acyclic")),
+    .None    => false,
+    .Some(acyclic_trait) => type_implements_trait_bool(ty, acyclic_trait, env)
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_fn
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements Fn (is a function-like type).
+///
+/// Mirrors `typeImplementsFn` in `src/evaluator/trait-checking.ts`.
+///
+/// Note: the `resolvedConcreteType` chain walk from TypeScript is Phase 3
+/// (SomeType.resolvedConcreteType is not yet in yo-self's SomeT).
+type_implements_fn :: (fn(ty : TypeValue) -> bool)(
+  match(ty,
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && !(found))), {
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        match(t, .FnTraitT(base_name: _) => { found = true; }, _ => ());
+        i = (i + usize(1));
+      };
+      found
+    },
+    .DynT(required_trait_types, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && !(found))), {
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        match(t, .FnTraitT(base_name: _) => { found = true; }, _ => ());
+        i = (i + usize(1));
+      };
+      found
+    },
+    _ => false
+  )
+);
+
+// ---------------------------------------------------------------------------
+// extract_fn_trait_from_type
+// ---------------------------------------------------------------------------
+
+/// Extract FnTraitT from a type.
+///
+/// Checks:
+///   1. If the type IS already a FnTraitT → return it directly.
+///   2. If the type is SomeT or DynT → search `required_trait_types`.
+///   3. If SomeT: also check where-clause constraints stored in
+///      `required_trait_types` (yo-self stores them directly on SomeT).
+///
+/// Note: `resolvedConcreteType` chain (TypeScript step 2b) is Phase 3.
+///
+/// Mirrors `extractFnTraitFromType` in `src/evaluator/trait-checking.ts`.
+extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
+  match(ty,
+    .FnTraitT(base_name: _) => Option(TypeValue).Some(ty),
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        t := match(required_trait_types.get(i),
+          .Some(v) => v, .None => { i = (i + usize(1)); continue; }
+        );
+        match(t,
+          .FnTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          _ => ()
+        );
+        i = (i + usize(1));
+      };
+      Option(TypeValue).None
+    },
+    .DynT(required_trait_types, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        t := match(required_trait_types.get(i),
+          .Some(v) => v, .None => { i = (i + usize(1)); continue; }
+        );
+        match(t,
+          .FnTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          _ => ()
+        );
+        i = (i + usize(1));
+      };
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_implements_future
+// ---------------------------------------------------------------------------
+
+/// Check if a type implements Future (is a future-like type).
+///
+/// Mirrors `typeImplementsFuture` in `src/evaluator/trait-checking.ts`.
+type_implements_future :: (fn(ty : TypeValue) -> bool)(
+  match(ty,
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && !(found))), {
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        match(t, .FutureTraitT(base_name: _) => { found = true; }, _ => ());
+        i = (i + usize(1));
+      };
+      found
+    },
+    .DynT(required_trait_types, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && !(found))), {
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        match(t, .FutureTraitT(base_name: _) => { found = true; }, _ => ());
+        i = (i + usize(1));
+      };
+      found
+    },
+    _ => false
+  )
+);
+
+// ---------------------------------------------------------------------------
+// extract_future_trait_from_type
+// ---------------------------------------------------------------------------
+
+/// Extract FutureTraitT from a type.
+///
+/// Mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`.
+extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
+  match((&ty).clone(),
+    .FutureTraitT(base_name: _) => Option(TypeValue).Some(ty),
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        t := match(required_trait_types.get(i),
+          .Some(v) => v, .None => { i = (i + usize(1)); continue; }
+        );
+        match((&t).clone(),
+          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          _ => ()
+        );
+        i = (i + usize(1));
+      };
+      Option(TypeValue).None
+    },
+    .DynT(required_trait_types, _, _, _) => {
+      n := required_trait_types.len();
+      (i : usize) = usize(0);
+      while runtime((i < n)), {
+        t := match(required_trait_types.get(i),
+          .Some(v) => v, .None => { i = (i + usize(1)); continue; }
+        );
+        match((&t).clone(),
+          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          _ => ()
+        );
+        i = (i + usize(1));
+      };
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// type_is_comptime_only / type_is_runtime_only
+// ---------------------------------------------------------------------------
+
+/// Check if a type is comptime-only (comptime && !runtime).
+///
+/// Mirrors `typeIsComptimeOnly` in `src/evaluator/trait-checking.ts`.
+type_is_comptime_only_full :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  (type_implements_comptime(ty, env) && !(type_implements_runtime_full(ty, env)))
+);
+
+/// Check if a type is runtime-only (!comptime && runtime).
+///
+/// Mirrors `typeIsRuntimeOnly` in `src/evaluator/trait-checking.ts`.
+type_is_runtime_only :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  (!(type_implements_comptime(ty, env)) && type_implements_runtime_full(ty, env))
+);
+
+// ---------------------------------------------------------------------------
+// validate_type_availability
+// ---------------------------------------------------------------------------
+
+/// Validate that a type can be used in at least one evaluation context
+/// (comptime or runtime). Throws an error if the type is incompatible in all
+/// contexts.
+///
+/// Mirrors `validateTypeAvailability` in `src/evaluator/trait-checking.ts`.
+validate_type_availability :: (fn(
+  ty    : TypeValue,
+  env   : Environment,
+  token : Token,
+  using(exn : Exception)
+) -> unit)({
+  if(type_contains_some_type(ty), { return (); });
+  if(!(type_implements_comptime(ty, env) || type_implements_runtime_full(ty, env)), {
+    msg := `Type `
+      .concat(type_to_string(ty))
+      .concat(` has incompatible field contexts and cannot be used in any evaluation context.`);
+    exn.throw(dyn format_error_message(token, msg, false, Option(ErrorKind).None));
+  })
+});
+
+// ---------------------------------------------------------------------------
+// find_some_type_missing_comptime_constraint
+// ---------------------------------------------------------------------------
+
+/// Find a SomeType in the type that is missing a Comptime constraint.
+/// Returns None if all SomeTypes have the constraint, or if the type is
+/// concretely comptime or concretely not comptime.
+///
+/// Mirrors `findSomeTypeMissingComptimeConstraint` in
+/// `src/evaluator/trait-checking.ts`.
+find_some_type_missing_comptime_constraint :: (fn(
+  ty  : TypeValue,
+  env : Environment
+) -> Option(TypeValue))({
+  // Fast path: builtin comptime check.
+  match(type_implements_comptime_builtin(ty),
+    .Some(true)  => { return Option(TypeValue).None; },
+    .Some(false) => { return Option(TypeValue).None; },
+    .None        => ()
+  );
+
+  // SomeType: check if it has a Comptime constraint.
+  if(is_some_type(ty), {
+    comptime_trait_opt := get_trait_type_from_env(env, String.from("Comptime"));
+    match(comptime_trait_opt,
+      .None => { return Option(TypeValue).Some(ty); },
+      .Some(comptime_trait) => {
+        // Check required_trait_types.
+        match(ty,
+          .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+            n := required_trait_types.len();
+            (i : usize) = usize(0);
+            (has_comptime : bool) = false;
+            while runtime((i < n)), {
+              req_t := match(required_trait_types.get(i),
+                .Some(t) => t, .None => { i = (i + usize(1)); continue; }
+              );
+              if((_trait_type_id(req_t) == _trait_type_id(comptime_trait)), {
+                has_comptime = true;
+              });
+              i = (i + usize(1));
+            };
+            if(!(has_comptime), {
+              return Option(TypeValue).Some(ty);
+            });
+          },
+          _ => ()
+        );
+        return Option(TypeValue).None;
+      }
+    );
+  });
+
+  // Pointer *(T): T must implement Comptime.
+  if(is_pointer_type(ty), {
+    match(ty,
+      .Pointer(inner) => { return recur(inner.*, env); },
+      _ => ()
+    );
+  });
+
+  // Other compound types — deferred to Phase 3 (generic impl registry).
+  Option(TypeValue).None
+});
+
+// ---------------------------------------------------------------------------
+// mark/unmark_concrete_impl_being_registered (Phase 3 stubs)
+// ---------------------------------------------------------------------------
+
+/// Mark a type+trait pair as currently being registered.
+/// Phase 3 stub: no-op.
+///
+/// Mirrors `markConcreteImplBeingRegistered` in
+/// `src/evaluator/trait-checking.ts`.
+mark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
+
+/// Unmark a type+trait pair after registration.
+/// Phase 3 stub: no-op.
+///
+/// Mirrors `unmarkConcreteImplBeingRegistered` in
+/// `src/evaluator/trait-checking.ts`.
+unmark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+export TraitCheckResult, AssocTypeCheckResult;
+export type_implements_comptime_builtin;
+export type_implements_trait, type_implements_trait_bool;
+export check_type_implements_self_constraints;
+export type_implements_comptime, type_implements_runtime_full;
+export begin_send_derivation, end_send_derivation;
+export type_implements_send, type_implements_dispose, type_implements_acyclic;
+export type_implements_fn;
+export extract_fn_trait_from_type;
+export type_implements_future;
+export extract_future_trait_from_type;
+export type_is_comptime_only_full, type_is_runtime_only;
+export validate_type_availability;
+export find_some_type_missing_comptime_constraint;
+export mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered;

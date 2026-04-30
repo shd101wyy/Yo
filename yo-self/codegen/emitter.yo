@@ -64,6 +64,12 @@ impl(Emitter,
     self.*.code.push_string(c)
   ),
 
+  /// Append a raw `String` value + newline to the code section.
+  emit_string_line : (fn(self : *(Self), c : String) -> unit)({
+    self.*.code.push_string(c);
+    self.*.code.push_str("\n");
+  }),
+
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(self : *(Self)) -> String)({
     result := String.new();

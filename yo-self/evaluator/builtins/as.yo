@@ -1,0 +1,42 @@
+//! evaluator/builtins/as — stub for the `as` type-cast builtin.
+//!
+//! Phase 2bk stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/builtins/as.ts`.
+//!
+//! `evaluate_as` handles the `as(value, TargetType)` builtin, which casts
+//! a value to the target type if they are compatible.
+//! It requires `evaluateExpression` (Phase 3).
+
+open import "std/string";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Type-cast builtin `as(value, TargetType)`.
+/// Evaluates both arguments, checks type compatibility, returns the value
+/// with the new type if compatible.
+///
+/// Phase 2bk stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateAs` in `src/evaluator/builtins/as.ts`.
+evaluate_as :: (fn(
+  expr       : AstExpr,
+  env        : Environment,
+  ctx        : *(EvalContext),
+  using(exn  : Exception)
+) -> AstExpr)({
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("evaluate_as: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  make_err_expr()
+});
+
+export evaluate_as;

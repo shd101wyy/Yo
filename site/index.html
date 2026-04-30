@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yo Programming Language</title>
+  <style>
+:root {
+  --bg: #fff;
+  --bg-code: #f7f7f7;
+  --bg-code-block: #282c34;
+  --text: #1a1a1a;
+  --text-secondary: #555;
+  --text-code: #abb2bf;
+  --accent: #4a90d9;
+  --accent-hover: #357abd;
+  --border: #e0e0e0;
+  --border-light: #eee;
+  --shadow: rgba(0,0,0,0.05);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  --max-content: 860px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a2e;
+    --bg-code: #0f3460;
+    --bg-code-block: #1e1e2e;
+    --text: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --text-code: #abb2bf;
+    --accent: #6cb4ee;
+    --accent-hover: #8fcbff;
+    --border: #2a2a4a;
+    --border-light: #252545;
+    --shadow: rgba(0,0,0,0.2);
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.container {
+  max-width: var(--max-content);
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* Typography */
+h1 { font-size: 2.2em; margin: 1em 0 0.5em; border-bottom: 2px solid var(--border); padding-bottom: 0.3em; }
+h2 { font-size: 1.6em; margin: 1.5em 0 0.5em; border-bottom: 1px solid var(--border-light); padding-bottom: 0.2em; }
+h3 { font-size: 1.3em; margin: 1.2em 0 0.4em; }
+h4 { font-size: 1.1em; margin: 1em 0 0.3em; }
+p { margin: 0.8em 0; }
+ul, ol { margin: 0.8em 0 0.8em 1.5em; }
+li { margin: 0.3em 0; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+img { max-width: 100%; height: auto; }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-code);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--bg-code-block);
+  color: var(--text-code);
+  padding: 16px 20px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+blockquote {
+  border-left: 4px solid var(--accent);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  background: var(--bg-code);
+  border-radius: 0 4px 4px 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+th {
+  background: var(--bg-code);
+  font-weight: 600;
+}
+
+/* Header banner */
+.site-header {
+  text-align: center;
+  padding: 30px 0 20px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 30px;
+}
+
+.site-header img {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 10px;
+}
+
+.site-header h1 {
+  border: none;
+  margin: 0;
+  padding: 0;
+  font-size: 2.5em;
+}
+
+.site-header .tagline {
+  color: var(--text-secondary);
+  font-size: 1.1em;
+  margin-top: 8px;
+}
+
+.site-nav {
+  margin-top: 16px;
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.site-nav a {
+  display: inline-block;
+  padding: 6px 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.95em;
+}
+
+.site-nav a:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
+/* Footer */
+.site-footer {
+  text-align: center;
+  padding: 30px 0;
+  margin-top: 60px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="site-header">
+      <img src="Yo_logo.png" alt="Yo logo" width="80" height="80">
+      <h1>Yo Programming Language</h1>
+      <p class="tagline">A general-purpose, ahead-of-time compiled language with algebraic effects</p>
+      <div class="site-nav">
+        <a href="https://github.com/shd101wyy/Yo">GitHub</a>
+        <a href="std/index.html">Standard Library</a>
+        <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/DESIGN.md">Language Design</a>
+      </div>
+    </div>
+    <div class="readme-content">
+<h1 id="yo">Yo</h1>
+<img src="Yo_logo.png" width=96 height=96 />
+<p><strong>English</strong> | <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/zh-CN/README.md">简体中文</a></p>
+<p><strong>Work in Progress :) Not Ready!</strong></p>
+<p>A multi-paradigm, general-purpose, compiled programming language.
+Yo aims to be <strong>Simple</strong> and <strong>Fast</strong> (around 0% - 15% slower than C).</p>
+<blockquote>
+<p>The name <code>Yo</code> comes from the Chinese word <code>柚</code> (yòu), meaning <code>pomelo</code>, a large citrus fruit similar to grapefruit. It's my daughter's nickname.</p>
+</blockquote>
+<p>📖 <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md">My Story with Programming Languages</a> — the journey from Java at 16 to building Yo.</p>
+<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
+<!-- code_chunk_output -->
+<ul>
+<li><a href="#features">Features</a></li>
+<li><a href="#installation">Installation</a>
+<ul>
+<li><a href="#linux">Linux</a></li>
+<li><a href="#macos">macOS</a></li>
+<li><a href="#windows">Windows</a></li>
+<li><a href="#webassembly-wasm">WebAssembly (WASM)</a></li>
+</ul>
+</li>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#prelude">Prelude</a></li>
+<li><a href="#standard-library">Standard Library</a></li>
+<li><a href="#code-examples">Code examples</a>
+<ul>
+<li><a href="#hello-world">Hello World</a></li>
+<li><a href="#example-projects">Example Projects</a></li>
+</ul>
+</li>
+<li><a href="#contributing">Contributing</a>
+<ul>
+<li><a href="#setup">Setup</a></li>
+</ul>
+</li>
+<li><a href="#editor-support">Editor Support</a></li>
+<li><a href="#ai-agent-skills">AI Agent Skills</a>
+<ul>
+<li><a href="#using-in-your-own-project">Using in your own project</a></li>
+</ul>
+</li>
+<li><a href="#star-history">Star History</a></li>
+<li><a href="#license">License</a></li>
+</ul>
+<!-- /code_chunk_output -->
+<h2 id="features">Features</h2>
+<p>For the design of the language, please refer to <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/DESIGN.md">DESIGN.md</a>.</p>
+<p>Below is a non-exhaustive list of features that Yo supports:</p>
+<ul>
+<li>First-class types.</li>
+<li>Compile-time evaluation.</li>
+<li>Homoiconicity and metaprogramming (<strong>Yo</strong> syntax is inspired by the <strong>Lisp</strong> S expression. Simple syntax rule, Human &amp; AI friendly).</li>
+<li>Closure.</li>
+<li><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/ALGEBRAIC_EFFECTS.md">Algebraic Effects and Handlers</a> (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via <code>using</code>/<code>given</code>, effect handlers with <code>return</code>/<code>escape</code>, by <a href="https://xnning.github.io/papers/multip.pdf">Evidence Passing</a>).</li>
+<li><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/ASYNC_AWAIT.md">Async/await</a> (Builtin <code>IO</code> effect. Stackless coroutine &amp; Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).</li>
+<li><code>object</code> type with <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/CYCLE_COLLECTION.md">Non-atomic Reference Counting and Thread-Local Cycle Collection</a>.</li>
+<li><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md">Compile-time Reference Counting with Ownership and Lifetime Analysis</a>.</li>
+<li>Thread-per-core parallelism model (see <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/PARALLELISM.md">PARALLELISM.md</a>).</li>
+<li><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/docs/en-US/BUILD_SYSTEM.md">Declarative build system</a> inspired by Zig and Nix (<code>yo build</code>, <code>yo init</code>, WASM targets).</li>
+<li><strong>C</strong> interop.</li>
+<li>etc.</li>
+</ul>
+<img width="855" height="368" alt="Image" src="https://github.com/user-attachments/assets/04a9050e-598b-4e02-a6c3-44863d47a4ac" />
+<h2 id="installation">Installation</h2>
+<p>The <code>Yo</code> language is currently distributed as an <code>npm</code> package:</p>
+<pre><code class="language-bash">$ npm install -g @shd101wyy/yo         # Install yo compiler globally
+$ yarn global add @shd101wyy/yo        # Or using yarn
+$ pnpm add -g @shd101wyy/yo            # Or using pnpm
+$ bun install --global @shd101wyy/yo   # Or using bun
+</code></pre>
+<p>It exposes the <code>yo</code> command in your terminal.</p>
+<p>There is also an alias <code>yo-cli</code> for <code>yo</code> command in case of naming conflicts.</p>
+<p>Run <code>yo --help</code> or <code>yo-cli --help</code> to see available commands.</p>
+<p>Yo transpiles to C, so a <strong>C compiler</strong> is required to produce machine code. Follow the instructions for your platform below.</p>
+<h3 id="linux">Linux</h3>
+<p>Install <strong>Clang</strong> (recommended), <strong>liburing</strong> (for async I/O), and <strong>pkg-config</strong> (for system library discovery):</p>
+<pre><code class="language-bash"># Ubuntu/Debian
+$ sudo apt-get update
+$ sudo apt-get install clang liburing-dev pkg-config
+
+# Fedora/RHEL
+$ sudo dnf install clang liburing-devel pkgconf-pkg-config
+
+# Arch Linux
+$ sudo pacman -S clang liburing pkgconf
+</code></pre>
+<p>You can also use <code>gcc</code> or <code>zig</code> instead of <code>clang</code> by passing <code>--cc gcc</code> or <code>--cc zig</code>.</p>
+<h3 id="macos">macOS</h3>
+<p>Clang is included with Xcode Command Line Tools:</p>
+<pre><code class="language-bash">$ xcode-select --install
+
+# Also install pkgconf for system library discovery
+$ brew install pkgconf
+</code></pre>
+<p>Or install LLVM via Homebrew:</p>
+<pre><code class="language-bash">$ brew install llvm pkgconf
+</code></pre>
+<h3 id="windows">Windows</h3>
+<p>Clang on Windows requires a linker and Windows SDK headers. Install <strong>Visual Studio</strong> (Community edition is free) or the <strong>Build Tools for Visual Studio</strong> with the &quot;Desktop development with C++&quot; workload:</p>
+<ol>
+<li>Download from <a href="https://visualstudio.microsoft.com/downloads/">https://visualstudio.microsoft.com/downloads/</a></li>
+<li>In the installer, select <strong>&quot;Desktop development with C++&quot;</strong> (this includes MSVC, Windows SDK, and the linker)</li>
+<li>Then install LLVM/Clang:</li>
+</ol>
+<pre><code class="language-bash"># Using Chocolatey
+$ choco install llvm
+
+# Using Scoop
+$ scoop install llvm
+
+# Or download from https://releases.llvm.org/
+</code></pre>
+<p>Alternatively, you can use <code>zig</code> as the C compiler (no Visual Studio needed):</p>
+<pre><code class="language-bash">$ choco install zig
+$ yo compile main.yo --cc zig --release -o main
+</code></pre>
+<p>For system library discovery, install <strong>vcpkg</strong>:</p>
+<pre><code class="language-bash">$ git clone https://github.com/microsoft/vcpkg.git
+$ .\vcpkg\bootstrap-vcpkg.bat
+# Then set the VCPKG_ROOT environment variable to the vcpkg directory
+
+# Or using Scoop
+$ scoop install vcpkg
+</code></pre>
+<p>For more information, see the <a href="https://learn.microsoft.com/en-us/vcpkg/get_started/get-started">vcpkg documentation</a>.</p>
+<h3 id="webassembly-wasm">WebAssembly (WASM)</h3>
+<p>Yo can compile to WebAssembly using <a href="https://emscripten.org/">Emscripten</a>:</p>
+<pre><code class="language-bash"># Install Emscripten (https://emscripten.org/docs/getting_started/downloads.html)
+$ git clone https://github.com/emscripten-core/emsdk.git
+$ cd emsdk
+$ ./emsdk install latest
+$ ./emsdk activate latest
+$ source ./emsdk_env.sh
+
+# Compile a Yo program to WASM
+$ yo compile main.yo --cc emcc --release -o app
+
+# This produces: app.html + app.js + app.wasm
+# Run with Node.js:
+$ node app.js
+
+# Or open app.html in a browser
+</code></pre>
+<p>When using <code>--cc emcc</code>, Yo automatically targets <code>wasm32-emscripten</code> and uses the <code>libc</code> allocator. You can also use <code>--target wasm-emscripten</code> (which auto-selects <code>emcc</code>). Emscripten produces an <code>.html</code> file (browser shell), a <code>.js</code> file (runtime glue), and a <code>.wasm</code> file (compiled binary).</p>
+<h2 id="quick-start">Quick Start</h2>
+<pre><code class="language-bash">$ yo init my-project        # Scaffold a new project
+$ cd my-project
+$ yo build run              # Build and run
+Hello, world!
+</code></pre>
+<p><code>yo init</code> generates a project with a build file, source, and tests:</p>
+<pre><code>my-project/
+├── build.yo              # Build configuration
+├── src/
+│   ├── main.yo           # Entry point
+│   └── lib.yo            # Library module
+└── tests/
+    └── main.test.yo      # Unit tests
+</code></pre>
+<p><code>src/main.yo</code>:</p>
+<pre><code class="language-typescript">{ println } :: import &quot;std/fmt&quot;;
+
+main :: (fn() -&gt; unit)({
+  println(&quot;Hello, world!&quot;);
+});
+
+export main;
+</code></pre>
+<p>Common build commands:</p>
+<pre><code class="language-bash">$ yo build                  # Build all artifacts
+$ yo build run              # Build and run the executable
+$ yo build test             # Run tests
+$ yo build --list-steps     # List available build steps
+$ yo build doc              # Generate HTML documentation
+</code></pre>
+<h2 id="prelude">Prelude</h2>
+<p>Every Yo file automatically imports <strong><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/std/prelude.yo">std/prelude.yo</a></strong>, which provides the core types, traits, and builtins available without any explicit import:</p>
+<ul>
+<li><strong>Primitive types</strong>: <code>bool</code>, <code>i8</code>–<code>i64</code>, <code>u8</code>–<code>u64</code>, <code>f32</code>, <code>f64</code>, <code>isize</code>, <code>usize</code>, <code>str</code></li>
+<li><strong>C-compatible types</strong>: <code>int</code>, <code>uint</code>, <code>short</code>, <code>long</code>, <code>longlong</code>, <code>char</code>, etc.</li>
+<li><strong>Core traits</strong>: <code>Eq</code>, <code>Ord</code>, <code>Add</code>, <code>Sub</code>, <code>Mul</code>, <code>Div</code>, <code>Iterator</code>, <code>IntoIterator</code>, <code>TryFrom</code>, <code>TryInto</code>, <code>Dispose</code>, <code>Send</code>, <code>Rc</code>, <code>Acyclic</code>, etc.</li>
+<li><strong>Metaprogramming</strong>: <code>Type</code>, <code>Expr</code>, <code>ExprList</code>, <code>Var</code></li>
+<li><strong>Async</strong>: <code>IO</code>, <code>FutureState</code>, <code>JoinHandle</code></li>
+<li><strong>Utilities</strong>: <code>assert</code>, <code>unsafe</code>, <code>try</code>, <code>for</code>, <code>not</code>, <code>arc</code>, <code>Box</code>, <code>box</code></li>
+<li>etc.</li>
+</ul>
+<h2 id="standard-library">Standard Library</h2>
+<p><em>Still In Design</em></p>
+<p>Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see the <strong><a href="https://shd101wyy.github.io/Yo/std">Standard Library Documentation</a></strong>.</p>
+<p>You can generate documentation for your own project with <code>yo doc</code>:</p>
+<pre><code class="language-bash">$ yo doc ./src -o docs --title &quot;My Project&quot;
+</code></pre>
+<p>Or add a documentation step to your <code>build.yo</code> — see <code>yo doc --help</code> for details.</p>
+<h2 id="code-examples">Code examples</h2>
+<p>Check the <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/tests/">./tests</a> and <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/std/">./std</a> folders for more code examples.</p>
+<h3 id="hello-world">Hello World</h3>
+<pre><code class="language-typescript">// main.yo
+{ println } :: import &quot;std/fmt&quot;;
+
+main :: (fn() -&gt; unit) {
+  println(&quot;Hello, world!&quot;);
+};
+
+export main;
+
+// $ yo compile main.yo --release -o main
+// $ ./main
+</code></pre>
+<h3 id="example-projects">Example Projects</h3>
+<table>
+<thead>
+<tr>
+<th>Project</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/shd101wyy/raylib_yo">raylib_yo</a></td>
+<td>Comprehensive <a href="https://www.raylib.com/">raylib</a> bindings — 35 struct types, 535 functions, 227 constants</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/tetris_yo">tetris_yo</a> | <a href="http://shd101wyy.github.io/tetris_yo">Online Demo</a></td>
+<td>Classic Tetris game built with raylib_yo, demonstrating Yo's build system and C interop</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/http_server_demo_yo">http_server_demo_yo</a></td>
+<td>Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing &amp; routing</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/markdown_it_yo">markdown_it_yo</a></td>
+<td>Direct port of the popular JavaScript markdown parser <a href="https://github.com/markdown-it/markdown-it">markdown-it</a> to Yo, showcasing string processing and performance</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/markdown_yo">markdown_yo</a> | <a href="https://shd101wyy.github.io/markdown_yo/">Online Demo</a></td>
+<td>High-performance markdown-to-HTML converter — 5-7× faster than markdown-it (native), 2-6× faster (WASM at ≥1 MB). <a href="https://shd101wyy.github.io/markdown_yo/">Try it in the browser</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="contributing">Contributing</h2>
+<p>The <code>Yo</code> compiler is written in <a href="https://www.typescriptlang.org/">TypeScript</a> and uses <a href="https://bun.sh/">Bun</a> as the runtime.</p>
+<p>Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
+machine code you must have a C compiler (for example <code>gcc</code>, <code>clang</code>, <code>zig</code>, <code>cl</code>, <code>emcc</code>, etc).</p>
+<p>Please install <a href="https://nixos.org/download.html">nix</a> and <a href="https://direnv.net/">direnv</a> before proceeding.</p>
+<p>The dev environment is defined in <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/shell.nix">shell.nix</a>. You can also manually install the dependencies listed in the file.</p>
+<h3 id="setup">Setup</h3>
+<pre><code class="language-bash">$ cd Yo
+$ direnv allow . # Run this command to activate the nix shell.
+                 # You only need to run it once.
+$ bun install    # Install necessary dependencies.
+</code></pre>
+<p>Run the following command to watch for changes and build the project:</p>
+<pre><code class="language-bash">$ bun run dev
+</code></pre>
+<p>Run the following command to build the project:</p>
+<pre><code class="language-bash">$ bun run build
+</code></pre>
+<p>Test the local yo-cli:</p>
+<pre><code class="language-bash">$ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
+
+# There is also a `yo-cli` script in the project root for testing:
+$ ./yo-cli compile src/tests/examples/fixme.yo
+</code></pre>
+<h2 id="editor-support">Editor Support</h2>
+<ul>
+<li>
+<p>A VS Code extension is available <a href="https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang">here</a> that supports basic syntax highlighting. No LSP yet.</p>
+</li>
+<li>
+<p>Vim / Neovim: a minimal syntax file and a usage README are available in <code>vscode-extension/syntaxes/</code>.
+See <a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/vscode-extension/syntaxes/README.md">vscode-extension/syntaxes/README.md</a> for installation steps, <code>ftdetect</code> examples and <code>home-manager</code> snippets.</p>
+</li>
+</ul>
+<h2 id="ai-agent-skills">AI Agent Skills</h2>
+<p>This repository ships a set of <strong>agent skill files</strong> that teach AI agents how to write Yo programs. The skills are portable — you can copy the <code>.github/skills/</code> directory into any Yo project and agents will be able to use them there too.</p>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/.github/skills/yo-syntax/SKILL.md"><code>yo-syntax</code></a></td>
+<td>Core language syntax: curly braces, cond/match, structs, enums, operators, modules</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/.github/skills/yo-core-patterns/SKILL.md"><code>yo-core-patterns</code></a></td>
+<td>Everyday patterns: types, generics, traits, error handling, collections, iterators</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/.github/skills/yo-async-effects/SKILL.md"><code>yo-async-effects</code></a></td>
+<td>Async/await, algebraic effects, Exception, IO, spawning tasks</td>
+</tr>
+<tr>
+<td><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/.github/skills/yo-project-workflow/SKILL.md"><code>yo-project-workflow</code></a></td>
+<td><code>yo</code> CLI commands, <code>build.yo</code> project files, dependency management</td>
+</tr>
+</tbody>
+</table>
+<h3 id="using-in-your-own-project">Using in your own project</h3>
+<p>Copy the skills directory into your Yo project:</p>
+<pre><code class="language-bash">cp -r .github/skills /path/to/your-yo-project/.github/
+# or .agents, .claude, etc depending on your agent platform
+</code></pre>
+<p>Then in any AI agent session, invoke a skill by name (e.g. <code>@yo-syntax</code>) to give the agent contextual knowledge about the Yo language.</p>
+<h2 id="star-history">Star History</h2>
+<p><a href="https://www.star-history.com/#shd101wyy/Yo&amp;type=date&amp;legend=top-left"><img src="https://api.star-history.com/svg?repos=shd101wyy/Yo&amp;type=date&amp;legend=top-left" alt="Star History Chart"></a></p>
+<h2 id="license">License</h2>
+<p><a href="https://github.com/shd101wyy/Yo/blob/v0.1.13/LICENSE.md">UIUC/NCSA Open Source License</a></p>
+
+    </div>
+    <div class="site-footer">
+      <p>Yo Programming Language &mdash; <a href="https://github.com/shd101wyy/Yo">GitHub</a> &middot; <a href="std/index.html">Std Library Docs</a></p>
+    </div>
+  </div>
+</body>
+</html>

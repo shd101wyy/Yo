@@ -1,0 +1,176 @@
+//! evaluator/calls/function_type — function-type call handlers.
+//!
+//! Phase 2bm — partial implementation.
+//! 1:1 port of `src/evaluator/calls/function-type.ts`.
+//!
+//! Exports:
+//!   `check_deferred_generic_return_type`      — trial-evaluates a generic function body
+//!                                               to catch return-type mismatches at definition time.
+//!   `create_function_body_evaluation_context` — builds a fresh EvalContext for function body eval.
+//!   `try_to_implement_function_by_function_type` — registers a function body against a function type,
+//!                                               creating a `FuncVal`.
+//!
+//! Phase 2bm status:
+//!   - `try_to_implement_function_by_function_type`: IMPLEMENTED (simplified).
+//!     Creates a `FuncVal` from the function type + body. Body evaluation at
+//!     definition time is deferred (only done at call time). This means early
+//!     return-type mismatches are not caught at definition time.
+//!   - `check_deferred_generic_return_type`: no-op stub (deferred to Phase 3).
+//!   - `create_function_body_evaluation_context`: stub throwing Phase 3 error.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_set }                                  :: import "../../expr/expr_info.yo";
+{ Environment }                                         :: import "../../env/env.yo";
+{ TypeValue }                                           :: import "../../types/type.yo";
+{ EvalValue }                                           :: import "../value.yo";
+{ EvalContext }                                         :: import "../context.yo";
+{ format_error_message }                                :: import "../../error/error.yo";
+{ Exception }                                           :: import "std/error";
+
+/// Check if a generic function body returns a type incompatible with the
+/// declared generic return type.
+///
+/// Phase 2bm: no-op stub. Full trial-evaluation deferred to Phase 3.
+///
+/// Mirrors `checkDeferredGenericReturnType` in `src/evaluator/calls/function-type.ts`.
+check_deferred_generic_return_type :: (fn(
+  function_body_expr : AstExpr,
+  function_type      : TypeValue,
+  function_value     : EvalValue,
+  env                : Environment,
+  ctx                : *(EvalContext),
+  using(exn          : Exception)
+) -> unit)({
+  _ := function_body_expr;
+  _ := function_type;
+  _ := function_value;
+  _ := env;
+  _ := ctx;
+  ()
+});
+
+/// Creates a fresh evaluation context for function body evaluation.
+///
+/// Phase 2bm stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `createFunctionBodyEvaluationContext` in `src/evaluator/calls/function-type.ts`.
+create_function_body_evaluation_context :: (fn(
+  function_type  : TypeValue,
+  function_value : EvalValue,
+  env            : Environment,
+  ctx            : *(EvalContext),
+  using(exn      : Exception)
+) -> EvalContext)({
+  _ := function_type;
+  _ := function_value;
+  _ := env;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(make_err_expr()),
+    String.from("create_function_body_evaluation_context: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  ctx.*
+});
+
+/// Register a function body expression against a function type, producing a
+/// typed `FuncVal`.
+///
+/// Phase 2bm: simplified implementation.
+///
+/// - Extracts `forall_labels`, `param_labels`, `implicit_labels`, `result` from
+///   `TypeValue.Func`.
+/// - Derives `param_type_names` from each param's type: if the type is `SomeT`,
+///   uses its `name` (for forall binding at call time); otherwise uses `""`.
+/// - Creates `EvalValue.FuncVal` with empty captures (regular functions do not
+///   capture outer runtime variables in the 1:1 port).
+/// - Body evaluation at definition time is skipped (deferred to call time).
+///   This means early return-type mismatches are not caught.
+/// - Stores `ExprInfo` in the table and returns the annotated expression.
+///
+/// Mirrors `tryToImplementFunctionByFunctionType` in `src/evaluator/calls/function-type.ts`.
+try_to_implement_function_by_function_type :: (fn(
+  expr           : AstExpr,
+  function_type  : TypeValue,
+  caller_env     : Environment,
+  ctx            : *(EvalContext),
+  using(exn      : Exception)
+) -> AstExpr)(
+  match(function_type,
+    .Func(forall_labels, _, param_labels, param_types, implicit_labels, _, _, _, result_box) => {
+      tok := ast_expr_token(expr);
+
+      // Extract the function body from args[0] of the outer call expression.
+      args := match(expr,
+        .FnCall(_, _, a, _, _) => a,
+        .Atom(_, _)            => ArrayList(AstExpr).new()
+      );
+      if((args.len() != usize(1)), {
+        exn.throw(dyn format_error_message(
+          tok,
+          `Expected 1 argument for function body, got ${args.len()}`,
+          false,
+          .None
+        ));
+      });
+      body_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+
+      // Build param_type_names: for each param type, use the SomeT name (for forall
+      // binding at call time) if the param type is a generic type variable, else "".
+      param_type_names := ArrayList(String).new();
+      (pti : usize) = usize(0);
+      n_pt := param_types.len();
+      while runtime((pti < n_pt)), {
+        pt_name := match(param_types.get(pti),
+          .Some(pt) => match(pt,
+            .SomeT(_, name, _, _, _, _, _, _, _) => name,
+            _ => String.from("")
+          ),
+          .None => String.from("")
+        );
+        ___ := param_type_names.push(pt_name);
+        pti = (pti + usize(1));
+      };
+
+      // Build the FuncVal.  Regular functions (defined with `::`) do not capture
+      // outer runtime variables, so cap_names/cap_tys/cap_vals are empty.
+      func_val := EvalValue.FuncVal(
+        forall_labels,
+        param_labels,
+        param_type_names,
+        implicit_labels,
+        box(body_expr),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(EvalValue).new()
+      );
+
+      _ := result_box;
+
+      // Build and store ExprInfo for the function definition expression.
+      // The type of a function definition is the function type itself.
+      info := new_expr_info(caller_env, function_type);
+      info.value = Option(EvalValue).Some(func_val);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+
+      expr
+    },
+    _ => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        String.from("try_to_implement_function_by_function_type: expected Func type"),
+        false,
+        .None
+      ));
+      make_err_expr()
+    }
+  )
+);
+
+export check_deferred_generic_return_type;
+export create_function_body_evaluation_context;
+export try_to_implement_function_by_function_type;

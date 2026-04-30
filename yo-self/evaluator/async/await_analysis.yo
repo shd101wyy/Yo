@@ -44,6 +44,8 @@ open import "std/string";
 { CapturedVariableKind, AwaitPoint, CapturedVariable, AwaitAnalysisResult,
   await_analysis_result_empty
 } :: import "./await_analysis_types.yo";
+{ extract_future_trait_from_type, type_implements_future
+} :: import "../trait_checking.yo";
 
 // ---------------------------------------------------------------------------
 // AwaitPointExtra — typed side-channel for async-specific fields
@@ -56,102 +58,6 @@ AwaitPointExtra :: object(
   result_type        : TypeValue,
   future_type        : Option(TypeValue),
   future_variable_id : Option(String)
-);
-
-// ---------------------------------------------------------------------------
-// extract_future_trait_from_type
-// ---------------------------------------------------------------------------
-
-/// Extracts the FutureTraitT from a TypeValue if present.
-///
-/// Mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`.
-extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
-  match((&ty).clone(),
-    // If the type IS a FutureTraitT directly, return it
-    .FutureTraitT(base_name: _) => Option(TypeValue).Some(ty),
-    // Check required_trait_types in SomeT
-    .SomeT(required_trait_types: rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while runtime((i < n)), {
-        trait_ty := match(rtt.get(i),
-          .None    => { break; },
-          .Some(t) => t
-        );
-        match((&trait_ty).clone(),
-          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(trait_ty); },
-          _ => ()
-        );
-        i = (i + usize(1));
-      };
-      Option(TypeValue).None
-    },
-    // Check required_trait_types in DynT
-    .DynT(required_trait_types: rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while runtime((i < n)), {
-        trait_ty := match(rtt.get(i),
-          .None    => { break; },
-          .Some(t) => t
-        );
-        match((&trait_ty).clone(),
-          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(trait_ty); },
-          _ => ()
-        );
-        i = (i + usize(1));
-      };
-      Option(TypeValue).None
-    },
-    // No FutureTraitT found in any other type variant
-    _ => Option(TypeValue).None
-  )
-);
-
-// ---------------------------------------------------------------------------
-// type_implements_future
-// ---------------------------------------------------------------------------
-
-/// Returns true if `ty` is a SomeT or DynT whose required trait bounds include
-/// a FutureTraitT constraint.
-///
-/// Mirrors `typeImplementsFuture` in `src/evaluator/trait-checking.ts`.
-type_implements_future :: (fn(ty : TypeValue) -> bool)(
-  match(ty,
-    .SomeT(required_trait_types: rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while runtime((i < n)), {
-        trait_ty := match(rtt.get(i),
-          .None    => { break; },
-          .Some(t) => t
-        );
-        match(trait_ty,
-          .FutureTraitT(base_name: _) => { return true; },
-          _ => ()
-        );
-        i = (i + usize(1));
-      };
-      false
-    },
-    .DynT(required_trait_types: rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while runtime((i < n)), {
-        trait_ty := match(rtt.get(i),
-          .None    => { break; },
-          .Some(t) => t
-        );
-        match(trait_ty,
-          .FutureTraitT(base_name: _) => { return true; },
-          _ => ()
-        );
-        i = (i + usize(1));
-      };
-      false
-    },
-    _ => false
-  )
 );
 
 // ---------------------------------------------------------------------------

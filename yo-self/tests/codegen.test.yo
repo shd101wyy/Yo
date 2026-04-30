@@ -29,7 +29,7 @@ open import "std/error";
   emit_data_bindings,
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
 { FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
-  EnumDef, extract_enum_def, emit_enum_to_c,
+  EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
   extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
@@ -2175,12 +2175,23 @@ test "extract_enum_def: Color :: enum(Red, Green, Blue)", {
 test "emit_enum_to_c: typedef enum emitted correctly", {
   ctx := CodegenContext.new();
   (pctx : *(CodegenContext)) = &ctx;
-  variants := ArrayList(str).new();
-  _r1 := variants.push("Red");
-  _r2 := variants.push("Green");
-  ed := EnumDef(name: String.from("Color"), variants: ArrayList(String).new());
-  _ra := ed.variants.push(String.from("Red"));
-  _rb := ed.variants.push(String.from("Green"));
+  red_ev := EnumVariant(
+    name:   String.from("Red"),
+    disc:   usize(0),
+    fields: ArrayList(EnumVariantField).new()
+  );
+  green_ev := EnumVariant(
+    name:   String.from("Green"),
+    disc:   usize(1),
+    fields: ArrayList(EnumVariantField).new()
+  );
+  ed := EnumDef(
+    name:       String.from("Color"),
+    variants:   ArrayList(EnumVariant).new(),
+    is_complex: false
+  );
+  _ra := ed.variants.push(red_ev);
+  _rb := ed.variants.push(green_ev);
   emit_enum_to_c(ed, pctx);
   c := generate_c_output(pctx);
   assert(c.contains(String.from("typedef enum")), "typedef enum keyword");
@@ -2430,4 +2441,37 @@ test "handle_if: block else-branch emits C if/else statement", {
   assert(code.contains(String.from("if (")),   "C if statement emitted");
   assert(code.contains(String.from("else")),   "else branch emitted");
   assert(code.contains(String.from("break")),  "break in else branch");
+};
+
+test "handle_begin: sibling begin blocks are wrapped in C braces for variable scoping", {
+  // { { x := 1; }; { x := 2; }; 3 }
+  // The two inner begin blocks both define `x`. Without C brace wrapping they
+  // emit two `__auto_type x = ...;` at the same scope → redefinition error.
+  // With the fix, each sibling block is wrapped in `{ ... }`.
+
+  inner_stmts1 := ArrayList(AstExpr).new();
+  inner_stmts1.push(make_assign_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "1")
+  ));
+  block1 := make_begin_expr(inner_stmts1);
+
+  inner_stmts2 := ArrayList(AstExpr).new();
+  inner_stmts2.push(make_assign_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "2")
+  ));
+  block2 := make_begin_expr(inner_stmts2);
+
+  outer_stmts := ArrayList(AstExpr).new();
+  outer_stmts.push(block1);
+  outer_stmts.push(block2);
+  outer_stmts.push(make_atom_expr(TokenKind.Integer, "3"));
+  outer := make_begin_expr(outer_stmts);
+
+  ctx := run_gen_with_ctx(outer);
+  code := ctx.emitter.code;
+  // Both inner blocks must be wrapped in C braces
+  assert(code.contains(String.from("{")),  "opening brace emitted");
+  assert(code.contains(String.from("}")),  "closing brace emitted");
 };

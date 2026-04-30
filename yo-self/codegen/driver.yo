@@ -17,10 +17,10 @@
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
-{ AstExpr, BK_IMPORT, BK_OPEN } :: import "../expr/expr.yo";
+{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import "../expr/expr.yo";
 { TokenKind }         :: import "../lexer/token.yo";
 { CodegenContext }    :: import "./context.yo";
-{ type_expr_to_c }    :: import "./exprs.yo";
+{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl }    :: import "./exprs.yo";
 { generate_function } :: import "./functions.yo";
 { emit_c_preamble, emit_main_wrapper, generate_c_output } :: import "./program.yo";
 
@@ -39,7 +39,12 @@ FnDef :: struct(
   /// C type strings for each parameter (parallel to `params`).
   param_tys : ArrayList(String),
   /// Function body expression.
-  body     : AstExpr
+  body     : AstExpr,
+  /// True if this function was extracted from an `impl(TypeName, { ... })` block.
+  is_impl  : bool,
+  /// When `is_impl` is true, holds the implementing type name (e.g. "SomeUnion").
+  /// Used to resolve `Self` in the method body during codegen.
+  impl_type : String
 );
 
 // ---------------------------------------------------------------------------
@@ -60,12 +65,35 @@ StructDef :: struct(
 // EnumDef — extracted enum definition record
 // ---------------------------------------------------------------------------
 
-/// A unit enum definition extracted from a `Name :: enum(Var1, Var2, ...)` node.
+/// A single field of a complex enum variant (e.g. `r : i32` in `Circle(r: i32)`).
+EnumVariantField :: struct(
+  /// Yo-level field name (e.g. "r").
+  name  : String,
+  /// C type string (e.g. "int32_t").
+  c_ty  : String
+);
+
+/// A single enum variant, possibly carrying associated data fields.
+///
+/// Simple variant example: `Red` → name="Red", fields=[], disc=0
+/// Complex variant example: `Circle(r: i32) = 2` → name="Circle", fields=[{r, int32_t}], disc=2
+EnumVariant :: struct(
+  /// Yo-level variant name.
+  name   : String,
+  /// Associated field definitions (empty for simple variants).
+  fields : ArrayList(EnumVariantField),
+  /// Discriminant value (explicit or auto-assigned).
+  disc   : usize
+);
+
+/// An enum definition extracted from a `Name :: enum(Var1, Var2, ...)` node.
 EnumDef :: struct(
   /// Yo-level enum name (e.g. "Color").
-  name     : String,
-  /// Variant names (e.g. ["Red", "Green", "Blue"]).
-  variants : ArrayList(String)
+  name       : String,
+  /// All variants (simple and complex).
+  variants   : ArrayList(EnumVariant),
+  /// True if any variant carries associated data fields.
+  is_complex : bool
 );
 
 // ---------------------------------------------------------------------------
@@ -201,7 +229,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           // bare Atom identifier → untyped param (void*)
                           .Atom(_, ptok) => cond(
                             (ptok.kind == TokenKind.Identifier) => {
-                              out_params.push(String.from(ptok.value.as_str()));
+                              out_params.push(sanitize_c_ident(ptok.value.as_str()));
                               out_param_tys.push(String.from("void*"));
                             },
                             true => ()
@@ -210,11 +238,32 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                             .FnCall(_, _, _, _, _) => (),
                             .Atom(_, pftok) => cond(
                               // typed param:  FnCall(Atom(":"), [name, type], true)
+                              // name can be a bare Atom("name") or comptime(name)
                               ((pftok.value.as_str() == ":") && pinfix) => {
                                 p_name := match(pargs.get(usize(0)),
-                                  .Some(ne) => match(atom_ident(ne),
-                                    .Some(n) => n,
-                                    .None    => ""
+                                  .Some(ne) => match(ne,
+                                    // Simple atom name
+                                    .Atom(_, ntok) => cond(
+                                      (ntok.kind == TokenKind.Identifier) => ntok.value.as_str(),
+                                      true => ""
+                                    ),
+                                    // comptime(name) — extract inner name for C param
+                                    .FnCall(_, cpf, cpargs, cp_infix, _) => cond(
+                                      cp_infix => "",
+                                      true => match(cpf.*,
+                                        .FnCall(_, _, _, _, _) => "",
+                                        .Atom(_, cptok) => cond(
+                                          (cptok.value.as_str() != "comptime") => "",
+                                          true => match(cpargs.get(usize(0)),
+                                            .None => "",
+                                            .Some(inner) => match(atom_ident(inner),
+                                              .Some(n) => n,
+                                              .None    => ""
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
                                   ),
                                   .None => ""
                                 );
@@ -226,7 +275,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                   .None => String.from("void*")
                                 );
                                 if((p_name != ""), {
-                                  out_params.push(String.from(p_name));
+                                  out_params.push(sanitize_c_ident(p_name));
                                   out_param_tys.push(p_ty_c);
                                 });
                               },
@@ -277,7 +326,9 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                       ret_ty_c:  ret_ty_c,
                       params:    out_params,
                       param_tys: out_param_tys,
-                      body:      body
+                      body:      body,
+                      is_impl:   false,
+                      impl_type: String.new()
                     ))
                   }
                 )
@@ -293,6 +344,34 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 // ---------------------------------------------------------------------------
 // extract_struct_def
 // ---------------------------------------------------------------------------
+
+/// True if a C type string contains "Self" (used in self-referential struct fields).
+/// Structs with `Self`-typed fields cannot be emitted as valid C.
+c_type_has_self :: (fn(c_ty : String) -> bool)(
+  cond(
+    (c_ty.as_str() == "Self")    => true,
+    (c_ty.as_str() == "Self*")   => true,
+    (c_ty.as_str() == "Self**")  => true,
+    true                         => false
+  )
+);
+
+/// True if any field type of a `StructDef` contains "Self".
+struct_has_self_fields :: (fn(sd : StructDef) -> bool)({
+  n := sd.field_tys.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while runtime(((i < n) && (!found))), {
+    match(sd.field_tys.get(i),
+      .None => (),
+      .Some(ty) => {
+        if(c_type_has_self(ty), { found = true; });
+      }
+    );
+    i = (i + usize(1));
+  };
+  found
+});
 
 /// Try to extract a `StructDef` from a top-level expression.
 ///
@@ -346,24 +425,64 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                   true => match(ff.*,
                                     .FnCall(_, _, _, _, _) => (),
                                     .Atom(_, ftok) => cond(
-                                      (!(ftok.value.as_str() == ":")) => (),
-                                      (fa.len() < usize(2)) => (),
-                                      true => match(fa.get(usize(0)),
-                                        .None => (),
-                                        .Some(field_name_e) => match(atom_ident(field_name_e),
+                                      // Plain field: `name : type`
+                                      (ftok.value.as_str() == ":") => cond(
+                                        (fa.len() < usize(2)) => (),
+                                        true => match(fa.get(usize(0)),
                                           .None => (),
-                                          .Some(fname) => match(fa.get(usize(1)),
+                                          .Some(field_name_e) => match(atom_ident(field_name_e),
                                             .None => (),
-                                            .Some(ty_e) => match(type_expr_to_c(ty_e),
+                                            .Some(fname) => match(fa.get(usize(1)),
                                               .None => (),
-                                              .Some(c_ty) => {
-                                                out_names.push(String.from(fname));
-                                                out_tys.push(c_ty);
-                                              }
+                                              .Some(ty_e) => match(type_expr_to_c(ty_e),
+                                                .None => (),
+                                                .Some(c_ty) => {
+                                                  out_names.push(String.from(fname));
+                                                  out_tys.push(c_ty);
+                                                }
+                                              )
                                             )
                                           )
                                         )
-                                      )
+                                      ),
+                                      // Default-value field: `(name : type) ?= default`
+                                      // fa[0] is the inner `name : type` FnCall, fa[1] is the default.
+                                      (ftok.value.as_str() == "?=") => cond(
+                                        (fa.len() < usize(2)) => (),
+                                        true => match(fa.get(usize(0)),
+                                          .None => (),
+                                          .Some(inner_colon) => match(inner_colon,
+                                            .Atom(_, _) => (),
+                                            .FnCall(_, ic_func, ic_args, ic_infix, _) => cond(
+                                              (!(ic_infix)) => (),
+                                              true => match(ic_func.*,
+                                                .FnCall(_, _, _, _, _) => (),
+                                                .Atom(_, ic_tok) => cond(
+                                                  (!(ic_tok.value.as_str() == ":")) => (),
+                                                  (ic_args.len() < usize(2)) => (),
+                                                  true => match(ic_args.get(usize(0)),
+                                                    .None => (),
+                                                    .Some(field_name_e2) => match(atom_ident(field_name_e2),
+                                                      .None => (),
+                                                      .Some(fname2) => match(ic_args.get(usize(1)),
+                                                        .None => (),
+                                                        .Some(ty_e2) => match(type_expr_to_c(ty_e2),
+                                                          .None => (),
+                                                          .Some(c_ty2) => {
+                                                            out_names.push(String.from(fname2));
+                                                            out_tys.push(c_ty2);
+                                                          }
+                                                        )
+                                                      )
+                                                    )
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      ),
+                                      true => ()
                                     )
                                   )
                                 )
@@ -396,33 +515,358 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
 /// typedef struct { int32_t value; const char* name; } Counter;
 /// ```
 emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
-  line := String.from("typedef struct { ");
-  nf := sd.field_names.len();
-  (fi : usize) = usize(0);
-  while runtime((fi < nf)), {
-    fi = (fi + usize(1));
-    match(sd.field_names.get(fi - usize(1)),
-      .None => (),
-      .Some(fname) => match(sd.field_tys.get(fi - usize(1)),
+  // Skip if already registered (avoid C typedef redefinition error when the same
+  // struct name is defined in multiple nested scopes)
+  // Also skip structs with Self-typed fields (cannot be emitted as valid C without
+  // forward declarations and struct-tag syntax)
+  if(((!(ctx.*.is_struct_name(sd.name.as_str()))) && (!(struct_has_self_fields(sd)))), {
+    ctx.*.register_struct(String.from(sd.name.as_str()));
+    // Build field names CSV for open/destructuring support
+    fields_csv_buf := String.new();
+    nf := sd.field_names.len();
+    (fi : usize) = usize(0);
+    while runtime((fi < nf)), {
+      fi = (fi + usize(1));
+      match(sd.field_names.get(fi - usize(1)),
         .None => (),
-        .Some(fty) => {
-          line.push_string(fty);
-          line.push_str(" ");
-          line.push_string(fname);
-          line.push_str("; ");
+        .Some(fname) => {
+          if((fi > usize(1)), { fields_csv_buf.push_str(","); });
+          fields_csv_buf.push_string(fname);
         }
+      );
+    };
+    ctx.*.register_struct_fields(sd.name.as_str(), fields_csv_buf.as_str());
+    line := String.from("typedef struct { ");
+    (fi2 : usize) = usize(0);
+    while runtime((fi2 < nf)), {
+      fi2 = (fi2 + usize(1));
+      match(sd.field_names.get(fi2 - usize(1)),
+        .None => (),
+        .Some(fname) => match(sd.field_tys.get(fi2 - usize(1)),
+          .None => (),
+          .Some(fty) => {
+            line.push_string(fty);
+            line.push_str(" ");
+            line.push_string(fname);
+            line.push_str("; ");
+          }
+        )
+      );
+    };
+    line.push_str("} ");
+    line.push_string(sd.name);
+    line.push_str(";");
+    ctx.*.emitter.emit_declaration_string_line(line);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UnionDef — extracted union definition record
+// ---------------------------------------------------------------------------
+
+/// A union definition extracted from a `Name :: union(field : Type, ...)` node.
+UnionDef :: struct(
+  /// Yo-level union name (e.g. "SomeUnion").
+  name        : String,
+  /// Field names (parallel to `field_tys`).
+  field_names : ArrayList(String),
+  /// C type strings for each field (parallel to `field_names`).
+  field_tys   : ArrayList(String)
+);
+
+/// Try to extract a `UnionDef` from a top-level expression.
+/// Recognises `Name :: union(field1 : Type1, field2 : Type2, ...)`.
+extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
+  match(expr,
+    .Atom(_, _) => Option(UnionDef).None,
+    .FnCall(_, ef, eargs, top_infix, _) => cond(
+      (!(top_infix)) => Option(UnionDef).None,
+      (eargs.len() < usize(2)) => Option(UnionDef).None,
+      true => match(ef.*,
+        .FnCall(_, _, _, _, _) => Option(UnionDef).None,
+        .Atom(_, op_tok) => cond(
+          (!(op_tok.value.as_str() == "::")) => Option(UnionDef).None,
+          (eargs.len() < usize(2)) => Option(UnionDef).None,
+          true => match(eargs.get(usize(0)),
+            .None => Option(UnionDef).None,
+            .Some(lhs_expr) => match(atom_ident(lhs_expr),
+              .None => Option(UnionDef).None,
+              .Some(uname) => match(eargs.get(usize(1)),
+                .None => Option(UnionDef).None,
+                .Some(rhs_expr) => match(rhs_expr,
+                  .Atom(_, _) => Option(UnionDef).None,
+                  .FnCall(_, rf, rargs, rhs_infix, _) => cond(
+                    (rhs_infix) => Option(UnionDef).None,
+                    true => match(rf.*,
+                      .FnCall(_, _, _, _, _) => Option(UnionDef).None,
+                      .Atom(_, rhs_tok) => cond(
+                        (!(rhs_tok.value.as_str() == "union")) => Option(UnionDef).None,
+                        true => {
+                          udef := UnionDef(
+                            name:        String.from(uname),
+                            field_names: ArrayList(String).new(),
+                            field_tys:   ArrayList(String).new()
+                          );
+                          nfields := rargs.len();
+                          (fi : usize) = usize(0);
+                          (ok : bool) = true;
+                          while runtime(((fi < nfields) && ok)), {
+                            fi = (fi + usize(1));
+                            match(rargs.get(fi - usize(1)),
+                              .None => { ok = false; },
+                              .Some(fexpr) => match(fexpr,
+                                .Atom(_, _) => { ok = false; },
+                                .FnCall(_, ff2, fargs2, finfix2, _) => cond(
+                                  (!(finfix2)) => { ok = false; },
+                                  (fargs2.len() < usize(2)) => { ok = false; },
+                                  true => match(ff2.*,
+                                    .FnCall(_, _, _, _, _) => { ok = false; },
+                                    .Atom(_, ftok2) => cond(
+                                      (!(ftok2.value.as_str() == ":")) => { ok = false; },
+                                      true => match(fargs2.get(usize(0)),
+                                        .None => { ok = false; },
+                                        .Some(fname_e) => match(atom_ident(fname_e),
+                                          .None => { ok = false; },
+                                          .Some(fname_s) => match(fargs2.get(usize(1)),
+                                            .None => { ok = false; },
+                                            .Some(fty_e) => match(type_expr_to_c(fty_e),
+                                              .None => { ok = false; },
+                                              .Some(fty_c) => {
+                                                udef.field_names.push(String.from(fname_s));
+                                                udef.field_tys.push(fty_c);
+                                              }
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            );
+                          };
+                          cond(
+                            ok => Option(UnionDef).Some(udef),
+                            true => Option(UnionDef).None
+                          )
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
       )
-    );
-  };
-  line.push_str("} ");
-  line.push_string(sd.name);
-  line.push_str(";");
-  ctx.*.emitter.emit_declaration_string_line(line);
+    )
+  )
+);
+
+/// Emit a C typedef union for a `UnionDef` into the context's declarations buffer.
+emit_union_to_c :: (fn(ud : UnionDef, ctx : *(CodegenContext)) -> unit)({
+  if((!(ctx.*.is_struct_name(ud.name.as_str()))), {
+    ctx.*.register_struct(String.from(ud.name.as_str()));
+    // Build field names CSV for destructuring support
+    fields_csv_buf := String.new();
+    nf := ud.field_names.len();
+    (fi : usize) = usize(0);
+    while runtime((fi < nf)), {
+      fi = (fi + usize(1));
+      match(ud.field_names.get(fi - usize(1)),
+        .None => (),
+        .Some(fname) => {
+          if((fi > usize(1)), { fields_csv_buf.push_str(","); });
+          fields_csv_buf.push_string(fname);
+        }
+      );
+    };
+    ctx.*.register_struct_fields(ud.name.as_str(), fields_csv_buf.as_str());
+    line := String.from("typedef union { ");
+    (fi2 : usize) = usize(0);
+    while runtime((fi2 < nf)), {
+      fi2 = (fi2 + usize(1));
+      match(ud.field_names.get(fi2 - usize(1)),
+        .None => (),
+        .Some(fname) => match(ud.field_tys.get(fi2 - usize(1)),
+          .None => (),
+          .Some(fty) => {
+            line.push_string(fty);
+            line.push_str(" ");
+            line.push_string(fname);
+            line.push_str("; ");
+          }
+        )
+      );
+    };
+    line.push_str("} ");
+    line.push_string(ud.name);
+    line.push_str(";");
+    ctx.*.emitter.emit_declaration_string_line(line);
+  });
 });
 
 // ---------------------------------------------------------------------------
 // extract_enum_def / emit_enum_to_c
 // ---------------------------------------------------------------------------
+
+/// Parse an ASCII decimal string like "0", "10", "255" into a usize.
+/// Returns 0 on empty or non-numeric input.
+_parse_usize :: (fn(s : str) -> usize)({
+  n := s.len();
+  (i : usize) = usize(0);
+  (acc : usize) = usize(0);
+  while runtime((i < n)), {
+    c := s.bytes(i);
+    digit_ord := (usize(c) - usize(48));
+    acc = ((acc * usize(10)) + digit_ord);
+    i = (i + usize(1));
+  };
+  acc
+});
+/// Returns `Some((field_name, c_type))` or `None`.
+_parse_variant_field :: (fn(field_expr : AstExpr) -> Option(EnumVariantField))(
+  match(field_expr,
+    .Atom(_, _) => Option(EnumVariantField).None,
+    .FnCall(_, ff, fargs, finfix, _) => cond(
+      (!(finfix)) => Option(EnumVariantField).None,
+      (fargs.len() < usize(2)) => Option(EnumVariantField).None,
+      true => match(ff.*,
+        .FnCall(_, _, _, _, _) => Option(EnumVariantField).None,
+        .Atom(_, ftok) => cond(
+          (!(ftok.value.as_str() == ":")) => Option(EnumVariantField).None,
+          true => match(fargs.get(usize(0)),
+            .None => Option(EnumVariantField).None,
+            .Some(name_e) => match(atom_ident(name_e),
+              .None => Option(EnumVariantField).None,
+              .Some(fname) => match(fargs.get(usize(1)),
+                .None => Option(EnumVariantField).None,
+                .Some(ty_e) => match(type_expr_to_c(ty_e),
+                  .None => Option(EnumVariantField).None,
+                  .Some(cty) => Option(EnumVariantField).Some(
+                    EnumVariantField(name: String.from(fname), c_ty: cty)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+/// Parse a complex variant body `VariantName(field: Type, ...)` (non-infix FnCall).
+/// Returns `Some((variant_name, fields, disc=0))` or `None` if not a complex variant form.
+/// The caller must set the correct discriminant before using the returned EnumVariant.
+_parse_complex_variant :: (fn(call_expr : AstExpr) -> Option(EnumVariant))(
+  match(call_expr,
+    .Atom(_, _) => Option(EnumVariant).None,
+    .FnCall(_, vf, vargs, vinfix, _) => cond(
+      (vinfix) => Option(EnumVariant).None,
+      true => match(vf.*,
+        .FnCall(_, _, _, _, _) => Option(EnumVariant).None,
+        .Atom(_, vtok) => {
+          vname := vtok.value.as_str();
+          fields := ArrayList(EnumVariantField).new();
+          nf := vargs.len();
+          (fi : usize) = usize(0);
+          (ok : bool) = true;
+          while runtime(((fi < nf) && ok)), {
+            fi = (fi + usize(1));
+            match(vargs.get(fi - usize(1)),
+              .None => { ok = false; },
+              .Some(fexpr) => match(_parse_variant_field(fexpr),
+                .None => { ok = false; },
+                .Some(vf2) => { _r := fields.push(vf2); () }
+              )
+            );
+          };
+          cond(
+            (!(ok)) => Option(EnumVariant).None,
+            true    => Option(EnumVariant).Some(
+              EnumVariant(name: String.from(vname), fields: fields, disc: usize(0))
+            )
+          )
+        }
+      )
+    )
+  )
+);
+
+/// Extract one variant entry from a variant expression inside `enum(...)`.
+///
+/// Handles:
+///   - `Atom("Red")`                     — simple, auto disc
+///   - `=(Red, 0)` infix                 — simple with explicit discriminant
+///   - `Circle(r : i32)`                 — complex, auto disc
+///   - `=(Circle(r : i32), 2)` infix     — complex with explicit discriminant
+_extract_one_variant :: (fn(v_expr : AstExpr, next_disc : usize) -> Option(EnumVariant))(
+  match(v_expr,
+    // Simple atom variant: `Red`
+    .Atom(_, vtok) => Option(EnumVariant).Some(
+      EnumVariant(
+        name:   String.from(vtok.value.as_str()),
+        fields: ArrayList(EnumVariantField).new(),
+        disc:   next_disc
+      )
+    ),
+    .FnCall(_, vf, vargs, vinfix, _) => cond(
+      // Non-infix FnCall: complex variant `Circle(r: i32, ...)`
+      (!(vinfix)) => match(_parse_complex_variant(v_expr),
+        .None => Option(EnumVariant).None,
+        .Some(ev) => Option(EnumVariant).Some(
+          EnumVariant(name: ev.name, fields: ev.fields, disc: next_disc)
+        )
+      ),
+      // Infix `=`: explicit discriminant  `Red = 0`  or  `Circle(r: i32) = 2`
+      (vargs.len() < usize(2)) => Option(EnumVariant).None,
+      true => match(vf.*,
+        .FnCall(_, _, _, _, _) => Option(EnumVariant).None,
+        .Atom(_, op_tok) => cond(
+          (!(op_tok.value.as_str() == "=")) => Option(EnumVariant).None,
+          true => match(vargs.get(usize(0)),
+            .None => Option(EnumVariant).None,
+            .Some(lhs) => match(vargs.get(usize(1)),
+              .None => Option(EnumVariant).None,
+              .Some(disc_e) => {
+                // Extract discriminant value: handles both Integer literals
+                // (e.g. `= 4`) and Identifier constants (e.g. `= MY_CONST`).
+                disc_str_opt := match(disc_e,
+                  .FnCall(_, _, _, _, _) => Option(str).None,
+                  .Atom(_, dtok) => Option(str).Some(dtok.value.as_str())
+                );
+                match(disc_str_opt,
+                  .None => Option(EnumVariant).None,
+                  .Some(disc_str) => {
+                    disc_val := _parse_usize(disc_str);
+                    // Parse the LHS: either a simple atom or a complex variant
+                    base_opt := match(lhs,
+                      .Atom(_, ln) => Option(EnumVariant).Some(
+                        EnumVariant(
+                          name:   String.from(ln.value.as_str()),
+                          fields: ArrayList(EnumVariantField).new(),
+                          disc:   disc_val
+                        )
+                      ),
+                      .FnCall(_, _, _, _, _) => match(_parse_complex_variant(lhs),
+                        .None => Option(EnumVariant).None,
+                        .Some(ev) => Option(EnumVariant).Some(
+                          EnumVariant(name: ev.name, fields: ev.fields, disc: disc_val)
+                        )
+                      )
+                    );
+                    base_opt
+                  }
+                )
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+);
 
 /// Try to extract an `EnumDef` from a top-level expression.
 ///
@@ -430,7 +874,8 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
 /// ```
 ///   FnCall(Atom("::"), [Atom(Name), FnCall(Atom("enum"), [...variants...])], is_infix=true)
 /// ```
-/// where each variant is an Identifier Atom.
+/// where each variant is an Identifier Atom, a complex `VariantName(field: Type, ...)`,
+/// or either form followed by `= discriminant`.
 extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
   match(expr,
     .Atom(_, _) => Option(EnumDef).None,
@@ -456,20 +901,36 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                       .Atom(_, rhs_tok) => cond(
                         (!(rhs_tok.value.as_str() == "enum")) => Option(EnumDef).None,
                         true => {
-                          variants := ArrayList(String).new();
+                          variants   := ArrayList(EnumVariant).new();
+                          (is_complex : bool) = false;
                           nv := rhs_args.len();
                           (vi : usize) = usize(0);
-                          while runtime((vi < nv)), {
+                          (next_disc : usize) = usize(0);
+                          (failed : bool) = false;
+                          while runtime(((vi < nv) && (!(failed)))), {
                             vi = (vi + usize(1));
                             match(rhs_args.get(vi - usize(1)),
                               .None => (),
-                              .Some(v_expr) => match(atom_ident(v_expr),
+                              .Some(v_expr) => match(_extract_one_variant(v_expr, next_disc),
+                                // Skip unrecognised variant expressions rather than failing
                                 .None => (),
-                .Some(vname) => { _r := variants.push(String.from(vname)); () }
+                                .Some(ev) => {
+                                  if((ev.fields.len() > usize(0)), {
+                                    is_complex = true;
+                                  });
+                                  next_disc = (ev.disc + usize(1));
+                                  _r := variants.push(ev); ()
+                                }
                               )
                             );
                           };
-                          Option(EnumDef).Some(EnumDef(name: String.from(name_str), variants: variants))
+                          Option(EnumDef).Some(
+                            EnumDef(
+                              name:       String.from(name_str),
+                              variants:   variants,
+                              is_complex: is_complex
+                            )
+                          )
                         }
                       )
                     )
@@ -484,38 +945,364 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
   )
 );
 
-/// Emit a C typedef enum for an `EnumDef` into the context's declarations buffer.
-///
-/// For `Color :: enum(Red, Green, Blue)`, emits:
-/// ```c
-/// typedef enum { Color_Red, Color_Green, Color_Blue } Color;
-/// ```
-/// Also registers the enum name and each variant in the context so that:
-/// - `EnumName.Variant` dot-access is rewritten to `EnumName_Variant`
-/// - bare `.Variant` patterns in match arms are resolved to `EnumName_Variant`
-emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
-  ctx.*.register_enum(String.from(ed.name.as_str()));
-  line := String.from("typedef enum { ");
+/// Module-level helper: register all variants from `ed` into `ctx`.
+/// No C is emitted — this is used for non-last occurrences of an enum name
+/// so that variant field metadata stays current while the typedef is emitted
+/// only once (for the last occurrence).
+_register_enum_variants :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
   nv := ed.variants.len();
   (vi : usize) = usize(0);
   while runtime((vi < nv)), {
     vi = (vi + usize(1));
     match(ed.variants.get(vi - usize(1)),
       .None => (),
-      .Some(vname) => {
-        ctx.*.register_variant(vname.as_str(), ed.name.as_str());
-        line.push_string(ed.name);
-        line.push_str("_");
-        line.push_string(vname);
-        if((vi < nv), { line.push_str(", "); });
+      .Some(ev) => {
+        nf := ev.fields.len();
+        fields_csv := String.new();
+        (fi : usize) = usize(0);
+        while runtime((fi < nf)), {
+          fi = (fi + usize(1));
+          match(ev.fields.get(fi - usize(1)),
+            .None => (),
+            .Some(fld) => {
+              if((fi > usize(1)), { fields_csv.push_str(","); });
+              fields_csv.push_string(fld.name);
+            }
+          );
+        };
+        ctx.*.register_variant(ev.name.as_str(), ed.name.as_str(), fields_csv.as_str());
       }
     );
   };
-  line.push_str(" } ");
-  line.push_string(ed.name);
-  line.push_str(";");
-  ctx.*.emitter.emit_declaration_string_line(line);
 });
+
+/// Emit C type declaration(s) for an `EnumDef` into the context's declarations buffer.
+///
+/// **Simple enum** (no variant carries fields):
+/// ```c
+/// typedef enum { Color_Red = 0, Color_Green = 1, Color_Blue = 2 } Color;
+/// ```
+///
+/// **Complex enum** (at least one variant carries fields):
+/// ```c
+/// typedef enum { Shape_Circle = 0, Shape_Rectangle = 1 } Shape_tag;
+/// typedef union {
+///   struct { int32_t r; } Circle;
+///   struct { int32_t w; int32_t h; } Rectangle;
+/// } Shape_data;
+/// typedef struct { Shape_tag tag; Shape_data data; } Shape;
+/// ```
+///
+/// Always registers the enum name and all variants in the context.
+/// Callers are responsible for calling this only once per enum name (the last
+/// definition wins) via `emit_local_type_defs`.
+emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.register_enum(String.from(ed.name.as_str()));
+  _register_enum_variants(ed, ctx);
+  nv := ed.variants.len();
+
+  cond(
+    // ---------------------------------------------------------------
+    // Simple enum: typedef enum { Name_V = disc, ... } Name;
+    // ---------------------------------------------------------------
+    (!(ed.is_complex)) => {
+      line := String.from("typedef enum { ");
+      (vi : usize) = usize(0);
+      while runtime((vi < nv)), {
+        vi = (vi + usize(1));
+        match(ed.variants.get(vi - usize(1)),
+          .None => (),
+          .Some(ev) => {
+            line.push_string(ed.name);
+            line.push_str("_");
+            line.push_string(ev.name);
+            line.push_str(" = ");
+            line.push_string(ev.disc.to_string());
+            if((vi < nv), { line.push_str(", "); });
+          }
+        );
+      };
+      line.push_str(" } ");
+      line.push_string(ed.name);
+      line.push_str(";");
+      ctx.*.emitter.emit_declaration_string_line(line);
+    },
+    // ---------------------------------------------------------------
+    // Complex enum: tagged union  (Shape_tag + Shape_data + Shape)
+    // ---------------------------------------------------------------
+    true => {
+      // --- 1) typedef enum { Shape_Circle = 0, ... } Shape_tag; ---
+      tag_line := String.from("typedef enum { ");
+      (vi2 : usize) = usize(0);
+      while runtime((vi2 < nv)), {
+        vi2 = (vi2 + usize(1));
+        match(ed.variants.get(vi2 - usize(1)),
+          .None => (),
+          .Some(ev) => {
+            tag_line.push_string(ed.name);
+            tag_line.push_str("_");
+            tag_line.push_string(ev.name);
+            tag_line.push_str(" = ");
+            tag_line.push_string(ev.disc.to_string());
+            if((vi2 < nv), { tag_line.push_str(", "); });
+          }
+        );
+      };
+      tag_line.push_str(" } ");
+      tag_line.push_string(ed.name);
+      tag_line.push_str("_tag;");
+      ctx.*.emitter.emit_declaration_string_line(tag_line);
+
+      // --- 2) typedef union { struct { T f; } V; ... } Name_data; ---
+      ctx.*.emitter.emit_declaration_line("typedef union {");
+      (vi3 : usize) = usize(0);
+      while runtime((vi3 < nv)), {
+        vi3 = (vi3 + usize(1));
+        match(ed.variants.get(vi3 - usize(1)),
+          .None => (),
+          .Some(ev) => {
+            nf := ev.fields.len();
+            cond(
+              // Simple variant inside a complex enum: add a dummy byte member
+              // so the union is always non-empty and consistent.
+              (nf == usize(0)) => {
+                struct_line := String.from("  struct { char _dummy; } ");
+                struct_line.push_string(ev.name);
+                struct_line.push_str(";");
+                ctx.*.emitter.emit_declaration_string_line(struct_line);
+              },
+              true => {
+                ctx.*.emitter.emit_declaration_line("  struct {");
+                (fi2 : usize) = usize(0);
+                while runtime((fi2 < nf)), {
+                  fi2 = (fi2 + usize(1));
+                  match(ev.fields.get(fi2 - usize(1)),
+                    .None => (),
+                    .Some(fld) => {
+                      fld_line := String.from("    ");
+                      fld_line.push_string(fld.c_ty);
+                      fld_line.push_str(" ");
+                      fld_line.push_string(fld.name);
+                      fld_line.push_str(";");
+                      ctx.*.emitter.emit_declaration_string_line(fld_line);
+                    }
+                  );
+                };
+                close_line := String.from("  } ");
+                close_line.push_string(ev.name);
+                close_line.push_str(";");
+                ctx.*.emitter.emit_declaration_string_line(close_line);
+              }
+            );
+          }
+        );
+      };
+      union_close := String.from("} ");
+      union_close.push_string(ed.name);
+      union_close.push_str("_data;");
+      ctx.*.emitter.emit_declaration_string_line(union_close);
+
+      // --- 3) typedef struct { Name_tag tag; Name_data data; } Name; ---
+      struct_line2 := String.from("typedef struct { ");
+      struct_line2.push_string(ed.name);
+      struct_line2.push_str("_tag tag; ");
+      struct_line2.push_string(ed.name);
+      struct_line2.push_str("_data data; } ");
+      struct_line2.push_string(ed.name);
+      struct_line2.push_str(";");
+      ctx.*.emitter.emit_declaration_string_line(struct_line2);
+    }
+  );
+});
+
+/// Substitute "Self" with `concrete_type` in a C type string.
+/// Used when extracting impl method signatures: `Self` is resolved to the implementing type.
+subst_self_ty :: (fn(ty_str : String, concrete_type : str) -> String)({
+  s := ty_str.as_str();
+  cond(
+    (s == "Self")   => String.from(concrete_type),
+    (s == "Self*")  => {
+      r := String.from(concrete_type);
+      r.push_str("*");
+      r
+    },
+    (s == "Self**") => {
+      r2 := String.from(concrete_type);
+      r2.push_str("**");
+      r2
+    },
+    true => ty_str
+  )
+});
+
+/// Apply `subst_self_ty` to every element of a parallel type list, returning a new list.
+subst_self_ty_list :: (fn(tys : ArrayList(String), concrete_type : str) -> ArrayList(String))({
+  result := ArrayList(String).new();
+  n := tys.len();
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    match(tys.get(i),
+      .None => (),
+      .Some(ty_s) => { result.push(subst_self_ty(ty_s, concrete_type)); }
+    );
+    i = (i + usize(1));
+  };
+  result
+});
+
+/// Try to extract a `FnDef` from a `name : fn_expr` (single-colon) pattern.
+///
+/// This handles the short-form used in `impl` blocks:
+/// ```
+///   impl(T, method_name : (fn(...) -> R)(body))
+/// ```
+/// where the method binding uses `:` instead of `::`.
+/// Returns `None` if the expression does not match the pattern.
+extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
+  match(expr,
+    .Atom(_, _) => Option(FnDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(FnDef).None,
+      (top_args.len() != usize(2)) => Option(FnDef).None,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _, _) => Option(FnDef).None,
+        .Atom(_, ttok) => cond(
+          (ttok.value.as_str() != ":") => Option(FnDef).None,
+          true => {
+            name_expr := match(top_args.get(usize(0)),
+              .Some(e) => e,
+              .None    => { return Option(FnDef).None; }
+            );
+            name_str := match(atom_ident(name_expr),
+              .Some(n) => n,
+              .None    => { return Option(FnDef).None; }
+            );
+            fn_app := match(top_args.get(usize(1)),
+              .Some(e) => e,
+              .None    => { return Option(FnDef).None; }
+            );
+            match(fn_app,
+              .Atom(_, _) => Option(FnDef).None,
+              .FnCall(_, app_func, app_args, _, _) => cond(
+                (!(is_arrow_op(app_func.*))) => Option(FnDef).None,
+                (app_args.len() != usize(1)) => Option(FnDef).None,
+                true => match(app_func.*,
+                  .Atom(_, _) => Option(FnDef).None,
+                  .FnCall(_, arrow_func, arrow_args, _, _) => {
+                    fn_expr2 := match(arrow_args.get(usize(0)),
+                      .Some(e) => e,
+                      .None    => { return Option(FnDef).None; }
+                    );
+                    ret_ty_expr2 := match(arrow_args.get(usize(1)),
+                      .Some(e) => e,
+                      .None    => { return Option(FnDef).None; }
+                    );
+                    (ignore2 : str) = match(arrow_func.*,
+                      .Atom(_, _) => "",
+                      .FnCall(_, _, _, _, _) => ""
+                    );
+                    (ignore2);
+                    ret_ty_c2 := match(type_expr_to_c(ret_ty_expr2),
+                      .Some(s) => s,
+                      .None    => String.from("void*")
+                    );
+                    params_list2 := match(fn_expr2,
+                      .Atom(_, _) => { return Option(FnDef).None; },
+                      .FnCall(_, fn_func2, fn_params2, _, _) => cond(
+                        (!(match(fn_func2.*,
+                          .Atom(_, fntok2) => (fntok2.value.as_str() == "fn"),
+                          .FnCall(_, _, _, _, _) => false
+                        ))) => { return Option(FnDef).None; },
+                        true => fn_params2
+                      )
+                    );
+                    out_params2    := ArrayList(String).new();
+                    out_param_tys2 := ArrayList(String).new();
+                    n_p2 := params_list2.len();
+                    (pi2 : usize) = usize(0);
+                    while runtime((pi2 < n_p2)), {
+                      pi2 = (pi2 + usize(1));
+                      match(params_list2.get(pi2 - usize(1)),
+                        .None => (),
+                        .Some(param_expr2) => match(param_expr2,
+                          .Atom(_, ptok2) => cond(
+                            (ptok2.kind == TokenKind.Identifier) => {
+                              out_params2.push(String.from(ptok2.value.as_str()));
+                              out_param_tys2.push(String.from("void*"));
+                            },
+                            true => ()
+                          ),
+                          .FnCall(_, pf2, pargs2, pinfix2, _) => match(pf2.*,
+                            .FnCall(_, _, _, _, _) => (),
+                            .Atom(_, pftok2) => cond(
+                              ((pftok2.value.as_str() == ":") && pinfix2) => {
+                                p_name2 := match(pargs2.get(usize(0)),
+                                  .Some(ne2) => match(ne2,
+                                    .Atom(_, ntok2) => cond(
+                                      (ntok2.kind == TokenKind.Identifier) => ntok2.value.as_str(),
+                                      true => ""
+                                    ),
+                                    .FnCall(_, cpf2, cpargs2, cp_infix2, _) => cond(
+                                      cp_infix2 => "",
+                                      true => match(cpf2.*,
+                                        .FnCall(_, _, _, _, _) => "",
+                                        .Atom(_, cptok2) => cond(
+                                          (cptok2.value.as_str() != "comptime") => "",
+                                          true => match(cpargs2.get(usize(0)),
+                                            .None => "",
+                                            .Some(inner2) => match(atom_ident(inner2),
+                                              .Some(n2) => n2,
+                                              .None     => ""
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  ),
+                                  .None => ""
+                                );
+                                p_ty_c2 := match(pargs2.get(usize(1)),
+                                  .Some(te2) => match(type_expr_to_c(te2),
+                                    .Some(s2) => s2,
+                                    .None     => String.from("void*")
+                                  ),
+                                  .None => String.from("void*")
+                                );
+                                if((p_name2 != ""), {
+                                  out_params2.push(String.from(p_name2));
+                                  out_param_tys2.push(p_ty_c2);
+                                });
+                              },
+                              (pftok2.value.as_str() == "using") => (),
+                              true => ()
+                            )
+                          )
+                        )
+                      );
+                    };
+                    body2 := match(app_args.get(usize(0)),
+                      .Some(b2) => b2,
+                      .None     => { return Option(FnDef).None; }
+                    );
+                    Option(FnDef).Some(FnDef(
+                      name:      String.from(name_str),
+                      ret_ty_c:  ret_ty_c2,
+                      params:    out_params2,
+                      param_tys: out_param_tys2,
+                      body:      body2,
+                      is_impl:   false,
+                      impl_type: String.new()
+                    ))
+                  }
+                )
+              )
+            )
+          }
+        )
+      )
+    )
+  )
+);
 
 /// Try to extract function definitions from an `impl(TypeName, { ... })` block.
 ///
@@ -523,7 +1310,8 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
 /// ```
 ///   FnCall(Atom("impl"), [Atom(TypeName), begin_expr], is_infix=false)
 /// ```
-/// where `begin_expr` contains `method_name :: (fn(...) -> T)(body)` definitions.
+/// where `begin_expr` contains `method_name :: (fn(...) -> T)(body)` definitions,
+/// or a single `method_name : fn_expr` inline form.
 ///
 /// Methods are renamed to `TypeName_method_name` in C to avoid collisions.
 /// Returns a list of `FnDef` entries extracted from the impl body.
@@ -545,32 +1333,65 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
               .FnCall(_, bf, ba, _, _) => match(bf.*,
                 .FnCall(_, _, _, _, _) => results,
                 .Atom(_, btok) => cond(
-                  (!(btok.value.as_str() == "begin")) => results,
-                  true => {
+                  (btok.value.as_str() == "begin") => {
                     nm := ba.len();
                     (mi : usize) = usize(0);
                     while runtime((mi < nm)), {
                       mi = (mi + usize(1));
                       match(ba.get(mi - usize(1)),
                         .None => (),
-                        .Some(method_expr) => match(extract_fn_def(method_expr),
-                          .None => (),
-                          .Some(fd) => {
-                            // Prefix the method C name: TypeName_method
-                            c_name := String.from(type_prefix);
-                            c_name.push_str("_");
-                            c_name.push_string(fd.name);
-                            results.push(FnDef(
-                              name:      c_name,
-                              ret_ty_c:  fd.ret_ty_c,
-                              params:    fd.params,
-                              param_tys: fd.param_tys,
-                              body:      fd.body
-                            ));
-                          }
-                        )
+                        .Some(method_expr) => {
+                          // Try `::` form first, then `:` form.
+                          fd_opt := match(extract_fn_def(method_expr),
+                            .Some(fd_a) => Option(FnDef).Some(fd_a),
+                            .None => extract_colon_fn_def(method_expr)
+                          );
+                          match(fd_opt,
+                            .None => (),
+                            .Some(fd) => {
+                              // Prefix the method C name: TypeName_method
+                              c_name := String.from(type_prefix);
+                              c_name.push_str("_");
+                              c_name.push_string(fd.name);
+                              results.push(FnDef(
+                                name:      c_name,
+                                ret_ty_c:  subst_self_ty(fd.ret_ty_c, type_prefix),
+                                params:    fd.params,
+                                param_tys: subst_self_ty_list(fd.param_tys, type_prefix),
+                                body:      fd.body,
+                                is_impl:   true,
+                                impl_type: String.from(type_prefix)
+                              ));
+                            }
+                          )
+                        }
                       );
                     };
+                    results
+                  },
+                  // Single inline method: `impl(T, method : fn_expr)` or `impl(T, method :: fn_expr)`
+                  true => {
+                    fd_opt2 := match(extract_fn_def(body_expr),
+                      .Some(fd_b) => Option(FnDef).Some(fd_b),
+                      .None => extract_colon_fn_def(body_expr)
+                    );
+                    match(fd_opt2,
+                      .None => (),
+                      .Some(fd2) => {
+                        c_name2 := String.from(type_prefix);
+                        c_name2.push_str("_");
+                        c_name2.push_string(fd2.name);
+                        results.push(FnDef(
+                          name:      c_name2,
+                          ret_ty_c:  subst_self_ty(fd2.ret_ty_c, type_prefix),
+                          params:    fd2.params,
+                          param_tys: subst_self_ty_list(fd2.param_tys, type_prefix),
+                          body:      fd2.body,
+                          is_impl:   true,
+                          impl_type: String.from(type_prefix)
+                        ));
+                      }
+                    );
                     results
                   }
                 )
@@ -581,6 +1402,29 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
       )
     )
   )
+});
+
+// ---------------------------------------------------------------------------
+// build_param_tys_pipe
+// ---------------------------------------------------------------------------
+
+/// Build a pipe-separated string of C parameter types for lambda-lifting lookup.
+/// e.g. ["int32_t", "int32_t(*_FP_)(int32_t)"] → "int32_t|int32_t(*_FP_)(int32_t)"
+build_param_tys_pipe :: (fn(param_tys : ArrayList(String)) -> String)({
+  sb := String.new();
+  n := param_tys.len();
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    i = (i + usize(1));
+    match(param_tys.get(i - usize(1)),
+      .None => (),
+      .Some(ty_s) => {
+        if((sb.len() > usize(0)), { sb.push_str("|"); });
+        sb.push_string(ty_s);
+      }
+    );
+  };
+  sb
 });
 
 // ---------------------------------------------------------------------------
@@ -618,7 +1462,7 @@ compile_module_to_c :: (fn(
         match(extract_fn_def(expr),
           .Some(fd) => {
             name_copy := String.from(fd.name.as_str());
-            pctx.*.register_fn(name_copy);
+            pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
           },
           .None => ()
         );
@@ -735,7 +1579,8 @@ compile_module_to_c :: (fn(
 });
 
 export FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
-       EnumDef, extract_enum_def, emit_enum_to_c,
+       c_type_has_self, struct_has_self_fields,
+       EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
        extract_impl_fns, compile_module_to_c;
 
 // ---------------------------------------------------------------------------
@@ -811,6 +1656,468 @@ export extract_bare_import_path, extract_import_path;
 // Test body compilation
 // ---------------------------------------------------------------------------
 
+/// Return `true` if `name` appears as a **call site** anywhere in `expr`,
+/// skipping `::` binding definitions (which define, not call).
+///
+/// This is used to determine whether a locally-defined function is actually
+/// invoked from the test body, so we only hoist functions that are needed.
+is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
+  match(expr,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, is_infix, _) => {
+      // Skip `::` bindings entirely — they define, not call.
+      is_coloncolon := cond(
+        is_infix => match(func_box.*,
+          .Atom(_, optok)        => ((optok.kind == TokenKind.Operator) && (optok.value.as_str() == "::")),
+          .FnCall(_, _, _, _, _) => false
+        ),
+        true => false
+      );
+      // Recurse into all arguments to find calls anywhere in the expression tree.
+      // For `::` bindings we skip the node itself (it defines, not calls) but
+      // still descend into the RHS args so that `z :: some_fn()` counts as
+      // calling `some_fn`.
+      {
+        this_is_call := ((!is_infix) && ((!is_coloncolon) && match(func_box.*,
+          .Atom(_, ftok)         => ((ftok.kind == TokenKind.Identifier) && (ftok.value.as_str() == name)),
+          .FnCall(_, _, _, _, _) => false
+        )));
+        cond(
+          this_is_call => true,
+          true => {
+            n := args.len();
+            (i : usize) = usize(0);
+            (found : bool) = false;
+            while runtime(((i < n) && (!(found)))), {
+              match(args.get(i),
+                .None    => (),
+                .Some(a) => { if(recur(name, a), { found = true; }); }
+              );
+              i = (i + usize(1));
+            };
+            found
+          }
+        )
+      }
+    }
+  )
+);
+
+/// Collect all `Name :: enum(...)` definitions reachable from `expr` into
+/// `result` (DFS pre-order, so outer definitions come before inner ones).
+/// Used by `emit_local_type_defs` to implement last-wins deduplication.
+collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> unit)(
+  match(expr,
+    .Atom(_, _) => (),
+    .FnCall(_, _, args, _, _) => cond(
+      is_begin_block(expr) => {
+        n := args.len();
+        (i : usize) = usize(0);
+        while runtime((i < n)), {
+          match(args.get(i),
+            .None => (),
+            .Some(stmt) => {
+              match(extract_enum_def(stmt),
+                .Some(ed) => cond(
+                  (ed.variants.len() == usize(0)) => recur(stmt, result),
+                  true => {
+                    _r := result.*.push(ed);
+                    ();
+                  }
+                ),
+                .None => recur(stmt, result)
+              );
+            }
+          );
+          i = (i + usize(1));
+        };
+      },
+      true => ()
+    )
+  )
+);
+
+/// Recursively scan a begin-block AST for local `Name :: struct(...)` and
+/// `Name :: enum(...)` definitions at any nesting depth.
+///
+/// For enums: uses **last-wins** deduplication so that when the same enum name
+/// appears in multiple nested scopes, the last (innermost/deepest) definition
+/// governs the emitted C typedef. All definitions still register their variants
+/// so that variant names remain resolvable regardless of scope.
+///
+/// For structs: first-wins (unchanged, structs rarely conflict).
+///
+/// Used by `compile_test_body_to_c` (Pass 2.5) to emit type definitions
+/// declared inside a test body before any hoisted function definitions.
+emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
+  // --- Enums: collect all, then emit last occurrence of each name ---
+  all_eds := ArrayList(EnumDef).new();
+  collect_all_enum_defs(expr, &all_eds);
+  ned := all_eds.len();
+  (ei : usize) = usize(0);
+  while runtime((ei < ned)), {
+    match(all_eds.get(ei),
+      .None => (),
+      .Some(ed) => {
+        // Determine whether this is the last (rightmost) definition for this name.
+        (j : usize) = (ei + usize(1));
+        (later_found : bool) = false;
+        while runtime(((j < ned) && (!(later_found)))), {
+          match(all_eds.get(j),
+            .None => (),
+            .Some(ed2) => {
+              if((ed2.name.as_str() == ed.name.as_str()), { later_found = true; });
+            }
+          );
+          j = (j + usize(1));
+        };
+        cond(
+          // Last occurrence → emit typedef + register variants
+          (!(later_found)) => emit_enum_to_c(ed, ctx),
+          // Earlier occurrence → only register variants (no C emit)
+          true => _register_enum_variants(ed, ctx)
+        );
+      }
+    );
+    ei = (ei + usize(1));
+  };
+
+  // --- Structs: first-wins (walk begin blocks recursively) ---
+  _emit_struct_defs :: (fn(e : AstExpr, c : *(CodegenContext)) -> unit)(
+    match(e,
+      .Atom(_, _) => (),
+      .FnCall(_, _, eargs, _, _) => cond(
+        is_begin_block(e) => {
+          en := eargs.len();
+          (si : usize) = usize(0);
+          while runtime((si < en)), {
+            match(eargs.get(si),
+              .None => (),
+              .Some(stmt) => {
+                match(extract_struct_def(stmt),
+                  .Some(sd) => cond(
+                    (sd.field_names.len() == usize(0)) => (),
+                    true => emit_struct_to_c(sd, c)
+                  ),
+                  .None => match(extract_union_def(stmt),
+                    .Some(ud) => emit_union_to_c(ud, c),
+                    .None => {
+                      // Check for type alias: `Name :: OtherTypeName`
+                      // If OtherTypeName is a registered struct/enum, emit typedef.
+                      alias_emitted := match(stmt,
+                        .Atom(_, _) => false,
+                        .FnCall(_, alias_fn, alias_args, alias_infix, _) => cond(
+                          (!(alias_infix && (alias_args.len() == usize(2)))) => false,
+                          true => match(alias_fn.*,
+                            .FnCall(_, _, _, _, _) => false,
+                            .Atom(_, alias_op) => cond(
+                              (!(alias_op.value.as_str() == "::")) => false,
+                              true => match(alias_args.get(usize(0)),
+                                .None => false,
+                                .Some(lhs_e) => match(alias_args.get(usize(1)),
+                                  .None => false,
+                                  .Some(rhs_e) => match(lhs_e,
+                                    .FnCall(_, _, _, _, _) => false,
+                                    .Atom(_, lhs_tok) => cond(
+                                      (lhs_tok.kind != TokenKind.Identifier) => false,
+                                      true => match(rhs_e,
+                                        .FnCall(_, _, _, _, _) => false,
+                                        .Atom(_, rhs_tok) => cond(
+                                          (rhs_tok.kind != TokenKind.Identifier) => false,
+                                          // RHS must be a registered struct or enum
+                                          (c.*.is_struct_name(rhs_tok.value.as_str())) => {
+                                            // Emit: typedef RhsName LhsName;
+                                            td := String.from("typedef ");
+                                            td.push_string(rhs_tok.value);
+                                            td.push_str(" ");
+                                            td.push_string(lhs_tok.value);
+                                            td.push_str(";");
+                                            c.*.emitter.emit_declaration_string_line(td);
+                                            // Register alias as struct with same fields
+                                            match(c.*.get_struct_fields(rhs_tok.value.as_str()),
+                                              .None => { c.*.register_struct(String.from(lhs_tok.value.as_str())); },
+                                              .Some(fcsv) => {
+                                                c.*.register_struct(String.from(lhs_tok.value.as_str()));
+                                                c.*.register_struct_fields(lhs_tok.value.as_str(), fcsv.as_str());
+                                              }
+                                            );
+                                            true
+                                          },
+                                          (c.*.is_enum_name(rhs_tok.value.as_str())) => {
+                                            // Emit: typedef RhsName LhsName;
+                                            td := String.from("typedef ");
+                                            td.push_string(rhs_tok.value);
+                                            td.push_str(" ");
+                                            td.push_string(lhs_tok.value);
+                                            td.push_str(";");
+                                            c.*.emitter.emit_declaration_string_line(td);
+                                            c.*.register_enum(String.from(lhs_tok.value.as_str()));
+                                            true
+                                          },
+                                          true => false
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      );
+                      if((!alias_emitted), { recur(stmt, c); });
+                    }
+                  )
+                );
+              }
+            );
+            si = (si + usize(1));
+          };
+        },
+        true => ()
+      )
+    )
+  );
+  _emit_struct_defs(expr, ctx);
+
+  // --- Array type aliases: `NAME :: [T; N]` ---
+  // Walk the body recursively and register each fixed-size array alias so that
+  // `b := NAME(v1, v2, ...)` can be emitted as `elem_type b[N] = {v1, v2, ...}`.
+  _collect_array_aliases :: (fn(e : AstExpr, c : *(CodegenContext)) -> unit)(
+    match(e,
+      .Atom(_, _) => (),
+      .FnCall(_, ef_box, ef_args, ef_infix, _) => cond(
+        is_begin_block(e) => {
+          na_e := ef_args.len();
+          (ia : usize) = usize(0);
+          while runtime((ia < na_e)), {
+            match(ef_args.get(ia),
+              .None => (),
+              .Some(stmt) => { recur(stmt, c); }
+            );
+            ia = (ia + usize(1));
+          };
+        },
+        // `NAME :: Array(T, N)` — infix `::` with RHS = FnCall(Atom("Array"), [T, N])
+        (ef_infix && (ef_args.len() == usize(2))) => match(ef_box.*,
+          .FnCall(_, _, _, _, _) => (),
+          .Atom(_, op_tok) => cond(
+            (!(op_tok.value.as_str() == "::")) => (),
+            true => match(ef_args.get(usize(0)),
+              .None => (),
+              .Some(name_e) => match(name_e,
+                .FnCall(_, _, _, _, _) => (),
+                .Atom(_, name_tok) => cond(
+                  (name_tok.kind != TokenKind.Identifier) => (),
+                  true => match(ef_args.get(usize(1)),
+                    .None => (),
+                    .Some(rhs_e) => match(rhs_e,
+                      .Atom(_, _) => (),
+                      .FnCall(_, rhs_fn, rhs_args, rhs_infix, _) => cond(
+                        rhs_infix => (),
+                        (rhs_args.len() != usize(2)) => (),
+                        true => match(rhs_fn.*,
+                          .FnCall(_, _, _, _, _) => (),
+                          .Atom(_, rfntok) => cond(
+                            (!(rfntok.value.as_str() == BK_ARRAY)) => (),
+                            true => match(rhs_args.get(usize(0)),
+                              .None => (),
+                              .Some(elem_e) => match(type_expr_to_c(elem_e),
+                                .None => (),
+                                .Some(elem_c) => match(rhs_args.get(usize(1)),
+                                  .None => (),
+                                  .Some(size_e) => match(size_e,
+                                    .FnCall(_, _, _, _, _) => (),
+                                    .Atom(_, sz_tok) => cond(
+                                      (sz_tok.kind != TokenKind.Integer) => (),
+                                      true => {
+                                        // Parse the size integer
+                                        sz_str := sz_tok.value.as_str();
+                                        sz := usize(0);
+                                        (si : usize) = usize(0);
+                                        while runtime((si < sz_str.len())), {
+                                          ch_opt := sz_tok.value.at(si);
+                                          match(ch_opt,
+                                            .None => (),
+                                            .Some(ch) => {
+                                              if(((ch.char >= u32(48)) && (ch.char <= u32(57))), {
+                                                sz = ((sz * usize(10)) + usize((ch.char - u32(48))));
+                                              });
+                                            }
+                                          );
+                                          si = (si + usize(1));
+                                        };
+                                        c.*.register_array_alias(name_tok.value.as_str(), elem_c.as_str(), sz);
+                                      }
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        ),
+        true => ()
+      )
+    )
+  );
+  _collect_array_aliases(expr, ctx);
+});
+
+/// Scan a begin-block for `NAME :: literal` comptime constant definitions and
+/// emit them as C `#define NAME value` macros.
+///
+/// Only simple literal values are handled: integer, float, bool.
+/// Complex RHS expressions are silently ignored.
+///
+/// Called in `compile_test_body_to_c` before hoisting functions so that
+/// any referenced constant names resolve in hoisted C functions.
+emit_comptime_const_defs :: (fn(body : AstExpr, ctx : *(CodegenContext)) -> unit)(
+  match(body,
+    .Atom(_, _) => (),
+    .FnCall(_, _, bargs, _, _) => cond(
+      is_begin_block(body) => {
+        nb := bargs.len();
+        (ib : usize) = usize(0);
+        while runtime((ib < nb)), {
+          match(bargs.get(ib),
+            .None => (),
+            .Some(stmt) => match(stmt,
+              .Atom(_, _) => (),
+              .FnCall(_, sfunc, sargs, sinfix, _) => cond(
+                // Must be infix `::` with 2 args
+                (!(sinfix)) => (),
+                (sargs.len() != usize(2)) => (),
+                (!(match(sfunc.*,
+                  .Atom(_, sfatom) => (sfatom.value.as_str() == "::"),
+                  .FnCall(_, _, _, _, _) => false
+                ))) => (),
+                true => match(sargs.get(usize(0)),
+                  .None => (),
+                  .Some(name_expr) => match(sargs.get(usize(1)),
+                    .None => (),
+                    .Some(val_expr) => match(name_expr,
+                      .FnCall(_, _, _, _, _) => (),
+                      .Atom(_, natom) => cond(
+                        (natom.kind != TokenKind.Identifier) => (),
+                        true => match(val_expr,
+                          .FnCall(_, _, _, _, _) => (),
+                          .Atom(_, vatom) => cond(
+                            (vatom.kind == TokenKind.Integer) => {
+                              line := String.from("static const int32_t ");
+                              line.push_string(natom.value);
+                              line.push_str(" = ");
+                              line.push_string(vatom.value);
+                              line.push_str(";");
+                              ctx.*.emitter.emit_line(line.as_str());
+                            },
+                            (vatom.kind == TokenKind.Float) => {
+                              line := String.from("static const double ");
+                              line.push_string(natom.value);
+                              line.push_str(" = ");
+                              line.push_string(vatom.value);
+                              line.push_str(";");
+                              ctx.*.emitter.emit_line(line.as_str());
+                            },
+                            (vatom.kind == TokenKind.Bool) => {
+                              line := String.from("static const bool ");
+                              line.push_string(natom.value);
+                              line.push_str(" = ");
+                              line.push_string(vatom.value);
+                              line.push_str(";");
+                              ctx.*.emitter.emit_line(line.as_str());
+                            },
+                            true => ()
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          );
+          ib = (ib + usize(1));
+        };
+      },
+      true => ()
+    )
+  )
+);
+
+/// Recursively scan a begin-block AST for local `name :: fn` definitions.
+///
+/// Walks the expression tree depth-first. Any statement that matches
+/// `extract_fn_def` is appended to `result`. Nested begin blocks are
+/// scanned recursively so inner scopes are also covered.
+///
+/// Used by `compile_test_body_to_c` to hoist local function definitions
+/// before the test body function, enabling forward-declaration-free C output.
+collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> unit)({
+  match(expr,
+    .Atom(_, _) => (),
+    .FnCall(_, top_func, args, top_infix, _) => {
+      // Try to extract this expression itself as a fn definition.
+      match(extract_fn_def(expr),
+        .Some(fd) => { _r := result.*.push(fd); () },
+        .None => {
+          // Try to extract impl methods from `impl(TypeName, { ... })`.
+          cond(
+            top_infix => (),
+            true => match(top_func.*,
+              .FnCall(_, _, _, _, _) => (),
+              .Atom(_, ftok) => cond(
+                (!(ftok.value.as_str() == "impl")) => (),
+                (args.len() < usize(1)) => (),
+                true => match(args.get(usize(0)),
+                  .None => (),
+                  .Some(ty_expr) => match(atom_ident(ty_expr),
+                    .None => (),
+                    .Some(type_prefix) => {
+                      impl_fns := extract_impl_fns(expr, type_prefix);
+                      nim := impl_fns.len();
+                      (im : usize) = usize(0);
+                      while runtime((im < nim)), {
+                        im = (im + usize(1));
+                        match(impl_fns.get(im - usize(1)),
+                          .None => (),
+                          .Some(ifd) => { _ri := result.*.push(ifd); () }
+                        );
+                      };
+                    }
+                  )
+                )
+              )
+            )
+          );
+        }
+      );
+      // If this is a begin block, recurse into each statement.
+      cond(
+        is_begin_block(expr) => {
+          n := args.len();
+          (i : usize) = usize(0);
+          while runtime((i < n)), {
+            match(args.get(i),
+              .None => (),
+              .Some(s) => recur(s, result)
+            );
+            i = (i + usize(1));
+          };
+        },
+        true => ()
+      );
+    }
+  );
+});
+
 /// Generate a complete C11 test program from a bare test body expression.
 ///
 /// The body is wrapped in a `static void fn_test_body(void)` function.
@@ -838,13 +2145,51 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
     ie = (ie + usize(1));
     match(module_exprs.get(ie - usize(1)),
       .None => (),
-      .Some(mexpr) => match(extract_fn_def(mexpr),
-        .None => (),
-        .Some(fd) => {
-          name_copy := String.from(fd.name.as_str());
-          pctx.*.register_fn(name_copy);
-        }
-      )
+      .Some(mexpr) => {
+        match(extract_fn_def(mexpr),
+          .None => {
+            // Also register impl methods so static calls get fn_ prefix
+            impl_fns_pass1 := extract_impl_fns(mexpr, "");
+            // The prefix is "" here; actual name is already prefixed in extract_impl_fns
+            // But we call it with "" so we need to actually extract the type name first
+            match(mexpr,
+              .Atom(_, _) => (),
+              .FnCall(_, mf, margs, minfix, _) => cond(
+                minfix => (),
+                (margs.len() < usize(1)) => (),
+                true => match(mf.*,
+                  .FnCall(_, _, _, _, _) => (),
+                  .Atom(_, mtok) => cond(
+                    (!(mtok.value.as_str() == "impl")) => (),
+                    true => match(margs.get(usize(0)),
+                      .None => (),
+                      .Some(ty_expr) => match(atom_ident(ty_expr),
+                        .None => (),
+                        .Some(tp) => {
+                          impl_fns_tp := extract_impl_fns(mexpr, tp);
+                          n_imp := impl_fns_tp.len();
+                          (ii : usize) = usize(0);
+                          while runtime((ii < n_imp)), {
+                            ii = (ii + usize(1));
+                            match(impl_fns_tp.get(ii - usize(1)),
+                              .None => (),
+                              .Some(ifd) => { pctx.*.register_fn_with_params(String.from(ifd.name.as_str()), build_param_tys_pipe(ifd.param_tys)); }
+                            );
+                          };
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            );
+          },
+          .Some(fd) => {
+            name_copy := String.from(fd.name.as_str());
+            pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+          }
+        );
+      }
     );
   };
 
@@ -873,16 +2218,182 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           .None => {
             // Emit enum definitions
             match(extract_enum_def(mexpr),
-              .Some(ed) => { emit_enum_to_c(ed, pctx); },
+              .Some(ed) => cond(
+                (ed.variants.len() == usize(0)) => (),
+                true => { emit_enum_to_c(ed, pctx); }
+              ),
               .None => {
             // Emit struct definitions
             match(extract_struct_def(mexpr),
-              .Some(sd) => { emit_struct_to_c(sd, pctx); },
-              .None => ()
+              .Some(sd) => cond(
+                (sd.field_names.len() == usize(0)) => (),
+                true => { emit_struct_to_c(sd, pctx); }
+              ),
+              .None => {
+            // Emit union definitions
+            match(extract_union_def(mexpr),
+              .Some(ud) => { emit_union_to_c(ud, pctx); },
+              .None => {
+            // Emit impl methods
+            match(mexpr,
+              .Atom(_, _) => (),
+              .FnCall(_, mf2, margs2, minfix2, _) => cond(
+                minfix2 => (),
+                (margs2.len() < usize(1)) => (),
+                true => match(mf2.*,
+                  .FnCall(_, _, _, _, _) => (),
+                  .Atom(_, mtok2) => cond(
+                    (!(mtok2.value.as_str() == "impl")) => (),
+                    true => match(margs2.get(usize(0)),
+                      .None => (),
+                      .Some(ty_expr2) => match(atom_ident(ty_expr2),
+                        .None => (),
+                        .Some(tp2) => {
+                          impl_fns2 := extract_impl_fns(mexpr, tp2);
+                          n_impl2 := impl_fns2.len();
+                          (ii2 : usize) = usize(0);
+                          while runtime((ii2 < n_impl2)), {
+                            ii2 = (ii2 + usize(1));
+                            match(impl_fns2.get(ii2 - usize(1)),
+                              .None => (),
+                              .Some(ifd2) => {
+                                c_name3 := `fn_${ ifd2.name }`;
+                                // Determine the implementing type (strip leading `TypeName_` prefix)
+                                // tp2 holds the Yo type name (e.g. "SomeUnion").
+                                pctx.*.set_self_type(tp2);
+                                generate_function(
+                                  c_name3.as_str(),
+                                  ifd2.ret_ty_c.as_str(),
+                                  ifd2.params,
+                                  ifd2.param_tys,
+                                  ifd2.body,
+                                  pctx
+                                );
+                                pctx.*.set_self_type("");
+                              }
+                            );
+                          };
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            );
+              }
+            );
+              }
             );
               }
             );
           }
+        );
+      }
+    );
+  };
+
+  // === Pass 2.5: emit struct/enum type definitions from the test body ===
+  //
+  // Test bodies may define types inline (e.g., `Color :: enum(Red, Green, Blue)`).
+  // These must be emitted as C typedef declarations BEFORE any hoisted functions
+  // that take those types as parameters.
+  emit_local_type_defs(body, pctx);
+  emit_comptime_const_defs(body, pctx);
+
+  // === Pass 3: hoist local function definitions from inside the test body ===
+  //
+  // Yo allows function definitions anywhere in a begin block. C requires all
+  // functions at file scope. We recursively scan the test body for any
+  // `name :: fn` bindings and emit them as C functions before the test body
+  // function so that call sites can resolve without forward declarations.
+  //
+  // Only hoist functions that are actually called in the test body. Functions
+  // that are only defined (but never called from the test body scope) are
+  // skipped. This avoids hoisting complex functions with comptime types or
+  // unsupported constructs that would fail to compile.
+  //
+  // Impl methods (from `impl(TypeName, { ... })`) are always hoisted since
+  // they are called as `TypeName.method()` and `is_fn_name_called` won't
+  // detect them.
+  local_fns := ArrayList(FnDef).new();
+  collect_local_fn_defs(body, &local_fns);
+  nf := local_fns.len();
+
+  // First pass: register impl method names so call sites get fn_ prefix.
+  (jf0 : usize) = usize(0);
+  while runtime((jf0 < nf)), {
+    jf0 = (jf0 + usize(1));
+    match(local_fns.get(jf0 - usize(1)),
+      .None => (),
+      .Some(lfd0) => {
+        // Only pre-register impl method names (called as TypeName.method()).
+        if(lfd0.is_impl, {
+          pctx.*.register_fn_with_params(String.from(lfd0.name.as_str()), build_param_tys_pipe(lfd0.param_tys));
+        });
+      }
+    );
+  };
+
+  hoisted_names := ArrayList(String).new();
+  (jf : usize) = usize(0);
+  while runtime((jf < nf)), {
+    jf = (jf + usize(1));
+    match(local_fns.get(jf - usize(1)),
+      .None => (),
+      .Some(lfd) => {
+        // Only hoist if:
+        // 1. Name has not already been hoisted (avoid duplicate C symbols)
+        // 2. Either it is called in the test body (regular fn) OR it's an impl method
+        //    (impl methods are called as TypeName.method() which won't match is_fn_name_called)
+        already_hoisted := {
+          hn := hoisted_names.len();
+          (hi : usize) = usize(0);
+          (found_dup : bool) = false;
+          while runtime(((hi < hn) && (!(found_dup)))), {
+            match(hoisted_names.get(hi),
+              .None => (),
+              .Some(hn_s) => { if((hn_s.as_str() == lfd.name.as_str()), { found_dup = true; }); }
+            );
+            hi = (hi + usize(1));
+          };
+          found_dup
+        };
+        cond(
+          already_hoisted => (),
+          (lfd.is_impl && (!(is_fn_name_called(lfd.name.as_str(), body)))) => {
+            // Impl method not directly called — hoist unconditionally since it's
+            // invoked as TypeName.method() which is_fn_name_called won't detect.
+            c_name2 := `fn_${ lfd.name }`;
+            pctx.*.set_self_type(lfd.impl_type.as_str());
+            generate_function(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              lfd.body,
+              pctx
+            );
+            pctx.*.set_self_type("");
+            _rh2 := hoisted_names.push(String.from(lfd.name.as_str()));
+            ()
+          },
+          (is_fn_name_called(lfd.name.as_str(), body)) => {
+            // Regular local function that is directly called in the test body.
+            name_copy2 := String.from(lfd.name.as_str());
+            pctx.*.register_fn_with_params(name_copy2, build_param_tys_pipe(lfd.param_tys));
+            c_name2 := `fn_${ lfd.name }`;
+            generate_function(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              lfd.body,
+              pctx
+            );
+            _rh := hoisted_names.push(String.from(lfd.name.as_str()));
+            ()
+          },
+          true => ()
         );
       }
     );

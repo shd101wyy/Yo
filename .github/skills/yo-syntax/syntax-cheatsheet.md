@@ -90,6 +90,7 @@ Key rules:
 - In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
 - **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
 
 ## Calls, operators, and whitespace
@@ -818,4 +819,93 @@ Always merge them into a single destructuring import:
 
 // ✅ Merged
 { Foo, Bar } :: import "../../mod.yo";
+```
+
+### Implicit (`using`) parameters cannot be used with `:=` assignment
+
+Implicit effect parameters introduced via `using(name : Type)` cannot be bound
+to a discarded variable with `:= name`. They can only be passed via `using()`.
+To suppress "unused parameter" warnings for an implicit param, simply omit the
+discard assignment — implicit params never trigger unused-variable errors.
+
+```rust
+// WRONG — implicit variable cannot be used in assignment:
+foo :: (fn(using(exn : Exception)) -> unit)({
+  _ := exn;   // ERROR: Cannot use implicit variable "exn" in assignment
+  ()
+});
+
+// CORRECT — just omit the discard line:
+foo :: (fn(using(exn : Exception)) -> unit)({
+  ()
+});
+```
+
+### Nested `Option` patterns require staging
+
+`match` does not support nested destructuring patterns like `.Some(.TypeVal(x))`.
+Split into two separate `match` expressions.
+
+```rust
+// WRONG — nested option pattern:
+match(opt_value,
+  .Some(.TypeVal(box)) => { ... },   // ERROR
+  _ => { ... }
+);
+
+// CORRECT — match in two stages:
+match(opt_value,
+  .Some(v) => match(v,
+    .TypeVal(box) => { ... },
+    _ => { ... }
+  ),
+  .None => { ... }
+);
+```
+
+### Outer match on `Option` must have `.None` arm
+
+When using `match(opt, .Some(x) => match(x, ...), ...)`, the outer match
+needs its own `.None` arm. The inner match's `_ =>` wildcard does NOT cover
+the outer match's `.None` variant.
+
+```rust
+// WRONG — outer match missing .None:
+match(opt_callee_value,
+  .Some(cv) => match(cv,
+    .Foo(x) => { ... },
+    _ => { throw_phase3() }   // inner wildcard, does NOT cover outer .None
+  )                           // outer match closes here — .None uncovered!
+);
+
+// CORRECT — add explicit .None arm to outer match:
+match(opt_callee_value,
+  .Some(cv) => match(cv,
+    .Foo(x) => { ... },
+    _ => { throw_phase3() }
+  ),
+  .None => { throw_phase3_none() }
+);
+```
+
+### Parenthesis balance in deeply nested matches
+
+When using `match(outer, .Some(x) => match(inner, ...), .None => ...)`,
+count parentheses carefully:
+
+- The inner `match(inner, ...)` closes with its own `)`
+- AFTER that `)`, add a `,` then the outer `.None =>` arm
+- The outer match closes with its own `)`
+- Only then does `});` close the function body
+
+```rust
+// Correct structure:
+match(outer_val,
+  .Some(x) => match(x,
+    arm1,
+    arm2,
+    _ => { fallback() }   // last inner arm, no trailing comma
+  ),                       // ← closes inner match; `,` continues outer
+  .None => { fallback() } // ← outer .None arm
+)                          // ← closes outer match
 ```

@@ -881,6 +881,77 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
 
 /// Handle `if(cond, then)` or `if(cond, then, else)`.
 /// Uses g_eval_fn for recursive evaluation.
+// ---------------------------------------------------------------------------
+// Anonymous struct literal helper — Phase 2bk
+// Handles _(field: val, …) and _(val, …) in the mini-evaluator.
+// Factored out of evaluate to keep evaluate's C stack frame small.
+// ---------------------------------------------------------------------------
+handle_anon_struct_form :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))({
+  n_as := args.len();
+  fn_as := ArrayList(String).new();
+  fv_as := ArrayList(EvalValue).new();
+  (as_i : usize) = usize(0);
+  (as_ok : bool) = true;
+  while runtime(((as_i < n_as) && as_ok)), {
+    match(args.get(as_i),
+      .Some(as_arg) =>
+        match(as_arg,
+          // Could be a labeled field: label : value  (infix ":" call)
+          .FnCall(_, as_f, as_na, as_infix, _) =>
+            cond(
+              (as_infix && match(as_f.*, .Atom(_, as_ct) => (as_ct.value.as_str() == ":"), .FnCall(_, _, _, _, _) => false)) =>
+                match(as_na.get(usize(0)),
+                  .Some(as_le) =>
+                    match(as_le,
+                      .Atom(_, as_lt) =>
+                        match(as_na.get(usize(1)),
+                          .Some(as_ve) =>
+                            match(match(g_eval_fn, .Some(ef) => ef(as_ve, env), .None => Option(EvalResult).None),
+                              .Some(as_vr) => {
+                                fn_as.push(as_lt.value);
+                                fv_as.push(as_vr.value);
+                              },
+                              .None => { as_ok = false; }
+                            ),
+                          .None => { as_ok = false; }
+                        ),
+                      .FnCall(_, _, _, _, _) => { as_ok = false; }
+                    ),
+                  .None => { as_ok = false; }
+                ),
+              // positional FnCall field
+              true =>
+                match(match(g_eval_fn, .Some(ef) => ef(as_arg, env), .None => Option(EvalResult).None),
+                  .Some(as_pr) => {
+                    fn_as.push(String.from("__field_").concat(as_i.to_string()));
+                    fv_as.push(as_pr.value);
+                  },
+                  .None => { as_ok = false; }
+                )
+            ),
+          // positional Atom field (e.g., integer, bool literal)
+          .Atom(_, _) =>
+            match(match(g_eval_fn, .Some(ef) => ef(as_arg, env), .None => Option(EvalResult).None),
+              .Some(as_pr) => {
+                fn_as.push(String.from("__field_").concat(as_i.to_string()));
+                fv_as.push(as_pr.value);
+              },
+              .None => { as_ok = false; }
+            )
+        ),
+      .None => { as_ok = false; }
+    );
+    as_i = (as_i + usize(1));
+  };
+  cond(
+    (!(as_ok)) => Option(EvalResult).None,
+    true => .Some(eval_result(.StructVal(String.from("_"), fn_as, fv_as), t_unit()))
+  )
+});
+
 handle_if_form :: (fn(
   args : ArrayList(AstExpr),
   env  : *(Environment)
@@ -2228,6 +2299,12 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // Delegated to handle_impl_form to keep evaluate's frame small.
             // -----------------------------------------------------------------
             (fval == "impl") => handle_impl_form(args, env),
+
+            // -----------------------------------------------------------------
+            // Anonymous struct literal: _(field: val, …) or _(val, …)
+            // Labeled fields keep their name; positional fields get "__field_N".
+            // -----------------------------------------------------------------
+            (fval == BK_ANON_STRUCT) => handle_anon_struct_form(args, env),
 
             true => {
               // Detect struct construction: first arg is a `:` infix call (named field)

@@ -98,6 +98,7 @@ open import "std/string";
 { evaluate_integer_literal } :: import "../values/integer.yo";
 { evaluate_string_literal } :: import "../values/string.yo";
 { evaluate_tuple_value } :: import "../values/tuple.yo";
+{ evaluate_anonymous_struct_value } :: import "../values/anonymous_struct.yo";
 { evaluate_array_type } :: import "../types/array.yo";
 { evaluate_closure_type } :: import "../types/closure.yo";
 { evaluate_comptime_list_type } :: import "../types/comptime_list.yo";
@@ -307,6 +308,8 @@ _evaluate_expression :: (fn(
           evaluate_match(expr, env, ctx, using(exn)),
         ast_expr_is_fn_call_of(expr, BK_TUPLE, .None) =>
           evaluate_tuple_value(expr, env, ctx, using(exn)),
+        ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None) =>
+          evaluate_anonymous_struct_value(expr, env, ctx, using(exn)),
         ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, .None) =>
           evaluate_array_value(expr, env, ctx, using(exn)),
         ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_VAL, .None) =>

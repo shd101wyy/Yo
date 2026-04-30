@@ -164,7 +164,8 @@ TypeValue :: enum(
     required_trait_types  : ArrayList(Self),   // required trait constraints
     required_trait_levels : ArrayList(usize),  // frame-level of each constraint
     negative_trait_types  : ArrayList(Self),   // negative trait constraints
-    negative_trait_levels : ArrayList(usize)   // frame-level of each negative constraint
+    negative_trait_levels : ArrayList(usize),  // frame-level of each negative constraint
+    is_effects_row        : bool               // true when this SomeType represents an effect-row spread `...(E)`
   ),
 
   // Phase 2f: advanced type variants ----------------------------------------
@@ -406,7 +407,8 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     generate_some_type_id(), name, frame_level,
     Box(TypeValue)(.TypeUni(usize(0))),
     ArrayList(TypeValue).new(), ArrayList(usize).new(),
-    ArrayList(TypeValue).new(), ArrayList(usize).new()
+    ArrayList(TypeValue).new(), ArrayList(usize).new(),
+    false
   )
 );
 

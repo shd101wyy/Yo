@@ -1,0 +1,63 @@
+//! evaluator/values/anonymous_module — stub for evaluate_anonymous_module_begin_exprs.
+//!
+//! Phase 2bl stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/values/anonymous-module.ts`.
+//!
+//! Evaluates module-body expressions and produces a `ModuleVal` + `ModuleT`.
+//! Depends on the full `evaluate_expression` function pointer and module-level
+//! infrastructure (`allow_partial_module`, `register_partial_module`).
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalValue }                              :: import "../value.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Result type for `evaluate_anonymous_module_begin_exprs`.
+///
+/// Mirrors the return value of `evaluateAnonymousModuleBeginExprs` in
+/// `src/evaluator/values/anonymous-module.ts`.
+AnonModuleResult :: object(
+  module_value         : EvalValue,
+  module_type          : TypeValue,
+  env                  : Environment,
+  partial_module_error : Option(String)
+);
+
+/// Evaluate a list of module-body expressions (the body of a `module { ... }` block)
+/// and produce a `ModuleVal` + `ModuleT`.
+///
+/// Phase 2bl stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `evaluateAnonymousModuleBeginExprs` in
+/// `src/evaluator/values/anonymous-module.ts`.
+evaluate_anonymous_module_begin_exprs :: (fn(
+  begin_exprs : ArrayList(AstExpr),
+  env         : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> AnonModuleResult)({
+  _ := begin_exprs;
+  _ := env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(make_err_expr()),
+    String.from("evaluate_anonymous_module_begin_exprs: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  AnonModuleResult(
+    module_value:         EvalValue.UnitVal,
+    module_type:          TypeValue.Unit,
+    env:                  env,
+    partial_module_error: Option(String).None
+  )
+});
+
+export AnonModuleResult;
+export evaluate_anonymous_module_begin_exprs;

@@ -37,6 +37,7 @@ open import "std/fmt";
 { evaluate_expression }                                               :: import "../exprs/expr.yo";
 { HashMap }                                                           :: import "std/collections/hash_map";
 { ArrayList }                                                         :: import "std/collections/array_list";
+{ type_implements_fn }                                                :: import "../trait_checking.yo";
 
 // ---------------------------------------------------------------------------
 // TypeField
@@ -73,38 +74,6 @@ register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> uni
 
 get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.get(id)
-);
-
-// ---------------------------------------------------------------------------
-// Internal helper: type_implements_fn
-// ---------------------------------------------------------------------------
-
-/// Check if a type implements Fn (is a function-like type).
-/// Mirrors TypeScript `typeImplementsFn` from `src/evaluator/trait-checking.ts`.
-type_implements_fn :: (fn(ty : TypeValue) -> bool)(
-  match(ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _) => {
-      i := usize(0);
-      (found : bool) = false;
-      while runtime((i < required_trait_types.len()) && !(found)), {
-        trait_ty := match(required_trait_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        match(trait_ty, .FnTraitT(_, _, _, _) => { found = true; }, _ => ());
-        i = (i + usize(1));
-      };
-      found
-    },
-    .DynT(required_trait_types, _, _, _) => {
-      i := usize(0);
-      (found : bool) = false;
-      while runtime((i < required_trait_types.len()) && !(found)), {
-        trait_ty := match(required_trait_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        match(trait_ty, .FnTraitT(_, _, _, _) => { found = true; }, _ => ());
-        i = (i + usize(1));
-      };
-      found
-    },
-    _ => false
-  )
 );
 
 // ---------------------------------------------------------------------------

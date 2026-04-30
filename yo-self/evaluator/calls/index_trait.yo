@@ -1,0 +1,82 @@
+//! evaluator/calls/index_trait — stubs for Index-trait call dispatch.
+//!
+//! Phase 2bk stub. Full implementation planned for Phase 3.
+//! 1:1 port of `src/evaluator/calls/index-trait.ts`.
+//!
+//! Exports:
+//!   `try_to_call_with_index_trait` — dispatches `value(arg)` through the Index trait.
+//!   `has_index_impl`               — checks if a type has any matching Index impl.
+//!
+//! These functions handle `value(arg)` calls where `value` has an `index` method
+//! via the Index trait. They depend on `evaluateExpression` and the comptime
+//! function call infrastructure, both of which are Phase 3.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                            :: import "../../env/env.yo";
+{ TypeValue }                              :: import "../../types/type.yo";
+{ EvalValue }                              :: import "../value.yo";
+{ EvalContext, IndexCallResult }           :: import "../context.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
+
+/// Dispatch `value(arg)` via the Index trait.
+///
+/// Desugars: `value(arg)` → `Index(typeof(arg)).index(&(value), arg).*`
+///
+/// Phase 2bk stub: throws "not yet implemented". Full implementation in Phase 3.
+///
+/// Mirrors `tryToCallWithIndexTrait` in `src/evaluator/calls/index-trait.ts`.
+try_to_call_with_index_trait :: (fn(
+  expr        : AstExpr,
+  value_type  : TypeValue,
+  self_value  : Option(EvalValue),
+  arg_exprs   : ArrayList(AstExpr),
+  caller_env  : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> IndexCallResult)({
+  _ := value_type;
+  _ := self_value;
+  _ := arg_exprs;
+  _ := caller_env;
+  _ := ctx;
+  exn.throw(dyn format_error_message(
+    ast_expr_token(expr),
+    String.from("try_to_call_with_index_trait: not yet implemented (Phase 3)"),
+    false,
+    .None
+  ));
+  IndexCallResult(
+    value:              Option(EvalValue).None,
+    ty:                 TypeValue.Unit,
+    ptr_type:           TypeValue.Unit,
+    index_method_type:  Option(TypeValue).None,
+    index_method_value: Option(EvalValue).None,
+    caller_env:         caller_env,
+    index:              Option(usize).None
+  )
+});
+
+/// Check if a type has any matching Index impl for a given set of argument expressions.
+///
+/// Phase 2bk stub: always returns `false`. Full implementation in Phase 3.
+///
+/// Mirrors `hasIndexImpl` in `src/evaluator/calls/index-trait.ts`.
+has_index_impl :: (fn(
+  concrete_type : TypeValue,
+  arg_exprs     : ArrayList(AstExpr),
+  caller_env    : Environment,
+  ctx           : *(EvalContext)
+) -> bool)({
+  _ := concrete_type;
+  _ := arg_exprs;
+  _ := caller_env;
+  _ := ctx;
+  false
+});
+
+export try_to_call_with_index_trait;
+export has_index_impl;
