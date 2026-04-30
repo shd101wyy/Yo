@@ -4355,6 +4355,18 @@ handle_method_call :: (fn(
             result_is.push_str(") == NULL)");
             Option(String).Some(result_is)
           },
+          // `String.from(s)` — identity in proto codegen (String == const char*)
+          (((recv_code.as_str() == "String") && (method_name.as_str() == "from")) && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(arg_e) => call_gen_expr(arg_e, ctx, indent)
+            ),
+          // `String.new()` — empty string literal in proto codegen
+          (((recv_code.as_str() == "String") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("\"\"")),
+          // `.as_str()` — identity in proto codegen (String == str == const char*)
+          ((method_name.as_str() == "as_str") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
           // Default: emit as C method call `recv.method(args)`
           true => match(gen_arg_list(args, ctx, indent),
             .None        => Option(String).None,
