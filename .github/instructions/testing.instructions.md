@@ -33,10 +33,32 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
 - Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
 - Run evaluator only: `./yo-cli test ./yo-self/tests/eval.test.yo`
-- Currently 180 tests (33 lexer + 36 parser + 15 types/env + 51 evaluator + 45 other), ~7 minutes.
+- Currently 939 tests, ~10 minutes native, ~10 minutes WASM (see WASM workaround below).
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
+
+### macOS AMFI / "launched-suspended" workaround
+
+On macOS 26+ (beta builds), locally-compiled C binaries may enter a "launched-suspended"
+state and never start executing (kernel security validation blocks them). This affects
+`./yo-cli test` for all test files, not just yo-self tests.
+
+**Workaround**: use `--target wasm-wasi` to compile tests to WASM and run them with
+`wasmtime` (available via the Nix shell):
+
+```bash
+./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
+./yo-cli test ./yo-self/tests/eval.test.yo --target wasm-wasi --parallel 1
+```
+
+The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
+`-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries
+(like eval.test.yo which imports the 693-local evaluate() function) have
+sufficient memory.
+
+Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
+skipped via `// @skip_wasm32-wasi` and are not required for CI on affected systems.
 
 ### ASAN stack depth limit for yo-self evaluator tests
 
