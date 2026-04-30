@@ -2886,7 +2886,7 @@ handle_define :: (fn(
                               (!(range_infix2 && (range_args2.len() == usize(2)))) => false,
                               true => match(range_fn2.*,
                                 .FnCall(_, _, _, _, _) => false,
-                                .Atom(_, rtok2) => (rtok2.value.as_str() == "..")
+                                .Atom(_, rtok2) => ((rtok2.value.as_str() == "..") || (rtok2.value.as_str() == "..="))
                               )
                             )
                           )
@@ -3602,7 +3602,7 @@ handle_regular_call :: (fn(
                           }
                         ),
                       .Atom(_, rtok) => cond(
-                        (rtok.value.as_str() != "..") =>
+                        ((rtok.value.as_str() != "..") && (rtok.value.as_str() != "..=")) =>
                           // Not a range — treat as regular index
                           match(call_gen_expr(arg_e, ctx, indent),
                             .None => Option(String).None,
@@ -3616,7 +3616,7 @@ handle_regular_call :: (fn(
                             }
                           ),
                         true =>
-                          // Range! emit slice compound literal
+                          // Range or inclusive range — emit slice compound literal
                           match(range_args.get(usize(0)),
                             .None => Option(String).None,
                             .Some(start_e) => match(range_args.get(usize(1)),
@@ -3627,18 +3627,35 @@ handle_regular_call :: (fn(
                                   .None => Option(String).None,
                                   .Some(end_c) => {
                                     san_arr := sanitize_c_ident(id.as_str());
-                                    // (struct { __typeof__(arr[0])* data; size_t length; }){.data=&arr[start], .length=end-start}
+                                    // Inclusive ..= adds 1 to the length
+                                    length_expr := cond(
+                                      (rtok.value.as_str() == "..=") => {
+                                        le := String.from("(");
+                                        le.push_string(end_c);
+                                        le.push_str(") - (");
+                                        le.push_string(start_c);
+                                        le.push_str(") + 1");
+                                        le
+                                      },
+                                      true => {
+                                        le2 := String.from("(");
+                                        le2.push_string(end_c);
+                                        le2.push_str(") - (");
+                                        le2.push_string(start_c);
+                                        le2.push_str(")");
+                                        le2
+                                      }
+                                    );
+                                    // (struct { __typeof__(arr[0])* data; size_t length; }){.data=&arr[start], .length=...}
                                     r4 := String.from("(struct { __typeof__(");
                                     r4.push_string(san_arr);
                                     r4.push_str("[0])* data; size_t length; }){.data = &");
                                     r4.push_string(san_arr);
                                     r4.push_str("[");
                                     r4.push_string(start_c);
-                                    r4.push_str("], .length = (");
-                                    r4.push_string(end_c);
-                                    r4.push_str(") - (");
-                                    r4.push_string(start_c);
-                                    r4.push_str(")}");
+                                    r4.push_str("], .length = ");
+                                    r4.push_string(length_expr);
+                                    r4.push_str("}");
                                     Option(String).Some(r4)
                                   }
                                 )
@@ -3698,7 +3715,7 @@ handle_regular_call :: (fn(
                           }
                         ),
                       .Atom(_, srtok) => cond(
-                        (srtok.value.as_str() != "..") =>
+                        ((srtok.value.as_str() != "..") && (srtok.value.as_str() != "..=")) =>
                           match(call_gen_expr(sidx_e, ctx, indent),
                             .None => Option(String).None,
                             .Some(sc2) => {
@@ -3711,7 +3728,7 @@ handle_regular_call :: (fn(
                             }
                           ),
                         true =>
-                          // Slice-of-slice: {.data = &slice.data[start], .length = end-start}
+                          // Slice-of-slice: {.data = &slice.data[start], .length = ...}
                           match(srange_args.get(usize(0)),
                             .None => Option(String).None,
                             .Some(ss_start) => match(srange_args.get(usize(1)),
@@ -3722,17 +3739,33 @@ handle_regular_call :: (fn(
                                   .None => Option(String).None,
                                   .Some(ss_end_c) => {
                                     san_sl := sanitize_c_ident(id.as_str());
+                                    ss_length := cond(
+                                      (srtok.value.as_str() == "..=") => {
+                                        sle := String.from("(");
+                                        sle.push_string(ss_end_c);
+                                        sle.push_str(") - (");
+                                        sle.push_string(ss_start_c);
+                                        sle.push_str(") + 1");
+                                        sle
+                                      },
+                                      true => {
+                                        sle2 := String.from("(");
+                                        sle2.push_string(ss_end_c);
+                                        sle2.push_str(") - (");
+                                        sle2.push_string(ss_start_c);
+                                        sle2.push_str(")");
+                                        sle2
+                                      }
+                                    );
                                     rss3 := String.from("(struct { __typeof__(");
                                     rss3.push_string(san_sl);
                                     rss3.push_str(".data[0])* data; size_t length; }){.data = &");
                                     rss3.push_string(san_sl);
                                     rss3.push_str(".data[");
                                     rss3.push_string(ss_start_c);
-                                    rss3.push_str("], .length = (");
-                                    rss3.push_string(ss_end_c);
-                                    rss3.push_str(") - (");
-                                    rss3.push_string(ss_start_c);
-                                    rss3.push_str(")}");
+                                    rss3.push_str("], .length = ");
+                                    rss3.push_string(ss_length);
+                                    rss3.push_str("}");
                                     Option(String).Some(rss3)
                                   }
                                 )
