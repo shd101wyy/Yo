@@ -192,7 +192,32 @@ handle_infix_op :: (fn(
     .None    => Option(String).None,
     .Some(l) => match(rhs,
       .None    => Option(String).None,
-      .Some(r) => .Some(gen_binary_op(op, l, r))
+      .Some(r) => {
+        // Use strcmp for string equality/inequality comparisons.
+        // Detect: either side is a C string literal (starts with '"') or
+        // a to_string() call (contains "_to_string(").
+        lhs_is_str := (l.starts_with(String.from("\"")) || l.contains(String.from("_to_string(")));
+        rhs_is_str := (r.starts_with(String.from("\"")) || r.contains(String.from("_to_string(")));
+        cond(
+          ((lhs_is_str || rhs_is_str) && (op.as_str() == "==")) => {
+            out := String.from("(strcmp(");
+            out.push_string(l);
+            out.push_str(", ");
+            out.push_string(r);
+            out.push_str(") == 0)");
+            Option(String).Some(out)
+          },
+          ((lhs_is_str || rhs_is_str) && (op.as_str() == "!=")) => {
+            out2 := String.from("(strcmp(");
+            out2.push_string(l);
+            out2.push_str(", ");
+            out2.push_string(r);
+            out2.push_str(") != 0)");
+            Option(String).Some(out2)
+          },
+          true => .Some(gen_binary_op(op, l, r))
+        )
+      }
     )
   )
 });
@@ -2801,6 +2826,74 @@ handle_define :: (fn(
                 if(is_slice_rhs, {
                   ctx.*.register_slice_var(name_tok.value.as_str());
                 });
+                // If RHS is a struct/enum constructor call, track LHS variable's type
+                // so that `(&var).to_string()` dispatch can find the type name.
+                rhs_ctor_type := match(rhs_expr,
+                  .Atom(_, _) => Option(String).None,
+                  .FnCall(_, def_rhs_fn, def_rhs_ctor_args, def_rhs_infix2, _) => cond(
+                    // Non-infix: struct constructor `TypeName(...)` or enum `EnumName.Variant(...)`
+                    (!(def_rhs_infix2)) => match(def_rhs_fn.*,
+                      // Plain constructor: `TypeName(...)` — fn is Atom
+                      .Atom(_, def_rhs_ctok) => {
+                        ctor_name := def_rhs_ctok.value.as_str();
+                        cond(
+                          (ctx.*.is_struct_name(ctor_name) || ctx.*.is_enum_name(ctor_name)) =>
+                            Option(String).Some(String.from(ctor_name)),
+                          true => Option(String).None
+                        )
+                      },
+                      // Complex enum constructor: `EnumName.Variant(...)` — fn is dot-access FnCall
+                      .FnCall(_, inner_fn, inner_args, inner_infix, _) => cond(
+                        (!(inner_infix)) => Option(String).None,
+                        (inner_args.len() != usize(2)) => Option(String).None,
+                        true => match(inner_fn.*,
+                          .FnCall(_, _, _, _, _) => Option(String).None,
+                          .Atom(_, dot_tok) => cond(
+                            (dot_tok.value.as_str() != ".") => Option(String).None,
+                            true => match(inner_args.get(usize(0)),
+                              .None => Option(String).None,
+                              .Some(en_e) => match(en_e,
+                                .FnCall(_, _, _, _, _) => Option(String).None,
+                                .Atom(_, etok2) => cond(
+                                  (ctx.*.is_enum_name(etok2.value.as_str())) =>
+                                    Option(String).Some(etok2.value),
+                                  true => Option(String).None
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    ),
+                    // Infix dot: `EnumName.Variant` (no args) → type is `EnumName`
+                    true => cond(
+                      (def_rhs_ctor_args.len() != usize(2)) => Option(String).None,
+                      true => match(def_rhs_fn.*,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, def_rhs_dot_tok) => cond(
+                          (def_rhs_dot_tok.value.as_str() != ".") => Option(String).None,
+                          true => match(def_rhs_ctor_args.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(lhs_e) => match(lhs_e,
+                              .FnCall(_, _, _, _, _) => Option(String).None,
+                              .Atom(_, etok) => cond(
+                                (ctx.*.is_enum_name(etok.value.as_str())) =>
+                                  Option(String).Some(etok.value),
+                                true => Option(String).None
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
+                match(rhs_ctor_type,
+                  .None => (),
+                  .Some(ctor_ty) => {
+                    ctx.*.register_var_type(name_tok.value.as_str(), ctor_ty.as_str());
+                  }
+                );
                 Option(String).Some(String.from("0"))
               }
             )
@@ -3730,9 +3823,47 @@ handle_method_call :: (fn(
             sl_len2.push_str(")");
             Option(String).Some(sl_len2)
           },
-          // `x.to_string()` — template string part: strip to_string, pass receiver through.
-          ((method_name.as_str() == "to_string") && (args.len() == usize(0))) =>
-            Option(String).Some(recv_code),
+          // `x.to_string()` — check for derive(ToString) first, else strip (template string part).
+          ((method_name.as_str() == "to_string") && (args.len() == usize(0))) => {
+            // Try to detect `(&var_name).to_string()` where var_name has derive(ToString).
+            tostr_result := match(recv_expr,
+              .Atom(_, _) => Option(String).None,
+              .FnCall(_, ref_fn, ref_args, ref_infix, _) => cond(
+                ref_infix => Option(String).None,
+                (ref_args.len() != usize(1)) => Option(String).None,
+                true => match(ref_fn.*,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, rftok) => cond(
+                    (rftok.value.as_str() != "&") => Option(String).None,
+                    true => match(ref_args.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(var_expr) => match(var_expr,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, vtok) => match(ctx.*.get_var_type(vtok.value.as_str()),
+                          .None => Option(String).None,
+                          .Some(ty_name) => cond(
+                            (!ctx.*.has_derive_tostring(ty_name.as_str())) => Option(String).None,
+                            true => {
+                              call_expr := String.from("fn_");
+                              call_expr.push_string(ty_name);
+                              call_expr.push_str("_to_string(");
+                              call_expr.push_string(recv_code);
+                              call_expr.push_str(")");
+                              Option(String).Some(call_expr)
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            );
+            match(tostr_result,
+              .Some(_) => tostr_result,
+              .None    => Option(String).Some(recv_code)
+            )
+          },
           // `a.+(b)` — template string concatenation: emit __yo_str_concat(a, b).
           ((method_name.as_str() == "+") && (args.len() == usize(1))) =>
             match(args.get(usize(0)),

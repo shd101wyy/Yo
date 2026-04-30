@@ -523,6 +523,8 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
     ctx.*.register_struct(String.from(sd.name.as_str()));
     // Build field names CSV for open/destructuring support
     fields_csv_buf := String.new();
+    // Build field types CSV for derive(ToString) support
+    field_tys_csv_buf := String.new();
     nf := sd.field_names.len();
     (fi : usize) = usize(0);
     while runtime((fi < nf)), {
@@ -534,8 +536,16 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
           fields_csv_buf.push_string(fname);
         }
       );
+      match(sd.field_tys.get(fi - usize(1)),
+        .None => (),
+        .Some(fty) => {
+          if((fi > usize(1)), { field_tys_csv_buf.push_str(","); });
+          field_tys_csv_buf.push_string(fty);
+        }
+      );
     };
     ctx.*.register_struct_fields(sd.name.as_str(), fields_csv_buf.as_str());
+    ctx.*.register_struct_field_types(sd.name.as_str(), field_tys_csv_buf.as_str());
     line := String.from("typedef struct { ");
     (fi2 : usize) = usize(0);
     while runtime((fi2 < nf)), {
@@ -2118,6 +2128,408 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
   );
 });
 
+// ---------------------------------------------------------------------------
+// derive(ToString) code generation helpers
+// ---------------------------------------------------------------------------
+
+/// True if the C type `c_ty` needs an snprintf buffer (i.e. is not already a string).
+_c_type_needs_snprintf :: (fn(c_ty : str) -> bool)(
+  (!((c_ty == "const char*") || ((c_ty == "char*") || (c_ty == "String"))))
+);
+
+/// Return the snprintf format specifier for a numeric C type.
+_c_type_format_spec :: (fn(c_ty : str) -> str)(
+  cond(
+    (c_ty == "int32_t")  => "%d",
+    (c_ty == "int64_t")  => "%lld",
+    (c_ty == "int16_t")  => "%hd",
+    (c_ty == "int8_t")   => "%hhd",
+    (c_ty == "uint32_t") => "%u",
+    (c_ty == "uint64_t") => "%llu",
+    (c_ty == "uint16_t") => "%hu",
+    (c_ty == "uint8_t")  => "%hhu",
+    (c_ty == "size_t")   => "%zu",
+    (c_ty == "float")    => "%g",
+    (c_ty == "double")   => "%g",
+    (c_ty == "bool")     => "%d",
+    true                 => "%s"
+  )
+);
+
+/// Build a left-nested `__yo_str_concat(a, b, c, ...)` chain from a list of parts.
+/// parts[0] is the seed; parts[1..] are wrapped one by one.
+_build_concat_chain :: (fn(parts : ArrayList(String)) -> String)({
+  n := parts.len();
+  cond(
+    (n == usize(0)) => String.from("\"\""),
+    (n == usize(1)) => match(parts.get(usize(0)),
+      .None => String.from("\"\""),
+      .Some(p) => p
+    ),
+    true => {
+      (result : String) = match(parts.get(usize(0)),
+        .None => String.from("\"\""),
+        .Some(p) => p
+      );
+      (i : usize) = usize(1);
+      while runtime((i < n)), {
+        match(parts.get(i),
+          .None => (),
+          .Some(p) => {
+            new_result := String.from("__yo_str_concat(");
+            new_result.push_string(result);
+            new_result.push_str(", ");
+            new_result.push_string(p);
+            new_result.push_str(")");
+            result = new_result;
+          }
+        );
+        i = (i + usize(1));
+      };
+      result
+    }
+  )
+});
+
+/// Emit a `static const char* fn_TypeName_to_string(TypeName* self)` function for a struct.
+emit_struct_tostring_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
+  type_name := sd.name.as_str();
+  n := sd.field_names.len();
+
+  ctx.*.emitter.emit_declaration("static const char* fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_to_string(");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+
+  // Collect parts for concat chain; emit snprintf buffers for numeric fields
+  parts := ArrayList(String).new();
+  // Opening string: "TypeName("
+  open_str := String.from("\"");
+  open_str.push_str(type_name);
+  open_str.push_str("(\"");
+  parts.push(open_str);
+
+  (buf_idx : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while runtime((fi < n)), {
+    match(sd.field_names.get(fi),
+      .None => (),
+      .Some(fname) => match(sd.field_tys.get(fi),
+        .None => (),
+        .Some(fty) => {
+          // Separator before all fields except the first
+          if((fi > usize(0)), {
+            sep := String.from("\", \"");
+            parts.push(sep);
+          });
+          // Field access expression: self->field_name
+          access := String.from("self->");
+          access.push_string(fname);
+          cond(
+            (_c_type_needs_snprintf(fty.as_str())) => {
+              // Emit snprintf buffer: `  char _ts0[64]; snprintf(_ts0, 64, "%d", self->field);\n`
+              buf_name := String.from("_ts");
+              buf_name.push_string(buf_idx.to_string());
+              ctx.*.emitter.emit_declaration("  char ");
+              ctx.*.emitter.emit_declaration_string(buf_name);
+              ctx.*.emitter.emit_declaration("[64]; snprintf(");
+              ctx.*.emitter.emit_declaration_string(buf_name);
+              ctx.*.emitter.emit_declaration(", 64, \"");
+              ctx.*.emitter.emit_declaration(_c_type_format_spec(fty.as_str()));
+              ctx.*.emitter.emit_declaration("\", ");
+              ctx.*.emitter.emit_declaration_string(access);
+              ctx.*.emitter.emit_declaration_line(");");
+              buf_idx = (buf_idx + usize(1));
+              parts.push(buf_name);
+            },
+            true => {
+              // String-like: use access directly
+              parts.push(access);
+            }
+          );
+        }
+      )
+    );
+    fi = (fi + usize(1));
+  };
+
+  // Closing ")"
+  parts.push(String.from("\")\""));
+  concat_expr := _build_concat_chain(parts);
+  ctx.*.emitter.emit_declaration("  return ");
+  ctx.*.emitter.emit_declaration_string(concat_expr);
+  ctx.*.emitter.emit_declaration_line(";");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// Emit a `static const char* fn_TypeName_to_string(TypeName* self)` function for a simple enum.
+emit_simple_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
+  type_name := ed.name.as_str();
+  nv := ed.variants.len();
+
+  ctx.*.emitter.emit_declaration("static const char* fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_to_string(");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+  ctx.*.emitter.emit_declaration_line("  switch (*self) {");
+
+  (vi : usize) = usize(0);
+  while runtime((vi < nv)), {
+    match(ed.variants.get(vi),
+      .None => (),
+      .Some(ev) => {
+        // case TypeName_VariantName: return "TypeName.VariantName";
+        ctx.*.emitter.emit_declaration("    case ");
+        ctx.*.emitter.emit_declaration(type_name);
+        ctx.*.emitter.emit_declaration("_");
+        ctx.*.emitter.emit_declaration_string(ev.name);
+        ctx.*.emitter.emit_declaration(": return \"");
+        ctx.*.emitter.emit_declaration(type_name);
+        ctx.*.emitter.emit_declaration(".");
+        ctx.*.emitter.emit_declaration_string(ev.name);
+        ctx.*.emitter.emit_declaration_line("\";");
+      }
+    );
+    vi = (vi + usize(1));
+  };
+
+  ctx.*.emitter.emit_declaration_line("    default: return \"unknown\";");
+  ctx.*.emitter.emit_declaration_line("  }");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// Emit a `static const char* fn_TypeName_to_string(TypeName* self)` function for a complex enum.
+emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
+  type_name := ed.name.as_str();
+  nv := ed.variants.len();
+
+  ctx.*.emitter.emit_declaration("static const char* fn_");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration("_to_string(");
+  ctx.*.emitter.emit_declaration(type_name);
+  ctx.*.emitter.emit_declaration_line("* self) {");
+  ctx.*.emitter.emit_declaration_line("  switch (self->tag) {");
+
+  (vi : usize) = usize(0);
+  while runtime((vi < nv)), {
+    match(ed.variants.get(vi),
+      .None => (),
+      .Some(ev) => {
+        vn := ev.name.as_str();
+        nf := ev.fields.len();
+        cond(
+          // Simple variant inside complex enum: just return name
+          (nf == usize(0)) => {
+            ctx.*.emitter.emit_declaration("    case ");
+            ctx.*.emitter.emit_declaration(type_name);
+            ctx.*.emitter.emit_declaration("_");
+            ctx.*.emitter.emit_declaration(vn);
+            ctx.*.emitter.emit_declaration(": return \"");
+            ctx.*.emitter.emit_declaration(type_name);
+            ctx.*.emitter.emit_declaration(".");
+            ctx.*.emitter.emit_declaration(vn);
+            ctx.*.emitter.emit_declaration_line("\";");
+          },
+          // Data variant: build concat expression
+          true => {
+            ctx.*.emitter.emit_declaration("    case ");
+            ctx.*.emitter.emit_declaration(type_name);
+            ctx.*.emitter.emit_declaration("_");
+            ctx.*.emitter.emit_declaration(vn);
+            ctx.*.emitter.emit_declaration_line(": {");
+
+            // Collect concat parts, emit snprintf buffers for numeric fields
+            parts := ArrayList(String).new();
+            open_str := String.from("\"");
+            open_str.push_str(type_name);
+            open_str.push_str(".");
+            open_str.push_str(vn);
+            open_str.push_str("(\"");
+            parts.push(open_str);
+
+            (buf_idx : usize) = usize(0);
+            (fi : usize) = usize(0);
+            while runtime((fi < nf)), {
+              match(ev.fields.get(fi),
+                .None => (),
+                .Some(fld) => {
+                  if((fi > usize(0)), {
+                    sep := String.from("\", \"");
+                    parts.push(sep);
+                  });
+                  // Access: self->data.VariantName.field_name
+                  access := String.from("self->data.");
+                  access.push_str(vn);
+                  access.push_str(".");
+                  access.push_string(fld.name);
+                  cond(
+                    (_c_type_needs_snprintf(fld.c_ty.as_str())) => {
+                      buf_name := String.from("_ts");
+                      buf_name.push_string(buf_idx.to_string());
+                      ctx.*.emitter.emit_declaration("      char ");
+                      ctx.*.emitter.emit_declaration_string(buf_name);
+                      ctx.*.emitter.emit_declaration("[64]; snprintf(");
+                      ctx.*.emitter.emit_declaration_string(buf_name);
+                      ctx.*.emitter.emit_declaration(", 64, \"");
+                      ctx.*.emitter.emit_declaration(_c_type_format_spec(fld.c_ty.as_str()));
+                      ctx.*.emitter.emit_declaration("\", ");
+                      ctx.*.emitter.emit_declaration_string(access);
+                      ctx.*.emitter.emit_declaration_line(");");
+                      buf_idx = (buf_idx + usize(1));
+                      parts.push(buf_name);
+                    },
+                    true => {
+                      parts.push(access);
+                    }
+                  );
+                }
+              );
+              fi = (fi + usize(1));
+            };
+
+            // Closing ")"
+            parts.push(String.from("\")\""));
+            concat_expr := _build_concat_chain(parts);
+            ctx.*.emitter.emit_declaration("      return ");
+            ctx.*.emitter.emit_declaration_string(concat_expr);
+            ctx.*.emitter.emit_declaration_line(";");
+            ctx.*.emitter.emit_declaration_line("    }");
+          }
+        );
+      }
+    );
+    vi = (vi + usize(1));
+  };
+
+  ctx.*.emitter.emit_declaration_line("    default: return \"unknown\";");
+  ctx.*.emitter.emit_declaration_line("  }");
+  ctx.*.emitter.emit_declaration_line("}");
+});
+
+/// Check if `ToString` appears in a list of derive trait arguments
+/// (starting from index 1 of the derive call).
+_has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  n := args.len();
+  (i : usize) = usize(1);
+  (found : bool) = false;
+  while runtime(((i < n) && (!found))), {
+    match(args.get(i),
+      .None => (),
+      .Some(a) => match(a,
+        .FnCall(_, _, _, _, _) => (),
+        .Atom(_, tok) => {
+          if(((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "ToString")), {
+            found = true;
+          });
+        }
+      )
+    );
+    i = (i + usize(1));
+  };
+  found
+});
+
+/// Scan `exprs` and `body` for `derive(TypeName, ..., ToString, ...)` calls.
+/// For each such call, emit the corresponding `fn_TypeName_to_string` C function
+/// using the struct/enum definition found in `exprs`.
+/// Also registers the type name in `ctx.*.derive_tostring_names`.
+process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx : *(CodegenContext)) -> unit)({
+  n := exprs.len();
+  (ie : usize) = usize(0);
+  while runtime((ie < n)), {
+    match(exprs.get(ie),
+      .None => (),
+      .Some(mexpr) => match(mexpr,
+        .Atom(_, _) => (),
+        .FnCall(_, mf, margs, minfix, _) => cond(
+          // Look for `derive(TypeName, ..., ToString, ...)` — a non-infix call
+          // to `derive` with at least 2 args where one of the args is `ToString`.
+          (minfix || (margs.len() < usize(2))) => (),
+          true => match(mf.*,
+            .FnCall(_, _, _, _, _) => (),
+            .Atom(_, dtok) => cond(
+              (dtok.value.as_str() != "derive") => (),
+              (!(_has_tostring_trait(margs))) => (),
+              true => {
+                // Extract the type name (first arg)
+                match(margs.get(usize(0)),
+                  .None => (),
+                  .Some(ty_arg) => match(atom_ident(ty_arg),
+                    .None => (),
+                    .Some(type_name) => {
+                      // Don't register/emit twice
+                      if((!(ctx.*.has_derive_tostring(type_name))), {
+                        // Find the struct or enum definition for this type
+                        found_struct := {
+                          (je : usize) = usize(0);
+                          (sd_opt : Option(StructDef)) = Option(StructDef).None;
+                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(je),
+                              .None => (),
+                              .Some(def_expr) => match(extract_struct_def(def_expr),
+                                .None => (),
+                                .Some(sd) => {
+                                  if((sd.name.as_str() == type_name), {
+                                    sd_opt = Option(StructDef).Some(sd);
+                                  });
+                                }
+                              )
+                            );
+                            je = (je + usize(1));
+                          };
+                          sd_opt
+                        };
+                        found_enum := {
+                          (ke : usize) = usize(0);
+                          (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
+                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                            match(exprs.get(ke),
+                              .None => (),
+                              .Some(def_expr) => match(extract_enum_def(def_expr),
+                                .None => (),
+                                .Some(ed) => {
+                                  if((ed.name.as_str() == type_name), {
+                                    ed_opt = Option(EnumDef).Some(ed);
+                                  });
+                                }
+                              )
+                            );
+                            ke = (ke + usize(1));
+                          };
+                          ed_opt
+                        };
+                        match(found_struct,
+                          .Some(sd) => {
+                            ctx.*.register_derive_tostring(type_name);
+                            emit_struct_tostring_fn(sd, ctx);
+                          },
+                          .None => match(found_enum,
+                            .None => (),
+                            .Some(ed) => {
+                              ctx.*.register_derive_tostring(type_name);
+                              cond(
+                                (!(ed.is_complex)) => emit_simple_enum_tostring_fn(ed, ctx),
+                                true               => emit_complex_enum_tostring_fn(ed, ctx)
+                              );
+                            }
+                          )
+                        );
+                      });
+                    }
+                  )
+                );
+              }
+            )
+          )
+        )
+      )
+    );
+    ie = (ie + usize(1));
+  };
+});
+
 /// Generate a complete C11 test program from a bare test body expression.
 ///
 /// The body is wrapped in a `static void fn_test_body(void)` function.
@@ -2299,6 +2711,12 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // that take those types as parameters.
   emit_local_type_defs(body, pctx);
   emit_comptime_const_defs(body, pctx);
+
+  // === Pass 2.7: emit derive(ToString) functions ===
+  //
+  // Scan module_exprs for `derive(TypeName, ..., ToString, ...)` and emit
+  // `fn_TypeName_to_string` C functions for each such type.
+  process_derive_tostring(module_exprs, body, pctx);
 
   // === Pass 3: hoist local function definitions from inside the test body ===
   //

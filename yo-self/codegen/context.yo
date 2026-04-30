@@ -84,7 +84,15 @@ CodegenContext :: object(
   // Used to check if a `::` binding's dependencies are all available.
   emitted_const_names : ArrayList(String),
   // `::` constant bindings whose RHS was a string literal — used to reject string `+` in C.
-  string_const_names  : ArrayList(String)
+  string_const_names  : ArrayList(String),
+  // Parallel to `defined_structs`: CSV of C type strings for each field.
+  // e.g. "const char*,int32_t" for struct(name: String, age: i32).
+  // Populated by `register_struct_field_types` alongside `register_struct_fields`.
+  struct_field_type_csvs : ArrayList(String),
+  // Types that have `derive(ToString)` registered.
+  // When calling `to_string()` on a pointer to one of these types, dispatch to
+  // the pre-generated `fn_TypeName_to_string` C function.
+  derive_tostring_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -117,7 +125,9 @@ impl(CodegenContext,
       array_var_sizes:        ArrayList(String).new(),
       slice_var_names:        ArrayList(String).new(),
       emitted_const_names:    ArrayList(String).new(),
-      string_const_names:     ArrayList(String).new()
+      string_const_names:     ArrayList(String).new(),
+      struct_field_type_csvs: ArrayList(String).new(),
+      derive_tostring_names:  ArrayList(String).new()
     )
   ),
 
@@ -356,6 +366,7 @@ impl(CodegenContext,
   register_struct : (fn(self : *(Self), name : String) -> unit)({
     self.*.defined_structs.push(name);
     self.*.struct_field_csvs.push(String.new());
+    self.*.struct_field_type_csvs.push(String.new());
   }),
 
   /// Register a struct name with its field names (CSV).
@@ -684,6 +695,74 @@ impl(CodegenContext,
       i = (i + usize(1));
     };
     result
+  }),
+
+  /// Register the C field types CSV for struct `name`.
+  /// e.g. `"const char*,int32_t"` for `struct(name: String, age: i32)`.
+  /// Parallel to `register_struct_fields`.
+  register_struct_field_types : (fn(self : *(Self), name : str, types_csv : str) -> unit)({
+    n := self.*.defined_structs.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.defined_structs.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), {
+            (&(self.*.struct_field_type_csvs)).index(i).* = String.from(types_csv);
+            found = true;
+          });
+        }
+      );
+      i = (i + usize(1));
+    };
+  }),
+
+  /// Return the CSV of C field types for struct `name`, or `None` if not found.
+  get_struct_field_types : (fn(self : *(Self), name : str) -> Option(String))({
+    n := self.*.defined_structs.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+      match(self.*.defined_structs.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), {
+            result = match(self.*.struct_field_type_csvs.get(i),
+              .None => Option(String).None,
+              .Some(tcsv) => cond(
+                (tcsv.len() == usize(0)) => Option(String).None,
+                true => Option(String).Some(String.from(tcsv.as_str()))
+              )
+            );
+          });
+        }
+      );
+      i = (i + usize(1));
+    };
+    result
+  }),
+
+  /// Register `type_name` as having `derive(ToString)`.
+  register_derive_tostring : (fn(self : *(Self), type_name : str) -> unit)({
+    self.*.derive_tostring_names.push(String.from(type_name));
+  }),
+
+  /// True if `type_name` was registered via `register_derive_tostring`.
+  has_derive_tostring : (fn(self : *(Self), type_name : str) -> bool)({
+    n := self.*.derive_tostring_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.derive_tostring_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == type_name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
   })
 );
 
