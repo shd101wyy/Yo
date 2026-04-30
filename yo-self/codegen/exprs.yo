@@ -1036,6 +1036,80 @@ _extract_data_arm :: (fn(
                           ),
                           // Labeled binding: `field_name : local_name` (infix ':')
                           .FnCall(_, bfunc, bargs, binfix, _) => cond(
+                            // Curly shorthand: `_(field1, field2, ...)` or `_(field: alias, ...)`
+                            // Each inner arg is either:
+                            //   Atom("name")       → bind field "name" as var "name"
+                            //   FnCall(":", [field, alias]) → bind field as alias
+                            //   FnCall(":", [field, _])    → wildcard, skip
+                            ((!(binfix)) && match(bfunc.*,
+                              .Atom(_, cftok) => (cftok.value.as_str() == BK_ANON_STRUCT),
+                              .FnCall(_, _, _, _, _) => false
+                            )) => {
+                              nc := bargs.len();
+                              (ci : usize) = usize(0);
+                              while runtime((ci < nc)), {
+                                match(bargs.get(ci),
+                                  .None => (),
+                                  .Some(ci_arg) => match(ci_arg,
+                                    // Bare atom: `width` → bind field "width" as var "width"
+                                    .Atom(_, ci_atm) => cond(
+                                      (ci_atm.value.as_str() == "_") => (),
+                                      true => {
+                                        path_c := String.from("data.");
+                                        path_c.push_string(vatom2.value);
+                                        path_c.push_str(".");
+                                        path_c.push_string(ci_atm.value);
+                                        db_c := DataBinding(
+                                          var_name:   ci_atm.value,
+                                          field_path: path_c,
+                                          type_c:     String.from("__auto_type")
+                                        );
+                                        _rc := bindings_out.*.push(db_c);
+                                        ();
+                                      }
+                                    ),
+                                    // Labeled: `field: alias` or `field: _`
+                                    .FnCall(_, lb_func, lb_args, lb_infix, _) => cond(
+                                      (!(lb_infix)) => (),
+                                      (lb_args.len() < usize(2)) => (),
+                                      (!(match(lb_func.*,
+                                        .Atom(_, lbtok) => (lbtok.value.as_str() == ":"),
+                                        .FnCall(_, _, _, _, _) => false
+                                      ))) => (),
+                                      true => match(lb_args.get(usize(0)),
+                                        .None => (),
+                                        .Some(f_e) => match(lb_args.get(usize(1)),
+                                          .None => (),
+                                          .Some(v_e) => match(f_e,
+                                            .FnCall(_, _, _, _, _) => (),
+                                            .Atom(_, f_tok) => match(v_e,
+                                              .FnCall(_, _, _, _, _) => (),
+                                              .Atom(_, v_tok) => cond(
+                                                (v_tok.value.as_str() == "_") => (),
+                                                true => {
+                                                  path_l := String.from("data.");
+                                                  path_l.push_string(vatom2.value);
+                                                  path_l.push_str(".");
+                                                  path_l.push_string(f_tok.value);
+                                                  db_l := DataBinding(
+                                                    var_name:   v_tok.value,
+                                                    field_path: path_l,
+                                                    type_c:     String.from("__auto_type")
+                                                  );
+                                                  _rl := bindings_out.*.push(db_l);
+                                                  ();
+                                                }
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                );
+                                ci = (ci + usize(1));
+                              };
+                            },
                             (!(binfix)) => (),
                             (bargs.len() < usize(2)) => (),
                             (!(match(bfunc.*,
@@ -2024,19 +2098,54 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
       ),
       true => true
     ),
-    .FnCall(_, fn2, args2, _, _) => {
-      (ok2 : bool) = recur(fn2.*, ctx);
-      n2 := args2.len();
-      (i2 : usize) = usize(0);
-      while runtime(((i2 < n2) && ok2)), {
-        match(args2.get(i2),
-          .None => { ok2 = false; },
-          .Some(ae2) => {
-            if((!(recur(ae2, ctx))), { ok2 = false; });
-          }
-        );
-        i2 = (i2 + usize(1));
-      };
+    .FnCall(_, fn2, args2, _, is_infix2) => {
+      // For infix dot-dispatch `obj.method` (infix=true, func=Atom(".")):
+      // args2 = [receiver, method_name].  The method_name is not a variable — skip it.
+      // Only check the receiver (args2[0]), AND only if the method is one that
+      // handle_method_call can emit as valid C (whitelist: neg, len, as_str, is_some, is_none).
+      is_dot2 := match(fn2.*,
+        .Atom(_, ftok2) => (ftok2.value.as_str() == "."),
+        .FnCall(_, _, _, _, _) => false
+      );
+      (ok2 : bool) = match(is_dot2,
+        true => {
+          method_safe := match(args2.get(usize(1)),
+            .None => false,
+            .Some(mname_e) => match(mname_e,
+              .Atom(_, mname_tok) => (
+                (mname_tok.value.as_str() == "neg") ||
+                (mname_tok.value.as_str() == "len") ||
+                (mname_tok.value.as_str() == "as_str") ||
+                (mname_tok.value.as_str() == "is_some") ||
+                (mname_tok.value.as_str() == "is_none")
+              ),
+              .FnCall(_, _, _, _, _) => false
+            )
+          );
+          cond(
+            (!method_safe) => false,
+            true => match(args2.get(usize(0)),
+              .None => false,
+              .Some(recv2) => recur(recv2, ctx)
+            )
+          )
+        },
+        false => {
+          (ok2i : bool) = recur(fn2.*, ctx);
+          n2 := args2.len();
+          (i2 : usize) = usize(0);
+          while runtime(((i2 < n2) && ok2i)), {
+            match(args2.get(i2),
+              .None => { ok2i = false; },
+              .Some(ae2) => {
+                if((!(recur(ae2, ctx))), { ok2i = false; });
+              }
+            );
+            i2 = (i2 + usize(1));
+          };
+          ok2i
+        }
+      );
       ok2
     }
   )
@@ -3614,6 +3723,13 @@ handle_method_call :: (fn(
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
+          // `str_lit.len()` / `str_const.len()` — str/String .len() → strlen(recv)
+          ((method_name.as_str() == "len") && (args.len() == usize(0))) => {
+            sl_len2 := String.from("strlen(");
+            sl_len2.push_string(recv_code);
+            sl_len2.push_str(")");
+            Option(String).Some(sl_len2)
+          },
           // `x.to_string()` — template string part: strip to_string, pass receiver through.
           ((method_name.as_str() == "to_string") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
@@ -3672,26 +3788,42 @@ handle_method_call :: (fn(
                 while runtime(((ai < na) && ok2)), {
                   match(args.get(ai),
                     .None => { ok2 = false; },
-                    .Some(arg_e) => match(call_gen_expr(arg_e, ctx, indent),
-                      .None => { ok2 = false; },
-                      .Some(arg_c) => {
-                        if((ai > usize(0)), { result.push_str(", "); });
-                        // Emit `.fieldname = val` using the field name from the CSV
-                        match(field_names.get(ai),
-                          .None => {
-                            result.push_str(" ");
-                            result.push_string(arg_c);
-                          },
-                          .Some(fname) => {
-                            result.push_str(" .");
-                            result.push_string(fname);
-                            result.push_str(" = ");
-                            result.push_string(arg_c);
-                          }
-                        );
-                        ai = (ai + usize(1));
-                      }
-                    )
+                    .Some(arg_e) => {
+                      // For labeled args (field: val), extract the value
+                      val_e := match(arg_e,
+                        .Atom(_, _) => arg_e,
+                        .FnCall(_, lf_box, lf_args, lf_infix, _) => cond(
+                          ((lf_infix && (lf_args.len() == usize(2))) && match(lf_box.*,
+                            .Atom(_, ltok) => (ltok.value.as_str() == ":"),
+                            .FnCall(_, _, _, _, _) => false
+                          )) => match(lf_args.get(usize(1)),
+                            .None => arg_e,
+                            .Some(lval) => lval
+                          ),
+                          true => arg_e
+                        )
+                      );
+                      match(call_gen_expr(val_e, ctx, indent),
+                        .None => { ok2 = false; },
+                        .Some(arg_c) => {
+                          if((ai > usize(0)), { result.push_str(", "); });
+                          // Emit `.fieldname = val` using the field name from the CSV
+                          match(field_names.get(ai),
+                            .None => {
+                              result.push_str(" ");
+                              result.push_string(arg_c);
+                            },
+                            .Some(fname) => {
+                              result.push_str(" .");
+                              result.push_string(fname);
+                              result.push_str(" = ");
+                              result.push_string(arg_c);
+                            }
+                          );
+                          ai = (ai + usize(1));
+                        }
+                      )
+                    }
                   );
                 };
                 cond(
@@ -5260,14 +5392,53 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 )) => false,
                 // Other infix binary arithmetic/bitwise/comparison ops (|, &, ^, +, -, *, /, <<, >>, %, ==, !=, <, >, &&, ||)
                 // are runtime-eligible if all referenced identifiers are known C variables.
+                // Exception: `+` on string operands is invalid C — reject it.
                 (rhs_infix && match(rhs_func.*,
                   .Atom(_, rftok_b) => is_binary_op(rftok_b.value.as_str()),
                   .FnCall(_, _, _, _, _) => false
                 )) => {
+                  // Check if this is a string `+` — reject to avoid C pointer arithmetic
+                  is_str_add := match(rhs_func.*,
+                    .FnCall(_, _, _, _, _) => false,
+                    .Atom(_, rftok_op) => cond(
+                      (rftok_op.value.as_str() != "+") => false,
+                      true => {
+                        has_str_atom := match(args.get(usize(1)),
+                          .None => false,
+                          .Some(chk_e) => match(chk_e,
+                            .Atom(_, chk_tok) => (chk_tok.kind == TokenKind.StringLit),
+                            .FnCall(_, _, chk_args, _, _) => cond(
+                              // (str_id + ...) or (... + str_id): check if any arg is a string lit or string const var
+                              true => {
+                                (has_sl : bool) = false;
+                                (sli : usize) = usize(0);
+                                while runtime(((sli < chk_args.len()) && (!has_sl))), {
+                                  match(chk_args.get(sli),
+                                    .None => (),
+                                    .Some(sa) => match(sa,
+                                      .Atom(_, sa_tok) => cond(
+                                        (sa_tok.kind == TokenKind.StringLit) => { has_sl = true; },
+                                        ((sa_tok.kind == TokenKind.Identifier) && ctx.*.is_string_const(sa_tok.value.as_str())) => { has_sl = true; },
+                                        true => ()
+                                      ),
+                                      .FnCall(_, _, _, _, _) => ()
+                                    )
+                                  );
+                                  sli = (sli + usize(1));
+                                };
+                                has_sl
+                              }
+                            )
+                          )
+                        );
+                        has_str_atom
+                      }
+                    )
+                  );
                   // Check both args to ensure all identifiers are available
                   all_ok := match(args.get(usize(1)),
                     .None => false,
-                    .Some(rhs_check) => expr_all_ids_known(rhs_check, ctx)
+                    .Some(rhs_check) => ((!is_str_add) && expr_all_ids_known(rhs_check, ctx))
                   );
                   all_ok
                 },
@@ -5277,6 +5448,15 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   .Atom(_, rftok2) => ((rhs_fargs.len() > usize(0)) && (rftok2.value.as_str() == BK_TUPLE)),
                   .FnCall(_, _, _, _, _) => false
                 )) => true,
+                // Method call on a compound func (e.g. `5.neg()`, `arr.len()`) — eligible if
+                // all referenced identifiers are known C variables.
+                match(rhs_func.*,
+                  .FnCall(_, _, _, _, _) => true,
+                  .Atom(_, _) => false
+                ) => match(args.get(usize(1)),
+                  .None => false,
+                  .Some(rhs_mc_chk) => expr_all_ids_known(rhs_mc_chk, ctx)
+                ),
                 true => match(rhs_func.*,
                   .FnCall(_, _, _, _, _) => false,
                   .Atom(_, rftok) => cond(
@@ -5325,6 +5505,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     ctx.*.emitter.emit_string(rhs_code);
                     ctx.*.emitter.emit_line(";");
                     ctx.*.register_const_var(c_name.as_str());
+                    // Track string constants so we can reject string `+` in dependent bindings
+                    is_str_rhs := match(rhs_e2,
+                      .Atom(_, str_tok) => (str_tok.kind == TokenKind.StringLit),
+                      .FnCall(_, _, _, _, _) => false
+                    );
+                    if(is_str_rhs, {
+                      ctx.*.register_string_const(c_name.as_str());
+                    });
                     .Some(String.from("0"))
                   }
                 )

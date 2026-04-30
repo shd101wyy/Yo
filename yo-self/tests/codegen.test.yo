@@ -580,7 +580,8 @@ test "generate_expr: empty begin block", {
 };
 
 test "generate_expr: cond two arms", {
-  // cond(true => 1, true => 2)  →  "(1 ? 1 : 2)"
+  // cond(true => 1, true => 2)  →  "1"
+  // The codegen constant-folds `true =>` to its body expression (skipping dead code).
   arms := ArrayList(AstExpr).new();
   arms.push(make_cond_arm(
     make_atom_expr(TokenKind.Bool, "true"),
@@ -593,8 +594,8 @@ test "generate_expr: cond two arms", {
   expr := make_cond_expr(arms);
   result := run_gen(expr);
   assert(
-    match(result, .None => false, .Some(s) => (s == String.from("(1 ? 1 : 2)"))),
-    "expected '(1 ? 1 : 2)'"
+    match(result, .None => false, .Some(s) => (s == String.from("1"))),
+    "expected '1' (constant-folded)"
   );
 };
 
