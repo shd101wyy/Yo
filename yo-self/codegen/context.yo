@@ -112,7 +112,10 @@ CodegenContext :: object(
   // Function names that were skipped during codegen because their return type
   // is a comptime-only meta-type (Trait, Type, DeriveContext, …).
   // Call sites to these names emit `0` instead of a real C call.
-  skipped_fn_names : ArrayList(String)
+  skipped_fn_names : ArrayList(String),
+  // Variables that were created with `box(...)`: emitting `x == y` for these
+  // should be `(*x == *y)` since box returns a pointer to the heap-allocated value.
+  box_var_names : ArrayList(String)
 );
 
 impl(CodegenContext,
@@ -152,7 +155,8 @@ impl(CodegenContext,
       derive_eq_names:        ArrayList(String).new(),
       derive_hash_names:      ArrayList(String).new(),
       derive_ord_names:       ArrayList(String).new(),
-      skipped_fn_names:       ArrayList(String).new()
+      skipped_fn_names:       ArrayList(String).new(),
+      box_var_names:          ArrayList(String).new()
     )
   ),
 
@@ -291,6 +295,29 @@ impl(CodegenContext,
     (found : bool) = false;
     while runtime(((i < n) && (!found))), {
       match(self.*.slice_var_names.get(i),
+        .None => (),
+        .Some(s) => {
+          if((s.as_str() == name), { found = true; });
+        }
+      );
+      i = (i + usize(1));
+    };
+    found
+  }),
+
+  /// Register a variable as being created with `box(...)` so that equality
+  /// comparisons on it dereference the pointer.
+  register_box_var : (fn(self : *(Self), name : str) -> unit)({
+    self.*.box_var_names.push(String.from(name));
+  }),
+
+  /// True if `name` was registered as a box variable.
+  is_box_var : (fn(self : *(Self), name : str) -> bool)({
+    n := self.*.box_var_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while runtime(((i < n) && (!found))), {
+      match(self.*.box_var_names.get(i),
         .None => (),
         .Some(s) => {
           if((s.as_str() == name), { found = true; });

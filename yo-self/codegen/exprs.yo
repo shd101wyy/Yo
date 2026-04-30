@@ -198,6 +198,8 @@ handle_infix_op :: (fn(
         // a to_string() call (contains "_to_string(").
         lhs_is_str := (l.starts_with(String.from("\"")) || l.contains(String.from("_to_string(")));
         rhs_is_str := (r.starts_with(String.from("\"")) || r.contains(String.from("_to_string(")));
+        // box var check: `box(T)` returns a pointer; compare via deref (*x == *y).
+        lhs_is_box := ctx.*.is_box_var(l.as_str());
         // Derive-Eq type check: look up the type of lhs variable and check for registered Eq.
         lhs_eq_type := match(ctx.*.get_var_type(l.as_str()),
           .None    => Option(String).None,
@@ -231,6 +233,23 @@ handle_infix_op :: (fn(
             out2.push_string(r);
             out2.push_str(") != 0)");
             Option(String).Some(out2)
+          },
+          // box var: compare dereferenced values (*x == *y)
+          (lhs_is_box && (op.as_str() == "==")) => {
+            out_box := String.from("(*");
+            out_box.push_string(l);
+            out_box.push_str(" == *");
+            out_box.push_string(r);
+            out_box.push_str(")");
+            Option(String).Some(out_box)
+          },
+          (lhs_is_box && (op.as_str() == "!=")) => {
+            out_box2 := String.from("(*");
+            out_box2.push_string(l);
+            out_box2.push_str(" != *");
+            out_box2.push_string(r);
+            out_box2.push_str(")");
+            Option(String).Some(out_box2)
           },
           ((op.as_str() == "==") && lhs_eq_type.is_some()) => match(lhs_eq_type,
             .None => .Some(gen_binary_op(op, l, r)),
@@ -2897,6 +2916,20 @@ handle_define :: (fn(
                 );
                 if(is_slice_rhs, {
                   ctx.*.register_slice_var(name_tok.value.as_str());
+                });
+                // If RHS is a `box(...)` call, register LHS as a box var for deref equality.
+                is_box_rhs := match(rhs_expr,
+                  .Atom(_, _) => false,
+                  .FnCall(_, box_fn, _box_args, box_infix, _) => cond(
+                    box_infix => false,
+                    true => match(box_fn.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, box_tok) => (box_tok.value.as_str() == "box")
+                    )
+                  )
+                );
+                if(is_box_rhs, {
+                  ctx.*.register_box_var(name_tok.value.as_str());
                 });
                 // If RHS is a struct/enum constructor call, track LHS variable's type
                 // so that `(&var).to_string()` dispatch can find the type name.
