@@ -3453,6 +3453,69 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
   };
 });
 
+/// Extract the type name from a `comptime_eval("derive(TypeName, ...)")` call.
+/// The token value includes surrounding double-quotes, e.g. `"derive(EvalPoint, Eq(EvalPoint))"`.
+/// Returns None if the expression doesn't match.
+_extract_comptime_eval_derive_typename :: (fn(mexpr : AstExpr) -> Option(String))(
+  match(mexpr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, mf_ce, margs_ce, minfix_ce, _) => cond(
+      minfix_ce => Option(String).None,
+      (margs_ce.len() != usize(1)) => Option(String).None,
+      true => match(mf_ce.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, ce_tok) => cond(
+          (ce_tok.value.as_str() != "comptime_eval") => Option(String).None,
+          true => match(margs_ce.get(usize(0)),
+            .None => Option(String).None,
+            .Some(slit) => match(slit,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, stok) => {
+                raw := stok.value;
+                // Must start with `"derive(` (quote + derive + open paren = 8 chars)
+                prefix := String.from("\"derive(");
+                cond(
+                  (!(raw.starts_with(prefix))) => Option(String).None,
+                  true => {
+                    // Strip `"derive(` prefix → rest is `TypeName, ...)"`
+                    rest := raw.substring(prefix.len(), raw.len());
+                    // Find first `,` or `)` to get end of type name
+                    comma_opt := rest.index_of(String.from(","));
+                    paren_opt := rest.index_of(String.from(")"));
+                    // Use Option(usize) to avoid early return
+                    end_pos_opt := cond(
+                      match(comma_opt, .Some(cp) => match(paren_opt, .Some(pp) => (cp < pp), .None => true), .None => false) =>
+                        Option(usize).Some(match(comma_opt, .Some(cp2) => cp2, .None => usize(0))),
+                      match(paren_opt, .Some(_) => true, .None => false) =>
+                        Option(usize).Some(match(paren_opt, .Some(pp2) => pp2, .None => usize(0))),
+                      true => Option(usize).None
+                    );
+                    match(end_pos_opt,
+                      .None => Option(String).None,
+                      .Some(end_pos) => {
+                        type_name := rest.substring(usize(0), end_pos).trim();
+                        cond(
+                          (type_name.len() == usize(0)) => Option(String).None,
+                          true => Option(String).Some(type_name)
+                        )
+                      }
+                    )
+                  }
+                )
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+/// Check whether a raw derive string like `"derive(TypeName, Eq(TypeName))"` contains a given trait name.
+_derive_string_contains_trait :: (fn(raw : String, trait_name : str) -> bool)(
+  raw.contains(String.from(trait_name))
+);
+
 /// Scan `exprs` for `derive(TypeName, ..., Eq(...), ...)` calls and emit eq functions.
 process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
@@ -3460,16 +3523,71 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
   while runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
-      .Some(mexpr) => match(mexpr,
-        .Atom(_, _) => (),
-        .FnCall(_, mf, margs, minfix, _) => cond(
-          (minfix || (margs.len() < usize(2))) => (),
-          true => match(mf.*,
-            .FnCall(_, _, _, _, _) => (),
-            .Atom(_, dtok) => cond(
-              (dtok.value.as_str() != "derive") => (),
-              (!(_has_eq_trait(margs))) => (),
-              true => {
+      .Some(mexpr) => {
+        // Handle `comptime_eval("derive(TypeName, ..., Eq(...), ...)")` form.
+        ce_typename_opt := _extract_comptime_eval_derive_typename(mexpr);
+        match(ce_typename_opt,
+          .Some(ce_typename) => {
+            // Check if the raw string contains "Eq"
+            raw_str := match(mexpr,
+              .Atom(_, _) => String.new(),
+              .FnCall(_, _, ce_margs, _, _) => match(ce_margs.get(usize(0)),
+                .None => String.new(),
+                .Some(slit) => match(slit,
+                  .Atom(_, stok) => stok.value,
+                  .FnCall(_, _, _, _, _) => String.new()
+                )
+              )
+            );
+            if((_derive_string_contains_trait(raw_str, "Eq") && (!(ctx.*.has_derive_eq(ce_typename.as_str())))), {
+              // Look up struct/enum def in exprs
+              (je2 : usize) = usize(0);
+              (ce_sd_opt : Option(StructDef)) = Option(StructDef).None;
+              while runtime(((je2 < n) && match(ce_sd_opt, .None => true, .Some(_) => false))), {
+                match(exprs.get(je2),
+                  .None => (),
+                  .Some(def_e) => match(extract_struct_def(def_e),
+                    .None => (),
+                    .Some(sd2) => { if((sd2.name.as_str() == ce_typename.as_str()), { ce_sd_opt = Option(StructDef).Some(sd2); }); }
+                  )
+                );
+                je2 = (je2 + usize(1));
+              };
+              (ke2 : usize) = usize(0);
+              (ce_ed_opt : Option(EnumDef)) = Option(EnumDef).None;
+              while runtime(((ke2 < n) && match(ce_ed_opt, .None => true, .Some(_) => false))), {
+                match(exprs.get(ke2),
+                  .None => (),
+                  .Some(def_e2) => match(extract_enum_def(def_e2),
+                    .None => (),
+                    .Some(ed2) => { if((ed2.name.as_str() == ce_typename.as_str()), { ce_ed_opt = Option(EnumDef).Some(ed2); }); }
+                  )
+                );
+                ke2 = (ke2 + usize(1));
+              };
+              match(ce_sd_opt,
+                .Some(sd3) => { ctx.*.register_derive_eq(ce_typename.as_str()); emit_struct_eq_fn(sd3, ctx); },
+                .None => match(ce_ed_opt,
+                  .None => (),
+                  .Some(ed3) => { if(ed3.is_complex, { ctx.*.register_derive_eq(ce_typename.as_str()); emit_complex_enum_eq_fn(ed3, ctx); }); }
+                )
+              );
+            });
+          },
+          .None => ()
+        );
+
+        // Handle regular `derive(TypeName, ..., Eq(...), ...)` form.
+        match(mexpr,
+          .Atom(_, _) => (),
+          .FnCall(_, mf, margs, minfix, _) => cond(
+            (minfix || (margs.len() < usize(2))) => (),
+            true => match(mf.*,
+              .FnCall(_, _, _, _, _) => (),
+              .Atom(_, dtok) => cond(
+                (dtok.value.as_str() != "derive") => (),
+                (!(_has_eq_trait(margs))) => (),
+                true => {
                 match(margs.get(usize(0)),
                   .None => (),
                   .Some(ty_arg) => match(atom_ident(ty_arg),
@@ -3540,6 +3658,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
           )
         )
       )
+      }
     );
     ie = (ie + usize(1));
   };
