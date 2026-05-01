@@ -2226,6 +2226,13 @@ estimated at ~30+ pattern match sites. In practice it turned out to be
 
 **Validation milestone** ✅ Done: Evaluate `hello_world.yo` through the full pipeline — constructs the AST for `main :: (fn(using(io : IO)) -> unit)({ io; }); export main;`, calls `evaluate_module_body`, and verifies the result is a `ModuleVal` that exports `main` as a `FuncVal` with `evidence_params=["io"]` and no regular params.
 
+**3p. `evaluate_dyn_value` (dyn coercion)** ✅ Done — `yo-self/evaluator/values/dyn.yo` was a 32-line stub that threw "not yet implemented". Replaced with a ~220-line Phase 3 implementation:
+
+- Non-executing path: type-checks the inner expression and returns early with the expected/DynT type.
+- Executing path: evaluates inner expression, auto-boxes non-object non-dyn values via a synthetic `box(inner)` FnCall, determines the expected DynType from context (`ctx.expected_type`) or from the value type (SomeT → build DynT from `required_trait_types`; DynT → use as-is), collects a `TraitVal` for each required trait (field_values all None for Phase 3), and stores the ExprInfo with `dyn_call_trait_values` set.
+- Concrete `.trait` field access (TS `StructType.trait`) is not available in yo-self's TypeValue; only SomeT and DynT are supported. A clear error is thrown for unsupported concrete types.
+- All 956 yo-self tests continue passing.
+
 ### Phase 4 — C Code Generation
 
 Second largest subsystem (~40K lines). Break into sub-phases:
