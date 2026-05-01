@@ -44,6 +44,8 @@ open import "std/string";
 { try_to_convert_to_pointer_type }                       :: import "./pointer_type.yo";
 { evaluate_iso_value_call }                              :: import "./iso.yo";
 { TypeField, get_struct_fields }                         :: import "../types/field.yo";
+{ try_to_call_function_with_arguments }                  :: import "./helper.yo";
+{ create_unknown_val }                                   :: import "../value.yo";
 { format_error_message }                                 :: import "../../error/error.yo";
 { Exception }                                            :: import "std/error";
 
@@ -437,30 +439,26 @@ evaluate_function_call :: (fn(
           // ----------------------------------------------------------------
           // Array construction: ArrayType(elem1, elem2, ...).
           // ----------------------------------------------------------------
-          .Array(_, _) => {
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn))
-          },
+          .Array(_, _) =>
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn)),
 
           // ----------------------------------------------------------------
           // Slice construction (routed to array handler).
           // ----------------------------------------------------------------
-          .Slice(_) => {
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn))
-          },
+          .Slice(_) =>
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn)),
 
           // ----------------------------------------------------------------
           // ComptimeList construction: ComptimeListT(elem1, elem2, ...).
           // ----------------------------------------------------------------
-          .ComptimeListT(_) => {
-            try_to_implement_comptime_list_by_comptime_list_type(expr, func_type, args, callee_env, ctx, using(exn))
-          },
+          .ComptimeListT(_) =>
+            try_to_implement_comptime_list_by_comptime_list_type(expr, func_type, args, callee_env, ctx, using(exn)),
 
           // ----------------------------------------------------------------
           // Iso value wrapping: IsoType(value).
           // ----------------------------------------------------------------
-          .IsoT(_) => {
-            evaluate_iso_value_call(expr, callee_env, ctx, func_type, using(exn))
-          },
+          .IsoT(_) =>
+            evaluate_iso_value_call(expr, callee_env, ctx, func_type, using(exn)),
 
           // ----------------------------------------------------------------
           // Pointer type cast: *(T)(value).
@@ -492,7 +490,7 @@ evaluate_function_call :: (fn(
           // Numeric type cast: i32(x), u64(y), f64(z), etc.
           // Any type satisfying is_convertible_numeric_type falls here.
           // ----------------------------------------------------------------
-          _ => {
+          _ =>
             if(is_convertible_numeric_type(func_type), {
               arg_expr_n := match(args.get(usize(0)), .Some(a) => a, .None => {
                 exn.throw(dyn format_error_message(
@@ -522,7 +520,6 @@ evaluate_function_call :: (fn(
               ));
               make_err_expr()
             })
-          }
         )
       },
       .FuncVal(
@@ -710,27 +707,47 @@ evaluate_function_call :: (fn(
     },
 
     // ------------------------------------------------------------------
-    // Fallthrough: all other EvalValue shapes are Phase 3.
+    // Fallthrough: UnknownVal or other EvalValue shape — treat as a
+    // runtime function reference and call through try_to_call_function_with_arguments.
+    // Mirrors TypeScript's handling when functionToCallValue is some
+    // non-TypeValue, non-FunctionValue shape (e.g., UnknownValue).
     // ------------------------------------------------------------------
     _ => {
-      exn.throw(dyn format_error_message(
-        tok,
-        String.from("evaluate_function_call: complex dispatch not yet implemented (Phase 3)"),
-        false,
-        .None
-      ));
-      make_err_expr()
+      // Extract the callee's type from the ExprInfo.
+      callee_ty := match(callee_info_opt,
+        .Some(ci) => ci.ty,
+        .None     => t_unit()
+      );
+      call_result_rt := try_to_call_function_with_arguments(
+        Option(EvalValue).None, callee_ty, expr, func_expr, args, callee_env,
+        ctx, false, false, false, using(exn)
+      );
+      ret_type_rt := call_result_rt.return_type;
+      out_rt      := new_expr_info(call_result_rt.caller_env, ret_type_rt);
+      out_rt.value = Option(EvalValue).Some(create_unknown_val(ret_type_rt));
+      out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
+      expr
     }
   ),
-  // Callee produced no compile-time value: Phase 3 dispatch needed.
+  // Callee produced no compile-time value: evaluate args via
+  // try_to_call_function_with_arguments and return UnknownVal.
+  // Mirrors TypeScript's isFunctionType path when functionToCall.value == undefined.
   .None => {
-    exn.throw(dyn format_error_message(
-      tok,
-      String.from("evaluate_function_call: callee has no compile-time value (Phase 3)"),
-      false,
-      .None
-    ));
-    make_err_expr()
+    callee_ty_none := match(callee_info_opt,
+      .Some(ci) => ci.ty,
+      .None     => t_unit()
+    );
+    call_result_none := try_to_call_function_with_arguments(
+      Option(EvalValue).None, callee_ty_none, expr, func_expr, args, callee_env,
+      ctx, false, false, false, using(exn)
+    );
+    ret_type_none := call_result_none.return_type;
+    out_none      := new_expr_info(call_result_none.caller_env, ret_type_none);
+    out_none.value = Option(EvalValue).Some(create_unknown_val(ret_type_none));
+    out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
+    expr
   }
 )
 });
