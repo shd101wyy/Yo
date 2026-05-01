@@ -1,13 +1,6 @@
 //! evaluate_subtype_of — handles the `T <: Trait` expression.
 //!
 //! 1:1 port of `src/evaluator/exprs/subtype-of.ts`.
-//!
-//! Phase 2 limitations:
-//! * `add_where_clause_constraint_to_env` — not yet ported; where-clause path
-//!   returns the SomeType unchanged (no constraint recording).
-//! * `type_implements_trait_bool` — not yet ported; check is skipped.
-//! * `TraitT.receiver_type` — not yet on TypeValue.TraitT; trait type returned
-//!   without receiver attachment.
 
 open import "std/string";
 
@@ -25,6 +18,8 @@ open import "std/string";
 { format_error_message }                               :: import "../../error/error.yo";
 { Exception }                                          :: import "std/error";
 { evaluate_expression }                                :: import "./expr.yo";
+{ _add_where_clause_constraint, _trait_has_receiver }  :: import "../types/function.yo";
+{ type_implements_trait_bool }                         :: import "../trait_checking.yo";
 
 /// Evaluate the `T <: Trait` constraint operator.
 ///
@@ -243,15 +238,30 @@ evaluate_subtype_of :: (fn(
       ));
     });
 
+    // The trait must not already have a receiver type assigned.
+    if(_trait_has_receiver(trait_ty_val), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(te),
+        String.from("Expected trait type already has a receiver type assigned."),
+        false,
+        .None
+      ));
+    });
+
     trait_type_vals.push(trait_ty_val);
     trait_neg_flags.push(is_neg);
     ti = (ti + usize(1));
   });
 
   if(ctx.is_inside_where_clause, {
-    // Where-clause path: record constraints and return the LHS SomeType.
-    // Phase 2 stub: `add_where_clause_constraint_to_env` not yet ported.
-    // TODO (Phase 3): call add_where_clause_constraint_to_env here.
+    // Record constraints on the SomeType (in-place mutation on required/negative lists).
+    (wi : usize) = usize(0);
+    while((wi < trait_type_vals.len()), {
+      wt := match(trait_type_vals.get(wi), .Some(t) => t, .None => t_unit());
+      wn := match(trait_neg_flags.get(wi), .Some(b) => b, .None => false);
+      _add_where_clause_constraint(lhs_ty, wt, wn);
+      wi = (wi + usize(1));
+    });
     out_info := new_expr_info(env, lhs_ty);
     out_info.value = .Some(lhs_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -280,16 +290,28 @@ evaluate_subtype_of :: (fn(
       }
     );
 
-    // Verify LHS implements the trait.
-    // Phase 2 stub: check skipped until type_implements_trait_bool is ported.
-    // TODO (Phase 3): call type_implements_trait_bool(lhs_ty, trait_ty, env) here.
+    // Verify LHS implements the trait (skip for SomeType — checked at instantiation).
+    if(!(is_some_type(lhs_ty)), {
+      if(!(type_implements_trait_bool(lhs_ty, trait_ty, env)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Type "${type_to_string(lhs_ty)}" does not implement trait "${type_to_string(trait_ty)}".`,
+          false,
+          .None
+        ));
+      });
+    });
 
-    // Return the trait type.
-    // Phase 2 limitation: TraitT doesn't have receiver_type yet.
-    // TODO (Phase 3): attach lhs_ty as receiver_type once field is added.
-    trait_ty_clone := trait_ty.clone();
-    trait_type_val := EvalValue.TypeVal(box(trait_ty));
-    out_info := new_expr_info(env, trait_ty_clone);
+    // Create a new trait with receiver type (is_concrete) set to lhs_ty.
+    // Mirrors TypeScript's `{ ...traitType, receiverType: typeValue.value }`.
+    trait_with_receiver := match(trait_ty,
+      .TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints) =>
+        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(Box(TypeValue)).Some(box(lhs_ty)), self_constraints, neg_self_constraints),
+      _ => trait_ty
+    );
+    trait_with_receiver_clone := trait_with_receiver.clone();
+    trait_type_val := EvalValue.TypeVal(box(trait_with_receiver));
+    out_info := new_expr_info(env, trait_with_receiver_clone);
     out_info.value = .Some(trait_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     expr
