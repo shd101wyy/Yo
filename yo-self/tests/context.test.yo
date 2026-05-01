@@ -175,10 +175,8 @@ test "get_type_call_result: returns None for FunctionTypeResult", {
 // ---------------------------------------------------------------------------
 
 { create_function_body_evaluation_context } :: import "../evaluator/calls/function_type.yo";
-{ Exception } :: import "std/error";
 
 test "create_function_body_evaluation_context: basic flags", {
-  given(exn) := Exception(throw: ((e) -> { assert(false, "unexpected error"); escape (); }));
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
   env := Environment.new(`test`);
   // Build a simple fn() -> unit type
@@ -197,8 +195,7 @@ test "create_function_body_evaluation_context: basic flags", {
     func_type,
     EvalValue.UnitVal,
     env,
-    &(ctx),
-    using(exn)
+    &(ctx)
   );
   // Overridden flags
   assert(!(body_ctx.is_executing), "is_executing should be false");
@@ -209,7 +206,6 @@ test "create_function_body_evaluation_context: basic flags", {
 };
 
 test "create_function_body_evaluation_context: function body context embedded", {
-  given(exn) := Exception(throw: ((e) -> { assert(false, "unexpected error"); escape (); }));
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
   env := Environment.new(`test`);
   func_type := TypeValue.Func(
@@ -227,8 +223,7 @@ test "create_function_body_evaluation_context: function body context embedded", 
     func_type,
     EvalValue.UnitVal,
     env,
-    &(ctx),
-    using(exn)
+    &(ctx)
   );
   // FuncOrAsyncBlockCtx is embedded
   match(body_ctx.is_evaluating_function_body_or_async_block,
@@ -251,7 +246,6 @@ test "create_function_body_evaluation_context: function body context embedded", 
 };
 
 test "create_function_body_evaluation_context: expected_type set to return type", {
-  given(exn) := Exception(throw: ((e) -> { assert(false, "unexpected error"); escape (); }));
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
   env := Environment.new(`test`);
   func_type := TypeValue.Func(
@@ -269,8 +263,7 @@ test "create_function_body_evaluation_context: expected_type set to return type"
     func_type,
     EvalValue.UnitVal,
     env,
-    &(ctx),
-    using(exn)
+    &(ctx)
   );
   match(body_ctx.expected_type,
     .None => assert(false, "expected_type should be Some"),
@@ -282,7 +275,6 @@ test "create_function_body_evaluation_context: expected_type set to return type"
 };
 
 test "create_function_body_evaluation_context: copies parent context fields", {
-  given(exn) := Exception(throw: ((e) -> { assert(false, "unexpected error"); escape (); }));
   ctx := eval_context_new(String.from("/custom/std"), String.from("mymod.yo"));
   ctx.is_inside_impl_block = true;
   env := Environment.new(`test`);
@@ -301,8 +293,7 @@ test "create_function_body_evaluation_context: copies parent context fields", {
     func_type,
     EvalValue.UnitVal,
     env,
-    &(ctx),
-    using(exn)
+    &(ctx)
   );
   assert((body_ctx.std_path.as_str() == "/custom/std"), "std_path copied from parent");
   assert(body_ctx.is_inside_impl_block, "is_inside_impl_block copied from parent");
