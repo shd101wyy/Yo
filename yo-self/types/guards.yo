@@ -172,8 +172,36 @@ is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
 // Phase 2b: Func return type needs `isUnquote` flag.
 is_function_type_and_is_macro_function :: (fn(t : TypeValue) -> bool)(false);
 
-// Phase 2b: Func return type needs `isCompileTimeOnly` flag.
-is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(false);
+/// Check if a TypeValue is comptime-only (never a runtime type).
+///
+/// Mirrors the subset of `typeImplementsComptimeBuiltin` that returns definitively
+/// `true` for comptime-only types. Primitives like `i32`, `bool`, and `unit` are
+/// NOT comptime-only because they also implement runtime.
+is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
+  match(t,
+    .ComptimeInt            => true,
+    .ComptimeFloat          => true,
+    .ComptimeString         => true,
+    .TypeUni(_)             => true,
+    .ModuleT(_, _, _, _)    => true,
+    .TraitT(name: _)        => true,
+    .FnTraitT(base_name: _) => true,
+    .FutureTraitT(base_name: _) => true,
+    .ExprT                  => true,
+    .ComptimeListT(_)       => true,
+    _                       => false
+  )
+);
+
+/// True if `t` is a function type whose return type is comptime-only.
+///
+/// Mirrors `isFunctionTypeAndReturnsComptimeValue` in `src/types/guards.ts`.
+is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
+  match(t,
+    .Func(result: r) => is_comptime_only_type_simple(r.*),
+    _ => false
+  )
+);
 
 // ---------------------------------------------------------------------------
 // Type universe guards
@@ -438,6 +466,7 @@ export
   is_fn_trait_type,
   is_function_type_and_is_type_function,
   is_function_type_and_is_macro_function,
+  is_comptime_only_type_simple,
   is_function_type_and_returns_comptime_value,
   // Type universe guards
   is_type_hierarchy_type,

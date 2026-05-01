@@ -13,8 +13,8 @@
 //!
 //! Ported functions (Phase 2u):
 //!   * `prohibit_void_type` — throws on Void type
-//!   * `type_requires_comptime_modifier` — stub (needs typeImplementsComptime, Phase 3)
-//!   * `type_prohibits_comptime_modifier` — stub (needs typeImplementsRuntime, Phase 3)
+//!   * `type_requires_comptime_modifier` — implemented (uses type_is_comptime_only tag fast-path)
+//!   * `type_prohibits_comptime_modifier` — implemented (uses tag fast-path for runtime-only types)
 //!   * `type_contains_rc_type` — stub (needs isRcType / typeImplementsFuture, Phase 3)
 //!
 //! Ported functions (Phase 2ac):
@@ -204,15 +204,59 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, using(exn : Exception))
   )
 );
 
+/// Best-effort `typeIsComptimeOnly`. The TS implementation also walks
+/// the type recursively for compound types; here we use the tag-only
+/// fast path. Returns true only when we *know* the type is
+/// comptime-only.
+///
+/// Mirrors `isComptimeOnlyType` in `src/types/utils.ts`.
+type_is_comptime_only :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+  match(type_value_tag(ty),
+    .TComptimeInt    => true,
+    .TComptimeFloat  => true,
+    .TComptimeString => true,
+    .TType           => true,
+    .TModule         => true,
+    .TTrait          => true,
+    .TExpr           => true,
+    .TComptimeList   => true,
+    _                => false
+  )
+);
+
 /// Return `true` if the type requires a `comptime` modifier.
-/// Full implementation needs `typeImplementsComptime` (Phase 3).
-/// Stub: always returns `false` — permissive (comptime constraints not yet enforced).
-type_requires_comptime_modifier :: (fn(_ty : TypeValue, _env : Environment) -> bool)(false);
+/// A type requires comptime when it is comptime-only (never runtime).
+///
+/// Mirrors `typeRequiresComptimeModifier` in `src/types/utils.ts`.
+type_requires_comptime_modifier :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  type_is_comptime_only(ty, env)
+);
 
 /// Return `true` if the type prohibits a `comptime` modifier.
-/// Full implementation needs `typeImplementsRuntime` (Phase 3).
-/// Stub: always returns `false` — permissive (runtime-only constraints not yet enforced).
-type_prohibits_comptime_modifier :: (fn(_ty : TypeValue, _env : Environment) -> bool)(false);
+/// A type prohibits comptime when it is runtime-only (never comptime).
+///
+/// Mirrors `typeProhibitsComptimeModifier` in `src/types/utils.ts`.
+type_prohibits_comptime_modifier :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+  // A type is runtime-only when it implements Runtime but NOT Comptime.
+  // Use the tag fast path: these types are definitively runtime-only.
+  match(type_value_tag(ty),
+    .TIso         => true,
+    .TDyn         => true,
+    .TVoid        => true,
+    .TUnion       => true,
+    .TCChar       => true,
+    .TCShort      => true,
+    .TCUShort     => true,
+    .TCInt        => true,
+    .TCUInt       => true,
+    .TCLong       => true,
+    .TCULong      => true,
+    .TCLongLong   => true,
+    .TCULongLong  => true,
+    .TCLongDouble => true,
+    _             => false
+  )
+);
 
 /// Tag-only fast path mirroring `typeImplementsRuntimeBuiltin` in
 /// `src/evaluator/trait-checking.ts`. Returns:
@@ -282,24 +326,6 @@ type_implements_runtime :: (fn(ty : TypeValue, _env : Environment) -> bool)(
   match(type_implements_runtime_builtin(ty),
     .Some(b) => b,
     .None    => false
-  )
-);
-
-/// Best-effort `typeIsComptimeOnly`. The TS implementation also walks
-/// the type recursively for compound types; here we use the tag-only
-/// fast path. Returns true only when we *know* the type is
-/// comptime-only.
-type_is_comptime_only :: (fn(ty : TypeValue, _env : Environment) -> bool)(
-  match(type_value_tag(ty),
-    .TComptimeInt    => true,
-    .TComptimeFloat  => true,
-    .TComptimeString => true,
-    .TType           => true,
-    .TModule         => true,
-    .TTrait          => true,
-    .TExpr           => true,
-    .TComptimeList   => true,
-    _                => false
   )
 );
 
