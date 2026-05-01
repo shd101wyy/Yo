@@ -159,6 +159,34 @@ ComptimeFnCacheEntry :: object(
 );
 
 // ---------------------------------------------------------------------------
+// Specialization cache types
+// ---------------------------------------------------------------------------
+
+/// One cached specialization of a generic function.
+///
+/// Mirrors `SpecializedFunctionCache` on TypeScript's `FunctionValue`.
+/// Stored globally in `EvalContext.specialized_fn_caches` (keyed by `func_id`)
+/// rather than on `FuncVal`, to avoid updating ~24 pattern-match sites.
+SpecializedFunctionCache :: object(
+  /// The compile-time argument values (forall + implicit + comptime params)
+  /// used to create this specialization.
+  compile_time_arg_values : ArrayList(EvalValue),
+  /// The concrete runtime parameter types that distinguish this specialization
+  /// from others with the same compile-time args.
+  runtime_parameter_types : ArrayList(TypeValue),
+  /// The specialized function value (EvalValue.FuncVal with updated func_id).
+  specialized_func_value  : EvalValue,
+  /// The environment at cache-creation time (for value equality checks).
+  env                     : Environment
+);
+
+/// Per-function bucket of specialization caches, keyed by `func_id`.
+SpecializedFunctionCacheEntry :: object(
+  func_id : String,
+  caches  : ArrayList(SpecializedFunctionCache)
+);
+
+// ---------------------------------------------------------------------------
 // Main EvaluatorContext
 // ---------------------------------------------------------------------------
 
@@ -270,7 +298,15 @@ EvalContext :: object(
   /// Stored here (rather than on `FuncVal`) to avoid a circular import between
   /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
   /// one compile-time function.
-  comptime_fn_caches                     : ArrayList(ComptimeFnCacheEntry)
+  comptime_fn_caches                     : ArrayList(ComptimeFnCacheEntry),
+
+  /// Specialization cache — per-function buckets keyed by `func_id`.
+  ///
+  /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
+  /// explosion.  Each entry holds all cached specializations for one generic
+  /// function.  Mirrors `specializedFunctionCaches` on TypeScript's
+  /// `FunctionValue`.
+  specialized_fn_caches                  : ArrayList(SpecializedFunctionCacheEntry)
 );
 
 /// Create a minimal execution context with sensible defaults.
@@ -308,7 +344,8 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     currently_specializing_function_stack:       Option(ArrayList(SpecializingFunctionInfo)).None,
     doc_comment_lookup:                          Option(HashMap(String, String)).None,
     expr_info_table:                             expr_info_table_new(),
-    comptime_fn_caches:                          ArrayList(ComptimeFnCacheEntry).new()
+    comptime_fn_caches:                          ArrayList(ComptimeFnCacheEntry).new(),
+    specialized_fn_caches:                       ArrayList(SpecializedFunctionCacheEntry).new()
   )
 );
 
@@ -655,6 +692,8 @@ export
   ImplConcreteTypeInfo,
   CalledComptimeFnCache,
   ComptimeFnCacheEntry,
+  SpecializedFunctionCache,
+  SpecializedFunctionCacheEntry,
   EvalContext,
   eval_context_new,
   ArgEntry,
