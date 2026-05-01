@@ -262,7 +262,9 @@ evaluate_subtype_of :: (fn(
       _add_where_clause_constraint(lhs_ty, wt, wn);
       wi = (wi + usize(1));
     });
-    out_info := new_expr_info(env, lhs_ty);
+    // Clone lhs_ty for new_expr_info; explicitly consume original with box().
+    out_info := new_expr_info(env, lhs_ty.clone());
+    _ := box(lhs_ty);
     out_info.value = .Some(lhs_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     expr
@@ -304,10 +306,16 @@ evaluate_subtype_of :: (fn(
 
     // Create a new trait with receiver type (is_concrete) set to lhs_ty.
     // Mirrors TypeScript's `{ ...traitType, receiverType: typeValue.value }`.
+    // Box lhs_ty before the match so both arms can consume it (arm 1 uses the box,
+    // arm 2 dereferences and discards it).
+    lhs_ty_box := box(lhs_ty);
     trait_with_receiver := match(trait_ty,
       .TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints) =>
-        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(Box(TypeValue)).Some(box(lhs_ty)), self_constraints, neg_self_constraints),
-      _ => trait_ty
+        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(Box(TypeValue)).Some(lhs_ty_box), self_constraints, neg_self_constraints),
+      _ => {
+        _ := lhs_ty_box.*;
+        trait_ty
+      }
     );
     trait_with_receiver_clone := trait_with_receiver.clone();
     trait_type_val := EvalValue.TypeVal(box(trait_with_receiver));
