@@ -361,7 +361,7 @@ evaluate_yo_dup_tuple_element :: (fn(
     .Some(v) => match(v, .IntLit(raw) => raw.as_str(), _ => "0"),
     .None    => "0"
   );
-  index_i64 := match(i64.from_str(index_raw), .Ok(v) => v, .Err(_) => i64(0));
+  index_i64 := match(String.from(index_raw).parse_i64(), .Some(v) => v, .None => i64(0));
   index_usize := usize(index_i64);
 
   field_types := match(tuple_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());

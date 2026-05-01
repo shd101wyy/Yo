@@ -28,7 +28,7 @@ open import "std/fmt";
 { EvalContext, ExpectedTypeCtx }                                      :: import "../context.yo";
 { EvalValue, create_type_value, create_unknown_val, is_type_value }  :: import "../value.yo";
 { TypeValue, t_some_t, generate_some_type_id,
-  is_some_type, is_trait_type, is_type_hierarchy_type }              :: import "../../types/type.yo";
+  is_some_type, is_trait_type }                                        :: import "../../types/type.yo";
 { type_of_type }                                                      :: import "../../types/hierarchy.yo";
 { are_types_compatible }                                              :: import "../../types/compatibility.yo";
 { type_to_string }                                                    :: import "../../types/string.yo";
@@ -221,7 +221,8 @@ _apply_single_constraint_for_trait :: (fn(
   self_type                : TypeValue,
   trait_ty                 : TypeValue,
   env_mut                  : *(Environment),
-  ctx                      : *(EvalContext)
+  ctx                      : *(EvalContext),
+  using(exn                : Exception)
 ) -> bool)({
   // Check if negated
   (is_negated       : bool)    = false;
@@ -233,31 +234,20 @@ _apply_single_constraint_for_trait :: (fn(
     );
   });
 
-  // Resolve LHS (soft failure)
+  // Resolve LHS (use outer exn — hard failure).
+  // The given/using soft-failure pattern generates incomplete C calls.
   (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
-  (lhs_failed   : bool) = false;
-  given(exn_lhs) := Exception(throw: ((err) -> {
-    lhs_failed = true;
-    return ();
-  }));
-  resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn_lhs));
-  if(lhs_failed, { return false; });
+  resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
   resolved_opt = .Some(resolved);
 
   res := match(resolved_opt, .Some(r) => r, .None => { return false; });
 
-  // Evaluate trait expression (soft failure)
-  (eval_failed : bool) = false;
+  // Evaluate trait expression (use outer exn — hard failure).
   (trait_ty2   : TypeValue) = TypeValue.Unit;
-  given(exn_te) := Exception(throw: ((err) -> {
-    eval_failed = true;
-    return ();
-  }));
   old_self_type := ctx.self_type;
   ctx.self_type = .Some(self_type);
-  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn_te));
+  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
   ctx.self_type = old_self_type;
-  if(eval_failed, { return false; });
 
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info     := match(te_info_opt, .Some(i) => i, .None => { return false; });
@@ -333,27 +323,10 @@ _parse_trait_where_clauses :: (fn(
     lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs_expr := match(c_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
 
-    // Resolve LHS
+    // Resolve LHS (use outer exn — hard failure).
+    // The given/using soft-failure pattern generates incomplete C calls.
     (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
-    (lhs_failed   : bool) = false;
-    given(exn_lhs) := Exception(throw: ((err) -> {
-      lhs_failed = true;
-      return ();
-    }));
-    resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn_lhs));
-    if(lhs_failed, {
-      if(collect_pending, {
-        pending_traits.push(_PendingTraitConstraint(lhs_expr, rhs_expr, constraint_expr));
-        continue;
-      }, {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(lhs_expr),
-          String.from("Expected type for left-hand side of where clause constraint."),
-          false,
-          .None
-        ));
-      });
-    });
+    resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
     resolved_opt = .Some(resolved);
 
     res := match(resolved_opt, .Some(r) => r, .None => { continue; });
@@ -389,30 +362,15 @@ _parse_trait_where_clauses :: (fn(
       });
 
       // Evaluate trait expression
-      (trait_eval_failed : bool) = false;
+      // Note: errors propagate via outer exn (collect_pending fallback simplified)
       (trait_ty2 : TypeValue)    = TypeValue.Unit;
-      given(exn_te) := Exception(throw: ((err) -> {
-        trait_eval_failed = true;
-        return ();
-      }));
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type = .Some(self_type);
       ctx.self_trait_type = .Some(trait_ty);
-      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn_te));
+      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
-
-      if(trait_eval_failed, {
-        if(collect_pending, {
-          pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
-          continue;
-        }, {
-          // Re-throw by evaluating again without catch
-          _ := evaluate_expression(unwrapped_te, env_mut.*, ctx);
-          continue;
-        });
-      });
 
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
       te_info     := match(te_info_opt, .Some(i) => i, .None => {
@@ -676,7 +634,7 @@ _evaluate_trait_field :: (fn(
 
   match(assigned_value_expr_opt, .Some(av_expr) => {
     field_expected_ty_opt := match(field_ty_opt,
-      .Some(ft) => .Some(ft),
+      .Some(ft) => Option(TypeValue).Some(ft),
       .None     => expected_field_ty_opt
     );
 
@@ -723,7 +681,7 @@ _evaluate_trait_field :: (fn(
     // Validate type compatibility if expected type is set
     av_ty := av_info.ty;
     match(field_expected_ty_opt, .Some(fet) => {
-      if(!(are_types_compatible(fet, env_mut.*, av_ty, env_mut.*)), {
+      if(!(are_types_compatible(fet, av_ty)), {
         exn.throw(dyn format_error_message(
           ast_expr_token(av_expr),
           `Assigned value type mismatch:\nExpected type: ${type_to_string(fet)}\nGiven type: ${type_to_string(av_ty)}`,
@@ -744,7 +702,7 @@ _evaluate_trait_field :: (fn(
 
   match(default_value_expr_opt, .Some(dv_expr) => {
     field_expected_ty_opt := match(field_ty_opt,
-      .Some(ft) => .Some(ft),
+      .Some(ft) => Option(TypeValue).Some(ft),
       .None     => expected_field_ty_opt
     );
 
@@ -791,7 +749,7 @@ _evaluate_trait_field :: (fn(
     // Validate type compatibility
     dv_ty := dv_info.ty;
     match(field_expected_ty_opt, .Some(fet) => {
-      if(!(are_types_compatible(fet, env_mut.*, dv_ty, env_mut.*)), {
+      if(!(are_types_compatible(fet, dv_ty)), {
         exn.throw(dyn format_error_message(
           ast_expr_token(dv_expr),
           `Default value type mismatch:\nExpected type: ${type_to_string(fet)}\nGiven type: ${type_to_string(dv_ty)}`,
@@ -835,25 +793,26 @@ _evaluate_trait_field :: (fn(
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
 
   is_type_uni_0 := match(field_ty, .TypeUni(lvl) => (lvl == usize(0)), _ => false);
-  if((is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_uni_0), {
+  if(((is_for_evaluating_trait_ty && assigned_val_opt.is_none()) && is_type_uni_0), {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut.*, label_str);
     (found_existing : bool) = false;
     if((existing_vars.len() > usize(0)), {
-      last_v := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => {
-        found_existing = false;
-        return ();
-      });
-      match(last_v.value,
-        .Some(ev) => {
-          match(ev,
-            .TypeVal(b) => {
-              if(is_some_type(b.*), {
-                assoc_some_ty_opt = .Some(b.*);
-                found_existing = true;
-              });
+      match(existing_vars.get((existing_vars.len() - usize(1))),
+        .Some(last_v) => {
+          match(last_v.value,
+            .Some(ev) => {
+              match(ev,
+                .TypeVal(b) => {
+                  if(is_some_type(b.*), {
+                    assoc_some_ty_opt = .Some(b.*);
+                    found_existing = true;
+                  });
+                },
+                _ => ()
+              );
             },
-            _ => ()
+            .None => ()
           );
         },
         .None => ()
@@ -996,7 +955,7 @@ evaluate_trait_type :: (fn(
     // Determine expected field type from context
     expected_trait_type_opt := match(ctx.expected_type,
       .Some(et) => match(et.ty,
-        .TraitT(_, _, _, _, _, _, _, _) => .Some(et.ty),
+        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1046,16 +1005,20 @@ evaluate_trait_type :: (fn(
       existing_vars := get_variables_from_env(env_mut, field_result.label);
       (already_bound : bool) = false;
       if((existing_vars.len() > usize(0)), {
-        last_v := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => { return (); });
-        match(last_v.value,
-          .Some(ev) => {
-            match(ev,
-              .TypeVal(b) => {
-                if(is_some_type(b.*), {
-                  already_bound = true;
-                });
+        match(existing_vars.get((existing_vars.len() - usize(1))),
+          .Some(last_v) => {
+            match(last_v.value,
+              .Some(ev) => {
+                match(ev,
+                  .TypeVal(b) => {
+                    if(is_some_type(b.*), {
+                      already_bound = true;
+                    });
+                  },
+                  _ => ()
+                );
               },
-              _ => ()
+              .None => ()
             );
           },
           .None => ()

@@ -2294,6 +2294,21 @@ estimated at ~30+ pattern match sites. In practice it turned out to be
 - Added imports: `is_effects_row_type` from `guards.yo`, `is_type_val` + `is_unknown_val` from `value.yo`.
 - All 956 yo-self tests continue passing.
 
+**3x. Unit tests for `evaluate_identifier_and_operator`** ✅ Done — Added `yo-self/tests/identifier_and_operator.test.yo` with 5 tests covering:
+
+- builtin keyword `i32` → `TypeVal`
+- builtin keyword `bool` → `TypeVal`
+- defined variable returns type and value (`IntLit("42")`)
+- undefined variable throws (using `escape`-based pattern to avoid closure capture issue)
+- `throw_error_on_undefined=false` does not throw for uninitialized variable
+
+Key patterns established for modular evaluator component tests:
+
+- Use `(&(ptr))` (not `&ptr`) when passing address-of before a comma argument, to avoid the unary `&` greedily consuming the rest of args as a tuple.
+- For "should throw" tests: install `Exception(throw: ((err) -> { escape (); }))` handler and put `assert(false, "should have thrown")` after the call — no mutable closure capture needed.
+- For "should not throw" tests: install `Exception(throw: ((err) -> { assert(false, "should not throw"); escape (); }))` and reaching end of test body = pass.
+- All 961 yo-self tests pass (wasm-wasi target).
+
 ### Phase 4 — C Code Generation
 
 Second largest subsystem (~40K lines). Break into sub-phases:

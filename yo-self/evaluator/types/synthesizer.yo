@@ -129,6 +129,28 @@ synthesize_types :: (fn(
   )
 );
 
+/// Internal recursive call — calls g_synthesize_types via function pointer.
+/// Used by helpers inside synthesizer.yo to avoid the C codegen issue where
+/// indirect-function-pointer-reachable functions don't get forward declarations.
+/// This is defined BEFORE all helpers so it's in their closure scope.
+_synthesize_call :: (fn(
+  expected_ty  : TypeValue,
+  expected_env : Environment,
+  given_ty     : TypeValue,
+  given_env    : Environment,
+  checked      : *(ArrayList(TypePair)),
+  opts         : Option(SynthesizeOptions),
+  using(exn : Exception)
+) -> SynthesizeResult)(
+  match(g_synthesize_types,
+    .None    => exn.throw(dyn format_error_message(
+                  synthetic_token(String.from("E"), expected_env.module_path),
+                  String.from("_synthesize_call: synthesize_types not initialized"),
+                  false, Option(ErrorKind).None)),
+    .Some(f) => f(expected_ty, expected_env, given_ty, given_env, checked, opts, using(exn))
+  )
+);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -323,8 +345,8 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
       res
     },
 
-    .FutureTraitT(_, output, effect_types: ets, _, _) => {
-      if(recur(some_type_id, output.*, visited, using(exn)), { return true; });
+    .FutureTraitT(_, out_box, _, ets, _) => {
+      if(recur(some_type_id, out_box.*, visited, using(exn)), { return true; });
       (res : bool) = false;
       i := usize(0);
       while runtime(((i < ets.len()) && !(res))), {
@@ -534,7 +556,7 @@ _synthesize_implicit_params :: (fn(
       if(!(already_matched), {
         giv := match(given_concrete.get(gj), .Some(g) => g, .None => { gj = n_giv; break; });
         if((exp_id == synthesis_type_id(giv.ty)), {
-          res := synthesize_types(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, using(exn));
+          res := _synthesize_call(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, using(exn));
           expected_env.* = res.expected_env;
           given_env.* = res.given_env;
           (&matched_given).index(gj).* = true;
@@ -577,7 +599,7 @@ _synthesize_implicit_params :: (fn(
         if(!(already_matched), {
           giv := match(given_concrete.get(gj), .Some(g) => g, .None => { gj = n_giv; break; });
           if((exp_id == synthesis_type_id(giv.ty)), {
-            res := synthesize_types(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, using(exn));
+            res := _synthesize_call(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, using(exn));
             expected_env.* = res.expected_env;
             given_env.* = res.given_env;
             (&matched_given).index(gj).* = true;
@@ -667,14 +689,14 @@ _synthesize_fn_traits :: (fn(
   while runtime((i < n)), {
     et := match(exp_params.get(i), .Some(t) => t, .None => { i = n; break; });
     gt := match(giv_params.get(i), .Some(t) => t, .None => { i = n; break; });
-    res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+    res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge = res.given_env;
     i = (i + usize(1));
   };
 
   // Synthesize return type
-  res2 := synthesize_types(exp_result, ee, giv_result, ge, checked, opts, using(exn));
+  res2 := _synthesize_call(exp_result, ee, giv_result, ge, checked, opts, using(exn));
   ee = res2.expected_env;
   ge = res2.given_env;
 
@@ -698,7 +720,7 @@ _synthesize_future_traits :: (fn(
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
 
-  res := synthesize_types(exp_out, ee, giv_out, ge, checked, opts, using(exn));
+  res := _synthesize_call(exp_out, ee, giv_out, ge, checked, opts, using(exn));
   ee = res.expected_env;
   ge = res.given_env;
 
@@ -892,7 +914,7 @@ _synthesize_types_impl :: (fn(
     }, {
       if(!(is_some_type(bound)), {
         // Bound to a concrete type — recurse with the bound type
-        res := synthesize_types(bound, ee, given_ty, ge, checked, opts, using(exn));
+        res := _synthesize_call(bound, ee, given_ty, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
       });
@@ -909,7 +931,7 @@ _synthesize_types_impl :: (fn(
 
     if(!(is_some_type(existing_bound)), {
       // Given is already bound — recurse
-      res := synthesize_types(expected_ty, ee, existing_bound, ge, checked, opts, using(exn));
+      res := _synthesize_call(expected_ty, ee, existing_bound, ge, checked, opts, using(exn));
       ee = res.expected_env;
       ge    = res.given_env;
     }, {
@@ -952,7 +974,7 @@ _synthesize_types_impl :: (fn(
       while runtime((i < n)), {
         et := match(exp_fields.get(i), .Some(t) => t, .None => { i = n; break; });
         gt := match(giv_fields.get(i), .Some(t) => t, .None => { i = n; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         i = (i + usize(1));
@@ -982,7 +1004,7 @@ _synthesize_types_impl :: (fn(
       while runtime((i < n)), {
         et := match(exp_ft.get(i), .Some(t) => t, .None => { i = n; break; });
         gt := match(giv_ft.get(i), .Some(t) => t, .None => { i = n; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         i = (i + usize(1));
@@ -1018,7 +1040,7 @@ _synthesize_types_impl :: (fn(
         while runtime((fi < n_f)), {
           et := match(exp_variant.get(fi), .Some(t) => t, .None => { fi = n_f; break; });
           gt := match(giv_variant.get(fi), .Some(t) => t, .None => { fi = n_f; break; });
-          res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+          res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
           ee = res.expected_env;
           ge    = res.given_env;
           fi = (fi + usize(1));
@@ -1043,7 +1065,7 @@ _synthesize_types_impl :: (fn(
       while runtime((i < n)), {
         et := match(exp_ft.get(i), .Some(t) => t, .None => { i = n; break; });
         gt := match(giv_ft.get(i), .Some(t) => t, .None => { i = n; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         i = (i + usize(1));
@@ -1066,7 +1088,7 @@ _synthesize_types_impl :: (fn(
       while runtime((i < n)), {
         et := match(exp_ft.get(i), .Some(t) => t, .None => { i = n; break; });
         gt := match(giv_ft.get(i), .Some(t) => t, .None => { i = n; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         i = (i + usize(1));
@@ -1080,7 +1102,7 @@ _synthesize_types_impl :: (fn(
   if((is_pointer_type(expected_ty) && is_pointer_type(given_ty)), {
     exp_child := match(expected_ty, .Pointer(c) => c.*, _ => TypeValue.Unit);
     giv_child := match(given_ty,   .Pointer(c) => c.*, _ => TypeValue.Unit);
-    res := synthesize_types(exp_child, ee, giv_child, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
     return SynthesizeResult(expected_env: ee, given_env: ge);
@@ -1090,7 +1112,7 @@ _synthesize_types_impl :: (fn(
   if((is_iso_type(expected_ty) && is_iso_type(given_ty)), {
     exp_child := match(expected_ty, .IsoT(c) => c.*, _ => TypeValue.Unit);
     giv_child := match(given_ty,   .IsoT(c) => c.*, _ => TypeValue.Unit);
-    res := synthesize_types(exp_child, ee, giv_child, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
     return SynthesizeResult(expected_env: ee, given_env: ge);
@@ -1100,7 +1122,7 @@ _synthesize_types_impl :: (fn(
   if((is_array_type(expected_ty) && is_array_type(given_ty)), {
     exp_elem := match(expected_ty, .Array(e, _) => e.*, _ => TypeValue.Unit);
     giv_elem := match(given_ty,   .Array(e, _) => e.*, _ => TypeValue.Unit);
-    res := synthesize_types(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
     // Array length synthesis skipped (yo-self Array uses a static usize, not an UnknownValue)
@@ -1111,7 +1133,7 @@ _synthesize_types_impl :: (fn(
   if((is_slice_type(expected_ty) && is_slice_type(given_ty)), {
     exp_elem := match(expected_ty, .Slice(e) => e.*, _ => TypeValue.Unit);
     giv_elem := match(given_ty,   .Slice(e) => e.*, _ => TypeValue.Unit);
-    res := synthesize_types(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
     return SynthesizeResult(expected_env: ee, given_env: ge);
@@ -1121,7 +1143,7 @@ _synthesize_types_impl :: (fn(
   if((is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty)), {
     exp_elem := match(expected_ty, .ComptimeListT(e) => e.*, _ => TypeValue.Unit);
     giv_elem := match(given_ty,   .ComptimeListT(e) => e.*, _ => TypeValue.Unit);
-    res := synthesize_types(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
     return SynthesizeResult(expected_env: ee, given_env: ge);
@@ -1165,7 +1187,7 @@ _synthesize_types_impl :: (fn(
       while runtime((fai < n_fa)), {
         et := match(exp_fa.get(fai), .Some(t) => t, .None => { fai = n_fa; break; });
         gt := match(giv_fa.get(fai), .Some(t) => t, .None => { fai = n_fa; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         fai = (fai + usize(1));
@@ -1177,7 +1199,7 @@ _synthesize_types_impl :: (fn(
       while runtime((pi < n_p)), {
         et := match(exp_pt.get(pi), .Some(t) => t, .None => { pi = n_p; break; });
         gt := match(giv_pt.get(pi), .Some(t) => t, .None => { pi = n_p; break; });
-        res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+        res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
         ee = res.expected_env;
         ge    = res.given_env;
         pi = (pi + usize(1));
@@ -1193,7 +1215,7 @@ _synthesize_types_impl :: (fn(
       );
 
       // Synthesize return type
-      res := synthesize_types(exp_ret, ee, giv_ret, ge, checked, opts, using(exn));
+      res := _synthesize_call(exp_ret, ee, giv_ret, ge, checked, opts, using(exn));
       ee = res.expected_env;
       ge    = res.given_env;
     });
@@ -1208,7 +1230,7 @@ _synthesize_types_impl :: (fn(
     exp_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty,   .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
 
-    res := synthesize_types(exp_con, ee, giv_con, ge, checked, opts, using(exn));
+    res := _synthesize_call(exp_con, ee, giv_con, ge, checked, opts, using(exn));
     ee = res.expected_env;
     ge    = res.given_env;
 
@@ -1217,7 +1239,7 @@ _synthesize_types_impl :: (fn(
     while runtime((ai < n_a)), {
       et := match(exp_args.get(ai), .Some(t) => t, .None => { ai = n_a; break; });
       gt := match(giv_args.get(ai), .Some(t) => t, .None => { ai = n_a; break; });
-      res2 := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+      res2 := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
       ee = res2.expected_env;
       ge    = res2.given_env;
       ai = (ai + usize(1));
@@ -1235,7 +1257,7 @@ _synthesize_types_impl :: (fn(
     while runtime((i < n)), {
       et := match(exp_ft.get(i), .Some(t) => t, .None => { i = n; break; });
       gt := match(giv_ft.get(i), .Some(t) => t, .None => { i = n; break; });
-      res := synthesize_types(et, ee, gt, ge, checked, opts, using(exn));
+      res := _synthesize_call(et, ee, gt, ge, checked, opts, using(exn));
       ee = res.expected_env;
       ge    = res.given_env;
       i = (i + usize(1));

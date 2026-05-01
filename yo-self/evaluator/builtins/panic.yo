@@ -20,6 +20,7 @@ open import "std/string";
 { format_error_message }                         :: import "../../error/error.yo";
 { evaluate_expression }                          :: import "../exprs/expr.yo";
 { Exception }                                    :: import "std/error";
+{ ArrayList }                                    :: import "std/collections/array_list";
 
 evaluate_panic :: (fn(
   expr : AstExpr,
@@ -53,7 +54,7 @@ evaluate_panic :: (fn(
   });
 
   // Determine the return type: function body → func return type; test/async → unit.
-  return_ty : TypeValue = match(fn_ctx.kind,
+  (return_ty : TypeValue) = match(fn_ctx.kind,
     .FunctionBody => match(fn_ctx.func_type,
       .Some(ty) => match(ty,
         .Func(_, _, _, _, _, _, _, _, result) => result.*,

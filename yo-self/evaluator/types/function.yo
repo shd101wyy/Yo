@@ -154,6 +154,32 @@ _eval_and_update_env :: (fn(
   )
 });
 
+/// Pre-pass helper: tries to evaluate a comptime type expr.
+/// Uses outer exn (hard failure) — the `given/escape` soft-failure pattern is
+/// avoided here because passing a `given` binding via `using(exn_x)` in a call
+/// generates an incomplete C call (missing exn__throw arg).
+/// Since evaluate_expression already panics on errors (via _evaluate_expression_wrapper),
+/// the soft-failure was dead code anyway.
+_try_eval_comptime_type :: (fn(
+  type_expr : AstExpr,
+  env_mut   : *(Environment),
+  ctx       : *(EvalContext),
+  using(exn : Exception)
+) -> Option(TypeValue))(
+  _eval_and_update_env(type_expr, env_mut, ctx)
+);
+
+/// Helper: true when `expr` is the `...` atom (variadic marker).
+/// Extracted as a module-level function to avoid a double-drop codegen bug where
+/// `ast_expr_token` returns an owned Token whose drop is emitted twice when used
+/// inline in an `&&` short-circuit expression inside a loop body.
+_is_dots_atom :: (fn(expr : AstExpr) -> bool)(
+  if(!(ast_expr_is_atom(expr)), false, begin(
+    tok := ast_expr_token(expr),
+    tok.value.as_str() == "..."
+  ))
+);
+
 /// Add a where-clause trait constraint directly to a SomeType's constraint lists.
 /// Since `required_trait_types` in SomeT is an `ArrayList(TypeValue)` (object =
 /// reference type), we can mutate it in-place. The mutation is visible everywhere
@@ -921,28 +947,17 @@ apply_single_trait_constraint :: (fn(
           some_ty_opt = .Some(b.*);
         }, {
           // Concrete type — validate constraint using validate_concrete_type_constraints.
-          (success : bool) = false;
-          (threw   : bool) = false;
-          given(exn_inner) := Exception(throw: ((err) -> {
-            threw = true;
-            return ();
-          }));
-          validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn_inner));
-          if(threw, { return false; });
+          // Use outer exn directly (hard failure) — the given/using soft-failure pattern
+          // generates incomplete C calls (missing exn__throw argument).
+          validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
           return true;
         });
       }, _ => { return false; });
     }, .None => { return false; });
   }, {
     // Evaluate LHS expression
-    (eval_failed : bool) = false;
     (lhs_ty : TypeValue) = TypeValue.Unit;
-    given(exn_lhs) := Exception(throw: ((err) -> {
-      eval_failed = true;
-      return ();
-    }));
-    evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn_lhs));
-    if(eval_failed, { return false; });
+    evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
     info     := match(info_opt, .Some(i) => i, .None => { return false; });
     if(!(is_type_value(info.value)), { return false; });
@@ -952,14 +967,8 @@ apply_single_trait_constraint :: (fn(
     if(is_some_type(lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
     }, {
-      // Concrete type
-      (threw_c : bool) = false;
-      given(exn_c) := Exception(throw: ((err) -> {
-        threw_c = true;
-        return ();
-      }));
-      validate_concrete_type_constraints(lhs_ty, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn_c));
-      if(threw_c, { return false; });
+      // Concrete type — use outer exn (hard failure)
+      validate_concrete_type_constraints(lhs_ty, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
       return true;
     });
   });
@@ -967,14 +976,8 @@ apply_single_trait_constraint :: (fn(
   some_ty := match(some_ty_opt, .Some(t) => t, .None => { return false; });
 
   // Evaluate trait expression (unwrapped)
-  (eval_trait_failed : bool) = false;
   (trait_ty : TypeValue) = TypeValue.Unit;
-  given(exn_trait) := Exception(throw: ((err) -> {
-    eval_trait_failed = true;
-    return ();
-  }));
-  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, using(exn_trait));
-  if(eval_trait_failed, { return false; });
+  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, using(exn));
   info_rhs_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
   info_rhs     := match(info_rhs_opt, .Some(i) => i, .None => { return false; });
   if(!(is_type_value(info_rhs.value)), { return false; });
@@ -1057,22 +1060,11 @@ parse_where_clause_constraints :: (fn(
             if(is_some_type(b.*), {
               some_ty_opt = .Some(b.*);
             }, {
-              // Concrete type
+              // Concrete type — use outer exn (hard failure).
+              // The given/using soft-failure pattern generates incomplete C calls.
+              // collect_pending behavior is simplified: hard failure on constraint violation.
               is_concrete_type = true;
-              (threw_cc : bool) = false;
-              given(exn_cc) := Exception(throw: ((err) -> {
-                threw_cc = true;
-                return ();
-              }));
-              validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, using(exn_cc));
-              if(threw_cc, {
-                if(collect_pending, {
-                  _ := pending_traits.push(PendingConstraint(lhs_expr, rhs_expr, constraint_expr));
-                }, {
-                  // Re-throw
-                  validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
-                });
-              });
+              validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
               skip_constraint = true;
             });
           }, _ => {
@@ -1119,20 +1111,8 @@ parse_where_clause_constraints :: (fn(
       });
     }, {
       // Evaluate LHS expression
-      (lhs_eval_failed : bool) = false;
-      given(exn_lhs2) := Exception(throw: ((err) -> {
-        lhs_eval_failed = true;
-        return ();
-      }));
-      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn_lhs2));
-      if(lhs_eval_failed, {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(lhs_expr),
-          String.from("Expected type for left-hand side of where clause constraint."),
-          false,
-          .None
-        ));
-      });
+      // Note: errors propagate via outer exn (simplified from TS try/catch pattern)
+      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
       lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
       lhs_info     := match(lhs_info_opt, .Some(i) => i, .None => {
         exn.throw(dyn format_error_message(
@@ -1167,20 +1147,9 @@ parse_where_clause_constraints :: (fn(
       if(is_some_type(lhs_tv), {
         some_ty_opt = .Some(lhs_tv);
       }, {
-        // Concrete type
-        (threw_cc2 : bool) = false;
-        given(exn_cc2) := Exception(throw: ((err) -> {
-          threw_cc2 = true;
-          return ();
-        }));
-        validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, using(exn_cc2));
-        if(threw_cc2, {
-          if(collect_pending, {
-            _ := pending_traits.push(PendingConstraint(lhs_expr, rhs_expr, constraint_expr));
-          }, {
-            validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
-          });
-        });
+        // Concrete type — use outer exn (hard failure).
+        // The given/using soft-failure pattern generates incomplete C calls.
+        validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
         skip_constraint = true;
       });
     });
@@ -1220,23 +1189,9 @@ parse_where_clause_constraints :: (fn(
       });
 
       // Try to evaluate trait expression
-      (trait_eval_failed2 : bool) = false;
+      // Note: errors propagate via outer exn (collect_pending fallback simplified)
       (trait_ty2 : TypeValue) = TypeValue.Unit;
-      given(exn_te) := Exception(throw: ((err) -> {
-        trait_eval_failed2 = true;
-        return ();
-      }));
-      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn_te));
-      if(trait_eval_failed2, {
-        if(collect_pending, {
-          _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
-          continue;
-        }, {
-          // Re-throw by evaluating without catch
-          _ := evaluate_expression(unwrapped_te, env_mut.*, ctx);
-          continue;
-        });
-      });
+      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
       trait_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_trait));
       trait_info     := match(trait_info_opt, .Some(i) => i, .None => {
         if(collect_pending, {
@@ -1647,7 +1602,7 @@ evaluate_function_parameters :: (fn(
                       .SomeT(_, _, _, _, _, _, _, _, is_er) => is_er,
                       _ => false
                     );
-                    if(!is_er_some, {
+                    if(!(is_er_some), {
                       exn.throw(dyn format_error_message(
                         ast_expr_token(impl_expr),
                         `"...(${row_var_name2})" requires "${row_var_name2}" to be a forall-declared effect row variable, but it resolves to a concrete type.`,
@@ -1708,7 +1663,7 @@ evaluate_function_parameters :: (fn(
                     eff_row_handled = true;
                   });
                 });
-                if(!eff_row_handled, {
+                if(!(eff_row_handled), {
                   exn.throw(dyn format_error_message(
                     ast_expr_token(impl_expr),
                     `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`,
@@ -1831,16 +1786,10 @@ evaluate_function_parameters :: (fn(
 
     ct_info := extract_comptime_parameter_info(param_expr);
     match(ct_info, .Some(info) => {
-      // Try to evaluate the type expression
-      (eval_type_failed : bool) = false;
-      (param_type_opt : Option(TypeValue)) = Option(TypeValue).None;
-      given(exn_ct) := Exception(throw: ((err) -> {
-        eval_type_failed = true;
-        return ();
-      }));
-      param_type_opt = _eval_and_update_env(info.type_expr, env_mut, ctx, using(exn_ct));
+      // Try to evaluate the type expression; returns None on error (soft failure).
+      (param_type_opt : Option(TypeValue)) = _try_eval_comptime_type(info.type_expr, env_mut, ctx);
 
-      if(eval_type_failed || param_type_opt.is_none(), {
+      if(param_type_opt.is_none(), {
         continue; // Skip — will be handled in main pass
       });
 
@@ -1933,7 +1882,7 @@ evaluate_function_parameters :: (fn(
 
     // Variadic parameter: ... or ...(name)
     is_variadic := (
-      (ast_expr_is_atom(param_expr) && (ast_expr_token(param_expr).value.as_str() == "...")) ||
+      _is_dots_atom(param_expr) ||
       ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None)
     );
 

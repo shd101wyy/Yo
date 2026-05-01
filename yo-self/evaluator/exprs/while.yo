@@ -100,9 +100,11 @@ _throw_max_iterations_error :: (fn(
   using(exn    : Exception)
 ) -> AstExpr)({
   possible := _body_has_any_terminator_possible(body_expr, body_info_cf);
+  // Store in local variable to avoid taking address of rvalue literal in C codegen.
+  limit := MAX_COMPTIME_LOOP_ITERATIONS;
   err_msg := cond(
     possible =>
-      `Compile-time while loop exceeded the maximum iteration count (${MAX_COMPTIME_LOOP_ITERATIONS.to_string()}). The loop body contains a conditional \`break\`, \`return\`, or \`escape\`, but the loop did not terminate within the limit.\nIf this is an infinite runtime loop, use \`while true, { ... }\` instead.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
+      `Compile-time while loop exceeded the maximum iteration count (${limit.to_string()}). The loop body contains a conditional \`break\`, \`return\`, or \`escape\`, but the loop did not terminate within the limit.\nIf this is an infinite runtime loop, use \`while true, { ... }\` instead.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
     true =>
       `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
   );

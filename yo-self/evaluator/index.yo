@@ -13,6 +13,11 @@
 //! extraction.  `allowPartialModule` / `registerPartialModule` are not
 //! supported by the proto-evaluator and are omitted.
 //!
+//! Phase 3y: `register_evaluate_expression()` is called during initialization
+//! to wire the modular dispatcher into `g_evaluate_expression`. This allows
+//! modular evaluator components to call `evaluate_expression` without needing
+//! to manually install the dispatcher in every test/call site.
+//!
 //! Translation decisions vs `src/evaluator/index.ts`:
 //!   - TypeScript class → Yo `object` + `impl` block.
 //!   - `loadModule: LoadModuleFn` → `(fn(path : String) -> Option(EvalValue))`,
@@ -33,6 +38,7 @@ open import "std/error";
 { TypeValue } :: import "../types/type.yo";
 { EvalValue } :: import "./value.yo";
 { evaluate_module_body, set_module_loader } :: import "./eval.yo";
+{ register_evaluate_expression }           :: import "./exprs/_expr.yo";
 
 // ---------------------------------------------------------------------------
 // Comment-attribute check
@@ -158,6 +164,9 @@ impl(Evaluator,
     });
 
     // --- Evaluate ---
+    // Phase 3y: register the modular dispatcher so `evaluate_expression`
+    // dispatches through the correct function slot even without a test stub.
+    register_evaluate_expression();
     // Clone program so the stored `program` field remains valid after
     // `evaluate_module_body` consumes its copy.
     program_for_eval := program.clone();

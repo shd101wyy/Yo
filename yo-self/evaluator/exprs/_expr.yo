@@ -17,7 +17,7 @@ open import "std/string";
   BK_NEWTYPE, BK_ENUM, BK_UNION, BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER,
   BK_PTR, BK_ISO, BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER,
   BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL,
-  BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL,
+  BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_ANON_STRUCT,
   BK_BEGIN, BK_IMPORT, BK_OPEN, BK_COND, BK_MATCH, BK_WHILE,
   BK_TEST, BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF,
   BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST,
@@ -611,21 +611,35 @@ _evaluate_expression :: (fn(
 );
 
 /// Non-capturing wrapper that creates a local exception handler.
-/// Phase 2: panics on unexpected errors. Phase 3: redesign for proper exception threading.
+/// Phase 2: panics on unexpected errors.
 _evaluate_expression_wrapper :: (fn(
   expr : AstExpr,
   env  : Environment,
   ctx  : *(EvalContext)
 ) -> AstExpr)({
-  given(exn) := Exception(throw: ((err : dyn Error) -> panic("evaluate_expression: unexpected error (Phase 2 wrapper)")));
+  given(exn) := Exception(throw: ((err) -> panic("evaluate_expression: unexpected error")));
   _evaluate_expression(expr, env, ctx, using(exn))
 });
+
+/// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
+/// Phase 2 bootstrapping: ignores the caller's exn and uses _evaluate_expression_wrapper
+/// (which panics on error). This avoids calling the base (unspecialized) _evaluate_expression
+/// with a runtime void* throw function pointer, which the codegen cannot handle.
+/// Phase 3: replace with a proper exception-forwarding implementation.
+_evaluate_expression_raw_wrapper :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)(
+  _evaluate_expression_wrapper(expr, env, ctx)
+);
 
 /// Register the expression evaluator. Call once during evaluator initialization.
 register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
-  set_evaluate_expression_raw_fn(_evaluate_expression);
+  set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
   ()
 });
 
-export _evaluate_expression, _evaluate_expression_wrapper, register_evaluate_expression;
+export _evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression;

@@ -82,13 +82,12 @@ evaluate_concrete_type :: (fn(
 
   concrete_ty := match(inner_info.value,
     .Some(v) => match(v,
-      .TypeVal(inner) => inner,
+      .TypeVal(inner) => inner.*,
       _               => t_i32()  // unreachable: is_type_value guard above
     ),
     .None => t_i32()  // unreachable
   );
 
-  // Build the Concrete trait type.
   // Canonical id format mirrors TS: `concrete_module_${concreteType.id}`.
   // yo-self does not yet have a uniform `type_id` accessor, so we use
   // `type_to_string` as a stable identity proxy.

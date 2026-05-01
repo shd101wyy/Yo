@@ -57,7 +57,7 @@ evaluate_array_value :: (fn(
   expected_elem_type_opt := match(ctx.expected_type,
     .Some(et) => cond(
       is_array_type(et.ty) => match(et.ty,
-        .Array(box_elem, _) => Option(TypeValue).Some(*box_elem),
+        .Array(box_elem, _) => Option(TypeValue).Some(box_elem.*),
         _                   => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
@@ -178,7 +178,7 @@ evaluate_array_value :: (fn(
       (build_i : usize) = usize(0);
       while runtime((build_i < element_values.len())), {
         opt_v := match(element_values.get(build_i), .Some(x) => x, .None => Option(EvalValue).None);
-        match(opt_v, .Some(v) => elems.push(v), .None => ());
+        match(opt_v, .Some(v) => { elems.push(v); }, .None => ());
         build_i = (build_i + usize(1));
       };
       Option(EvalValue).Some(EvalValue.ArrayVal(elems))

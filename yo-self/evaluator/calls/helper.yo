@@ -375,11 +375,15 @@ check_if_function_parameter_matches_argument :: (fn(
 
   // Step 6: Synthesize forall bindings from arg type into callee_env.
   checked := ArrayList(TypePair).new();
+  // Note: opts is a local variable (not comptime .None) to ensure the
+  // un-specialized synthesize_types wrapper is generated in C codegen.
+  // See issues/synthesizer-unspecialized-wrapper.md
+  (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   synth := synthesize_types(
     resolved_pt,  callee_env_r,
     arg_type,     caller_env_r,
     &(checked),
-    Option(SynthesizeOptions).None,
+    synth_opts,
     using(exn)
   );
   callee_env_r = synth.expected_env;
@@ -676,11 +680,12 @@ try_to_call_function_with_arguments :: (fn(
         match(ctx.expected_type,
           .Some(et) => {
             checked_ret := ArrayList(TypePair).new();
+            (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
             synth_ret := synthesize_types(
               return_type, callee_env_m,
               et.ty,        et.env,
               &(checked_ret),
-              Option(SynthesizeOptions).None,
+              synth_ret_opts,
               using(exn)
             );
             callee_env_m = synth_ret.expected_env;

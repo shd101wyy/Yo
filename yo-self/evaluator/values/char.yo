@@ -22,11 +22,11 @@ open import "std/fmt";
 // tok_value includes surrounding single quotes.
 parse_char_literal :: (fn(tok_value : str) -> u32)({
   // b1 is the byte at index 1 (after the opening `'`)
-  b1 := match(tok_value.byte_at(usize(1)), .Some(b) => b, .None => u8(0));
+  b1 := tok_value.bytes(usize(1));
   cond(
     // Escape sequence: tok_value looks like '\x' — b1 is backslash (92)
     (b1 == u8(92)) => {
-      b2 := match(tok_value.byte_at(usize(2)), .Some(b) => b, .None => u8(0));
+      b2 := tok_value.bytes(usize(2));
       cond(
         (b2 == u8(110)) => u32(10),  // \n newline
         (b2 == u8(116)) => u32(9),   // \t tab

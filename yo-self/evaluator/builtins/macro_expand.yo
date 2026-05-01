@@ -60,7 +60,7 @@ evaluate_macro_expand :: (fn(
     .None    => {
       exn.throw(dyn format_error_message(
         ast_expr_token(arg_expr),
-        String.from(`Failed to evaluate the argument expression for "macro_expand"`),
+        `Failed to evaluate the argument expression for "macro_expand"`,
         false, .None
       ));
       return expr;
@@ -86,7 +86,7 @@ evaluate_macro_expand :: (fn(
       .None    => {
         exn.throw(dyn format_error_message(
           ast_expr_token(level_arg),
-          String.from(`Failed to evaluate the level argument expression for "macro_expand"`),
+          `Failed to evaluate the level argument expression for "macro_expand"`,
           false, .None
         ));
         return expr;
@@ -106,7 +106,7 @@ evaluate_macro_expand :: (fn(
     if(!(is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal))), {
       exn.throw(dyn format_error_message(
         ast_expr_token(level_arg),
-        String.from(`The level argument for "macro_expand" must be a comptime_int value`),
+        `The level argument for "macro_expand" must be a comptime_int value`,
         false, .None
       ));
     });
@@ -116,9 +116,9 @@ evaluate_macro_expand :: (fn(
       .None    => "0"
     );
     // Parse the comptime_int to i64.
-    lv_parsed := match(i64.from_str(lv_raw),
-      .Ok(v) => v,
-      .Err(_) => i64(0)
+    lv_parsed := match(String.from(lv_raw).parse_i64(),
+      .Some(v) => v,
+      .None => i64(0)
     );
     if((lv_parsed < i64(0)), {
       exn.throw(dyn format_error_message(
@@ -156,17 +156,14 @@ evaluate_macro_expand :: (fn(
             });
           });
           if(should_continue, {
-            // Try to expand via evaluate_function_call; catch errors gracefully.
+            // Try to expand via evaluate_function_call.
+            // Note: Cannot use given() inner handler due to closure capture limitations.
+            // Errors propagate to the outer exn handler.
             (expanded_ok : bool) = false;
             (expanded_expr : AstExpr) = current_expr;
-            given(inner_exn) := Exception(throw: ((err) -> {
-              // On error, stop expanding (like the TypeScript try/catch).
-              should_continue = false;
-              escape ();
-            }));
             expanded_expr = evaluate_function_call(
               current_expr, current_env, t_unit(),
-              Option(EvalValue).None, ctx, using(inner_exn)
+              Option(EvalValue).None, ctx, using(exn)
             );
             expanded_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr));
             match(expanded_info_opt,
