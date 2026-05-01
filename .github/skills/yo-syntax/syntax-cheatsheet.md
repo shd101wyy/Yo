@@ -598,35 +598,78 @@ if(!cond, { do_thing(); });
 if((!cond), { do_thing(); });
 ```
 
-### `escape` is only valid inside `given` handler lambdas
+### `escape` requires a nested-function context
 
-`escape value` exits the function that installed the `given` handler. It is
-**NOT** valid in `if` blocks, `match` arms, regular lambdas, or top-level
-function bodies. If you need to exit a function early from one of those
-positions, use `return`.
+`escape value` exits the **enclosing function** — the nearest `fn(...)` that
+wraps the current code. It requires that the code is inside a nested function
+(e.g., a closure or `given` handler lambda), NOT at the top level of a
+standalone function definition.
 
 ```rust
-// CORRECT — escape inside a given handler lambda:
+// CORRECT — escape inside a given handler lambda (lambda has enclosing fn):
 given(exn) := Exception(throw: ((err) -> {
-  escape result   // exits the enclosing function that called given
+  escape result   // exits the outer function that contains this given()
 }));
 do_something(using(exn));
 
-// WRONG — escape inside an if block:
-if(cond, {
-  escape result   // ERROR: "escape can only be used inside a given handler"
+// CORRECT — escape inside a closure passed as argument:
+result := match(opt, .Some(x) => x, .None => {
+  // This is NOT a nested function — use return:
+  // WRONG: escape default_val  // ERROR: no enclosing fn
+  return default_val  // CORRECT: return exits the enclosing fn directly
 });
 
-// CORRECT — use return instead for early exit from a lambda:
-if(cond, {
-  return result   // exits the if-lambda (the if call returns result)
+// WRONG — escape inside a match arm (not a nested fn):
+match(opt,
+  .Some(x) => { escape x }  // ERROR: "can only be used inside a function that has an enclosing function"
+);
+```
+
+**Rule of thumb**: Use `escape` only inside lambdas passed to `given()` handlers.
+In all other contexts (match arms, if blocks, begin blocks, top-level fn bodies),
+use `return` for early exit.
+
+`return` inside a lambda exits that lambda only; `escape` exits the OUTER function
+(the one that installed the `given` handler).
+
+### Parameter reassignment
+
+Function parameters are **NOT reassignable**. To reassign, declare a mutable local:
+
+```rust
+// WRONG — cannot reassign parameter 'env':
+my_fn :: (fn(env : Environment) -> Environment)({
+  env = other_env;  // ERROR: "cannot reassign itself"
+  env
+});
+
+// CORRECT — create a mutable local copy:
+my_fn :: (fn(init_env : Environment) -> Environment)({
+  (env : Environment) = init_env;
+  env = other_env;  // OK — reassigning local variable
+  env
 });
 ```
 
-`return` inside a lambda exits that lambda only; `escape` exits the OUTER function
-(the one that installed the `given` handler). To exit a function early without a
-`given` handler, structure the function so the early path uses `return` at the
-top level of the function body, or use a match that covers all cases.
+This also applies to `object` types: you can mutate fields (`env.field = val`)
+but cannot rebind the variable (`env = other_env`).
+
+### String cloning
+
+Calling `.clone()` on a `String` field from a struct/method chain requires a
+reference — take `&` first:
+
+```rust
+// WRONG — .clone() requires *(Self) but gets Self value from field access:
+name := token.value.clone();            // ERROR
+
+// CORRECT — take reference first:
+tok := some_fn_call();
+name := (&tok.value).clone();           // OK
+
+// ALSO CORRECT — use String.from on the str slice:
+name := String.from(token.value.as_str());
+```
 
 ### Template strings produce `String`, literals are `str`
 

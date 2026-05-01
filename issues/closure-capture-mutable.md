@@ -12,16 +12,42 @@ given(exn) := Exception(throw: ((err) -> {
 }));
 ```
 
-fails C compilation with `use of undeclared identifier 'caught'`. The same
-happens with a `(g_caught : bool) = false;` global at module scope — the
-closure body cannot see it.
+fails C compilation with `use of undeclared identifier 'caught'`. This also
+affects any mutable variable in `given()` effect handlers — even simple `bool`
+flags:
+
+```rust
+(did_throw : bool) = false;
+given(exn) := Exception(throw: ((err) -> {
+  did_throw = true;   // ❌ "use of undeclared identifier 'did_throw'"
+  return ()
+}));
+```
+
+## Root Cause
+
+The codegen for effect handler closures (from `given()` statements) generates
+them as separate top-level C functions but references outer local variables
+directly by name, which is invalid in C11. The handler function:
+
+```c
+static inline void fn_xxx_throw(dyn_error err) {
+  did_throw = true;  // ERROR: 'did_throw' is not in scope here
+}
+```
+
+is a separate C function; `did_throw` is a local variable of the enclosing
+function. C11 does not support nested functions or non-global variable capture.
+
+This affects ALL `given()` handlers that reference outer mutable state, including
+`yo-self/evaluator/types/function.yo`'s `lhs_eval_failed` pattern.
 
 ## Impact
 
-Test code that uses Exception handlers cannot communicate the "I was called"
-signal back to the test body without a side channel. For now we can only
-test handlers via happy-path assertions inside the closure (`assert(false,
-...)` to fail-fast on unexpected throws).
+1. Test code cannot communicate "did an exception get thrown" signal back via mutable locals.
+2. Production code using `given()` handlers with captured state silently generates
+   invalid C (compilation fails with "undeclared identifier" errors).
+3. `anonymous_module.yo`'s `allow_partial_module=true` path cannot be implemented.
 
 ## Workaround
 
@@ -29,20 +55,38 @@ test handlers via happy-path assertions inside the closure (`assert(false,
   `assert(false, "unexpected error")` — the test fails noisily if the throw
   is taken.
 - For tests of "did this throw?", currently no clean Yo-only solution.
+- For production code like `allow_partial_module`: only implement the `false` path
+  (propagate exceptions to outer `exn` directly without inner handler).
 
 ## Affected
 
-- `yo-self/tests/typeof.test.yo` had to drop its arity-error test. The
-  arity check itself is identical to dozens of `exn.throw(...)` sites in
-  `yo-self/parser/parser.yo`, which are exercised indirectly.
+- `yo-self/tests/typeof.test.yo` had to drop its arity-error test.
+- `yo-self/evaluator/values/anonymous_module.yo`: `allow_partial_module=true` not implemented.
+- `yo-self/evaluator/types/function.yo`: `evaluate_where_clause` generates invalid C
+  (untested path — current yo-self tests don't exercise it).
 
 ## Fix direction
 
-Closure capture of mutable cells (Box, mutable globals) needs to work for
-test ergonomics. Either:
+The codegen for effect handler closures needs proper closure capture support.
+Effect handler function signatures need a `void* ctx` capture parameter:
 
-1. Allow closures to capture `Box(T)` by value (the `.*` mutates the heap
-   cell, not the closure's captured pointer).
-2. Allow closures to read/write module-level mutable globals.
+```c
+// Current (broken):
+static inline void handler_throw(dyn_error err) { captured_var = true; }
 
-Either fix would unblock natural error-path testing in the bootstrap suite.
+// Fixed:
+typedef struct { bool* captured_var; } _CaptureState_xxx;
+static inline void handler_throw(dyn_error err, void* capture) {
+  _CaptureState_xxx* state = (_CaptureState_xxx*)capture;
+  *state->captured_var = true;
+}
+```
+
+This requires:
+
+1. The evaluator to detect that a given() handler closure captures outer variables
+2. The codegen to generate a capture struct for the handler
+3. The effect system to pass the capture pointer alongside the function pointer
+
+Alternatively, fix requires changes to how evidence parameters are passed in C — adding
+a `void* closure_ctx` alongside every `void* fn_ptr` evidence parameter.

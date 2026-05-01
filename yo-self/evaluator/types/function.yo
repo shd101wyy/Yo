@@ -22,7 +22,7 @@ open import "std/fmt";
   ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
   BK_FORALL, BK_WHERE, BK_COMPTIME, BK_QUOTE, BK_FN, BK_UNSAFE_FN, BK_TUPLE }
   :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
 { Environment, Variable, get_variables_from_env, add_variable_to_env } :: import "../../env/env.yo";
 { EvalContext }                             :: import "../context.yo";
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import "../value.yo";
@@ -41,6 +41,7 @@ open import "std/fmt";
 { format_error_message }                    :: import "../../error/error.yo";
 { type_to_string }                          :: import "../../types/string.yo";
 { is_valid_variable_name }                  :: import "../exprs/binding.yo";
+{ type_implements_trait_bool }              :: import "../trait_checking.yo";
 { Exception }                               :: import "std/error";
 { evaluate_expression, evaluate_expression_raw } :: import "../exprs/expr.yo";
 { ArrayList }                               :: import "std/collections/array_list";
@@ -761,24 +762,115 @@ use_id :: (fn(forall(T : Type),
 });
 
 // ---------------------------------------------------------------------------
-// validate_concrete_type_constraints (stub — needs typeImplementsTrait)
+// validate_concrete_type_constraints
 // ---------------------------------------------------------------------------
 
+/// Validate that a concrete type satisfies all trait constraints from a where clause.
+/// Mirrors `validateConcreteTypeConstraints` from function.ts lines 1466-1564.
 validate_concrete_type_constraints :: (fn(
-  _concrete_type : TypeValue,
-  _rhs_expr      : AstExpr,
+  concrete_type   : TypeValue,
+  rhs_expr        : AstExpr,
   constraint_expr : AstExpr,
-  _env_mut       : *(Environment),
-  _ctx           : *(EvalContext),
+  env_mut         : *(Environment),
+  ctx             : *(EvalContext),
   using(exn : Exception)
-) -> unit)(
-  exn.throw(dyn format_error_message(
-    ast_expr_token(constraint_expr),
-    String.from("where clause on concrete type not yet implemented (typeImplementsTrait, Phase 3)"),
-    false,
-    .None
-  ))
-);
+) -> unit)({
+  // Collect (trait_expr, is_negated) pairs.
+  // Tuple form: (Trait1, Trait2, ...) or single: Trait / !(Trait)
+  (trait_exprs    : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (trait_negated  : ArrayList(bool))    = ArrayList(bool).new();
+
+  if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None), {
+    (args : ArrayList(AstExpr)) = _fn_call_args(rhs_expr);
+    (i : usize) = usize(0);
+    while((i < args.len()), {
+      (arg : AstExpr) = match(args.get(i), .Some(a) => a, .None => { i = (i + usize(1)); return (); });
+      if(ast_expr_is_fn_call_of(arg, "!", .Some(usize(1))), {
+        (inner : AstExpr) = match(_fn_call_args(arg).get(usize(0)), .Some(a) => a, .None => arg);
+        trait_exprs.push(inner);
+        trait_negated.push(true);
+      }, {
+        trait_exprs.push(arg);
+        trait_negated.push(false);
+      });
+      i = (i + usize(1));
+    });
+  }, {
+    if(ast_expr_is_fn_call_of(rhs_expr, "!", .Some(usize(1))), {
+      (inner : AstExpr) = match(_fn_call_args(rhs_expr).get(usize(0)), .Some(a) => a, .None => rhs_expr);
+      trait_exprs.push(inner);
+      trait_negated.push(true);
+    }, {
+      trait_exprs.push(rhs_expr);
+      trait_negated.push(false);
+    });
+  });
+
+  // For each (trait_expr, is_negated): evaluate, check, throw if violated
+  (j : usize) = usize(0);
+  while((j < trait_exprs.len()), {
+    (t_expr : AstExpr) = match(trait_exprs.get(j), .Some(e) => e, .None => { j = (j + usize(1)); return (); });
+    (negated : bool)   = match(trait_negated.get(j), .Some(b) => b, .None => false);
+
+    (info : ExprInfo) = evaluate_expression(t_expr, env_mut.*, ctx.*, using(exn));
+    env_mut.* = info.env;
+
+    if(is_type_value(info.value), {
+      tv := match(info.value, .Some(ev) => {
+        match(ev, .TypeVal(b) => b.*, _ => {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(t_expr),
+            String.from("Expected trait type for right-hand side of where clause constraint."),
+            false, .None
+          ));
+          return ();
+        })
+      }, .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(t_expr),
+          String.from("Expected trait type for right-hand side of where clause constraint."),
+          false, .None
+        ));
+        return ();
+      });
+
+      if(!(is_trait_type(tv)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(t_expr),
+          format!("Expected trait type for right-hand side of where clause constraint, got: {}", type_to_string(tv)),
+          false, .None
+        ));
+      });
+
+      implemented := type_implements_trait_bool(concrete_type, tv);
+      if(negated, {
+        if(implemented, {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(constraint_expr),
+            format!("Type {} must NOT implement {}, but it does.", type_to_string(concrete_type), type_to_string(tv)),
+            false, .None
+          ));
+        });
+      }, {
+        if(!(implemented), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(constraint_expr),
+            format!("Type {} does not implement required trait {}.", type_to_string(concrete_type), type_to_string(tv)),
+            false, .None
+          ));
+        });
+      });
+    }, {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(t_expr),
+        String.from("Expected trait type for right-hand side of where clause constraint."),
+        false, .None
+      ));
+    });
+
+    j = (j + usize(1));
+  });
+});
 
 // ---------------------------------------------------------------------------
 // apply_single_trait_constraint
