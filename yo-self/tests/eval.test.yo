@@ -7,7 +7,8 @@ open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT,
+  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_i32, t_bool, t_u32, t_f32, t_type,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
@@ -96,6 +97,41 @@ make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
     arms,
     false,
     make_token(TokenKind.Identifier, "cond")
+  )
+);
+
+/// Build `keyword(arg1, arg2, …)` — used for enum/struct/union/trait/object/newtype.
+make_typedef_call :: (fn(keyword : str, type_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, keyword))),
+    type_args,
+    false,
+    make_token(TokenKind.Identifier, keyword)
+  )
+);
+
+/// Build a `label : type_expr` labeled field expression (infix colon).
+make_labeled_field :: (fn(label : str, type_expr : AstExpr) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_ident(label));
+      a.push(type_expr);
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, ":")
+  )
+);
+
+/// Build `VariantName(field1, field2, …)` — enum variant with fields.
+make_variant :: (fn(name : str, field_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    field_args,
+    false,
+    make_token(TokenKind.Identifier, name)
   )
 );
 
@@ -2648,5 +2684,241 @@ test "validation milestone: evaluate hello_world module", {
         },
         _ => assert(false, "result is not a ModuleVal")
       )
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3z — Type definition keyword handlers
+// (enum, struct, object, newtype, union, trait)
+// ---------------------------------------------------------------------------
+
+/// Helper: build a fresh env with `T` bound to `TypeVal(i32)`.
+make_env_with_T :: (fn() -> Environment)({
+  env := Environment.new(`T_env`);
+  (ti32 : TypeValue) = t_i32();
+  _ := (&env).define_val(
+    String.from("T"),
+    t_type(),
+    true,
+    .Some(.TypeVal(box(ti32)))
+  );
+  env
+});
+
+test "evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
+  env      := make_env_with_T();
+  env_ptr  := (&env);
+
+  none_expr := make_ident("None");
+  val_field := make_labeled_field("value", make_ident("T"));
+  some_args := ArrayList(AstExpr).new();
+  some_args.push(val_field);
+  some_expr := make_variant("Some", some_args);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(none_expr);
+  type_args.push(some_expr);
+  expr := make_typedef_call(BK_ENUM, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "enum(...) should return Some");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TType), "result.ty should be TType");
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .EnumT(_, _, vnames, vfields_all, _, _, _) => {
+              assert((vnames.len() == usize(2)), "should have 2 variants");
+              match(vnames.get(usize(0)), .Some(n) => assert((n.as_str() == "None"), "first variant is None"), .None => assert(false, "no variant 0"));
+              match(vnames.get(usize(1)), .Some(n) => assert((n.as_str() == "Some"), "second variant is Some"), .None => assert(false, "no variant 1"));
+              match(vfields_all.get(usize(0)), .Some(f) => assert((f.len() == usize(0)), "None has no fields"), .None => assert(false, "no fields 0"));
+              match(vfields_all.get(usize(1)), .Some(f) => assert((f.len() == usize(1)), "Some has 1 field"), .None => assert(false, "no fields 1"));
+            },
+            _ => assert(false, "not an EnumT")
+          ),
+        _ => assert(false, "not a TypeVal")
+      );
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: enum(Red, Green, Blue) plain fieldless variants", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(make_ident("Red"));
+  type_args.push(make_ident("Green"));
+  type_args.push(make_ident("Blue"));
+  expr := make_typedef_call(BK_ENUM, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "plain enum");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .EnumT(_, _, vnames, _, _, _, vdiscs) => {
+              assert((vnames.len() == usize(3)), "3 variants");
+              assert((vdiscs.len() == usize(3)), "3 discriminants");
+              match(vdiscs.get(usize(0)), .Some(d) => assert((d == i64(0)), "Red=0"), .None => assert(false, "no disc 0"));
+              match(vdiscs.get(usize(1)), .Some(d) => assert((d == i64(1)), "Green=1"), .None => assert(false, "no disc 1"));
+              match(vdiscs.get(usize(2)), .Some(d) => assert((d == i64(2)), "Blue=2"), .None => assert(false, "no disc 2"));
+            },
+            _ => assert(false, "not EnumT")
+          ),
+        _ => assert(false, "not TypeVal")
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(make_labeled_field("x", make_ident("i32")));
+  type_args.push(make_labeled_field("y", make_ident("bool")));
+  expr := make_typedef_call(BK_STRUCT, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "struct");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TType), "ty is TType");
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .Struct(_, _, labels, types, is_ref_sem, _, is_newtype) => {
+              assert((labels.len() == usize(2)), "2 fields");
+              assert((!(is_ref_sem)), "not ref sem");
+              assert((!(is_newtype)), "not newtype");
+              match(labels.get(usize(0)), .Some(l) => assert((l.as_str() == "x"), "first field x"), .None => assert(false, "no label 0"));
+              match(labels.get(usize(1)), .Some(l) => assert((l.as_str() == "y"), "second field y"), .None => assert(false, "no label 1"));
+              match(types.get(usize(0)), .Some(t) => assert((type_value_tag(t) == TypeTag.TI32), "x:i32"), .None => assert(false, "no type 0"));
+              match(types.get(usize(1)), .Some(t) => assert((type_value_tag(t) == TypeTag.TBool), "y:bool"), .None => assert(false, "no type 1"));
+            },
+            _ => assert(false, "not Struct")
+          ),
+        _ => assert(false, "not TypeVal")
+      );
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: object(x: i32) creates Struct with is_reference_semantics=true", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(make_labeled_field("x", make_ident("i32")));
+  expr := make_typedef_call(BK_OBJECT, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "object");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .Struct(_, _, _, _, is_ref_sem, _, is_newtype) => {
+              assert(is_ref_sem, "object has reference semantics");
+              assert((!(is_newtype)), "not newtype");
+            },
+            _ => assert(false, "not Struct")
+          ),
+        _ => assert(false, "not TypeVal")
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: newtype(i32) creates Struct with is_newtype=true", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(make_ident("i32"));
+  expr := make_typedef_call(BK_NEWTYPE, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "newtype");
+  match(result,
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .Struct(_, _, labels, types, is_ref_sem, _, is_newtype) => {
+              assert((!(is_ref_sem)), "newtype is not ref sem");
+              assert(is_newtype, "is_newtype is true");
+              assert((labels.len() == usize(1)), "1 wrapped field");
+              match(labels.get(usize(0)), .Some(l) => assert((l.as_str() == "*"), "field label is *"), .None => assert(false, "no label"));
+              match(types.get(usize(0)), .Some(t) => assert((type_value_tag(t) == TypeTag.TI32), "wrapped type is i32"), .None => assert(false, "no type"));
+            },
+            _ => assert(false, "not Struct")
+          ),
+        _ => assert(false, "not TypeVal")
+      ),
+    .None => ()
+  );
+};
+
+test "evaluate: union(x: i32, y: bool) creates Union TypeVal", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  type_args := ArrayList(AstExpr).new();
+  type_args.push(make_labeled_field("x", make_ident("i32")));
+  type_args.push(make_labeled_field("y", make_ident("bool")));
+  expr := make_typedef_call(BK_UNION, type_args);
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "union");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TType), "ty is TType");
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .Union(_, labels, types) => {
+              assert((labels.len() == usize(2)), "2 union fields");
+              match(labels.get(usize(0)), .Some(l) => assert((l.as_str() == "x"), "label x"), .None => assert(false, "no label 0"));
+              match(types.get(usize(0)), .Some(t) => assert((type_value_tag(t) == TypeTag.TI32), "x:i32"), .None => assert(false, "no type 0"));
+            },
+            _ => assert(false, "not Union")
+          ),
+        _ => assert(false, "not TypeVal")
+      );
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: trait() stub creates TraitT TypeVal", {
+  env     := empty_env();
+  env_ptr := (&env);
+
+  expr := make_typedef_call(BK_TRAIT, ArrayList(AstExpr).new());
+
+  result := evaluate(expr, env_ptr);
+  check_some(result, "trait");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TType), "ty is TType");
+      match(r.value,
+        .TypeVal(tyb) =>
+          match(tyb.*,
+            .TraitT(_, _, _, _, _, _, _, _) => (),
+            _ => assert(false, "not TraitT")
+          ),
+        _ => assert(false, "not TypeVal")
+      );
+    },
+    .None => ()
   );
 };

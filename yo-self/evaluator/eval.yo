@@ -51,7 +51,8 @@ open import "std/fmt";
 { atof } :: import "std/libc/stdlib";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_IMPORT, BK_EXPORT, BK_OPEN } :: import "../expr/expr.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_IMPORT, BK_EXPORT, BK_OPEN,
+  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_unit, t_bool, t_void,
   t_i8, t_i16, t_i32, t_i64,
@@ -1110,6 +1111,391 @@ handle_using_call :: (fn(
         .None => Option(EvalResult).None
       )
   )
+);
+
+// ---------------------------------------------------------------------------
+// Type definition helpers — Phase 3z
+// Factored out to keep evaluate's frame small (ASAN concern).
+// ---------------------------------------------------------------------------
+
+/// Evaluate `enum(None, Some(value: T), ...)` and produce `TypeVal(EnumT(...))`.
+///
+/// Each arg to `enum(...)` is a variant descriptor (NOT dot-prefixed):
+///   - Atom: `Less` — fieldless variant
+///   - FnCall: `Some(value: T)` — variant with labeled fields
+///   - Infix `=`: `Red = 0` or `Some(x: i32) = 5` — variant with explicit discriminant
+///
+/// Field types are evaluated via `ef` to extract their TypeValues.
+handle_enum_def :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))(
+  match(g_eval_fn,
+    .None => Option(EvalResult).None,
+    .Some(ef) => {
+      enum_id      := `enum_${random_id(String.from(""))}`;
+      v_names      := ArrayList(String).new();
+      v_fields_all := ArrayList(ArrayList(TypeValue)).new();
+      v_labels_all := ArrayList(ArrayList(String)).new();
+      v_discs      := ArrayList(i64).new();
+      (next_disc : i64) = i64(0);
+      (ok : bool) = true;
+      n := args.len();
+      (i : usize) = usize(0);
+      while runtime(((i < n) && ok)), {
+        match(args.get(i),
+          .Some(variant_expr) => {
+            // Detect custom discriminant wrapper: vcore = discriminant
+            (disc_opt   : Option(i64)) = Option(i64).None;
+            (vcore_expr : AstExpr)     = variant_expr;
+            is_eq_wrap := match(variant_expr,
+              .FnCall(_, fb, _, vis_infix, _) =>
+                match(fb.*, .Atom(_, tok) => ((tok.value.as_str() == "=") && vis_infix), .FnCall(_, _, _, _, _) => false),
+              .Atom(_, _) => false
+            );
+            if(is_eq_wrap, {
+              match(variant_expr,
+                .FnCall(_, _, eq_args, _, _) => {
+                  match(eq_args.get(usize(0)), .Some(lhs_e) => { vcore_expr = lhs_e; }, .None => { ok = false; });
+                  match(eq_args.get(usize(1)),
+                    .Some(disc_e) =>
+                      match(ef(disc_e, env),
+                        .Some(dr) =>
+                          match(dr.value,
+                            .IntLit(s) => {
+                              d := match(parse_raw_int(s), .Some(x) => x, .None => i64(0));
+                              disc_opt = .Some(d);
+                            },
+                            _ => ()
+                          ),
+                        .None => ()
+                      ),
+                    .None => ()
+                  );
+                },
+                .Atom(_, _) => ()
+              );
+            });
+
+            // Compute discriminant value and advance counter
+            disc := match(disc_opt,
+              .Some(d) => { next_disc = (d + i64(1)); d },
+              .None => { d := next_disc; next_disc = (next_disc + i64(1)); d }
+            );
+
+            // Handle variant core expression:
+            //   Atom("None")              → fieldless variant
+            //   FnCall(Atom("Some"), [...]) → variant with fields
+            match(vcore_expr,
+              .Atom(_, vtok) => {
+                vname_s := vtok.value.as_str();
+                cond(
+                  (vname_s == "_") => { ok = false; },
+                  true => {
+                    v_names.push(String.from(vname_s));
+                    v_fields_all.push(ArrayList(TypeValue).new());
+                    v_labels_all.push(ArrayList(String).new());
+                    v_discs.push(disc);
+                  }
+                );
+              },
+              .FnCall(_, vfunc_box, vfield_args, _, _) => {
+                vname_s := match(vfunc_box.*,
+                  .Atom(_, vftok) => vftok.value.as_str(),
+                  .FnCall(_, _, _, _, _) => { ok = false; "" }
+                );
+                cond(
+                  (!(ok)) => (),
+                  true => {
+                    field_tys := ArrayList(TypeValue).new();
+                    field_lbs := ArrayList(String).new();
+                    n_vf := vfield_args.len();
+                    (vfi : usize) = usize(0);
+                    (vfok : bool) = true;
+                    while runtime(((vfi < n_vf) && vfok)), {
+                      match(vfield_args.get(vfi),
+                        .Some(field_e) => {
+                          // `label : type_expr` labeled field
+                          is_colon_field := match(field_e,
+                            .FnCall(_, fc_box, _, fc_infix, _) =>
+                              match(fc_box.*, .Atom(_, fc_tok) => ((fc_tok.value.as_str() == ":") && fc_infix), .FnCall(_, _, _, _, _) => false),
+                            .Atom(_, _) => false
+                          );
+                          cond(
+                            is_colon_field => {
+                              match(field_e,
+                                .FnCall(_, _, fc_args, _, _) => {
+                                  flabel := match(fc_args.get(usize(0)),
+                                    .Some(le) => match(le, .Atom(_, ltok) => ltok.value.as_str(), .FnCall(_, _, _, _, _) => ""),
+                                    .None => ""
+                                  );
+                                  fty := match(fc_args.get(usize(1)),
+                                    .Some(te) =>
+                                      match(ef(te, env),
+                                        .Some(tr) => match(tr.value, .TypeVal(tb) => tb.*, _ => t_unit()),
+                                        .None => t_unit()
+                                      ),
+                                    .None => t_unit()
+                                  );
+                                  field_lbs.push(String.from(flabel));
+                                  field_tys.push(fty);
+                                },
+                                .Atom(_, _) => ()
+                              );
+                            },
+                            // Unlabeled field: just a type expression
+                            true => {
+                              fty := match(ef(field_e, env),
+                                .Some(fr) => match(fr.value, .TypeVal(tb) => tb.*, _ => t_unit()),
+                                .None => t_unit()
+                              );
+                              field_lbs.push(String.from(""));
+                              field_tys.push(fty);
+                            }
+                          );
+                        },
+                        .None => { vfok = false; }
+                      );
+                      vfi = (vfi + usize(1));
+                    };
+                    v_names.push(String.from(vname_s));
+                    v_fields_all.push(field_tys);
+                    v_labels_all.push(field_lbs);
+                    v_discs.push(disc);
+                    if((!(vfok)), { ok = false; });
+                  }
+                );
+              }
+            );
+          },
+          .None => { ok = false; }
+        );
+        i = (i + usize(1));
+      };
+      cond(
+        (!(ok)) => Option(EvalResult).None,
+        true =>
+          .Some(eval_result(
+            .TypeVal(box(TypeValue.EnumT(
+              String.from(enum_id.as_str()),
+              String.from(""),
+              v_names,
+              v_fields_all,
+              Option(String).None,
+              v_labels_all,
+              v_discs
+            ))),
+            t_type()
+          ))
+      )
+    }
+  )
+);
+
+/// Evaluate `struct(name: Type, ...)`, `object(name: Type, ...)`, or
+/// `newtype(wrapped_type)` and produce `TypeVal(Struct(...))`.
+///
+/// Each arg is expected to be a labeled field `name : type_expr`.
+/// For newtype, a single unlabeled type expression is also accepted.
+handle_struct_def :: (fn(
+  args       : ArrayList(AstExpr),
+  is_ref_sem : bool,
+  is_newtype : bool,
+  env        : *(Environment)
+) -> Option(EvalResult))(
+  match(g_eval_fn,
+    .None => Option(EvalResult).None,
+    .Some(ef) => {
+      struct_id := `struct_${random_id(String.from(""))}`;
+      f_labels  := ArrayList(String).new();
+      f_types   := ArrayList(TypeValue).new();
+      (ok : bool) = true;
+      n := args.len();
+      (i : usize) = usize(0);
+      while runtime(((i < n) && ok)), {
+        match(args.get(i),
+          .Some(field_expr) => {
+            // Check for labeled field: `name : type_expr` (infix :)
+            is_labeled := match(field_expr,
+              .FnCall(_, fb, _, finfix, _) =>
+                match(fb.*, .Atom(_, tok) => ((tok.value.as_str() == ":") && finfix), .FnCall(_, _, _, _, _) => false),
+              .Atom(_, _) => false
+            );
+            cond(
+              is_labeled => {
+                match(field_expr,
+                  .FnCall(_, _, fargs, _, _) => {
+                    fname := match(fargs.get(usize(0)),
+                      .Some(ne) => match(ne, .Atom(_, tok) => tok.value.as_str(), .FnCall(_, _, _, _, _) => ""),
+                      .None => ""
+                    );
+                    match(fargs.get(usize(1)),
+                      .Some(type_expr) =>
+                        match(ef(type_expr, env),
+                          .Some(fres) => {
+                            fty := match(fres.value, .TypeVal(tyb) => tyb.*, _ => t_unit());
+                            f_labels.push(String.from(fname));
+                            f_types.push(fty);
+                          },
+                          .None => {
+                            f_labels.push(String.from(fname));
+                            f_types.push(t_unit());
+                          }
+                        ),
+                      .None => ()
+                    );
+                  },
+                  .Atom(_, _) => ()
+                );
+              },
+              // Unlabeled field (e.g. newtype single-arg): evaluate as type
+              true => {
+                match(ef(field_expr, env),
+                  .Some(fres) => {
+                    fty := match(fres.value, .TypeVal(tyb) => tyb.*, _ => t_unit());
+                    f_labels.push(String.from("*"));
+                    f_types.push(fty);
+                  },
+                  .None => {
+                    f_labels.push(String.from("*"));
+                    f_types.push(t_unit());
+                  }
+                );
+              }
+            );
+          },
+          .None => { ok = false; }
+        );
+        i = (i + usize(1));
+      };
+      cond(
+        (!(ok)) => Option(EvalResult).None,
+        true =>
+          .Some(eval_result(
+            .TypeVal(box(TypeValue.Struct(
+              String.from(struct_id.as_str()),
+              String.from(""),
+              f_labels,
+              f_types,
+              is_ref_sem,
+              false,
+              is_newtype
+            ))),
+            t_type()
+          ))
+      )
+    }
+  )
+);
+
+/// Evaluate `union(name: Type, ...)` and produce `TypeVal(Union(...))`.
+handle_union_def :: (fn(
+  args : ArrayList(AstExpr),
+  env  : *(Environment)
+) -> Option(EvalResult))(
+  match(g_eval_fn,
+    .None => Option(EvalResult).None,
+    .Some(ef) => {
+      f_labels := ArrayList(String).new();
+      f_types  := ArrayList(TypeValue).new();
+      (ok : bool) = true;
+      n := args.len();
+      (i : usize) = usize(0);
+      while runtime(((i < n) && ok)), {
+        match(args.get(i),
+          .Some(field_expr) => {
+            is_labeled := match(field_expr,
+              .FnCall(_, fb, _, finfix, _) =>
+                match(fb.*, .Atom(_, tok) => ((tok.value.as_str() == ":") && finfix), .FnCall(_, _, _, _, _) => false),
+              .Atom(_, _) => false
+            );
+            cond(
+              is_labeled => {
+                match(field_expr,
+                  .FnCall(_, _, fargs, _, _) => {
+                    fname := match(fargs.get(usize(0)),
+                      .Some(ne) => match(ne, .Atom(_, tok) => tok.value.as_str(), .FnCall(_, _, _, _, _) => ""),
+                      .None => ""
+                    );
+                    match(fargs.get(usize(1)),
+                      .Some(type_expr) =>
+                        match(ef(type_expr, env),
+                          .Some(fres) => {
+                            fty := match(fres.value, .TypeVal(tyb) => tyb.*, _ => t_unit());
+                            f_labels.push(String.from(fname));
+                            f_types.push(fty);
+                          },
+                          .None => {
+                            f_labels.push(String.from(fname));
+                            f_types.push(t_unit());
+                          }
+                        ),
+                      .None => ()
+                    );
+                  },
+                  .Atom(_, _) => ()
+                );
+              },
+              true => {
+                match(ef(field_expr, env),
+                  .Some(fres) => {
+                    fty := match(fres.value, .TypeVal(tyb) => tyb.*, _ => t_unit());
+                    f_labels.push(String.from(""));
+                    f_types.push(fty);
+                  },
+                  .None => {
+                    f_labels.push(String.from(""));
+                    f_types.push(t_unit());
+                  }
+                );
+              }
+            );
+          },
+          .None => { ok = false; }
+        );
+        i = (i + usize(1));
+      };
+      cond(
+        (!(ok)) => Option(EvalResult).None,
+        true =>
+          .Some(eval_result(
+            .TypeVal(box(TypeValue.Union(
+              String.from(""),
+              f_labels,
+              f_types
+            ))),
+            t_type()
+          ))
+      )
+    }
+  )
+);
+
+/// Simplified `trait(...)` handler.
+///
+/// Phase 3z stub: creates an empty `TraitT` TypeValue so that `trait` definitions
+/// can be assigned to names in the environment. Method signatures are NOT
+/// currently evaluated (deferred to a later phase).
+handle_trait_def :: (fn(
+  _args : ArrayList(AstExpr),
+  _env  : *(Environment)
+) -> Option(EvalResult))(
+  cond(true => {
+    trait_id := `trait_${random_id(String.from(""))}`;
+    .Some(eval_result(
+      .TypeVal(box(TypeValue.TraitT(
+        String.from(""),
+        ArrayList(String).new(),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        String.from(trait_id.as_str()),
+        Option(Box(TypeValue)).None,
+        ArrayList(TypeValue).new(),
+        ArrayList(TypeValue).new()
+      ))),
+      t_type()
+    ))
+  })
 );
 
 /// Evaluate a single `AstExpr` node in the given environment.
@@ -2287,6 +2673,18 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // FuncVal call: look up identifier, check arity, run body.
             // Arity mismatch or unbound identifier → None.
             // -----------------------------------------------------------------
+
+            // -----------------------------------------------------------------
+            // Type definitions — Phase 3z
+            // enum(...), struct(...), object(...), newtype(...), union(...), trait(...)
+            // Each creates a TypeVal containing the appropriate TypeValue.
+            // -----------------------------------------------------------------
+            (fval == BK_ENUM)    => handle_enum_def(args, env),
+            (fval == BK_STRUCT)  => handle_struct_def(args, false, false, env),
+            (fval == BK_OBJECT)  => handle_struct_def(args, true, false, env),
+            (fval == BK_NEWTYPE) => handle_struct_def(args, false, true, env),
+            (fval == BK_UNION)   => handle_union_def(args, env),
+            (fval == BK_TRAIT)   => handle_trait_def(args, env),
 
             // -----------------------------------------------------------------
             // `if(cond, then)` or `if(cond, then, else)` — conditional expr.
