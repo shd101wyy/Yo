@@ -20,11 +20,15 @@
 open import "std/string";
 { ArrayList }                                 :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token }                   :: import "../../expr/expr.yo";
+{ AstExpr, ast_expr_token, ast_expr_id,
+  ast_expr_is_fn_call_of, ast_expr_is_atom_of,
+  make_err_expr }                              :: import "../../expr/expr.yo";
 { Environment,
   Variable,
   get_variables_from_env,
-  get_all_variables_from_env }                :: import "../../env/env.yo";
+  get_all_variables_from_env,
+  add_variable_to_env,
+  synthetic_token }                           :: import "../../env/env.yo";
 { TypeValue, t_unit }                         :: import "../../types/type.yo";
 { get_all_some_types }                        :: import "../../types/utils.yo";
 { is_some_type }                              :: import "../../types/guards.yo";
@@ -33,9 +37,17 @@ open import "std/string";
 { EvalValue }                                 :: import "../value.yo";
 { EvalContext,
   FuncCallResult,
-  ArgValues, ArgEntry, VarArgEntry }          :: import "../context.yo";
-{ PathCollection, path_collection_new }       :: import "../../expr/expr_info.yo";
+  ArgValues, ArgEntry, VarArgEntry,
+  ExpectedTypeCtx }                           :: import "../context.yo";
+{ PathCollection, path_collection_new,
+  ExprInfo, new_expr_info,
+  expr_info_table_get }                       :: import "../../expr/expr_info.yo";
 { evaluate_expression }                       :: import "../exprs/expr.yo";
+{ SynthesizeResult, SynthesizeOptions,
+  TypePair, synthesize_types }                :: import "../types/synthesizer.yo";
+{ are_types_compatible }                      :: import "../../types/compatibility.yo";
+{ evaluate_function_parameter_type_again,
+  evaluate_function_return_type_again }       :: import "../types/function.yo";
 { generate_expr_from_code }                   :: import "../../parser/parser.yo";
 { format_error_message }                      :: import "../../error/error.yo";
 { Exception }                                 :: import "std/error";
@@ -256,6 +268,157 @@ validate_function_return_type :: (fn(
 });
 
 // ---------------------------------------------------------------------------
+// Local helper: extract the args ArrayList from a FnCall AstExpr.
+// ---------------------------------------------------------------------------
+
+_h_get_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,
+    .FnCall(_, _, args, _, _) => args,
+    .Atom(_, _)               => ArrayList(AstExpr).new()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// CheckParamResult — result of check_if_function_parameter_matches_argument
+// ---------------------------------------------------------------------------
+
+CheckParamResult :: object(
+  callee_env          : Environment,
+  caller_env          : Environment,
+  arg_value           : Option(EvalValue),
+  arg_type            : TypeValue,
+  resolved_param_type : TypeValue
+);
+
+// ---------------------------------------------------------------------------
+// check_if_function_parameter_matches_argument
+// Phase 3 port of checkIfFunctionParameterMatchesArgument (helper.ts).
+// ---------------------------------------------------------------------------
+
+/// Check that one function parameter matches its argument expression.
+/// Evaluates the arg, synthesizes type bindings into callee_env, and adds
+/// the parameter variable to callee_env.
+check_if_function_parameter_matches_argument :: (fn(
+  param_label                : String,
+  param_type                 : TypeValue,
+  is_ct_only                 : bool,
+  arg_expr_raw               : AstExpr,
+  callee_env                 : Environment,
+  caller_env                 : Environment,
+  ctx                        : *(EvalContext),
+  runtime_arg_exprs_in_order : ArrayList(AstExpr),
+  using(exn                  : Exception)
+) -> CheckParamResult)({
+  // Step 1: Strip "label: value" colon-label wrapper from arg if present.
+  (actual_arg : AstExpr) = arg_expr_raw;
+  if(ast_expr_is_fn_call_of(arg_expr_raw, ":", .Some(usize(2))), {
+    colon_args := _h_get_fn_call_args(arg_expr_raw);
+    actual_arg = match(colon_args.get(usize(1)),
+      .Some(a) => a,
+      .None    => arg_expr_raw
+    );
+  });
+
+  // Step 2: Evaluate param type in callee_env.
+  (callee_env_r : Environment) = callee_env;
+  resolved_pt := evaluate_function_parameter_type_again(param_type, callee_env_r, ctx);
+
+  // Step 3: Evaluate arg with param type as expected-type hint.
+  saved_exp := ctx.expected_type;
+  ctx.expected_type = .Some(ExpectedTypeCtx(ty: resolved_pt, env: callee_env_r));
+  evaled_arg := evaluate_expression(actual_arg, caller_env, ctx);
+  ctx.expected_type = saved_exp;
+
+  // Extract ExprInfo for the evaluated arg.
+  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
+  arg_info := match(arg_info_opt,
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(actual_arg),
+        String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo"),
+        false,
+        .None
+      ));
+      new_expr_info(caller_env, t_unit())
+    }
+  );
+
+  (caller_env_r : Environment) = arg_info.env;
+  arg_type  := arg_info.ty;
+  arg_value := arg_info.value;
+
+  // Step 4: Append to runtime arg list if not comptime-only.
+  if(!(is_ct_only), {
+    runtime_arg_exprs_in_order.push(evaled_arg);
+  });
+
+  // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
+  if(is_ct_only, {
+    is_rt := match(arg_value,
+      .None    => true,
+      .Some(v) => match(v,
+        .UnknownVal(_) => true,
+        .VarRef(_)     => true,
+        _              => false
+      )
+    );
+    if(is_rt, {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(actual_arg),
+        `Cannot assign runtime argument to compile-time parameter "${param_label}"`,
+        false,
+        .None
+      ));
+    });
+  });
+
+  // Step 6: Synthesize forall bindings from arg type into callee_env.
+  checked := ArrayList(TypePair).new();
+  synth := synthesize_types(
+    resolved_pt,  callee_env_r,
+    arg_type,     caller_env_r,
+    &(checked),
+    Option(SynthesizeOptions).None,
+    using(exn)
+  );
+  callee_env_r = synth.expected_env;
+
+  // Step 7: Re-evaluate param type with the updated callee_env.
+  final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
+
+  // Step 8: Type-compatibility check.
+  if(!(are_types_compatible(final_pt, arg_type)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(actual_arg),
+      `Type mismatch for parameter "${param_label}"`,
+      false,
+      .None
+    ));
+  });
+
+  // Step 9: Bind param variable in callee_env.
+  param_tok := synthetic_token(param_label, callee_env_r.module_path);
+  _ := add_variable_to_env(
+    &(callee_env_r),
+    param_label, final_pt, arg_value,
+    is_ct_only,
+    false,  // is_reassignable
+    false,  // is_owning_the_rc_value
+    false,  // is_implicit
+    param_tok
+  );
+
+  CheckParamResult(
+    callee_env:          callee_env_r,
+    caller_env:          caller_env_r,
+    arg_value:           arg_value,
+    arg_type:            arg_type,
+    resolved_param_type: final_pt
+  )
+});
+
+// ---------------------------------------------------------------------------
 // try_to_call_function_with_arguments
 // ---------------------------------------------------------------------------
 
@@ -264,9 +427,15 @@ validate_function_return_type :: (fn(
 /// return type, runtime arg expressions, updated caller env, and deferred
 /// drop expressions.
 ///
-/// Phase 2x stub: throws "not yet implemented". Full implementation in Phase 3.
+/// Phase 3 port of `tryToCallFunctionWithArguments` in
+/// `src/evaluator/calls/helper.ts`.
 ///
-/// Mirrors `tryToCallFunctionWithArguments` in `src/evaluator/calls/helper.ts`.
+/// Phase 3 simplifications (relative to the full TypeScript implementation):
+///   * CTFE is not executed — return_value is always None.
+///   * Specialization caching is skipped — specialized_function_value is None.
+///   * RC ownership / deferred drop expressions are skipped.
+///   * Quote parameters are not supported (throw on encounter).
+///   * Where-clause constraints are skipped (TypeValue has no AstExpr forms).
 try_to_call_function_with_arguments :: (fn(
   func_val            : Option(EvalValue),
   func_type           : TypeValue,
@@ -280,40 +449,434 @@ try_to_call_function_with_arguments :: (fn(
   skip_ctfe_execution : bool,
   using(exn           : Exception)
 ) -> FuncCallResult)({
-  _ := func_val;
-  _ := func_type;
   _ := callee_expr;
-  _ := arg_exprs;
-  _ := ctx;
-  _ := is_method_call;
   _ := skip_specialization;
   _ := skip_ctfe_execution;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("try_to_call_function_with_arguments: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  // Unreachable: satisfies type checker after the throw.
-  FuncCallResult(
-    callee_env:                 caller_env,
-    caller_env:                 caller_env,
-    path_collection:            path_collection_new(),
-    return_type:                t_unit(),
-    return_value:               Option(EvalValue).None,
-    arg_values:                 ArgValues(
-      forall_args:   ArrayList(ArgEntry).new(),
-      args:          ArrayList(ArgEntry).new(),
-      implicit_args: Option(ArrayList(ArgEntry)).None,
-      variadic_args: ArrayList(VarArgEntry).new()
-    ),
-    runtime_arg_exprs_in_order: ArrayList(AstExpr).new(),
-    specialized_function_value: Option(EvalValue).None,
-    deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+  tok := ast_expr_token(expr);
+
+  match(func_type,
+    .Func(fl, ft, pl, pt, il, it, ispr, wt, ret_b) => {
+      _ := ispr;
+      _ := wt;
+
+      // ----------------------------------------------------------------
+      // Step 1: Detect explicit forall(…) argument.
+      // ----------------------------------------------------------------
+      (forall_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+      (regular_start   : usize) = usize(0);
+
+      has_f0 := match(arg_exprs.get(usize(0)),
+        .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
+        .None    => false
+      );
+      if(has_f0, {
+        fa0 := match(arg_exprs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        forall_args_opt = .Some(_h_get_fn_call_args(fa0));
+        regular_start = usize(1);
+      });
+
+      // For method calls, forall may appear at index 1 (self is at 0).
+      if(((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1)))), {
+        has_f1 := match(arg_exprs.get(usize(1)),
+          .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
+          .None    => false
+        );
+        if(has_f1, {
+          fa1 := match(arg_exprs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          forall_args_opt = .Some(_h_get_fn_call_args(fa1));
+          // Phase 3: no arg reordering needed; self is still at adjusted_args[0].
+        });
+      });
+
+      // ----------------------------------------------------------------
+      // Step 2: Split using(…) arg out; collect regular args.
+      // ----------------------------------------------------------------
+      (using_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+      adjusted_args   := ArrayList(AstExpr).new();
+
+      n_total := arg_exprs.len();
+      (ai : usize) = regular_start;
+      while runtime((ai < n_total)), {
+        a := match(arg_exprs.get(ai), .Some(x) => x, .None => make_err_expr());
+        if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
+          using_args_opt = .Some(_h_get_fn_call_args(a));
+        }, {
+          adjusted_args.push(a);
+        });
+        ai = (ai + usize(1));
+      };
+
+      // ----------------------------------------------------------------
+      // Step 3: Argument count check.
+      // ----------------------------------------------------------------
+      n_params := pl.len();
+      n_args   := adjusted_args.len();
+      if((n_args != n_params), {
+        exn.throw(dyn format_error_message(
+          tok,
+          `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
+          false,
+          .None
+        ));
+      });
+
+      // ----------------------------------------------------------------
+      // Step 4: Build callee_env from FuncVal captures (or empty).
+      // ----------------------------------------------------------------
+      (callee_env : Environment) = match(func_val,
+        .Some(fv) => match(fv,
+          .FuncVal(_, _, _, _, _, cn, ct, cv, _) => {
+            fenv := Environment.new(caller_env.module_path);
+            (ci : usize) = usize(0);
+            n_cap := cn.len();
+            while runtime((ci < n_cap)), {
+              cname := match(cn.get(ci), .Some(s) => s, .None => String.from(""));
+              cty   := match(ct.get(ci), .Some(t) => t, .None => t_unit());
+              cval  := match(cv.get(ci),
+                .Some(v) => Option(EvalValue).Some(v),
+                .None    => Option(EvalValue).None
+              );
+              is_ct_cap := match(cval, .Some(_) => true, .None => false);
+              _ := add_variable_to_env(
+                &(fenv),
+                cname, cty, cval, is_ct_cap,
+                false, false, false,
+                synthetic_token(cname, fenv.module_path)
+              );
+              ci = (ci + usize(1));
+            };
+            fenv
+          },
+          _ => Environment.new(caller_env.module_path)
+        ),
+        .None => Environment.new(caller_env.module_path)
+      );
+
+      // Step 5: Push a new frame on callee_env for parameter bindings.
+      _ := callee_env.push_frame(false);
+
+      // ----------------------------------------------------------------
+      // Step 6: Add forall params as UnknownVal placeholders (or resolve
+      //         them from an explicit forall(…) argument).
+      // ----------------------------------------------------------------
+      n_forall := fl.len();
+      (fpi : usize) = usize(0);
+      while runtime((fpi < n_forall)), {
+        flabel      := match(fl.get(fpi), .Some(l) => l, .None => String.from(""));
+        ftype       := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
+        ftype_inner := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
+        (forall_val : EvalValue) = EvalValue.UnknownVal(box(ftype_inner));
+
+        // If caller supplied explicit forall(…) args, try to resolve.
+        match(forall_args_opt,
+          .Some(fas) => {
+            match(fas.get(fpi),
+              .Some(fa) => {
+                if(!(ast_expr_is_atom_of(fa, "_")), {
+                  evaled_fa := evaluate_expression(fa, caller_env, ctx);
+                  fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
+                  match(fa_info_opt,
+                    .Some(fa_info) => {
+                      match(fa_info.value,
+                        .Some(v) => { forall_val = v; },
+                        .None    => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                });
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+
+        _ := add_variable_to_env(
+          &(callee_env),
+          flabel, ftype,
+          Option(EvalValue).Some(forall_val),
+          true,   // is_compile_time_only
+          false, false, false,
+          synthetic_token(flabel, callee_env.module_path)
+        );
+        fpi = (fpi + usize(1));
+      };
+
+      // ----------------------------------------------------------------
+      // Step 7: Process regular parameters.
+      // ----------------------------------------------------------------
+      forall_arg_vals := ArrayList(ArgEntry).new();
+      arg_vals        := ArrayList(ArgEntry).new();
+      rt_args         := ArrayList(AstExpr).new();
+      (callee_env_m : Environment) = callee_env;
+      (caller_env_m : Environment) = caller_env;
+
+      (pi : usize) = usize(0);
+      while runtime((pi < n_params)), {
+        plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
+        ptype  := match(pt.get(pi), .Some(t) => t, .None => t_unit());
+        parg   := match(adjusted_args.get(pi), .Some(a) => a, .None => make_err_expr());
+
+        pr := check_if_function_parameter_matches_argument(
+          plabel, ptype,
+          false,  // is_ct_only: Phase 3 treats all regular params as runtime
+          parg,
+          callee_env_m, caller_env_m,
+          ctx, rt_args, using(exn)
+        );
+
+        callee_env_m = pr.callee_env;
+        caller_env_m = pr.caller_env;
+        arg_vals.push(ArgEntry(
+          value:          pr.arg_value,
+          parameter_type: pr.resolved_param_type,
+          arg_type:       pr.arg_type
+        ));
+        pi = (pi + usize(1));
+      };
+
+      // ----------------------------------------------------------------
+      // Step 8: Extract resolved forall values from callee_env.
+      // ----------------------------------------------------------------
+      (fpi2 : usize) = usize(0);
+      while runtime((fpi2 < n_forall)), {
+        flabel2 := match(fl.get(fpi2), .Some(l) => l, .None => String.from(""));
+        ftype2  := match(ft.get(fpi2), .Some(t) => t, .None => t_unit());
+        vars2   := get_variables_from_env(callee_env_m, flabel2);
+        n_vars2 := vars2.len();
+        if((n_vars2 > usize(0)), {
+          last_v_opt := vars2.get((n_vars2 - usize(1)));
+          match(last_v_opt,
+            .Some(last_v) => {
+              match(last_v.value,
+                .Some(v) => {
+                  forall_arg_vals.push(ArgEntry(
+                    value:          .Some(v),
+                    parameter_type: ftype2,
+                    arg_type:       last_v.ty
+                  ));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        });
+        fpi2 = (fpi2 + usize(1));
+      };
+
+      // ----------------------------------------------------------------
+      // Step 9: Evaluate return type.
+      // ----------------------------------------------------------------
+      (return_type : TypeValue) = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
+
+      // Step 10: Synthesize return type against the caller's expected type.
+      if(ctx.expected_type.is_some(), {
+        match(ctx.expected_type,
+          .Some(et) => {
+            checked_ret := ArrayList(TypePair).new();
+            synth_ret := synthesize_types(
+              return_type, callee_env_m,
+              et.ty,        et.env,
+              &(checked_ret),
+              Option(SynthesizeOptions).None,
+              using(exn)
+            );
+            callee_env_m = synth_ret.expected_env;
+            return_type  = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
+          },
+          .None => ()
+        );
+      });
+
+      // ----------------------------------------------------------------
+      // Step 11: Process implicit parameters.
+      // ----------------------------------------------------------------
+      implicit_arg_vals := ArrayList(ArgEntry).new();
+      n_impl := il.len();
+      (impl_i : usize) = usize(0);
+      while runtime((impl_i < n_impl)), {
+        impl_label := match(il.get(impl_i), .Some(l) => l, .None => String.from(""));
+        impl_type  := match(it.get(impl_i), .Some(t) => t, .None => t_unit());
+        resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
+        (resolved : bool) = false;
+
+        // Check for an explicit using(…) arg at position impl_i.
+        match(using_args_opt,
+          .Some(uas) => {
+            match(uas.get(impl_i),
+              .Some(ua_expr) => {
+                evaled_ua := evaluate_expression(ua_expr, caller_env_m, ctx);
+                ua_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_ua));
+                match(ua_info_opt,
+                  .Some(ua_info) => {
+                    caller_env_m = ua_info.env;
+                    match(ua_info.value,
+                      .Some(ua_val) => {
+                        if(!(are_types_compatible(resolved_impl_type, ua_info.ty)), {
+                          exn.throw(dyn format_error_message(
+                            ast_expr_token(ua_expr),
+                            `Incompatible type for implicit parameter "${impl_label}"`,
+                            false,
+                            .None
+                          ));
+                        });
+                        impl_tok := synthetic_token(impl_label, callee_env_m.module_path);
+                        _ := add_variable_to_env(
+                          &(callee_env_m),
+                          impl_label, resolved_impl_type,
+                          .Some(ua_val),
+                          true,   // is_compile_time_only
+                          false, false,
+                          true,   // is_implicit
+                          impl_tok
+                        );
+                        implicit_arg_vals.push(ArgEntry(
+                          value:          .Some(ua_val),
+                          parameter_type: resolved_impl_type,
+                          arg_type:       ua_info.ty
+                        ));
+                        resolved = true;
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+
+        // Fall back: search caller_env for a matching given variable.
+        if(!(resolved), {
+          all_cenv_vars := get_all_variables_from_env(caller_env_m);
+          n_cenv        := all_cenv_vars.len();
+          (found_given : bool) = false;
+          (given_val   : Option(EvalValue)) = Option(EvalValue).None;
+          (given_ty    : TypeValue) = t_unit();
+          (given_name  : String) = String.from("");
+
+          (vi : usize) = usize(0);
+          while runtime(((vi < n_cenv) && !(found_given))), {
+            gv_opt := all_cenv_vars.get(vi);
+            match(gv_opt,
+              .Some(gv) => {
+                if(((gv.is_implicit && (gv.is_compile_time_only &&
+                    ((!(gv.is_from_effect_spread)) &&
+                    are_types_compatible(resolved_impl_type, gv.ty))))), {
+                  found_given = true;
+                  given_val   = gv.value;
+                  given_ty    = gv.ty;
+                  given_name  = gv.name;
+                });
+              },
+              .None => ()
+            );
+            vi = (vi + usize(1));
+          };
+
+          if(!(found_given), {
+            exn.throw(dyn format_error_message(
+              tok,
+              `No "given" variable found for implicit parameter "${impl_label}"`,
+              false,
+              .None
+            ));
+          });
+
+          match(given_val,
+            .Some(gv_val) => {
+              impl_tok2 := synthetic_token(impl_label, callee_env_m.module_path);
+              _ := add_variable_to_env(
+                &(callee_env_m),
+                impl_label, resolved_impl_type,
+                .Some(gv_val),
+                true,   // is_compile_time_only
+                false, false,
+                true,   // is_implicit
+                impl_tok2
+              );
+              implicit_arg_vals.push(ArgEntry(
+                value:          .Some(gv_val),
+                parameter_type: resolved_impl_type,
+                arg_type:       given_ty
+              ));
+            },
+            .None => {
+              exn.throw(dyn format_error_message(
+                tok,
+                `The "given" variable "${given_name}" has no compile-time value`,
+                false,
+                .None
+              ));
+            }
+          );
+        });
+
+        impl_i = (impl_i + usize(1));
+      };
+
+      // ----------------------------------------------------------------
+      // Step 12: Validate return type and build FuncCallResult.
+      // ----------------------------------------------------------------
+      validate_function_return_type(return_type, expr, callee_env_m, ctx, using(exn));
+
+      implicit_args_result := if((implicit_arg_vals.len() > usize(0)),
+        Option(ArrayList(ArgEntry)).Some(implicit_arg_vals),
+        Option(ArrayList(ArgEntry)).None
+      );
+
+      FuncCallResult(
+        callee_env:                 callee_env_m,
+        caller_env:                 caller_env_m,
+        path_collection:            path_collection_new(),
+        return_type:                return_type,
+        return_value:               Option(EvalValue).None,
+        arg_values:                 ArgValues(
+          forall_args:   forall_arg_vals,
+          args:          arg_vals,
+          implicit_args: implicit_args_result,
+          variadic_args: ArrayList(VarArgEntry).new()
+        ),
+        runtime_arg_exprs_in_order: rt_args,
+        specialized_function_value: Option(EvalValue).None,
+        deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+      )
+    },
+    _ => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
+        false,
+        .None
+      ));
+      // Unreachable placeholder.
+      FuncCallResult(
+        callee_env:                 caller_env,
+        caller_env:                 caller_env,
+        path_collection:            path_collection_new(),
+        return_type:                t_unit(),
+        return_value:               Option(EvalValue).None,
+        arg_values:                 ArgValues(
+          forall_args:   ArrayList(ArgEntry).new(),
+          args:          ArrayList(ArgEntry).new(),
+          implicit_args: Option(ArrayList(ArgEntry)).None,
+          variadic_args: ArrayList(VarArgEntry).new()
+        ),
+        runtime_arg_exprs_in_order: ArrayList(AstExpr).new(),
+        specialized_function_value: Option(EvalValue).None,
+        deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+      )
+    }
   )
 });
 
 export try_to_call_function_with_arguments;
+export check_if_function_parameter_matches_argument;
 export extract_function_value;
 export validate_function_return_type;
 export generate_deferred_drop_expressions;
