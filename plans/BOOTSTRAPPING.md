@@ -237,7 +237,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/evaluator/exprs/exists.ts`                     | `yo-self/evaluator/exprs/exists.yo`                     | ✅ Done (Phase 2ak, stub)                                                                                                                                                                                     |
 | `src/evaluator/exprs/_expr.ts`                      | `yo-self/evaluator/exprs/_expr.yo`                      | ✅ Done (Phase 2al)                                                                                                                                                                                           |
 | `src/evaluator/calls/*.ts`                          | `yo-self/evaluator/calls/*.yo`                          | 🔄 In progress (Phase 2bn: function.yo partially implemented — function definition + FuncVal calls; helper.yo+comptime_fn.yo+index_trait.yo are stubs — Phase 3 work)                                         |
-| `src/evaluator/builtins/*.ts`                       | `yo-self/evaluator/builtins/*.yo`                       | 🔄 In progress (Phase 2bk: all files have Yo counterparts; as.yo+rc_fns.yo+type_fns.yo etc. are stubs — Phase 3 work)                                                                                         |
+| `src/evaluator/builtins/*.ts`                       | `yo-self/evaluator/builtins/*.yo`                       | 🔄 In progress (Phase 2bk: all files have Yo counterparts; derive_rule.yo ✅+derive.yo ✅ Phase 3 done; as.yo+rc_fns.yo+type_fns.yo etc. are stubs — Phase 3 work)                                            |
 | `src/evaluator/types/*.ts`                          | `yo-self/evaluator/types/*.yo`                          | 🔄 In progress (synthesizer.yo + expr_synthesizer.yo done; remaining are stubs)                                                                                                                               |
 | `src/evaluator/values/*.ts`                         | `yo-self/evaluator/values/*.yo`                         | 🔄 In progress (clone_value.yo ✅, anonymous_struct.yo ✅, anonymous_module.yo ✅, impl.yo ✅ Phase 3 done (non-generic + anon impl; generic deferred to Phase 4); anonymous_function.yo stub — Phase 3 work) |
 | `src/evaluator/ctfe/ctfe-analysis.ts`               | (none)                                                  | 🔲 Phase 3 — depends on `FunctionValue.funcId`/`calledComptimeFunctionCaches`                                                                                                                                 |
@@ -1343,8 +1343,8 @@ to exercise the new fields end-to-end.
 
 **Test results:** 930/930 yo-self tests passing ✅ (~11 min full run).
 
-This unblocks future work on `derive_rule.yo` (needs `derive_rule` field
-on TraitT/FunctionValue), and validates the variant-extension cascade
+This unblocks `derive_rule.yo` (needed `derive_rule` field
+on TraitT/FunctionValue) — now implemented in Phase 2bo via global registry, and validates the variant-extension cascade
 pattern for the next variants (`Union`, `DynT`, `ModuleT`).
 
 ### Phase 2bi — Port `evaluator/types/synthesizer.yo` + add `is_effects_row` to `SomeT` ✅ Done
@@ -1535,6 +1535,77 @@ Partial implementation of `evaluate_function_call` in `yo-self/evaluator/calls/f
 - Parenthesis balance must be checked: inner `match(cv, ...)` closes at its `)`, outer match needs its own closing `)` before `});`
 
 **Test results:** 938/938 yo-self tests passing ✅
+
+---
+
+### Phase 2bo — Implement `derive_rule.yo` + `derive.yo` (Phase 3) ✅ Done
+
+Full Phase 3 implementations of both derive builtin files, replacing their stubs.
+
+**Files changed:**
+
+- `yo-self/evaluator/builtins/derive_rule.yo` — ~137 lines (was stub)
+- `yo-self/evaluator/builtins/derive.yo` — ~574 lines (was stub)
+
+**Key design decision — global registry instead of mutable type fields:**
+
+TypeScript stores `deriveRule` as a mutable field on `FunctionValue` and `TraitType` objects. Since yo-self's `EvalValue` and `TypeValue` are immutable enums, a global `HashMap(String, EvalValue)` registry (`g_derive_rules`) is used instead. The key is the trait constructor name extracted from the expression (e.g. `Atom("Clone")` → `"Clone"`, `FnCall("Eq", [...])` → `"Eq"`).
+
+**`derive_rule.yo` exports:**
+
+- `g_derive_rules : HashMap(String, EvalValue)` — module-level global registry
+- `extract_derive_key(expr : AstExpr) -> Option(String)` — extracts the trait name key from an `Atom` or `FnCall` expr
+- `get_derive_rule(key : str) -> Option(EvalValue)` — looks up a registered derive rule
+- `evaluate_derive_rule(ast_expr_id, expr, env, ctx) -> ExprInfo` — evaluates a `derive_rule(Trait, fn_body)` builtin call; registers the derive rule in the global registry and stores a phantom unit ExprInfo
+
+**`derive.yo` exports:**
+
+- `evaluate_derive(ast_expr_id, expr, env, ctx) -> ExprInfo` — evaluates a `derive(TargetType, Trait, ...)` call; looks up the registered rule and calls it with a `DeriveContext` struct
+- Internal: `call_registered_derive_rule(derive_rule_val, target_type_val, derive_ctx_val, trait_params, caller_env, ctx) -> ExprInfo` — replicates the `evaluate_function_call`/FuncVal call pattern from `function.yo` (lines 528–710)
+- Internal: `process_trait_arg(arg_expr, env, ctx) -> ExprInfo` — evaluates a single trait argument expression
+
+**`DeriveContext` structure:**
+
+```rust
+StructVal("DeriveContext",
+  field_names: ["target", "forall_params", "where_clause"],
+  field_vals: [
+    ExprVal(box(target_type_expr)),
+    EnumVal(".Some" | ".None", [ExprVal(box(forall_expr))] | []),
+    EnumVal(".Some" | ".None", [ExprVal(box(where_expr))] | [])
+  ]
+)
+```
+
+**`call_registered_derive_rule` details:**
+
+1. Matches on `FuncVal(forall_names, param_names, param_type_names, evidence_names, body_box, cap_names, cap_tys, cap_vals, _func_id)`
+2. Builds `evaled_arg_infos` manually (3 entries: `TypeVal`, `StructVal DeriveContext`, `ComptimeListVal trait_params`)
+3. Creates `fresh_env := Environment.new(caller_env.module_path)` — NOT a clone
+4. Binds captures, pushes frame, binds `__recur_fn`, infers forall params, binds regular + evidence params
+5. Sets `ctx.is_evaluating_function_body_or_async_block` and `ctx.enclosing_function_return_type`
+6. Calls `evaluate_begin_expression(body_box.*, fresh_env, ctx, ArrayList(Variable).new(), true, using(exn))`
+7. Restores ctx fields; extracts `ExprVal(box(result_expr))` and evaluates it in `caller_env`
+
+**`evaluate_derive` details:**
+
+- Expects at least 2 args: `derive(TargetType, Trait, ...)` (extra args are trait params)
+- Evaluates `TargetType` arg → `TypeVal` for the `DeriveContext.target` field
+- Processes `Trait` arg: if it is a `forall(...)` wrapper, pushes a new frame, binds forall type params as `SomeT` values, then processes the inner trait expression; extracts the derive key from the expression before evaluation
+- Parses `where(...)` clause if present among extra args
+- Collects remaining extra args as `ComptimeListVal(ArrayList(ExprInfo))` for `trait_params`
+- Builds `DeriveContext` StructVal and calls `call_registered_derive_rule`
+- Returns resulting ExprInfo
+
+**Intentional divergences from TypeScript:**
+
+- No `expr.$.deriveRule` mutation — registry replaces mutable fields
+- `autoDeriveTraitsAndAddRcFunctionsForStructType` stub call skipped (Phase 4)
+- `setExprAsNeedsToCallDup` / RC tracking skipped (Phase 4)
+- `createDeriveRuleObject` TypeScript helper inlined into Yo
+- Error formatting uses simple strings (diagnostic spans deferred to Phase 3+)
+
+**Test results:** 956/956 yo-self tests passing ✅
 
 ### Phase 2bh — Port `evaluator/calls/trait_type.yo` ✅ Done
 

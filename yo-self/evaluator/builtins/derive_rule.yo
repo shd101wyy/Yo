@@ -1,14 +1,49 @@
-//! evaluator/builtins/derive_rule — stub for evaluate_derive_rule.
+//! evaluator/builtins/derive_rule — evaluate_derive_rule and derive rule registry.
 //!
-//! Phase 3 stub. Full implementation planned for Phase 3.
-//! 1:1 port of `src/evaluator/builtins/derive_rule.ts`.
+//! Phase 3 implementation. 1:1 port of `src/evaluator/builtins/derive_rule.ts`.
+//!
+//! Key difference from TypeScript: TypeScript stores the derive rule directly on
+//! FunctionValue/TraitType objects. In yo-self, types are immutable enums, so we
+//! use a global HashMap(String, EvalValue) registry instead.
+//! The key is the expression-level name of the trait constructor.
 
 open import "std/string";
-{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                             :: import "../../env/env.yo";
-{ EvalContext }                             :: import "../context.yo";
-{ format_error_message }                    :: import "../../error/error.yo";
-{ Exception }                               :: import "std/error";
+{ HashMap }  :: import "std/collections/hash_map";
+{ ArrayList } :: import "std/collections/array_list";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+{ Environment }                                          :: import "../../env/env.yo";
+{ EvalContext }                                          :: import "../context.yo";
+{ EvalValue, is_func_val }                               :: import "../value.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_set, expr_info_table_get }             :: import "../../expr/expr_info.yo";
+{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
+{ format_error_message }                                 :: import "../../error/error.yo";
+{ evaluate_expression }                                  :: import "../exprs/expr.yo";
+{ Exception }                                            :: import "std/error";
+
+/// Global registry: trait name → derive rule FuncVal EvalValue.
+/// Mirrors `FunctionValue.deriveRule` / `TraitType.deriveRule` from TypeScript,
+/// but stored globally since yo-self types are immutable enums.
+(g_derive_rules : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+
+/// Extract the registry key from a trait arg expression.
+///   Atom("Clone")       → Some("Clone")
+///   FnCall("Eq", [...]) → Some("Eq")
+///   Other               → None
+extract_derive_key :: (fn(e : AstExpr) -> Option(String))(
+  match(e,
+    .Atom(_, tok) => Option(String).Some(tok.value),
+    .FnCall(_, func_box, _, _, _) => match(func_box.*,
+      .Atom(_, ftok) => Option(String).Some(ftok.value),
+      .FnCall(_, _, _, _, _) => Option(String).None
+    )
+  )
+);
+
+/// Look up a registered derive rule by trait name.
+get_derive_rule :: (fn(name : String) -> Option(EvalValue))(
+  g_derive_rules.get(name)
+);
 
 evaluate_derive_rule :: (fn(
   expr : AstExpr,
@@ -16,15 +51,83 @@ evaluate_derive_rule :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  _ := env;
-  _ := ctx;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("evaluate_derive_rule: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
-  make_err_expr()
+  tok := ast_expr_token(expr);
+
+  // Extract args[0] (trait constructor) and args[1] (derive function).
+  args := match(expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _)             => ArrayList(AstExpr).new()
+  );
+
+  if((args.len() < usize(2)), {
+    exn.throw(dyn format_error_message(
+      tok,
+      String.from("derive_rule requires exactly 2 arguments"),
+      false, .None
+    ));
+  });
+
+  trait_arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  derive_fn_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+
+  // Extract the registry key from the trait arg expression (before evaluation).
+  key_opt := extract_derive_key(trait_arg_expr);
+  key := match(key_opt,
+    .Some(k) => k,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("derive_rule: first argument must be a trait name or trait constructor call"),
+        false, .None
+      ));
+      String.from("")
+    }
+  );
+
+  // Evaluate the derive function argument.
+  evaled_derive_fn   := evaluate_expression(derive_fn_expr, env, ctx);
+  derive_fn_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_derive_fn));
+  derive_fn_info     := match(derive_fn_info_opt,
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("derive_rule: failed to evaluate derive function"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  derive_fn_val := match(derive_fn_info.value,
+    .Some(v) => v,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("derive_rule: derive function has no compile-time value"),
+        false, .None
+      ));
+      EvalValue.UnitVal
+    }
+  );
+
+  if(!(is_func_val(derive_fn_val)), {
+    exn.throw(dyn format_error_message(
+      tok,
+      String.from("derive_rule: second argument must be a function"),
+      false, .None
+    ));
+  });
+
+  // Store in the global registry.
+  _set := g_derive_rules.set(key, derive_fn_val);
+
+  out := new_expr_info(env, t_unit());
+  out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+
+  expr
 });
 
 export evaluate_derive_rule;
+export extract_derive_key, get_derive_rule;
