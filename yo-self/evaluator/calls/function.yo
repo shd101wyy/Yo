@@ -15,21 +15,35 @@
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }  :: import "../../expr/expr.yo";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr,
+  ast_expr_is_fn_call_of }                             :: import "../../expr/expr.yo";
 { ExprInfo, new_expr_info,
   expr_info_table_get, expr_info_table_set }              :: import "../../expr/expr_info.yo";
 { Variable,
   Environment, add_variable_to_env, synthetic_token }    :: import "../../env/env.yo";
-{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
-{ EvalValue }                                            :: import "../value.yo";
+{ TypeValue, t_unit, t_type }                            :: import "../../types/type.yo";
+{ EvalValue, is_unknown_val, type_of_eval_value }        :: import "../value.yo";
 { random_id }                                            :: import "../utils.yo";
 { EvalContext,
-  FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind }            :: import "../context.yo";
+  FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
+  TypeCallResult, ModuleTypeCallResult,
+  TraitTypeCallResult, TraitSpecializationResult }       :: import "../context.yo";
 { evaluate_expression }                                  :: import "../exprs/expr.yo";
 { evaluate_begin_expression }                            :: import "../exprs/begin.yo";
 { try_to_implement_function_by_function_type }           :: import "./function_type.yo";
 { try_to_implement_closure_by_fn_module_type }           :: import "./closure_type.yo";
 { extract_fn_trait_from_type }                           :: import "../trait_checking.yo";
+{ try_to_call_type_with_arguments }                      :: import "./type.yo";
+{ try_to_implement_module_with_arguments_by_module_type } :: import "./module_type.yo";
+{ try_to_specialize_trait_type,
+  try_to_implement_trait_with_arguments_by_trait_type }  :: import "./trait_type.yo";
+{ try_to_implement_array_by_array_type }                 :: import "./array_type.yo";
+{ try_to_implement_comptime_list_by_comptime_list_type } :: import "./comptime_list_type.yo";
+{ is_convertible_numeric_type,
+  try_to_convert_to_numeric_type }                       :: import "./numeric_type.yo";
+{ try_to_convert_to_pointer_type }                       :: import "./pointer_type.yo";
+{ evaluate_iso_value_call }                              :: import "./iso.yo";
+{ TypeField, get_struct_fields }                         :: import "../types/field.yo";
 { format_error_message }                                 :: import "../../error/error.yo";
 { Exception }                                            :: import "std/error";
 
@@ -177,14 +191,337 @@ evaluate_function_call :: (fn(
               }
             )
           },
+          // ----------------------------------------------------------------
+          // Struct construction: StructType(field1: v1, field2: v2, ...).
+          // ----------------------------------------------------------------
+          .Struct(struct_id, struct_name, struct_field_labels, struct_field_types, is_ref, _, _) => {
+            fields := match(get_struct_fields(struct_id),
+              .Some(f) => f,
+              .None => {
+                tf := ArrayList(TypeField).new();
+                (tfi : usize) = usize(0);
+                while runtime((tfi < struct_field_labels.len())), {
+                  sf_lbl := match(struct_field_labels.get(tfi), .Some(l) => String.from(l.as_str()), .None => String.new());
+                  sf_ty  := match(struct_field_types.get(tfi),  .Some(t) => t, .None => TypeValue.Unit);
+                  tf.push(TypeField(
+                    label:         sf_lbl,
+                    ty:            sf_ty,
+                    is_comptime:   false,
+                    default_value: Option(EvalValue).None,
+                    assigned_value: Option(EvalValue).None,
+                    doc_comment:   Option(String).None
+                  ));
+                  tfi = (tfi + usize(1));
+                };
+                tf
+              }
+            );
+            call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, using(exn));
+            (all_known_s : bool) = true;
+            (ki_s : usize) = usize(0);
+            while runtime(((ki_s < call_result_s.values.len()) && all_known_s)), {
+              match(call_result_s.values.get(ki_s),
+                .Some(inner_opt_s) => {
+                  match(inner_opt_s,
+                    .Some(v_s) => {
+                      if(is_unknown_val(v_s), { all_known_s = false; });
+                    },
+                    .None => { all_known_s = false; }
+                  );
+                },
+                .None => { all_known_s = false; }
+              );
+              ki_s = (ki_s + usize(1));
+            };
+            struct_val := if((all_known_s && !(is_ref)), {
+              fnames_s := ArrayList(String).new();
+              fvals_s  := ArrayList(EvalValue).new();
+              (bi_s : usize) = usize(0);
+              while runtime((bi_s < call_result_s.values.len())), {
+                match(call_result_s.values.get(bi_s),
+                  .Some(inner_v_s) => {
+                    match(inner_v_s,
+                      .Some(v_s2) => {
+                        lbl_s := match(fields.get(bi_s), .Some(f) => String.from(f.label.as_str()), .None => String.new());
+                        fnames_s.push(lbl_s);
+                        fvals_s.push(v_s2);
+                      },
+                      .None => ()
+                    );
+                  },
+                  _ => ()
+                );
+                bi_s = (bi_s + usize(1));
+              };
+              Option(EvalValue).Some(EvalValue.StructVal(String.from(struct_name.as_str()), fnames_s, fvals_s))
+            }, Option(EvalValue).None);
+            out_s := new_expr_info(call_result_s.caller_env, func_type);
+            out_s.value = struct_val;
+            out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_s);
+            expr
+          },
+
+          // ----------------------------------------------------------------
+          // Enum variant construction: EnumType.Variant(field1, field2, ...).
+          // ----------------------------------------------------------------
+          .EnumT(_, _, variant_names, variant_fields_e, sel_var_name, variant_field_labels, _) => {
+            variant_name := match(sel_var_name,
+              .Some(n) => n,
+              .None => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: EnumT callee has no selected variant"),
+                  false, .None
+                ));
+                String.new()
+              }
+            );
+            (variant_idx : usize) = usize(0);
+            (found_variant : bool) = false;
+            (vs_i : usize) = usize(0);
+            while runtime(((vs_i < variant_names.len()) && !(found_variant))), {
+              match(variant_names.get(vs_i),
+                .Some(vn) => {
+                  if((vn.as_str() == variant_name.as_str()), {
+                    variant_idx = vs_i;
+                    found_variant = true;
+                  });
+                },
+                .None => ()
+              );
+              vs_i = (vs_i + usize(1));
+            };
+            if(!(found_variant), {
+              exn.throw(dyn format_error_message(
+                tok,
+                `evaluate_function_call: enum variant not found: ${variant_name}`,
+                false, .None
+              ));
+            });
+            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => ArrayList(TypeValue).new());
+            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => ArrayList(String).new());
+            tf_e := ArrayList(TypeField).new();
+            (tfi_e : usize) = usize(0);
+            while runtime((tfi_e < fields_for_var.len())), {
+              vf_ty  := match(fields_for_var.get(tfi_e), .Some(t) => t, .None => TypeValue.Unit);
+              vf_lbl := match(labels_for_var.get(tfi_e), .Some(l) => String.from(l.as_str()), .None => String.new());
+              tf_e.push(TypeField(
+                label:         vf_lbl,
+                ty:            vf_ty,
+                is_comptime:   false,
+                default_value: Option(EvalValue).None,
+                assigned_value: Option(EvalValue).None,
+                doc_comment:   Option(String).None
+              ));
+              tfi_e = (tfi_e + usize(1));
+            };
+            call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, using(exn));
+            (all_known_e : bool) = true;
+            (ki_e : usize) = usize(0);
+            while runtime(((ki_e < call_result_e.values.len()) && all_known_e)), {
+              match(call_result_e.values.get(ki_e),
+                .Some(inner_opt_e) => {
+                  match(inner_opt_e,
+                    .Some(v_e) => {
+                      if(is_unknown_val(v_e), { all_known_e = false; });
+                    },
+                    .None => { all_known_e = false; }
+                  );
+                },
+                .None => { all_known_e = false; }
+              );
+              ki_e = (ki_e + usize(1));
+            };
+            enum_val := if(all_known_e, {
+              fvals_e := ArrayList(EvalValue).new();
+              (bi_e : usize) = usize(0);
+              while runtime((bi_e < call_result_e.values.len())), {
+                match(call_result_e.values.get(bi_e),
+                  .Some(inner_v_e) => {
+                    match(inner_v_e,
+                      .Some(v_e2) => { fvals_e.push(v_e2); },
+                      .None       => ()
+                    );
+                  },
+                  _ => ()
+                );
+                bi_e = (bi_e + usize(1));
+              };
+              dot_variant := `.${variant_name}`;
+              Option(EvalValue).Some(EvalValue.EnumVal(dot_variant, fvals_e))
+            }, Option(EvalValue).None);
+            out_e := new_expr_info(call_result_e.caller_env, func_type);
+            out_e.value = enum_val;
+            out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_e);
+            expr
+          },
+
+          // ----------------------------------------------------------------
+          // Union construction: UnionType(field_value).
+          // ----------------------------------------------------------------
+          .Union(_, union_labels, union_types) => {
+            tf_u := ArrayList(TypeField).new();
+            (tfi_u : usize) = usize(0);
+            while runtime((tfi_u < union_labels.len())), {
+              u_lbl := match(union_labels.get(tfi_u), .Some(l) => String.from(l.as_str()), .None => String.new());
+              u_ty  := match(union_types.get(tfi_u),  .Some(t) => t, .None => TypeValue.Unit);
+              tf_u.push(TypeField(
+                label:         u_lbl,
+                ty:            u_ty,
+                is_comptime:   false,
+                default_value: Option(EvalValue).None,
+                assigned_value: Option(EvalValue).None,
+                doc_comment:   Option(String).None
+              ));
+              tfi_u = (tfi_u + usize(1));
+            };
+            call_result_u := try_to_call_type_with_arguments(tf_u, func_expr, args, callee_env, ctx, true, using(exn));
+            out_u := new_expr_info(call_result_u.caller_env, func_type);
+            out_u.value = Option(EvalValue).None;
+            out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_u);
+            expr
+          },
+
+          // ----------------------------------------------------------------
+          // Module implementation: ModuleType(fn1: impl1, fn2: impl2, ...).
+          // ----------------------------------------------------------------
+          .ModuleT(_, _, _, _) => {
+            result_m := try_to_implement_module_with_arguments_by_module_type(
+              func_expr, func_type, args, callee_env, ctx, using(exn)
+            );
+            out_m := new_expr_info(result_m.caller_env, type_of_eval_value(result_m.module_value));
+            out_m.value = Option(EvalValue).Some(result_m.module_value);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
+            expr
+          },
+
+          // ----------------------------------------------------------------
+          // Trait specialization (Item := T) or implementation.
+          // ----------------------------------------------------------------
+          .TraitT(_, _, _, _, _, _, _, _) => {
+            (has_spec : bool) = false;
+            (spec_i : usize) = usize(0);
+            while runtime(((spec_i < args.len()) && !(has_spec))), {
+              match(args.get(spec_i),
+                .Some(a) => {
+                  if(ast_expr_is_fn_call_of(a, ":=", Option(usize).Some(usize(2))), {
+                    has_spec = true;
+                  });
+                },
+                .None => ()
+              );
+              spec_i = (spec_i + usize(1));
+            };
+            if(has_spec, {
+              result_ts := try_to_specialize_trait_type(
+                func_expr, func_type, args, callee_env, ctx, using(exn)
+              );
+              out_ts := new_expr_info(result_ts.caller_env, t_type());
+              out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(box(result_ts.specialized_trait_type)));
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ts);
+              expr
+            }, {
+              result_ti := try_to_implement_trait_with_arguments_by_trait_type(
+                func_expr, func_type, args, callee_env, ctx, using(exn)
+              );
+              out_ti := new_expr_info(result_ti.caller_env, type_of_eval_value(result_ti.trait_value));
+              out_ti.value = Option(EvalValue).Some(result_ti.trait_value);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ti);
+              expr
+            })
+          },
+
+          // ----------------------------------------------------------------
+          // Array construction: ArrayType(elem1, elem2, ...).
+          // ----------------------------------------------------------------
+          .Array(_, _) => {
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn))
+          },
+
+          // ----------------------------------------------------------------
+          // Slice construction (routed to array handler).
+          // ----------------------------------------------------------------
+          .Slice(_) => {
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn))
+          },
+
+          // ----------------------------------------------------------------
+          // ComptimeList construction: ComptimeListT(elem1, elem2, ...).
+          // ----------------------------------------------------------------
+          .ComptimeListT(_) => {
+            try_to_implement_comptime_list_by_comptime_list_type(expr, func_type, args, callee_env, ctx, using(exn))
+          },
+
+          // ----------------------------------------------------------------
+          // Iso value wrapping: IsoType(value).
+          // ----------------------------------------------------------------
+          .IsoT(_) => {
+            evaluate_iso_value_call(expr, callee_env, ctx, func_type, using(exn))
+          },
+
+          // ----------------------------------------------------------------
+          // Pointer type cast: *(T)(value).
+          // ----------------------------------------------------------------
+          .Pointer(_) => {
+            arg_expr_p := match(args.get(usize(0)), .Some(a) => a, .None => {
+              exn.throw(dyn format_error_message(
+                tok,
+                String.from("evaluate_function_call: pointer cast expects 1 argument"),
+                false, .None
+              ));
+              make_err_expr()
+            });
+            result_ptr := try_to_convert_to_pointer_type(func_type, arg_expr_p, expr, callee_env, ctx, using(exn));
+            match(result_ptr,
+              .Some(e_ptr) => e_ptr,
+              .None => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: pointer type conversion failed"),
+                  false, .None
+                ));
+                make_err_expr()
+              }
+            )
+          },
+
+          // ----------------------------------------------------------------
+          // Numeric type cast: i32(x), u64(y), f64(z), etc.
+          // Any type satisfying is_convertible_numeric_type falls here.
+          // ----------------------------------------------------------------
           _ => {
-            exn.throw(dyn format_error_message(
-              tok,
-              String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 4)"),
-              false,
-              .None
-            ));
-            make_err_expr()
+            if(is_convertible_numeric_type(func_type), {
+              arg_expr_n := match(args.get(usize(0)), .Some(a) => a, .None => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: numeric cast expects 1 argument"),
+                  false, .None
+                ));
+                make_err_expr()
+              });
+              result_n := try_to_convert_to_numeric_type(func_type, arg_expr_n, expr, callee_env, ctx, using(exn));
+              match(result_n,
+                .Some(e_n) => e_n,
+                .None => {
+                  exn.throw(dyn format_error_message(
+                    tok,
+                    String.from("evaluate_function_call: numeric type conversion failed"),
+                    false, .None
+                  ));
+                  make_err_expr()
+                }
+              )
+            }, {
+              exn.throw(dyn format_error_message(
+                tok,
+                String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)"),
+                false, .None
+              ));
+              make_err_expr()
+            })
           }
         )
       },
