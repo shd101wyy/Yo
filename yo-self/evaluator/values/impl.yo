@@ -1,16 +1,35 @@
 //! evaluate_module_value — evaluates `impl` module/struct value expressions.
 //!
-//! 1:1 port stub of `src/evaluator/values/impl.ts`.
+//! Phase 3 (simplified) — port of the non-generic path of
+//! `evaluateModuleValue` from `src/evaluator/values/impl.ts`.
 //!
-//! **Phase 3 stub**: Not yet implemented.
+//! Phase 3 simplifications:
+//!   - Generic impl (forall): returns unit silently — deferred to Phase 4.
+//!   - tryCreateForwardShell / reEvaluateFunctionType: deferred.
+//!   - checkOrphanRule / checkDuplicateImpl: skipped.
+//!   - attachTraitToReceiverType: simplified — methods are added to env with
+//!     qualified names (ReceiverType.method_name) only.
 
 open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
 
-{ AstExpr, ast_expr_token } :: import "../../expr/expr.yo";
-{ Environment }              :: import "../../env/env.yo";
-{ EvalContext }              :: import "../context.yo";
-{ Exception }                :: import "std/error";
-{ format_error_message }     :: import "../../error/error.yo";
+{
+  AstExpr,
+  ast_expr_token, ast_expr_id,
+  ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom,
+  make_err_expr,
+  BK_BEGIN, BK_FORALL, BK_COLON, BK_IMPL_LOWER
+}                                          :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info,
+  expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
+{ Environment, add_variable_to_env }       :: import "../../env/env.yo";
+{ TypeValue, t_unit }                      :: import "../../types/type.yo";
+{ EvalValue }                              :: import "../value.yo";
+{ EvalContext }                            :: import "../context.yo";
+{ evaluate_expression_raw }                :: import "../exprs/expr.yo";
+{ evaluate_anonymous_module_begin_exprs }  :: import "./anonymous_module.yo";
+{ format_error_message }                   :: import "../../error/error.yo";
+{ Exception }                              :: import "std/error";
 
 evaluate_module_value :: (fn(
   expr : AstExpr,
@@ -18,14 +37,153 @@ evaluate_module_value :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  _ := env;
-  _ := ctx;
-  exn.throw(dyn format_error_message(
-    ast_expr_token(expr),
-    String.from("evaluate_module_value: not yet implemented (Phase 3)"),
-    false,
-    .None
-  ));
+  (local_env : Environment) = env;
+
+  // Verify it's an `impl(...)` call.
+  if(!(ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "impl", got: ${ast_expr_token(expr).value}`,
+      false, .None
+    ));
+  });
+
+  // Extract args from the FnCall.
+  args := match(expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _)             => ArrayList(AstExpr).new()
+  );
+  n_args := args.len();
+
+  // ---------------------------------------------------------------------------
+  // Case 1: Anonymous impl — impl({ begin_block })
+  // ---------------------------------------------------------------------------
+  a0_is_begin_block := match(args.get(usize(0)),
+    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_BEGIN, .None)),
+    .None     => false
+  );
+  if(((n_args == usize(1)) && a0_is_begin_block), {
+    a0 := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    begin_exprs := match(a0,
+      .FnCall(_, _, be, _, _) => be,
+      .Atom(_, _)              => ArrayList(AstExpr).new()
+    );
+
+    saved_expected := ctx.*.expected_type;
+    ctx.*.expected_type = .None;
+    result := evaluate_anonymous_module_begin_exprs(
+      begin_exprs, local_env, ctx, false, using(exn)
+    );
+    ctx.*.expected_type = saved_expected;
+
+    local_env = result.env;
+
+    out_info := new_expr_info(local_env, result.module_type);
+    out_info.value = .Some(result.module_value);
+    expr_info_table_set(ctx.*.expr_info_table, ast_expr_id(expr), out_info);
+
+    return expr;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 2: Generic impl — impl(forall(...), ReceiverType, …)
+  // Deferred to Phase 4 — silently return unit.
+  // ---------------------------------------------------------------------------
+  has_forall := match(args.get(usize(0)),
+    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_FORALL, .None)),
+    .None     => false
+  );
+  if(has_forall, {
+    out_info := new_expr_info(local_env, t_unit());
+    out_info.value = .Some(EvalValue.UnitVal);
+    expr_info_table_set(ctx.*.expr_info_table, ast_expr_id(expr), out_info);
+    return expr;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 3: Non-generic impl — impl(ReceiverType, method1: fn_def, …)
+  // ---------------------------------------------------------------------------
+  if((n_args < usize(2)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("impl requires a receiver type and at least one field."),
+      false, .None
+    ));
+  });
+
+  // Evaluate the receiver type expression to update env.
+  receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+
+  saved_expected := ctx.*.expected_type;
+  ctx.*.expected_type = .None;
+  eval_receiver := evaluate_expression_raw(receiver_type_expr, local_env, ctx, using(exn));
+  ctx.*.expected_type = saved_expected;
+
+  // Get receiver type name for qualifying method names.
+  rcv_tok := ast_expr_token(receiver_type_expr);
+  receiver_name := (&rcv_tok.value).clone();
+
+  // Advance local_env from receiver evaluation.
+  match(expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_receiver)),
+    .Some(ri) => { local_env = ri.env; },
+    .None     => ()
+  );
+
+  // Process each field expression: name : fn_def
+  (field_idx : usize) = usize(1);
+  while runtime((field_idx < n_args)), {
+    match(args.get(field_idx),
+      .None => (),
+      .Some(field_expr) => {
+        // Only handle `name : fn_def` infix forms.
+        if((ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2)))), {
+          colon_args := match(field_expr,
+            .FnCall(_, _, ca, _, _) => ca,
+            .Atom(_, _)              => ArrayList(AstExpr).new()
+          );
+          name_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+          val_expr  := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
+
+          // Build qualified name: ReceiverType.method_name
+          name_tok    := ast_expr_token(name_expr);
+          method_name := (&name_tok.value).clone();
+          qualified   := `${receiver_name}.${method_name}`;
+
+          // Evaluate the method value expression.
+          saved2 := ctx.*.expected_type;
+          ctx.*.expected_type = .None;
+          eval_val := evaluate_expression_raw(val_expr, local_env, ctx, using(exn));
+          ctx.*.expected_type = saved2;
+
+          // Register the method in env under the qualified name.
+          match(expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_val)),
+            .None => (),
+            .Some(fi) => {
+              local_env = fi.env;
+              method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
+              _dv := add_variable_to_env(
+                &(local_env),
+                qualified,
+                fi.ty,
+                .Some(method_val),
+                true,    // is_compile_time_only
+                false,   // is_reassignable
+                false,   // is_owning_the_rc_value
+                false,   // is_implicit
+                name_tok
+              );
+            }
+          );
+        });
+      }
+    );
+    field_idx = (field_idx + usize(1));
+  };
+
+  // Set ExprInfo on the impl expression and return.
+  out_info := new_expr_info(local_env, t_unit());
+  out_info.value = .Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.*.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
 
