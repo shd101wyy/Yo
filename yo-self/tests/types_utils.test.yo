@@ -15,7 +15,8 @@ open import "std/fmt";
   get_integer_type_range, can_comptime_int_cast_to,
   can_comptime_float_cast_to,
   type_implements_runtime_builtin, type_implements_runtime,
-  type_is_comptime_only }
+  type_is_comptime_only,
+  type_requires_comptime_modifier, type_prohibits_comptime_modifier }
   :: import "../types/utils.yo";
 
 // ---------------------------------------------------------------------------
@@ -339,4 +340,38 @@ test "type_is_comptime_only: runtime primitives are not comptime-only", {
   assert(!(type_is_comptime_only(t_i32(), env)),  "i32 not comptime-only");
   assert(!(type_is_comptime_only(t_bool(), env)), "bool not comptime-only");
   assert(!(type_is_comptime_only(t_unit(), env)), "unit not comptime-only");
+};
+
+// ---------------------------------------------------------------------------
+// type_requires_comptime_modifier / type_prohibits_comptime_modifier
+// ---------------------------------------------------------------------------
+
+test "type_requires_comptime_modifier: comptime-only types require comptime", {
+  env := Environment.new(String.from(""));
+  assert(type_requires_comptime_modifier(t_comptime_int(), env),    "comptime_int needs comptime");
+  assert(type_requires_comptime_modifier(t_comptime_float(), env),  "comptime_float needs comptime");
+  assert(type_requires_comptime_modifier(t_comptime_string(), env), "comptime_string needs comptime");
+  assert(type_requires_comptime_modifier(TypeValue.TypeUni(usize(0)), env), "TypeUni(0) needs comptime");
+};
+
+test "type_requires_comptime_modifier: runtime types do not require comptime", {
+  env := Environment.new(String.from(""));
+  assert(!(type_requires_comptime_modifier(t_i32(), env)),   "i32 does not need comptime");
+  assert(!(type_requires_comptime_modifier(t_bool(), env)),  "bool does not need comptime");
+  assert(!(type_requires_comptime_modifier(t_unit(), env)),  "unit does not need comptime");
+  assert(!(type_requires_comptime_modifier(t_f64(), env)),   "f64 does not need comptime");
+};
+
+test "type_prohibits_comptime_modifier: runtime-only types prohibit comptime", {
+  env := Environment.new(String.from(""));
+  assert(type_prohibits_comptime_modifier(TypeValue.Void, env), "Void prohibits comptime");
+  assert(type_prohibits_comptime_modifier(TypeValue.CInt, env), "CInt prohibits comptime");
+  assert(type_prohibits_comptime_modifier(TypeValue.CChar, env), "CChar prohibits comptime");
+};
+
+test "type_prohibits_comptime_modifier: primitives and comptime types do not prohibit", {
+  env := Environment.new(String.from(""));
+  assert(!(type_prohibits_comptime_modifier(t_i32(), env)),          "i32 does not prohibit comptime");
+  assert(!(type_prohibits_comptime_modifier(t_bool(), env)),         "bool does not prohibit comptime");
+  assert(!(type_prohibits_comptime_modifier(t_comptime_int(), env)), "comptime_int does not prohibit");
 };

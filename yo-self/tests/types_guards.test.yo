@@ -84,7 +84,8 @@ open import "std/string";
   is_slice_type,
   is_array_type,
   is_signed_int_type,
-  is_numeric_type
+  is_numeric_type,
+  is_comptime_only_type_simple
 } :: import "../types/guards.yo";
 
 // Helper constructors for types not exposed by type.yo
@@ -277,6 +278,42 @@ test "is_function_type_and_is_type_function", {
   f_ret_unit := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   assert(is_function_type_and_is_type_function(f_ret_type), "fn returning TypeUni");
   assert(!(is_function_type_and_is_type_function(f_ret_unit)), "fn returning unit");
+};
+
+test "is_comptime_only_type_simple", {
+  // Comptime-only types → true
+  assert(is_comptime_only_type_simple(t_comptime_int()),    "ComptimeInt");
+  assert(is_comptime_only_type_simple(t_comptime_float()),  "ComptimeFloat");
+  assert(is_comptime_only_type_simple(t_comptime_string()), "ComptimeString");
+  assert(is_comptime_only_type_simple(t_typeuni0()),        "TypeUni(0)");
+  assert(is_comptime_only_type_simple(t_comptime_list(t_i32())), "ComptimeList");
+  assert(is_comptime_only_type_simple(t_expr_t()),          "ExprT");
+
+  // Non-comptime-only types → false
+  assert(!(is_comptime_only_type_simple(t_i32())),   "i32");
+  assert(!(is_comptime_only_type_simple(t_bool())),  "bool");
+  assert(!(is_comptime_only_type_simple(t_unit())),  "unit");
+  assert(!(is_comptime_only_type_simple(t_f64())),   "f64");
+  assert(!(is_comptime_only_type_simple(t_usize())), "usize");
+};
+
+test "is_function_type_and_returns_comptime_value", {
+  f_ret_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_typeuni0());
+  f_ret_cint := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_comptime_int());
+  f_ret_unit := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
+  f_ret_i32  := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32());
+
+  // fn returning comptime-only types → true
+  assert(is_function_type_and_returns_comptime_value(f_ret_type), "fn → TypeUni(0)");
+  assert(is_function_type_and_returns_comptime_value(f_ret_cint), "fn → ComptimeInt");
+
+  // fn returning runtime/dual types → false
+  assert(!(is_function_type_and_returns_comptime_value(f_ret_unit)), "fn → unit");
+  assert(!(is_function_type_and_returns_comptime_value(f_ret_i32)),  "fn → i32");
+
+  // Non-function type → false
+  assert(!(is_function_type_and_returns_comptime_value(t_i32())),   "i32 not fn");
+  assert(!(is_function_type_and_returns_comptime_value(t_unit())),  "unit not fn");
 };
 
 // ---------------------------------------------------------------------------
