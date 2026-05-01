@@ -1,20 +1,16 @@
-//! evaluator/calls/function — simplified evaluate_function_call.
+//! evaluator/calls/function — evaluate_function_call.
 //!
-//! Phase 2bn — partial implementation.
+//! Phase 3 — expanded implementation.
 //! 1:1 port of `src/evaluator/calls/function.ts`.
 //!
-//! Phase 2bn handles two core call patterns:
-//!   1. `(fn(params) -> T)(body)` — function definition call. The callee
-//!      evaluates to `TypeVal(Func(...))` and there is exactly one body arg.
-//!      Delegates to `try_to_implement_function_by_function_type`.
-//!   2. `f(arg1, arg2, ...)` — simple FuncVal call. The callee evaluates to
-//!      `FuncVal(...)`. Args are evaluated, params bound in a fresh env, and
-//!      the body is evaluated via `evaluate_begin_expression`. The `Return`
-//!      control flow is consumed and not propagated to callers.
+//! Phase 3 handles:
+//!   1. `(fn(params) -> T)(body)` — function definition (TypeVal(Func) callee).
+//!   2. `Impl(Fn(...) -> T)(body)` / `Dyn(Fn(...) -> T)(body)` — closure
+//!      creation via `try_to_implement_closure_by_fn_module_type`.
+//!   3. `f(arg1, arg2, ...)` — simple FuncVal call.
 //!
-//! All other call patterns (overload resolution, CTFE, method calls, trait
-//! dispatch, macros, etc.) throw "not yet implemented (Phase 3)" and are
-//! deferred to the full Phase 3 port.
+//! Complex dispatch (overloads, CTFE, method calls, trait dispatch, macros)
+//! still deferred to Phase 4.
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
@@ -32,6 +28,8 @@ open import "std/string";
 { evaluate_expression }                                  :: import "../exprs/expr.yo";
 { evaluate_begin_expression }                            :: import "../exprs/begin.yo";
 { try_to_implement_function_by_function_type }           :: import "./function_type.yo";
+{ try_to_implement_closure_by_fn_module_type }           :: import "./closure_type.yo";
+{ extract_fn_trait_from_type }                           :: import "../trait_checking.yo";
 { format_error_message }                                 :: import "../../error/error.yo";
 { Exception }                                            :: import "std/error";
 
@@ -98,13 +96,91 @@ evaluate_function_call :: (fn(
             });
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, using(exn))
           },
+          // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
+          .FnTraitT(_, _, _, _) => {
+            result_opt := try_to_implement_closure_by_fn_module_type(
+              expr, func_type, func_type, callee_env, ctx, using(exn)
+            );
+            match(result_opt,
+              .Some(e) => e,
+              .None    => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: closure creation failed"),
+                  false,
+                  .None
+                ));
+                make_err_expr()
+              }
+            )
+          },
+          // SomeT / DynT — check if they wrap a FnTrait (e.g. Impl(Fn(...) -> T)).
+          .SomeT(_, _, _, _, _, _, _, _, _) => {
+            fn_trait_opt := extract_fn_trait_from_type(func_type);
+            match(fn_trait_opt,
+              .Some(fn_trait) => {
+                result_opt := try_to_implement_closure_by_fn_module_type(
+                  expr, fn_trait, func_type, callee_env, ctx, using(exn)
+                );
+                match(result_opt,
+                  .Some(e) => e,
+                  .None    => {
+                    exn.throw(dyn format_error_message(
+                      tok,
+                      String.from("evaluate_function_call: SomeT closure creation failed"),
+                      false,
+                      .None
+                    ));
+                    make_err_expr()
+                  }
+                )
+              },
+              .None => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
+                  false,
+                  .None
+                ));
+                make_err_expr()
+              }
+            )
+          },
+          .DynT(_, _, _, _) => {
+            fn_trait_opt := extract_fn_trait_from_type(func_type);
+            match(fn_trait_opt,
+              .Some(fn_trait) => {
+                result_opt := try_to_implement_closure_by_fn_module_type(
+                  expr, fn_trait, func_type, callee_env, ctx, using(exn)
+                );
+                match(result_opt,
+                  .Some(e) => e,
+                  .None    => {
+                    exn.throw(dyn format_error_message(
+                      tok,
+                      String.from("evaluate_function_call: DynT closure creation failed"),
+                      false,
+                      .None
+                    ));
+                    make_err_expr()
+                  }
+                )
+              },
+              .None => {
+                exn.throw(dyn format_error_message(
+                  tok,
+                  String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)"),
+                  false,
+                  .None
+                ));
+                make_err_expr()
+              }
+            )
+          },
           _ => {
-            // ------------------------------------------------------------------
-            // Path 2: callee is FuncVal → evaluate the call.
-            // ------------------------------------------------------------------
             exn.throw(dyn format_error_message(
               tok,
-              String.from("evaluate_function_call: TypeVal callee is not a Func type (Phase 3)"),
+              String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 4)"),
               false,
               .None
             ));
