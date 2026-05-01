@@ -1,6 +1,6 @@
 //! evaluate_function_type — evaluates `fn(...) -> ReturnType` expressions.
 //!
-//! 1:1 port of `src/evaluator/types/function.ts` (Phase 2aw).
+//! 1:1 port of `src/evaluator/types/function.ts` (Phase 3w).
 //!
 //! Implements the full multi-pass parameter evaluation algorithm:
 //!   Pass 1 — process forall type parameters (create SomeTypes)
@@ -9,11 +9,7 @@
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Known Phase 2 stubs (require Phase 3 work):
-//!   - effect-row forall `...(E)` → throws "not yet implemented"
-//!   - concrete-type where-clause validation (needs typeImplementsTrait) → throws "not yet implemented"
-//!   - `findSomeTypeMissingComptimeConstraint` → check skipped
-//!   - `evaluate_function_parameter_type_again` / `evaluate_function_return_type_again` → IMPLEMENTED (Phase 3b)
+//! Phase 3w: effect-row forall `...(E)` and effect-row spread `...(E)` in using() are now fully implemented.
 
 open import "std/string";
 open import "std/fmt";
@@ -25,12 +21,12 @@ open import "std/fmt";
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
 { Environment, Variable, get_variables_from_env, add_variable_to_env } :: import "../../env/env.yo";
 { EvalContext }                             :: import "../context.yo";
-{ EvalValue, create_type_value, create_unknown_val, is_type_value } :: import "../value.yo";
+{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import "../value.yo";
 { TypeValue, t_some_t, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list,
   is_some_type, is_trait_type, is_function_type, generate_some_type_id }
   :: import "../../types/type.yo";
 { type_of_type }                            :: import "../../types/hierarchy.yo";
-{ is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type }
+{ is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
   :: import "../../types/guards.yo";
 { are_types_compatible }                    :: import "../../types/compatibility.yo";
 { prohibit_void_type, type_requires_comptime_modifier,
@@ -1472,16 +1468,72 @@ evaluate_function_parameters :: (fn(
         tp_expr := match(forall_args.get(j), .Some(a) => a, .None => make_err_expr());
         j = (j + usize(1));
 
-        // Detect ...(E) — effect row variable declaration (Phase 3 stub)
+        // Detect ...(E) — effect row variable declaration
+        (is_eff_row_forall : bool) = false;
         if((ast_expr_is_fn_call_of(tp_expr, "...", .Some(usize(1))) &&
             ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr()))), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(tp_expr),
-            String.from("forall effect-row spread ...(E) not yet implemented (Phase 3)"),
+          inner_arg := match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+          row_var_name := (&ast_expr_token(inner_arg).value).clone();
+
+          // Duplicate check
+          (erd_found : bool) = false;
+          (erdi : usize) = usize(0);
+          while runtime((erdi < forall_params.len())), {
+            erfp := match(forall_params.get(erdi), .Some(p) => p, .None => { erdi = forall_params.len(); break; });
+            if((erfp.label == row_var_name), { erd_found = true; erdi = forall_params.len(); });
+            erdi = (erdi + usize(1));
+          };
+          if(erd_found, {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(tp_expr),
+              `Duplicate label "${row_var_name}" in type parameter`,
+              false,
+              .None
+            ));
+          });
+
+          // Create effects-row SomeT (is_effects_row = true)
+          er_frame_level := cond(
+            (env_mut.frames.len() > usize(0)) => (env_mut.frames.len() - usize(1)),
+            true => usize(0)
+          );
+          eff_row_some_type := TypeValue.SomeT(
+            generate_some_type_id(),
+            (&row_var_name).clone(),
+            er_frame_level,
+            Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
+            true
+          );
+          row_kind_type := TypeValue.TypeUni(usize(1));
+
+          _ := add_variable_to_env(
+            env_mut,
+            (&row_var_name).clone(),
+            (&row_kind_type).clone(),
+            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)((&eff_row_some_type).clone()))),
+            true,
             false,
-            .None
+            false,
+            false,
+            ast_expr_token(inner_arg)
+          );
+
+          forall_params.push(FuncParam(
+            (&row_var_name).clone(),
+            (&row_kind_type).clone(),
+            true,
+            false,
+            false,
+            false,
+            false
           ));
+          is_eff_row_forall = true;
         });
+        if(is_eff_row_forall, { continue; });
 
         param := evaluate_function_parameter(tp_expr, env_mut, ctx, true, true, using(exn));
 
@@ -1537,16 +1589,148 @@ evaluate_function_parameters :: (fn(
       impl_expr := match(using_args.get(uj), .Some(a) => a, .None => make_err_expr());
       uj = (uj + usize(1));
 
-      // Detect ...(E) — effect row spread (Phase 3 stub)
+      // Detect ...(E) — effect row spread in using()
+      (is_eff_row_using : bool) = false;
       if((ast_expr_is_fn_call_of(impl_expr, "...", .Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr()))), {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(impl_expr),
-          String.from("using(...(E)) effect row spread not yet implemented (Phase 3)"),
-          false,
-          .None
-        ));
+        inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        row_var_name2 := (&ast_expr_token(inner_arg2).value).clone();
+
+        // Look up E (must have been declared in forall)
+        row_vars := get_variables_from_env(env_mut.*, (&row_var_name2).clone());
+        if((row_vars.len() == usize(0)), {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(impl_expr),
+            `Effect row variable "${row_var_name2}" not found in scope. Declare it with forall(..., ...(${row_var_name2}))`,
+            false,
+            .None
+          ));
+        });
+        row_var_opt := row_vars.get((row_vars.len() - usize(1)));
+        match(row_var_opt,
+          .None => {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(impl_expr),
+              String.from("Effect row variable not found"),
+              false,
+              .None
+            ));
+          },
+          .Some(row_var) => {
+            e_val := row_var.value;
+            (eff_row_handled : bool) = false;
+
+            match(e_val,
+              .Some(ev) => {
+                if((is_type_val(ev) && !eff_row_handled), {
+                  inner_ty := match(ev, .TypeVal(b) => b.*, _ => TypeValue.Unit);
+                  if(is_effects_row_type((&inner_ty).clone()), {
+                    // Expand concrete EffectsRowT into individual params
+                    match((&inner_ty).clone(),
+                      .EffectsRowT(row_ls, row_ts) => {
+                        (ki : usize) = usize(0);
+                        while runtime((ki < row_ls.len())), {
+                          lbl := match(row_ls.get(ki), .Some(l) => l, .None => String.from(""));
+                          ty  := match(row_ts.get(ki), .Some(t) => t, .None => TypeValue.Unit);
+                          implicit_params.push(FuncParam(
+                            (&lbl).clone(), (&ty).clone(), true, false, false, true, false
+                          ));
+                          ki = (ki + usize(1));
+                        };
+                      },
+                      _ => ()
+                    );
+                    eff_row_handled = true;
+                  }, {
+                    // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
+                    is_er_some := match((&inner_ty).clone(),
+                      .SomeT(_, _, _, _, _, _, _, _, is_er) => is_er,
+                      _ => false
+                    );
+                    if(!is_er_some, {
+                      exn.throw(dyn format_error_message(
+                        ast_expr_token(impl_expr),
+                        `"...(${row_var_name2})" requires "${row_var_name2}" to be a forall-declared effect row variable, but it resolves to a concrete type.`,
+                        false,
+                        .None
+                      ));
+                    });
+                    // Push spread marker
+                    implicit_params.push(FuncParam(
+                      (&row_var_name2).clone(),
+                      (&inner_ty).clone(),
+                      true, false, false, true, true
+                    ));
+                    eff_row_handled = true;
+                  });
+                });
+                if((is_unknown_val(ev) && !eff_row_handled), {
+                  inner_ty2 := match(ev, .UnknownVal(b) => b.*, _ => TypeValue.Unit);
+                  if(is_effects_row_type((&inner_ty2).clone()), {
+                    // Expand EffectsRowT
+                    match((&inner_ty2).clone(),
+                      .EffectsRowT(row_ls2, row_ts2) => {
+                        (ki2 : usize) = usize(0);
+                        while runtime((ki2 < row_ls2.len())), {
+                          lbl2 := match(row_ls2.get(ki2), .Some(l) => l, .None => String.from(""));
+                          ty2  := match(row_ts2.get(ki2), .Some(t) => t, .None => TypeValue.Unit);
+                          implicit_params.push(FuncParam(
+                            (&lbl2).clone(), (&ty2).clone(), true, false, false, true, false
+                          ));
+                          ki2 = (ki2 + usize(1));
+                        };
+                      },
+                      _ => ()
+                    );
+                    eff_row_handled = true;
+                  }, {
+                    // UnknownVal with non-EffectsRowT — create fresh SomeT spread marker
+                    er_fl := cond(
+                      (env_mut.frames.len() > usize(0)) => (env_mut.frames.len() - usize(1)),
+                      true => usize(0)
+                    );
+                    fresh_some_t := TypeValue.SomeT(
+                      generate_some_type_id(),
+                      (&row_var_name2).clone(),
+                      er_fl,
+                      Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+                      ArrayList(TypeValue).new(),
+                      ArrayList(usize).new(),
+                      ArrayList(TypeValue).new(),
+                      ArrayList(usize).new(),
+                      true
+                    );
+                    implicit_params.push(FuncParam(
+                      (&row_var_name2).clone(),
+                      (&fresh_some_t).clone(),
+                      true, false, false, true, true
+                    ));
+                    eff_row_handled = true;
+                  });
+                });
+                if(!eff_row_handled, {
+                  exn.throw(dyn format_error_message(
+                    ast_expr_token(impl_expr),
+                    `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`,
+                    false,
+                    .None
+                  ));
+                });
+              },
+              .None => {
+                exn.throw(dyn format_error_message(
+                  ast_expr_token(impl_expr),
+                  `Effect row variable "${row_var_name2}" has no value.`,
+                  false,
+                  .None
+                ));
+              }
+            );
+          }
+        );
+        is_eff_row_using = true;
       });
+      if(is_eff_row_using, { continue; });
 
       // Bare types without labels are not allowed
       has_explicit_label := (

@@ -2261,6 +2261,39 @@ estimated at ~30+ pattern match sites. In practice it turned out to be
 - In the `is_inside_where_clause` branch: clone `lhs_ty` for `new_expr_info()`, explicitly consume original with `_ := box(lhs_ty)`.
 - All 956 yo-self tests continue passing.
 
+**3t. Property/index LHS in `assignment.yo`** ✅ Done — Implemented the two remaining stub arms in `yo-self/evaluator/exprs/assignment.yo`:
+
+- **Property LHS** (`lhs = X.field`): extracts the struct's ExprInfo, finds the field index, uses `comptimeRef` (struct kind) to update the field value in the compile-time value.
+- **Index LHS** (`lhs = X(i)`): evaluates the subscript, extracts the array ExprInfo, uses `comptimeRef` (array kind) to update the element.
+- Both arms mirror the TypeScript logic in `src/evaluator/exprs/assignment.ts` line 350+.
+- All 956 yo-self tests continue passing.
+
+**3v. `builtins/comptime_fn.yo`** ✅ Done — Full 1:1 port of `evaluateComptimeFn` from `src/evaluator/builtins/comptime-fn.ts` plus `analyzeCtfeCapability` from `src/evaluator/ctfe/ctfe-analysis.ts`:
+
+- `_to_comptime_type`: converts `Int/Usize/Isize → ComptimeInt`, `Float → ComptimeFloat`, `ComptimeString → ComptimeString`.
+- `_analyze_ctfe_capability`: sets up a fresh CTFE environment (captures + params as `UnknownVal`), evaluates the function body with `is_analyzing_ctfe_capability = true`. No `given(inner_exn)` to avoid dynamic effect scope ambiguity.
+- `evaluate_comptime_fn`: evaluates arg, checks guards (no forall, types are comptime-compatible), builds a new comptime `TypeValue.Func`, calls analysis.
+- Key design: `FuncOrAsyncBlockCtx.func_type = .None` during CTFE analysis since `begin.yo` only calls `.is_some()`, never reads the type value.
+- Returns `Option(TypeValue)` where `.Some` is the comptime func_type (ownership returned to caller).
+- All 956 yo-self tests continue passing.
+
+**3u. `calls/index_trait.yo`** ✅ Done — Partial port of `src/evaluator/calls/index-trait.ts` (1115 TS lines):
+
+- `_find_all_index_methods`: scans `TraitT` field labels for `"index"` methods (no generic impl registry — deferred to Phase 4).
+- `_check_range_type`: uses struct `name.starts_with("Range")` heuristic instead of CTFE resolution.
+- `_try_comptime_array_slice_index`: comptime range slicing and element access for `ArrayVal`/`SliceVal`.
+- `_try_comptime_string_index`: comptime string indexing with range/single-char support.
+- `try_to_call_with_index_trait`: full dispatch — comptime array → comptime string → runtime fallback.
+- `has_index_impl`: fast-path `true` for Array/Slice types; trait field scan for others.
+- All 956 yo-self tests continue passing.
+
+**3w. Effect-row spread `...(E)` in `types/function.yo`** ✅ Done — Implemented both stubs in `yo-self/evaluator/types/function.yo`:
+
+- **Pass 1 (forall)**: `...(E)` in `forall(...)` now declares an effect-row variable. Creates a `SomeT` with `is_effects_row = true`, adds it to env, pushes a `FuncParam` with `is_effect_row_spread = false`, and `continue`s past normal `evaluate_function_parameter`.
+- **Pass 2 (using)**: `...(E)` in `using(...)` now expands the row. Looks up E in env; if bound to a concrete `EffectsRowT`, expands its `(implicit_labels, implicit_types)` into individual `FuncParam` entries. If bound to a `SomeT` with `is_effects_row`, pushes a spread marker with `is_effect_row_spread = true`. Handles `TypeVal`, `UnknownVal` with `EffectsRowT`, and `UnknownVal` with unresolved SomeT (creates fresh SomeT marker). Proper error messages for missing/invalid row variables.
+- Added imports: `is_effects_row_type` from `guards.yo`, `is_type_val` + `is_unknown_val` from `value.yo`.
+- All 956 yo-self tests continue passing.
+
 ### Phase 4 — C Code Generation
 
 Second largest subsystem (~40K lines). Break into sub-phases:
