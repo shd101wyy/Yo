@@ -9,20 +9,255 @@
 //!   3. Optionally executes CTFE (unless skip_ctfe_execution is true).
 //!   4. Returns a `FuncCallResult` with the resolved return type, runtime arg
 //!      expressions, updated caller env, and deferred drop expressions.
+//!
+//! Ported functions (Phase 3):
+//!   * `extract_function_value` — extract FuncVal from EvalValue
+//!   * `_module_type_contains_ctl_field` — stub (no isControlFunction in yo-self)
+//!   * `_get_variables_needing_drop` — simplified (type_contains_rc_type is stub)
+//!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
+//!   * `validate_function_return_type` — checks return type SomeTs are resolvable
 
 open import "std/string";
 { ArrayList }                                 :: import "std/collections/array_list";
 
 { AstExpr, ast_expr_token }                   :: import "../../expr/expr.yo";
-{ Environment }                               :: import "../../env/env.yo";
+{ Environment,
+  Variable,
+  get_variables_from_env,
+  get_all_variables_from_env }                :: import "../../env/env.yo";
 { TypeValue, t_unit }                         :: import "../../types/type.yo";
+{ get_all_some_types }                        :: import "../../types/utils.yo";
+{ is_some_type }                              :: import "../../types/guards.yo";
+{ type_implements_future,
+  type_implements_fn }                        :: import "../trait_checking.yo";
 { EvalValue }                                 :: import "../value.yo";
 { EvalContext,
   FuncCallResult,
   ArgValues, ArgEntry, VarArgEntry }          :: import "../context.yo";
 { PathCollection, path_collection_new }       :: import "../../expr/expr_info.yo";
+{ evaluate_expression }                       :: import "../exprs/expr.yo";
+{ generate_expr_from_code }                   :: import "../../parser/parser.yo";
 { format_error_message }                      :: import "../../error/error.yo";
 { Exception }                                 :: import "std/error";
+
+// ---------------------------------------------------------------------------
+// extract_function_value
+// ---------------------------------------------------------------------------
+
+/// Extract a FuncVal from an optional EvalValue.
+/// Closures are runtime-only and have no FuncVal at compile time.
+///
+/// Mirrors `extractFunctionValue` in `src/evaluator/calls/helper.ts`.
+extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
+  match(value,
+    .None    => Option(EvalValue).None,
+    .Some(v) => match(v,
+      .FuncVal(_, _, _, _, _, _, _, _, _) => Option(EvalValue).Some(v),
+      _                                   => Option(EvalValue).None
+    )
+  )
+);
+
+// ---------------------------------------------------------------------------
+// _module_type_contains_ctl_field
+// ---------------------------------------------------------------------------
+
+/// Return true if any field of `module_type` is a "control function"
+/// (one that uses `escape` to control the continuation).
+///
+/// Phase 3 simplification: `FuncVal` has no `isControlFunction` flag in
+/// yo-self, so this always returns `false`.
+///
+/// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
+_module_type_contains_ctl_field :: (fn(
+  _module_type : TypeValue,
+  _module_val  : Option(EvalValue)
+) -> bool)(false);
+
+// ---------------------------------------------------------------------------
+// _get_variables_needing_drop
+// ---------------------------------------------------------------------------
+
+/// Return variables from the top env frame that need RC drop calls.
+///
+/// Phase 3 simplification: `type_contains_rc_type` is a stub that always
+/// returns `false`, so this returns an empty list.
+///
+/// Mirrors `getVariablesNeedingDrop` in `src/env.ts`.
+_get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
+  result := ArrayList(Variable).new();
+  n := env.frames.len();
+  if((n == usize(0)), { return result; });
+  match(env.frames.get((n - usize(1))),
+    .None => (),
+    .Some(top_frame) => {
+      m := top_frame.variables.len();
+      (i : usize) = usize(0);
+      while runtime((i < m)), {
+        match(top_frame.variables.get(i),
+          .Some(v) => {
+            if(((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value), {
+              // Phase 3: type_contains_rc_type is stub (always false),
+              // so no variable qualifies for dropping yet.
+              // Full implementation: also check type_contains_rc_type(v.ty).
+              _ := v;
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      };
+    }
+  );
+  result
+});
+
+// ---------------------------------------------------------------------------
+// generate_deferred_drop_expressions
+// ---------------------------------------------------------------------------
+
+/// Generate `___drop(varName)` expressions for variables that need RC cleanup.
+///
+/// Phase 3: returns `None` (no variables qualify with the current stub for
+/// `type_contains_rc_type`).
+///
+/// Mirrors `generateDeferredDropExpressions` in `src/evaluator/calls/helper.ts`.
+generate_deferred_drop_expressions :: (fn(
+  variables_to_drop : ArrayList(Variable),
+  env               : Environment,
+  ctx               : *(EvalContext),
+  using(exn         : Exception)
+) -> Option(ArrayList(AstExpr)))({
+  n := variables_to_drop.len();
+  if((n == usize(0)), { return Option(ArrayList(AstExpr)).None; });
+
+  deferred := ArrayList(AstExpr).new();
+  (cur_env : Environment) = env;
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    match(variables_to_drop.get(i),
+      .Some(variable) => {
+        // Build the drop expression: ___drop(varName)
+        drop_code := `___drop(${variable.name})`;
+        drop_expr := generate_expr_from_code(drop_code.as_str(), using(exn));
+        evaluated := evaluate_expression(drop_expr, cur_env, ctx);
+        // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
+        _ := evaluated;
+        deferred.push(evaluated);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+
+  if((deferred.len() == usize(0)),
+    Option(ArrayList(AstExpr)).None,
+    Option(ArrayList(AstExpr)).Some(deferred)
+  )
+});
+
+// ---------------------------------------------------------------------------
+// validate_function_return_type
+// ---------------------------------------------------------------------------
+
+/// Validate that the return type does not contain unresolved SomeType variables
+/// that cannot be inferred from the caller's environment.
+///
+/// Throws an Exception if a SomeType is found in the return type that has no
+/// corresponding variable in the env AND is not a Future/Fn impl type.
+///
+/// Mirrors `validateFunctionReturnType` in `src/evaluator/calls/helper.ts`.
+validate_function_return_type :: (fn(
+  return_type : TypeValue,
+  expr        : AstExpr,
+  env         : Environment,
+  ctx         : *(EvalContext),
+  using(exn   : Exception)
+) -> unit)({
+  // Skip validation if inside function-type evaluation or when expected type is set.
+  if((ctx.is_evaluating_function_type), { return (); });
+  if((ctx.expected_type.is_some()), { return (); });
+
+  some_types := get_all_some_types(return_type);
+  n := some_types.len();
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    match(some_types.get(i),
+      .None    => (),
+      .Some(st) =>
+        match(st,
+          .SomeT(_, name, _, _, required_trait_types, _, _, _, _) => {
+            // Determine whether this SomeT should be skipped.
+            should_skip := (
+              type_implements_future(st) ||
+              type_implements_fn(st) ||
+              (required_trait_types.len() > usize(0))
+            );
+            if(!(should_skip), {
+              // Check if name is directly in the env.
+              vars := get_variables_from_env(env, name);
+              if((vars.len() == usize(0)), {
+                // Check transitively via all variables' TypeVal values.
+                all_vars := get_all_variables_from_env(env);
+                (found_transitively : bool) = false;
+                (j : usize) = usize(0);
+                nv := all_vars.len();
+                while runtime(((j < nv) && !(found_transitively))), {
+                  match(all_vars.get(j),
+                    .Some(var) => {
+                      match(var.value,
+                        .Some(ev) => {
+                          match(ev,
+                            .TypeVal(ty_box) => {
+                              transitive := get_all_some_types(ty_box.*);
+                              (k : usize) = usize(0);
+                              while runtime(((k < transitive.len()) && !(found_transitively))), {
+                                match(transitive.get(k),
+                                  .Some(tst) => {
+                                    match(tst,
+                                      .SomeT(_, tname, _, _, _, _, _, _, _) => {
+                                        if((tname == name), { found_transitively = true; });
+                                      },
+                                      _ => ()
+                                    );
+                                  },
+                                  .None => ()
+                                );
+                                k = (k + usize(1));
+                              };
+                            },
+                            _ => ()
+                          );
+                        },
+                        .None => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                  j = (j + usize(1));
+                };
+                // Not found even transitively — throw error.
+                if(!(found_transitively), {
+                  exn.throw(dyn format_error_message(
+                    ast_expr_token(expr),
+                    String.from("Failed to infer the function call return type.\nPlease consider providing the expected type."),
+                    false,
+                    .None
+                  ));
+                });
+              });
+            });
+          },
+          _ => ()
+        )
+    );
+    i = (i + usize(1));
+  };
+});
+
+// ---------------------------------------------------------------------------
+// try_to_call_function_with_arguments
+// ---------------------------------------------------------------------------
 
 /// Type-check the arguments of a function call against `func_type` and
 /// (optionally) execute CTFE. Returns a `FuncCallResult` with the resolved
@@ -79,3 +314,6 @@ try_to_call_function_with_arguments :: (fn(
 });
 
 export try_to_call_function_with_arguments;
+export extract_function_value;
+export validate_function_return_type;
+export generate_deferred_drop_expressions;

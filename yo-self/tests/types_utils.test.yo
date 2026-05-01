@@ -6,7 +6,8 @@ open import "std/fmt";
 
 { TypeValue, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64,
   t_usize, t_isize, t_bool, t_unit, t_f32, t_f64,
-  t_comptime_int, t_comptime_float, t_comptime_string }
+  t_comptime_int, t_comptime_float, t_comptime_string,
+  t_some_t, t_array }
   :: import "../types/type.yo";
 { Environment } :: import "../env/env.yo";
 { ArrayList } :: import "std/collections/array_list";
@@ -16,7 +17,8 @@ open import "std/fmt";
   can_comptime_float_cast_to,
   type_implements_runtime_builtin, type_implements_runtime,
   type_is_comptime_only,
-  type_requires_comptime_modifier, type_prohibits_comptime_modifier }
+  type_requires_comptime_modifier, type_prohibits_comptime_modifier,
+  get_all_some_types }
   :: import "../types/utils.yo";
 
 // ---------------------------------------------------------------------------
@@ -374,4 +376,39 @@ test "type_prohibits_comptime_modifier: primitives and comptime types do not pro
   assert(!(type_prohibits_comptime_modifier(t_i32(), env)),          "i32 does not prohibit comptime");
   assert(!(type_prohibits_comptime_modifier(t_bool(), env)),         "bool does not prohibit comptime");
   assert(!(type_prohibits_comptime_modifier(t_comptime_int(), env)), "comptime_int does not prohibit");
+};
+
+// ---------------------------------------------------------------------------
+// get_all_some_types
+// ---------------------------------------------------------------------------
+
+test "get_all_some_types: primitive type has no SomeT", {
+  result := get_all_some_types(t_i32());
+  assert((result.len() == usize(0)), "i32 should have no SomeT");
+};
+
+test "get_all_some_types: SomeT itself is collected", {
+  ty := t_some_t(String.from("T"), usize(0));
+  result := get_all_some_types(ty);
+  assert((result.len() == usize(1)), "SomeT should return 1 element");
+  match(result.get(usize(0)),
+    .Some(found) => match(found,
+      .SomeT(_, name: n, _, _, _, _, _, _, _) =>
+        assert((n == String.from("T")), "collected SomeT should have name T"),
+      _ => assert(false, "expected SomeT variant")
+    ),
+    .None => assert(false, "expected element at index 0")
+  );
+};
+
+test "get_all_some_types: SomeT nested in Array is collected", {
+  inner := t_some_t(String.from("E"), usize(1));
+  ty := t_array(inner, usize(3));
+  result := get_all_some_types(ty);
+  assert((result.len() == usize(1)), "Array(SomeT) should yield 1 SomeT");
+};
+
+test "get_all_some_types: bool has no SomeT", {
+  result := get_all_some_types(t_bool());
+  assert((result.len() == usize(0)), "bool should have no SomeT");
 };

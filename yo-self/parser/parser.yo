@@ -1309,5 +1309,31 @@ parse :: (fn(
   p.get_program(using(exn))
 });
 
+/// Parse a single Yo expression from a code string and return it.
+/// Expects exactly one expression in `code`.
+/// Mirrors `generateExprFromCode` in `src/parser.ts`.
+generate_expr_from_code :: (fn(
+  code      : str,
+  using(exn : Exception)
+) -> AstExpr)({
+  module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
+  exprs := parse(String.from(code), module_path, using(exn));
+  n := exprs.len();
+  cond(
+    (n == usize(1)) => match(exprs.get(usize(0)),
+      .Some(e) => e,
+      .None    => make_err_expr()
+    ),
+    true => {
+      exn.throw(dyn make_parse_error_raw(
+        String.from(""),
+        String.from("generate_expr_from_code: expected exactly 1 expression from parsed code, got: ") + n.to_string()
+      ));
+      make_err_expr()
+    }
+  )
+});
+
 export ParseResult, FnArgsResult, ParseError, Parser, parse;
 export extract_source_line, make_parse_error, make_parse_error_raw;
+export generate_expr_from_code;

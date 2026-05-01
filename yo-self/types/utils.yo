@@ -33,6 +33,7 @@
 
 open import "std/string";
 open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list";
 { TypeValue, t_i32, t_f64, type_value_tag } :: import "./type.yo";
 { TypeTag } :: import "./tags.yo";
 { is_integer_type, is_float_type, is_comptime_int_type, is_comptime_float_type,
@@ -354,6 +355,93 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
   )
 );
 
+/// Internal helper: recursively collect all SomeT instances from `ty` into `acc`.
+/// Phase 3: no cycle detection (safe for acyclic TypeValue trees).
+_collect_some_types_into :: (fn(
+  ty  : TypeValue,
+  acc : *(ArrayList(TypeValue))
+) -> unit)(
+  match(ty,
+    .SomeT(_, _, _, _, _, _, _, _, _) => {
+      acc.*.push(ty);
+    },
+    .TypeAppT(constructor: con, args: args_list) => {
+      recur(con.*, acc);
+      (i : usize) = usize(0);
+      n := args_list.len();
+      while runtime((i < n)), {
+        match(args_list.get(i), .Some(a) => recur(a, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .Array(element: el, _)  => { recur(el.*, acc); },
+    .Slice(element: el)     => { recur(el.*, acc); },
+    .Pointer(pointee: pt)   => { recur(pt.*, acc); },
+    .IsoT(child: ch)        => { recur(ch.*, acc); },
+    .Func(forall_types: ftys, param_types: ptys, result: res) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+      (j : usize) = usize(0);
+      while runtime((j < ptys.len())), {
+        match(ptys.get(j), .Some(pt) => recur(pt, acc), .None => ());
+        j = (j + usize(1));
+      };
+      recur(res.*, acc);
+    },
+    .Tuple(_, field_types: ftys) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .Struct(_, _, _, field_types: ftys, _, _, _) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .EnumT(_, _, _, variant_fields: vfs, _, _, _) => {
+      (vi : usize) = usize(0);
+      while runtime((vi < vfs.len())), {
+        match(vfs.get(vi),
+          .Some(field_list) => {
+            (fi : usize) = usize(0);
+            while runtime((fi < field_list.len())), {
+              match(field_list.get(fi), .Some(ft) => recur(ft, acc), .None => ());
+              fi = (fi + usize(1));
+            };
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      };
+    },
+    .ModuleT(_, _, _, field_types: ftys) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    _ => ()
+  )
+);
+
+/// Collect all SomeT (generic type variable) instances found anywhere in `ty`.
+/// Returns an ArrayList containing each SomeT found (in pre-order traversal).
+/// Phase 3: does not track visited types (safe for acyclic TypeValue trees).
+/// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
+get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
+  acc := ArrayList(TypeValue).new();
+  _collect_some_types_into(ty, &acc);
+  acc
+});
+
 // ---------------------------------------------------------------------------
 // Size and alignment utilities
 // ---------------------------------------------------------------------------
@@ -494,4 +582,5 @@ export type_implements_runtime_builtin, type_implements_runtime, type_is_comptim
 export type_contains_rc_type;
 export can_type_form_rc_cycle;
 export type_contains_some_type;
+export get_all_some_types;
 export get_size_of_type, get_alignment_of_type;

@@ -3,7 +3,7 @@ open import "std/fmt";
 open import "std/error";
 { ArrayList } :: import "std/collections/array_list";
 { AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import "../expr/expr.yo";
-{ ParseError, parse, extract_source_line } :: import "../parser/parser.yo";
+{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import "../parser/parser.yo";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -372,4 +372,26 @@ test "ParseError.to_string: format with source line", {
   assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
   assert(s.contains(String.from("--> test.yo:4:0")), "should show row+1=4 in location");
   assert(s.contains(String.from("4 | }")), "should show source line with row+1");
+};
+
+// ---------------------------------------------------------------------------
+// generate_expr_from_code
+// ---------------------------------------------------------------------------
+
+test "generate_expr_from_code: integer literal produces atom", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+  expr := generate_expr_from_code("42", using(exn));
+  assert(ast_expr_is_atom(expr), "42 should be an atom expression");
+};
+
+test "generate_expr_from_code: identifier produces atom", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+  expr := generate_expr_from_code("x", using(exn));
+  assert(ast_expr_is_atom(expr), "identifier should be an atom expression");
+};
+
+test "generate_expr_from_code: function call produces fn call expr", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+  expr := generate_expr_from_code("foo()", using(exn));
+  assert(ast_expr_is_fn_call(expr), "foo() should be a fn call expression");
 };
