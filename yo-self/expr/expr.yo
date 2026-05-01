@@ -5,7 +5,9 @@
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
-{ TokenKind, Token } :: import "../lexer/token.yo";
+{ TokenKind, Token }        :: import "../lexer/token.yo";
+{ format_error_message }    :: import "../error/error.yo";
+{ Exception }               :: import "std/error";
 
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE       :: "tuple";
@@ -565,6 +567,87 @@ export BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE;
 export BF_COMPTIME_ARRAY_INDEX, BF_COMPTIME_SLICE_INDEX, BF_COMPTIME_ARRAY_INDEX_RANGE;
 export BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE, BF_COMPTIME_SLICE_INDEX_RANGE;
 export BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE;
+/// Throws if `expr` is not a FnCall of `func_name` with an optional exact `arg_count`.
+/// Mirrors `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+expect_expr_to_be_fn_call_of :: (fn(
+  expr      : AstExpr,
+  func_name : str,
+  arg_count : Option(usize),
+  using(exn : Exception)
+) -> unit)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  match(arg_count,
+    .Some(n) => {
+      actual := match(expr,
+        .FnCall(_, _, args, _, _) => args.len(),
+        _                        => usize(0)
+      );
+      if((actual != n), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
+          false, .None
+        ));
+      });
+    },
+    .None => ()
+  )
+});
+
+/// Throws if `expr` is not a FnCall of one of `func_names` with an optional exact `arg_count`.
+/// Mirrors the list variant of `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+expect_expr_to_be_fn_call_of_any :: (fn(
+  expr       : AstExpr,
+  func_names : ArrayList(str),
+  arg_count  : Option(usize),
+  using(exn  : Exception)
+) -> unit)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  match(arg_count,
+    .Some(n) => {
+      actual := match(expr,
+        .FnCall(_, _, args, _, _) => args.len(),
+        _                        => usize(0)
+      );
+      if((actual != n), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
+          false, .None
+        ));
+      });
+    },
+    .None => ()
+  )
+});
+
 export ast_expr_is_atom_of, ast_expr_is_atom_of_any;
 export ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any;
 export exprs_are_equal;
+export expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any;

@@ -4,11 +4,56 @@
 //! 1:1 port of `src/evaluator/builtins/rc_fns.ts`.
 
 open import "std/string";
+{ ArrayList }                               :: import "std/collections/array_list";
 { AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
+{ TypeValue }                               :: import "../../types/type.yo";
 { Environment }                             :: import "../../env/env.yo";
 { EvalContext }                             :: import "../context.yo";
 { format_error_message }                    :: import "../../error/error.yo";
 { Exception }                               :: import "std/error";
+
+/// Construct an `Option(T)` type for a given inner `TypeValue`.
+///
+/// Instead of calling the Option type constructor via CTFE (as `src/evaluator/builtins/rc-fns.ts`
+/// does), we construct the `EnumT` directly. Type-compatibility checks in yo-self
+/// compare EnumT by name only, so the result is fully compatible with the real `Option(T)`.
+///
+/// Mirrors `createOptionType` in `src/evaluator/builtins/rc-fns.ts`.
+create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
+  variant_names := ArrayList(String).new();
+  _ := variant_names.push(String.from("None"));
+  _ := variant_names.push(String.from("Some"));
+
+  none_fields := ArrayList(TypeValue).new();
+  some_fields := ArrayList(TypeValue).new();
+  _ := some_fields.push(inner_type);
+
+  variant_fields := ArrayList(ArrayList(TypeValue)).new();
+  _ := variant_fields.push(none_fields);
+  _ := variant_fields.push(some_fields);
+
+  none_labels := ArrayList(String).new();
+  some_labels := ArrayList(String).new();
+  _ := some_labels.push(String.from("val"));
+
+  variant_field_labels := ArrayList(ArrayList(String)).new();
+  _ := variant_field_labels.push(none_labels);
+  _ := variant_field_labels.push(some_labels);
+
+  discs := ArrayList(i64).new();
+  _ := discs.push(i64(0));
+  _ := discs.push(i64(1));
+
+  TypeValue.EnumT(
+    String.from(""),           // id: empty (compat checks use name only)
+    String.from("Option"),
+    variant_names,
+    variant_fields,
+    Option(String).None,       // selected_variant_name
+    variant_field_labels,
+    discs
+  )
+});
 
 evaluate_yo_decr_rc :: (fn(
   expr : AstExpr,
@@ -265,6 +310,7 @@ evaluate_yo_some_type_dup :: (fn(
   make_err_expr()
 });
 
+export create_option_type;
 export evaluate_yo_decr_rc, evaluate_yo_decr_rc_atomic, evaluate_yo_drop_array_element,
        evaluate_yo_drop_tuple_element, evaluate_yo_dup_array_element, evaluate_yo_dup_tuple_element,
        evaluate_yo_dyn_vtable_drop, evaluate_yo_dyn_vtable_dup, evaluate_yo_incr_rc,
