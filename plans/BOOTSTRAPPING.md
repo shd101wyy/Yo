@@ -2233,6 +2233,34 @@ estimated at ~30+ pattern match sites. In practice it turned out to be
 - Concrete `.trait` field access (TS `StructType.trait`) is not available in yo-self's TypeValue; only SomeT and DynT are supported. A clear error is thrown for unsupported concrete types.
 - All 956 yo-self tests continue passing.
 
+**3q. `type_fns.yo` Phase 3 stubs + `generate_exprs_from_code`** ✅ Done — Implemented all 5 Phase 3 builtins in `yo-self/evaluator/builtins/type_fns.yo`:
+
+- `evaluate_yo_type_get_info` — maps TypeValue variants to their TypeInfo string representation (struct, enum, union, trait, etc.)
+- `evaluate_yo_type_is_kind` — checks TypeValue against a kind string ("struct", "enum", "trait", "fn", "i32", etc.)
+- `evaluate_comptime_eval` — evaluates a string of Yo code in the current environment using `generate_exprs_from_code` + `force_compile_time_bindings = true`
+- `evaluate_yo_subtype_of` — evaluates `A <: B` subtype check at compile time (calls `subtype_of.yo`)
+- `evaluate_get_label` — returns the field label name string from a `:` binding expression
+- `generate_exprs_from_code` added to `parser.yo` (returns `ArrayList(AstExpr)`)
+- Fixed operator precedence in concatenation expressions (extra outer parens required)
+- Fixed `Exception` used as runtime param (removed unused param)
+- Fixed `String.starts_with` to take `String` (Self), not `str`
+- All 956 yo-self tests continue passing.
+
+**3r. `function.yo` complex-dispatch and callee-no-value stubs** ✅ Done — Implemented the two remaining stubs in `yo-self/evaluator/calls/function.yo`:
+
+- `_` fallthrough (UnknownVal/other EvalValue callee): calls `try_to_call_function_with_arguments(None, callee_ty, ...)` and returns `UnknownVal` with inferred return type
+- `.None` case (callee has no compile-time value): same pattern using callee's type from `callee_info_opt`
+- Fixed 4 struct-literal syntax bugs (`.Array`, `.Slice`, `.ComptimeListT`, `.IsoT` match arms had `{ expr }` instead of bare `expr`)
+- Added imports for `try_to_call_function_with_arguments` and `create_unknown_val`
+- All 956 yo-self tests continue passing.
+
+**3s. `subtype_of.yo` ownership fix** ✅ Done — Fixed a pre-existing ownership consumption mismatch in `yo-self/evaluator/exprs/subtype_of.yo`:
+
+- In the match for building `trait_with_receiver`, one arm consumed `lhs_ty` via `box(lhs_ty)` but the `_` arm did not consume it → compile error.
+- Fix: box `lhs_ty` before the match; `.TraitT` arm uses the box directly, `_` arm dereferences and discards it via `_ := lhs_ty_box.*`.
+- In the `is_inside_where_clause` branch: clone `lhs_ty` for `new_expr_info()`, explicitly consume original with `_ := box(lhs_ty)`.
+- All 956 yo-self tests continue passing.
+
 ### Phase 4 — C Code Generation
 
 Second largest subsystem (~40K lines). Break into sub-phases:

@@ -430,6 +430,35 @@ test "Async test", {
 
 ## Common pitfalls
 
+### `&&` short-circuit with `match`/`cond` on RHS causes C codegen scope bug
+
+Using `&&` where the right-hand side is a `match` or `cond` expression causes
+a C codegen bug: the temp variable for the RHS is declared inside the short-circuit
+`if` block but the cleanup drop is emitted outside it. This produces a C compile
+error ("use of undeclared identifier").
+
+```rust
+// WRONG — triggers codegen scope bug:
+is_ok := (av.is_compile_time_only && match(av.value,
+  .Some(v) => compute(v),
+  .None    => false
+));
+
+// CORRECT — use an explicit if block to scope the match:
+(is_ok : bool) = false;
+if(av.is_compile_time_only, {
+  is_ok = match(av.value,
+    .Some(v) => compute(v),
+    .None    => false
+  );
+});
+```
+
+This only affects `&&`/`||` where the **right-hand side contains a `match`,
+`cond`, or other expression that allocates heap-managed temporaries** (e.g.,
+`String`, `ArrayList`, `Option(HeapType)`). Pure boolean expressions on both
+sides are fine.
+
 ### `impl(...)` requires a trailing semicolon
 
 ```rust
