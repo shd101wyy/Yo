@@ -812,20 +812,31 @@ validate_concrete_type_constraints :: (fn(
     (t_expr : AstExpr) = match(trait_exprs.get(j), .Some(e) => e, .None => { j = (j + usize(1)); return (); });
     (negated : bool)   = match(trait_negated.get(j), .Some(b) => b, .None => false);
 
-    (info : ExprInfo) = evaluate_expression(t_expr, env_mut.*, ctx.*, using(exn));
+    evaled_t := evaluate_expression(t_expr, env_mut.*, ctx);
+    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
+    _ := evaled_t;
+    info := match(info_opt,
+      .Some(i) => i,
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(t_expr),
+          String.from("validate_concrete_type_constraints: failed to evaluate trait expression"),
+          false, .None
+        ));
+        new_expr_info(env_mut.*, t_unit())
+      }
+    );
     env_mut.* = info.env;
 
     if(is_type_value(info.value), {
-      tv := match(info.value, .Some(ev) => {
-        match(ev, .TypeVal(b) => b.*, _ => {
+      tv := match(info.value, .Some(ev) => match(ev, .TypeVal(b) => b.*, _ => {
           exn.throw(dyn format_error_message(
             ast_expr_token(t_expr),
             String.from("Expected trait type for right-hand side of where clause constraint."),
             false, .None
           ));
           return ();
-        })
-      }, .None => {
+        }), .None => {
         exn.throw(dyn format_error_message(
           ast_expr_token(t_expr),
           String.from("Expected trait type for right-hand side of where clause constraint."),
@@ -837,17 +848,17 @@ validate_concrete_type_constraints :: (fn(
       if(!(is_trait_type(tv)), {
         exn.throw(dyn format_error_message(
           ast_expr_token(t_expr),
-          format!("Expected trait type for right-hand side of where clause constraint, got: {}", type_to_string(tv)),
+          String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(tv)),
           false, .None
         ));
       });
 
-      implemented := type_implements_trait_bool(concrete_type, tv);
+      implemented := type_implements_trait_bool(concrete_type, tv, env_mut.*);
       if(negated, {
         if(implemented, {
           exn.throw(dyn format_error_message(
             ast_expr_token(constraint_expr),
-            format!("Type {} must NOT implement {}, but it does.", type_to_string(concrete_type), type_to_string(tv)),
+            String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(tv)).concat(String.from(", but it does.")),
             false, .None
           ));
         });
@@ -855,7 +866,7 @@ validate_concrete_type_constraints :: (fn(
         if(!(implemented), {
           exn.throw(dyn format_error_message(
             ast_expr_token(constraint_expr),
-            format!("Type {} does not implement required trait {}.", type_to_string(concrete_type), type_to_string(tv)),
+            String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" does not implement required trait ")).concat(type_to_string(tv)).concat(String.from(".")),
             false, .None
           ));
         });
@@ -913,7 +924,7 @@ apply_single_trait_constraint :: (fn(
         if(is_some_type(b.*), {
           some_ty_opt = .Some(b.*);
         }, {
-          // Concrete type — validate constraint immediately (not yet implemented)
+          // Concrete type — validate constraint using validate_concrete_type_constraints.
           (success : bool) = false;
           (threw   : bool) = false;
           given(exn_inner) := Exception(throw: ((err) -> {
