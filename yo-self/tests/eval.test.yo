@@ -4,6 +4,7 @@
 
 open import "std/fmt";
 open import "std/string";
+open import "std/error";
 { ArrayList } :: import "std/collections/array_list";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
@@ -16,6 +17,7 @@ open import "std/string";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult } :: import "../evaluator/value.yo";
 { evaluate, parse_raw_int, evaluate_module_body, set_module_loader } :: import "../evaluator/eval.yo";
+{ generate_exprs_from_code } :: import "../parser/parser.yo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2920,5 +2922,91 @@ test "evaluate: trait() stub creates TraitT TypeVal", {
       );
     },
     .None => ()
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Phase 3z integration — CTFE with type definitions via source parsing
+// ---------------------------------------------------------------------------
+
+test "evaluate_module_body: enum type definition binds in module env", {
+  env := empty_env();
+
+  // Parse: Color :: enum(Red, Green, Blue); export Color;
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error"); escape (); }));
+  exprs := generate_exprs_from_code(
+    "Color :: enum(Red, Green, Blue); export Color;",
+    using(exn)
+  );
+
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "evaluate_module_body returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(1)), "1 export");
+          match(names.get(usize(0)),
+            .Some(n) => assert((n.as_str() == "Color"), "export is Color"),
+            .None => assert(false, "no export name")
+          );
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .TypeVal(tyb) =>
+                  match(tyb.*,
+                    .EnumT(_, _, vnames, _, _, _, _) => {
+                      assert((vnames.len() == usize(3)), "3 variants");
+                      match(vnames.get(usize(0)), .Some(n) => assert((n.as_str() == "Red"), "Red"), .None => assert(false, "no variant 0"));
+                      match(vnames.get(usize(1)), .Some(n) => assert((n.as_str() == "Green"), "Green"), .None => assert(false, "no variant 1"));
+                      match(vnames.get(usize(2)), .Some(n) => assert((n.as_str() == "Blue"), "Blue"), .None => assert(false, "no variant 2"));
+                    },
+                    _ => assert(false, "Color is not EnumT")
+                  ),
+                _ => assert(false, "Color export is not TypeVal")
+              ),
+            .None => assert(false, "no export value")
+          );
+        },
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "evaluate_module_body: struct type definition binds in module env", {
+  env := empty_env();
+
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error"); escape (); }));
+  exprs := generate_exprs_from_code(
+    "Point :: struct(x: i32, y: i32); export Point;",
+    using(exn)
+  );
+
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "evaluate_module_body returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(1)), "1 export");
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .TypeVal(tyb) =>
+                  match(tyb.*,
+                    .Struct(_, _, labels, _, _, _, _) => {
+                      assert((labels.len() == usize(2)), "2 fields");
+                      match(labels.get(usize(0)), .Some(l) => assert((l.as_str() == "x"), "x field"), .None => assert(false, "no label 0"));
+                      match(labels.get(usize(1)), .Some(l) => assert((l.as_str() == "y"), "y field"), .None => assert(false, "no label 1"));
+                    },
+                    _ => assert(false, "Point is not Struct")
+                  ),
+                _ => assert(false, "Point is not TypeVal")
+              ),
+            .None => assert(false, "no export value")
+          );
+        },
+        _ => assert(false, "not ModuleVal")
+      )
   );
 };
