@@ -3010,3 +3010,37 @@ test "evaluate_module_body: struct type definition binds in module env", {
       )
   );
 };
+test "evaluate_module_body: generic comptime function MyOption(i32) returns EnumT", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error"); escape (); }));
+  src := "MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(enum(None, Some(value: T))); MyI32Opt :: MyOption(i32); export MyI32Opt;";
+  exprs := generate_exprs_from_code(src, using(exn));
+
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "evaluate_module_body returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(1)), "1 export");
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .TypeVal(tyb) =>
+                  match(tyb.*,
+                    .EnumT(_, _, vnames, _, _, _, _) => {
+                      assert((vnames.len() == usize(2)), "2 variants");
+                      match(vnames.get(usize(0)), .Some(n) => assert((n.as_str() == "None"), "None"), .None => assert(false, "no v0"));
+                      match(vnames.get(usize(1)), .Some(n) => assert((n.as_str() == "Some"), "Some"), .None => assert(false, "no v1"));
+                    },
+                    _ => assert(false, "not EnumT")
+                  ),
+                _ => assert(false, "not TypeVal")
+              ),
+            .None => assert(false, "no export value")
+          );
+        },
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
