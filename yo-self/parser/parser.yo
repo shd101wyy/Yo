@@ -1334,6 +1334,16 @@ generate_expr_from_code :: (fn(
   )
 });
 
+/// Parse all Yo expressions from a code string and return them.
+/// Mirrors `generateExprsFromCode` in `src/parser.ts`.
+generate_exprs_from_code :: (fn(
+  code      : str,
+  using(exn : Exception)
+) -> ArrayList(AstExpr))({
+  module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
+  parse(String.from(code), module_path, using(exn))
+});
+
 export ParseResult, FnArgsResult, ParseError, Parser, parse;
 export extract_source_line, make_parse_error, make_parse_error_raw;
-export generate_expr_from_code;
+export generate_expr_from_code, generate_exprs_from_code;
