@@ -3079,9 +3079,37 @@ handle_define :: (fn(
           )
         },
         // Destructuring: (a, b, c) := rhs  OR  {x, y} := rhs  OR  {x: a, y: b} := rhs
+        // Also handles: given(name) := rhs — emit as regular define of inner name.
         .FnCall(_, destr_func, destr_args, destr_infix, _) => cond(
           destr_infix => Option(String).None,
           true => {
+            // Check for `given(name) := rhs` — treat as regular variable define
+            is_given := match(destr_func.*,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, gtok) => (gtok.value.as_str() == "given")
+            );
+            cond(
+              (is_given && (destr_args.len() == usize(1))) =>
+                match(destr_args.get(usize(0)),
+                  .None => Option(String).None,
+                  .Some(inner_name_e) => match(inner_name_e,
+                    .FnCall(_, _, _, _, _) => Option(String).None,
+                    .Atom(_, inner_tok) => match(call_gen_expr(rhs_expr, ctx, indent),
+                      .None => Option(String).None,
+                      .Some(rhs_code) => {
+                        san := sanitize_c_ident(inner_tok.value.as_str());
+                        ctx.*.emitter.emit_string(indent);
+                        ctx.*.emitter.emit("__auto_type ");
+                        ctx.*.emitter.emit_string(san);
+                        ctx.*.emitter.emit(" = ");
+                        ctx.*.emitter.emit_string(rhs_code);
+                        ctx.*.emitter.emit_line(";");
+                        .Some(String.from("0"))
+                      }
+                    )
+                  )
+                ),
+              true => {
             destr_kind_opt := match(destr_func.*,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, dtok) => cond(
@@ -3252,6 +3280,7 @@ handle_define :: (fn(
             )
           }
         )
+        }
       )
     )
   )
@@ -3290,6 +3319,10 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == "array")                => true,
     // Note: "open" is handled explicitly before this check in generate_expr
     (name == "import")               => true,
+    // using(name) at expression level — strip wrapper, emit inner
+    (name == "using")                => true,
+    // given(name) at expression level — compile-time only, skip
+    (name == "given")                => true,
     true                             => false
   )
 );
@@ -3563,13 +3596,36 @@ gen_arg_list :: (fn(
   while runtime(((i < n) && ok)), {
     match(args.get(i),
       .None => { ok = false; },
-      .Some(arg) => match(call_gen_expr(arg, ctx, indent),
-        .None       => { ok = false; },
-        .Some(code) => {
-          if((i > usize(0)), { result.push_str(", "); });
-          result.push_string(code);
-        }
-      )
+      .Some(arg) => {
+        // Unwrap `using(name)` at call sites: strip the `using` wrapper and
+        // generate just the inner argument. In C, the evidence param is passed
+        // like a regular argument.
+        actual_arg := match(arg,
+          .FnCall(_, ua_fn, ua_args, ua_infix, _) => cond(
+            ((!ua_infix) && (ua_args.len() == usize(1))) =>
+              match(ua_fn.*,
+                .Atom(_, ua_tok) => cond(
+                  (ua_tok.value.as_str() == "using") =>
+                    match(ua_args.get(usize(0)),
+                      .Some(inner) => inner,
+                      .None        => arg
+                    ),
+                  true => arg
+                ),
+                .FnCall(_, _, _, _, _) => arg
+              ),
+            true => arg
+          ),
+          .Atom(_, _) => arg
+        );
+        match(call_gen_expr(actual_arg, ctx, indent),
+          .None       => { ok = false; },
+          .Some(code) => {
+            if((i > usize(0)), { result.push_str(", "); });
+            result.push_string(code);
+          }
+        );
+      }
     );
     i = (i + usize(1));
   };
@@ -5752,6 +5808,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ((!is_infix) && match(ident_opt,
           .None    => false,
           .Some(id) => ((id.as_str() == "comptime_assert") || (id.as_str() == "comptime_expect_error"))
+        )) => .Some(String.from("0")),
+        // using(name) — strip the wrapper, emit the inner argument directly.
+        // At expression level this appears as passing an evidence parameter.
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "using")
+        )) => match(args.get(usize(0)),
+          .None    => .Some(String.from("0")),
+          .Some(inner) => call_gen_expr(inner, ctx, indent)
+        ),
+        // given(name) — compile-time binding, no runtime effect. Emit "0".
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "given")
         )) => .Some(String.from("0")),
         // Struct constructor: TypeName(field1: val1, field2: val2)
         // Detected by: non-infix, uppercase-start name, all args labeled.

@@ -2655,3 +2655,68 @@ test "handle_while: break inside body emits break statement in C code", {
   assert(code.contains(String.from("while")),  "while keyword present");
   assert(code.contains(String.from("break")),  "break present in while body");
 };
+
+// =============================================================================
+// Phase 5n: using(name) unwrapping and given(name) := expr codegen
+// =============================================================================
+
+test "Phase 5n: using(name) in arg list passes inner name", {
+  // f(x, using(ctx)) → gen_arg_list should emit "x, ctx"
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "42"));
+  // Build using(ctx)
+  using_args := ArrayList(AstExpr).new();
+  using_args.push(make_atom_expr(TokenKind.Identifier, "ctx"));
+  using_call := make_fncall_expr("using", using_args);
+  args.push(using_call);
+  call_e := make_fncall_expr("my_func", args);
+
+  result := run_gen(call_e);
+  match(result,
+    .None => assert(false, "gen returned None for call with using"),
+    .Some(s) => {
+      assert(s.contains(String.from("my_func")), "call name present");
+      assert(s.contains(String.from("ctx")), "using(ctx) unwrapped to ctx");
+      assert(s.contains(String.from("42")), "regular arg present");
+    }
+  );
+};
+
+test "Phase 5n: using(name) as standalone expression returns the identifier", {
+  // using(exn) standalone → just emits the inner name "exn"
+  using_args := ArrayList(AstExpr).new();
+  using_args.push(make_atom_expr(TokenKind.Identifier, "exn"));
+  using_call := make_fncall_expr("using", using_args);
+  result := run_gen(using_call);
+  match(result,
+    .None => assert(false, "using(exn) returned None"),
+    .Some(s) => assert((s == String.from("exn")), "using(exn) emits 'exn'")
+  );
+};
+
+test "Phase 5n: given(name) as standalone expression returns 0", {
+  // given(ctx) standalone → no-op, returns "0"
+  given_args := ArrayList(AstExpr).new();
+  given_args.push(make_atom_expr(TokenKind.Identifier, "ctx"));
+  given_call := make_fncall_expr("given", given_args);
+  result := run_gen(given_call);
+  match(result,
+    .None => assert(false, "given(ctx) returned None"),
+    .Some(s) => assert((s == String.from("0")), "given(ctx) standalone is no-op '0'")
+  );
+};
+
+test "Phase 5n: given(name) := rhs emits __auto_type define", {
+  // given(handler) := 42  →  __auto_type handler = 42;
+  given_args := ArrayList(AstExpr).new();
+  given_args.push(make_atom_expr(TokenKind.Identifier, "handler"));
+  given_call := make_fncall_expr("given", given_args);
+  rhs := make_atom_expr(TokenKind.Integer, "42");
+  define_e := make_infix_expr(":=", given_call, rhs);
+
+  ctx := run_gen_with_ctx(define_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("__auto_type")), "auto type declare present");
+  assert(code.contains(String.from("handler")), "name is handler");
+  assert(code.contains(String.from("42")), "rhs value 42 present");
+};
