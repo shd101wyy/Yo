@@ -2560,6 +2560,29 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - Template strings whose parts are all `str`-typed (`const char*`) now compile and run correctly under `yo-self-bin compile`.
 - 5 new unit tests in `codegen.test.yo`; 138 codegen tests, 369 yo-self tests pass.
 
+**5l. Escape-as-return codegen** ✅ Done
+
+- Added `escape` handler in `generate_expr`'s cond chain, after the `return` handler.
+- `escape()` (no args) → `return;\n`; `escape(unit)` → `return 0;\n`; `escape(expr)` → `return expr;\n`.
+- 7 new tests; 154 codegen tests, 1053 yo-self tests pass.
+
+**5m. `given(name) := rhs` binding in proto-evaluator** ✅ Done
+
+- Added `given(name)` LHS handling in the `:=` handler of `eval.yo`.
+- Strips the `given()` wrapper and binds the inner name as a compile-time value.
+- 2 new eval tests; 1055 yo-self tests pass.
+
+**5n. `using()`/`given()` codegen + object/newtype support** ✅ Done
+
+- `gen_arg_list` now detects `using(name)` args and unwraps them to just generate the inner argument.
+- `using(name)` at expression level → returns the inner identifier.
+- `given(name)` at expression level → returns "0" (no-op).
+- `given(name) := rhs` in codegen → emits `__auto_type name = rhs;`.
+- `extract_struct_def` now recognizes `object(...)` in addition to `struct(...)`.
+- New `extract_newtype_def` + `emit_newtype_to_c`: `Name :: newtype(T)` → `typedef T_c Name;`.
+- `compile_module_to_c` Pass 2 now processes newtype definitions.
+- 8 new tests (6 codegen + 2 eval); 1061 yo-self tests pass.
+
 ### Phase 6 — Ancillary systems
 
 **6c. Version management** ✅ Done
