@@ -1775,6 +1775,94 @@ handle_method_dispatch :: (fn(
               ),
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5al: StrLit.as_bytes() — returns ArrayVal of IntLit byte values
+        // ---------------------------------------------------------------
+        ((mname == "as_bytes") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_ab) => {
+              n_ab := raw_ab.len();
+              cond(
+                (n_ab < usize(2)) => {
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(ArrayList(EvalValue).new()), t_unit()));
+                },
+                true => {
+                  inner_ab := raw_ab.substring(usize(1), (n_ab - usize(1)));
+                  bytes_ab := inner_ab.as_bytes();
+                  result_ab := ArrayList(EvalValue).new();
+                  (abi : usize) = usize(0);
+                  ab_len := bytes_ab.len();
+                  while runtime((abi < ab_len)), {
+                    match(bytes_ab.get(abi),
+                      .Some(b) => { result_ab.push(.IntLit(i64(b).to_string())); },
+                      .None => ()
+                    );
+                    abi = (abi + usize(1));
+                  };
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(result_ab), t_unit()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5al: StrLit.to_cstr() — passthrough (returns the StrLit unchanged)
+        // ---------------------------------------------------------------
+        ((mname == "to_cstr") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(_) => { return Option(EvalResult).Some(eval_result(recv_val, t_comptime_string())); },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5al: ArrayVal.find(fn) — returns Option of first matching element
+        // ---------------------------------------------------------------
+        ((mname == "find") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_fi) => {
+              fn_expr_fi := match(method_call_args.get(usize(0)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              fn_val_fi := match(match(g_eval_fn, .Some(ef) => ef(fn_expr_fi, env), .None => Option(EvalResult).None),
+                .Some(r) => match(r.value,
+                  .FuncVal(_, _, _, _, _, _, _, _, _) => r.value,
+                  _ => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              n_fi := av_items_fi.len();
+              (fii : usize) = usize(0);
+              (found_fi : Option(EvalValue)) = Option(EvalValue).None;
+              while runtime(((fii < n_fi) && (found_fi.is_none()))), {
+                match(av_items_fi.get(fii),
+                  .Some(elem_fi) => {
+                    call_args_fi := ArrayList(EvalResult).new();
+                    call_args_fi.push(eval_result(elem_fi, type_of_eval_value(elem_fi)));
+                    match(call_funcval_with_args(fn_val_fi, call_args_fi),
+                      .Some(pred_r) => match(pred_r.value,
+                        .BoolVal(bval_fi) => cond(bval_fi => { found_fi = .Some(elem_fi); }, true => ()),
+                        _ => ()
+                      ),
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+                fii = (fii + usize(1));
+              };
+              match(found_fi,
+                .Some(fv_fi) => {
+                  some_fields_fi := ArrayList(EvalValue).new();
+                  some_fields_fi.push(fv_fi);
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_fields_fi), t_unit()));
+                },
+                .None => {
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), ArrayList(EvalValue).new()), t_unit()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {
@@ -4862,6 +4950,40 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                       ),
                                       .None => ()
                                     ),
+                                  // fn(x, y) — function-style param list
+                                  (pftok.value.as_str() == "fn") => {
+                                    (fpi : usize) = usize(0);
+                                    fpn := pargs.len();
+                                    while runtime((fpi < fpn)), {
+                                      match(pargs.get(fpi),
+                                        .Some(fpe) =>
+                                          match(fpe,
+                                            .Atom(_, fpetok) => {
+                                              params_f.push(fpetok.value);
+                                              param_type_names_f.push(String.from("_"));
+                                            },
+                                            .FnCall(_, fpe_f, fpe_args, fpe_infix, _) =>
+                                              cond(
+                                                // (x : T) inside fn(...)
+                                                (fpe_infix && match(fpe_f.*, .Atom(_, fct) => (fct.value.as_str() == ":"), .FnCall(_, _, _, _, _) => false)) =>
+                                                  match(fpe_args.get(usize(0)),
+                                                    .Some(fn_e) => match(fn_e,
+                                                      .Atom(_, fnt) => {
+                                                        params_f.push(fnt.value);
+                                                        param_type_names_f.push(String.from("_"));
+                                                      },
+                                                      .FnCall(_, _, _, _, _) => ()
+                                                    ),
+                                                    .None => ()
+                                                  ),
+                                                true => ()
+                                              )
+                                          ),
+                                        .None => ()
+                                      );
+                                      fpi = (fpi + usize(1));
+                                    };
+                                  },
                                   true => ()
                                 ),
                               .FnCall(_, _, _, _, _) => ()
