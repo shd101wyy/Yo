@@ -6503,3 +6503,122 @@ test "Phase 5z: StrLit char_at(4) returns last char", {
       )
   );
 };
+
+// Phase 5aa — clone passthrough, tuple construction, Slice/Future/Array type ctors
+
+test "Phase 5aa: clone on IntLit returns same value", {
+  env := empty_env();
+  // 42.clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "clone should return same IntLit"),
+        _ => assert(false, "clone should return IntLit")
+      )
+  );
+};
+
+test "Phase 5aa: clone on StrLit returns same value", {
+  env := empty_env();
+  // "hello".clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"hello\""), "clone should return same StrLit"),
+        _ => assert(false, "clone should return StrLit")
+      )
+  );
+};
+
+test "Phase 5aa: tuple (1, 2, 3) creates StructVal", {
+  env := empty_env();
+  // (1, 2, 3) — BK_TUPLE with 3 args
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "1"));
+  tup_args.push(make_atom(TokenKind.Integer, "2"));
+  tup_args.push(make_atom(TokenKind.Integer, "3"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  result := evaluate(tup_expr, &env);
+  match(result,
+    .None => assert(false, "tuple returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StructVal(name, fnames, fvals) => {
+          assert((name.as_str() == "_"), "tuple name should be _");
+          assert((fvals.len() == usize(3)), "tuple should have 3 fields");
+          match(fvals.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "1"), "first elem should be 1"), _ => assert(false, "elem 0 should be IntLit")),
+            .None => assert(false, "should have elem 0")
+          );
+        },
+        _ => assert(false, "tuple should return StructVal")
+      )
+  );
+};
+
+test "Phase 5aa: Slice type constructor", {
+  env := empty_env();
+  sl_args := ArrayList(AstExpr).new();
+  sl_args.push(make_atom(TokenKind.Identifier, "u8"));
+  sl_expr := make_fncall_atom("Slice", sl_args);
+  result := evaluate(sl_expr, &env);
+  match(result,
+    .None => assert(false, "Slice returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "Slice should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5aa: Future type constructor", {
+  env := empty_env();
+  ft_args := ArrayList(AstExpr).new();
+  ft_args.push(make_atom(TokenKind.Identifier, "i32"));
+  ft_args.push(make_atom(TokenKind.Identifier, "IO"));
+  ft_expr := make_fncall_atom("Future", ft_args);
+  result := evaluate(ft_expr, &env);
+  match(result,
+    .None => assert(false, "Future returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "Future should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5aa: IO type constructor", {
+  env := empty_env();
+  io_args := ArrayList(AstExpr).new();
+  io_expr := make_fncall_atom("IO", io_args);
+  result := evaluate(io_expr, &env);
+  match(result,
+    .None => assert(false, "IO returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "IO should return TypeVal")
+      )
+  );
+};

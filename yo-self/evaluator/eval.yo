@@ -905,6 +905,13 @@ handle_method_dispatch :: (fn(
             .StrLit(s)     => { return Option(EvalResult).Some(eval_result(.StrLit(s),                                             t_comptime_string())); },
             _ => ()
           ),
+        // ---------------------------------------------------------------
+        // Phase 5aa: .clone() — passthrough for all value types.
+        // In proto-eval values are already immutable comptime values,
+        // so clone just returns the same value.
+        // ---------------------------------------------------------------
+        ((mname == "clone") && (method_call_args.len() == usize(0))) =>
+          { return Option(EvalResult).Some(eval_result(recv_val, type_of_eval_value(recv_val))); },
         // String concatenation: StrLit(lhs).(+)(rhs_expr)
         ((mname == "+") && match(recv_val, .StrLit(_) => true, _ => false)) =>
           match(method_call_args.get(usize(0)),
@@ -2607,6 +2614,36 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
               .Some(eval_result(.UnitVal, t_unit())),
 
             // -----------------------------------------------------------------
+            // Phase 5aa: Tuple expression with args: (a, b, c) — build StructVal
+            // Tuples are anonymous structs with numeric field labels.
+            // -----------------------------------------------------------------
+            ((fval == BK_TUPLE) && (args.len() > usize(0))) => {
+              tup_fnames := ArrayList(String).new();
+              tup_fvals := ArrayList(EvalValue).new();
+              n_tup := args.len();
+              (ti : usize) = usize(0);
+              (tup_ok : bool) = true;
+              while runtime(((ti < n_tup) && tup_ok)), {
+                match(args.get(ti),
+                  .Some(tup_arg) =>
+                    match(recur(tup_arg, env),
+                      .Some(tup_res) => {
+                        tup_fnames.push(ti.to_string());
+                        tup_fvals.push(tup_res.value);
+                      },
+                      .None => { tup_ok = false; }
+                    ),
+                  .None => { tup_ok = false; }
+                );
+                ti = (ti + usize(1));
+              };
+              cond(
+                (!(tup_ok)) => Option(EvalResult).None,
+                true => Option(EvalResult).Some(eval_result(.StructVal(String.from("_"), tup_fnames, tup_fvals), t_unit()))
+              )
+            },
+
+            // -----------------------------------------------------------------
             // Begin block: { stmt1; stmt2; … }
             // -----------------------------------------------------------------
             (fval == BK_BEGIN) => {
@@ -3811,6 +3848,20 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             ((fval == "Box") && (args.len() == usize(1))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
             ((fval == "Pointer") && (args.len() == usize(1))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Phase 5aa: Slice(T), Future(T, ...), Array(T, N) — type constructors.
+            // -----------------------------------------------------------------
+            (fval == "Slice") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "Future") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "Array") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "IO") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "Exception") =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
 
             // -----------------------------------------------------------------
