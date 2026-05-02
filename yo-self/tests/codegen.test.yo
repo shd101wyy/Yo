@@ -2570,3 +2570,88 @@ test "handle_for: wrong arity (1 arg) returns None", {
     .Some(_) => assert(false, "expected None for wrong-arity for")
   );
 };
+
+// Phase 5l: escape-as-return codegen tests, plus standalone break/continue ----
+
+test "generate_expr: escape() with no args emits bare return", {
+  // escape() — no arguments → should emit `return;`
+  a := ArrayList(AstExpr).new();
+  esc_e := make_fncall_expr("escape", a);
+
+  ctx := run_gen_with_ctx(esc_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("return;")), "bare return emitted for escape()");
+};
+
+test "generate_expr: escape(unit) emits return statement", {
+  // escape(()) — unit argument maps to "0" in the proto-codegen, so escape(())
+  // emits `return 0;` (same as return(()) — unit return value maps to 0).
+  unit_args := ArrayList(AstExpr).new();
+  unit_e := make_fncall_expr("tuple", unit_args);
+
+  a := ArrayList(AstExpr).new();
+  a.push(unit_e);
+  esc_e := make_fncall_expr("escape", a);
+
+  ctx := run_gen_with_ctx(esc_e);
+  code := ctx.emitter.code;
+  // Unit return: `return 0;` is emitted (proto-codegen maps unit→0)
+  assert(code.contains(String.from("return 0;")), "return 0 emitted for escape(())");
+};
+
+test "generate_expr: escape(expr) emits return with value", {
+  // escape(42) → should emit `return 42;`
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Integer, "42"));
+  esc_e := make_fncall_expr("escape", a);
+
+  ctx := run_gen_with_ctx(esc_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("return 42;")), "return with value emitted for escape(42)");
+};
+
+test "generate_expr: escape(ident) emits return with identifier", {
+  // escape(result) → should emit `return result;`
+  a := ArrayList(AstExpr).new();
+  a.push(make_atom_expr(TokenKind.Identifier, "result"));
+  esc_e := make_fncall_expr("escape", a);
+
+  ctx := run_gen_with_ctx(esc_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("return result;")), "return with ident emitted for escape(result)");
+};
+
+test "generate_expr: break atom is emitted as identifier", {
+  // Standalone `break` atom → generate_expr returns "break" as the expression code.
+  // When this appears as the last statement in a begin block, the caller emits it.
+  break_e := make_atom_expr(TokenKind.Identifier, "break");
+
+  result_opt := run_gen(break_e);
+  match(result_opt,
+    .None    => assert(false, "expected Some for break atom"),
+    .Some(s) => assert((s == String.from("break")), "break atom generates 'break' string")
+  );
+};
+
+test "generate_expr: continue atom is emitted as identifier", {
+  // Standalone `continue` atom → generate_expr returns "continue" as expression code.
+  continue_e := make_atom_expr(TokenKind.Identifier, "continue");
+
+  result_opt := run_gen(continue_e);
+  match(result_opt,
+    .None    => assert(false, "expected Some for continue atom"),
+    .Some(s) => assert((s == String.from("continue")), "continue atom generates 'continue' string")
+  );
+};
+
+test "handle_while: break inside body emits break statement in C code", {
+  // while runtime(true), { break; } → emits `while (1) {` and `break;`
+  cond_e := make_runtime_cond(make_atom_expr(TokenKind.Bool, "true"));
+  body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
+  while_e := make_while_expr(cond_e, body_e);
+
+  ctx := run_gen_with_ctx(while_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("while")),  "while keyword present");
+  assert(code.contains(String.from("break")),  "break present in while body");
+};
