@@ -14,10 +14,12 @@ open import "std/string";
 { HashSet }    :: import "std/collections/hash_set";
 { HashMap }    :: import "std/collections/hash_map";
 
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom } :: import "../expr/expr.yo";
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom,
+  make_err_expr }                                            :: import "../expr/expr.yo";
 { ExprInfoTable, expr_info_table_get }                      :: import "../expr/expr_info.yo";
-{ Environment, Variable,
-  get_variables_from_env, make_err_variable }               :: import "../env/env.yo";
+{ Environment, Variable, Frame, new_frame,
+  get_variables_from_env, make_err_variable,
+  generate_variable_id }                                     :: import "../env/env.yo";
 { Token }                                                    :: import "../lexer/token.yo";
 { EvalContext }                                              :: import "./context.yo";
 { atof }                                                     :: import "std/libc/stdlib";
@@ -372,25 +374,354 @@ consume_case_body_temp_var :: (fn(
 });
 
 // ---------------------------------------------------------------------------
-// merge_and_check_envs  (Phase 2 stub)
+// merge_and_check_envs  (Phase 3 implementation)
 // ---------------------------------------------------------------------------
 
-/// Phase 2 stub: returns `env` unchanged.
+/// Reconcile variable states across multiple cond/match branch environments.
 ///
-/// The full implementation (Phase 3) reconciles variable states across
-/// multiple cond/match branch environments: it detects partially-consumed
-/// variables, adopts temp variables leaked from branch frames, and throws
-/// on frame-level mismatches between branches.
+/// For each variable in the base env:
+/// - Adopts temp variables that leaked from case bodies into a shared frame.
+/// - Propagates `initialized_at_token` when all cases initialize it.
+/// - Propagates `consumed_at_token` when all cases consume it.
+/// - Propagates `is_owning_the_rc_value` when all cases own it.
+/// - Generates a fresh variable ID when any branch reassigns the variable.
+/// - Throws a compile-time error if branches partially consume/initialize or
+///   if frame layouts are inconsistent.
 ///
-/// TypeScript's `mergeAndCheckEnvs` returns a new (immutable) `Environment`.
-/// In yo-self, the env is mutable, so the Phase 3 port will mutate in-place.
+/// In yo-self, Variable is an object (RC reference); mutations propagate
+/// automatically to all holders. `update_existing_variable` is used for
+/// the is_owning_the_rc_value update (since it also zeros out is_owning_the_same_rc_value_as).
 ///
 /// Mirrors `mergeAndCheckEnvs` in `src/expr.ts`.
 merge_and_check_envs :: (fn(
-  env     : Environment,
-  _bodies : ArrayList(AstExpr),
-  _ctx    : *(EvalContext)
-) -> Environment)(env);
+  env    : Environment,
+  bodies : ArrayList(AstExpr),
+  ctx    : *(EvalContext),
+  using(exn : Exception)
+) -> Environment)({
+  if((bodies.len() == usize(0)), { return env; });
+
+  max_frame_level := (env.frames.len() - usize(1));
+
+  // Collect case environments from the expr_info_table.
+  case_envs := ArrayList(Environment).new();
+  (bi : usize) = usize(0);
+  while runtime((bi < bodies.len())), {
+    body := match(bodies.get(bi), .Some(b) => b, .None => make_err_expr());
+    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
+    match(info_opt,
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(body),
+          `Expected the body of the case to be evaluated, but it is not.`,
+          false,
+          .None
+        ));
+      },
+      .Some(info) => {
+        case_envs.push(info.env);
+      }
+    );
+    bi = (bi + usize(1));
+  };
+
+  // Verify that every case env has the same frame depth as the base env.
+  (ci : usize) = usize(0);
+  while runtime((ci < case_envs.len())), {
+    case_env := match(case_envs.get(ci), .Some(e) => e, .None => env);
+    if(((case_env.frames.len() - usize(1)) != max_frame_level), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
+        `Frame level is different for different cases.`,
+        false,
+        .None
+      ));
+    });
+    ci = (ci + usize(1));
+  };
+
+  // Process each frame level from 0 to max_frame_level (inclusive).
+  (frame_i : usize) = usize(0);
+  while runtime((frame_i <= max_frame_level)), {
+    frame_opt := env.frames.get(frame_i);
+    match(frame_opt,
+      .None => (),
+      .Some(frame) => {
+
+        // ---------------------------------------------------------------
+        // For each case env, possibly adopt extra temp variables into the
+        // base env frame (only for non-innermost frames).
+        // ---------------------------------------------------------------
+        (cj : usize) = usize(0);
+        while runtime((cj < case_envs.len())), {
+          case_env := match(case_envs.get(cj), .Some(e) => e, .None => env);
+          case_frame := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
+          case_vars_len := case_frame.variables.len();
+          base_vars_len := frame.variables.len();
+
+          if(((frame_i != max_frame_level) && (case_vars_len != base_vars_len)), {
+            cond(
+              (case_vars_len > base_vars_len) => {
+                // Check whether all extra variables are temp variables.
+                (all_temps : bool) = true;
+                (ek : usize) = base_vars_len;
+                while runtime((ek < case_vars_len)), {
+                  extra_var := match(case_frame.variables.get(ek), .Some(v) => v, .None => make_err_variable(env));
+                  if(!(is_temp_variable_name(env.module_path, extra_var.name)), {
+                    all_temps = false;
+                  });
+                  ek = (ek + usize(1));
+                };
+                if(all_temps, {
+                  // Adopt extra temps into the base env frame. Adopted temps
+                  // must NOT own RC values (each branch handles its own drops).
+                  (ek2 : usize) = base_vars_len;
+                  while runtime((ek2 < case_vars_len)), {
+                    extra_var2 := match(case_frame.variables.get(ek2), .Some(v) => v, .None => make_err_variable(env));
+                    extra_var2.is_owning_the_rc_value = false;
+                    { ___ := frame.variables.push(extra_var2); };
+                    ek2 = (ek2 + usize(1));
+                  };
+                }, {
+                  exn.throw(dyn format_error_message(
+                    ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
+                    `Frame level ${frame_i} has different number of values for different cases.`,
+                    false,
+                    .None
+                  ));
+                });
+              },
+              true => {
+                exn.throw(dyn format_error_message(
+                  ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
+                  `Frame level ${frame_i} has different number of values for different cases.`,
+                  false,
+                  .None
+                ));
+              }
+            );
+          });
+
+          // Check variable name consistency.
+          (kk : usize) = usize(0);
+          while runtime((kk < frame.variables.len())), {
+            base_var    := match(frame.variables.get(kk),      .Some(v) => v, .None => make_err_variable(env));
+            case_var_k  := match(case_frame.variables.get(kk), .Some(v) => v, .None => make_err_variable(env));
+            if(
+              ((base_var.name != case_var_k.name)
+               && !(is_temp_variable_name(env.module_path, base_var.name))
+               && !(is_temp_variable_name(env.module_path, case_var_k.name))),
+              {
+                exn.throw(dyn format_error_message(
+                  ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
+                  `Frame level ${frame_i} has different variable names for different cases.`,
+                  false,
+                  .None
+                ));
+              }
+            );
+            kk = (kk + usize(1));
+          };
+          cj = (cj + usize(1));
+        };
+
+        // ---------------------------------------------------------------
+        // For each variable column, check and propagate state.
+        // ---------------------------------------------------------------
+        (var_j : usize) = usize(0);
+        while runtime((var_j < frame.variables.len())), {
+          base_var := match(frame.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
+          var_name := base_var.name;
+
+          // Collect per-case values for this variable.
+          initialized_at_tokens  := ArrayList(Option(Token)).new();
+          consumed_at_tokens     := ArrayList(Option(Token)).new();
+          owning_at_tokens       := ArrayList(Option(Token)).new();
+          var_ids                := ArrayList(String).new();
+          case_types             := ArrayList(TypeValue).new();
+
+          (ck : usize) = usize(0);
+          while runtime((ck < case_envs.len())), {
+            case_env  := match(case_envs.get(ck), .Some(e) => e, .None => env);
+            case_frame_k := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
+            case_var := match(case_frame_k.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
+
+            { ___ := initialized_at_tokens.push(case_var.initialized_at_token); };
+            { ___ := consumed_at_tokens.push(case_var.consumed_at_token); };
+            owning_token := cond(
+              case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
+              true                             => Option(Token).None
+            );
+            { ___ := owning_at_tokens.push(owning_token); };
+            { ___ := var_ids.push(case_var.id); };
+            { ___ := case_types.push(case_var.ty); };
+            ck = (ck + usize(1));
+          };
+
+          n_cases := case_envs.len();
+
+          // ---- Check initialized_at_token ----
+          // Case 1: single branch, initialized there but not before → error
+          if((n_cases == usize(1)), {
+            first_init := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+            match(first_init,
+              .Some(_) => {
+                match(base_var.initialized_at_token,
+                  .None => {
+                    exn.throw(dyn format_error_message(
+                      base_var.token,
+                      `Variable "${var_name}" might not be initialized in all cases.`,
+                      false,
+                      .None
+                    ));
+                  },
+                  .Some(_) => ()
+                );
+              },
+              .None => ()
+            );
+          });
+          // Case 2: all cases initialize → propagate to base
+          if((n_cases > usize(1)), {
+            (all_init : bool) = true;
+            (any_init : bool) = false;
+            (init_i : usize) = usize(0);
+            while runtime((init_i < n_cases)), {
+              tok_opt := match(initialized_at_tokens.get(init_i), .Some(v) => v, .None => Option(Token).None);
+              match(tok_opt, .Some(_) => { any_init = true; }, .None => { all_init = false; });
+              init_i = (init_i + usize(1));
+            };
+            if((all_init && !(match(base_var.initialized_at_token, .Some(_) => true, .None => false))), {
+              first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              match(first_tok, .Some(t) => { base_var.initialized_at_token = Option(Token).Some(t); }, .None => ());
+            });
+            // Case 3: some init, some don't → error
+            if((any_init && !(all_init)), {
+              err_list := ArrayList(TokenAndError).new();
+              (ei : usize) = usize(0);
+              while runtime((ei < n_cases)), {
+                tok_opt := match(initialized_at_tokens.get(ei), .Some(v) => v, .None => Option(Token).None);
+                body_tok := ast_expr_token(match(bodies.get(ei), .Some(b) => b, .None => make_err_expr()));
+                msg := cond(
+                  (ei == usize(0)) => `Variable "${var_name}" might be initialized in some cases but not initialized in other cases:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Might be initialized here:`,
+                  true => `Not initialized here:`
+                );
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
+                { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
+                ei = (ei + usize(1));
+              };
+              exn.throw(dyn format_error_messages(err_list, false, .None));
+            });
+          });
+
+          // ---- Check consumed_at_token ----
+          // Case 1: single branch consumed → propagate
+          if((n_cases == usize(1)), {
+            first_consumed := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+            match(first_consumed,
+              .Some(ct) => {
+                match(base_var.consumed_at_token,
+                  .None => { base_var.consumed_at_token = Option(Token).Some(ct); },
+                  .Some(_) => ()
+                );
+              },
+              .None => ()
+            );
+          });
+          // Case 2: all cases consumed → propagate
+          if((n_cases > usize(1)), {
+            (all_consumed : bool) = true;
+            (any_consumed : bool) = false;
+            (cons_i : usize) = usize(0);
+            while runtime((cons_i < n_cases)), {
+              tok_opt := match(consumed_at_tokens.get(cons_i), .Some(v) => v, .None => Option(Token).None);
+              match(tok_opt, .Some(_) => { any_consumed = true; }, .None => { all_consumed = false; });
+              cons_i = (cons_i + usize(1));
+            };
+            if((all_consumed && !(match(base_var.consumed_at_token, .Some(_) => true, .None => false))), {
+              first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              match(first_tok, .Some(t) => { base_var.consumed_at_token = Option(Token).Some(t); }, .None => ());
+            });
+            // Case 3: partial consumption → error
+            if((any_consumed && !(all_consumed)), {
+              err_list := ArrayList(TokenAndError).new();
+              (eci : usize) = usize(0);
+              while runtime((eci < n_cases)), {
+                tok_opt := match(consumed_at_tokens.get(eci), .Some(v) => v, .None => Option(Token).None);
+                body_tok := ast_expr_token(match(bodies.get(eci), .Some(b) => b, .None => make_err_expr()));
+                msg := cond(
+                  (eci == usize(0)) => `Variable "${var_name}" is consumed in some cases but not in other cases:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Consumed here:`,
+                  true => `Not consumed here:`
+                );
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
+                { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
+                eci = (eci + usize(1));
+              };
+              exn.throw(dyn format_error_messages(err_list, false, .None));
+            });
+          });
+
+          // ---- Check is_owning_the_rc_value ----
+          // All cases own → propagate
+          (all_owning : bool) = true;
+          (any_owning : bool) = false;
+          (ow_i : usize) = usize(0);
+          while runtime((ow_i < n_cases)), {
+            tok_opt := match(owning_at_tokens.get(ow_i), .Some(v) => v, .None => Option(Token).None);
+            match(tok_opt, .Some(_) => { any_owning = true; }, .None => { all_owning = false; });
+            ow_i = (ow_i + usize(1));
+          };
+          if((all_owning && !(base_var.is_owning_the_rc_value)), {
+            base_var.is_owning_the_rc_value            = true;
+            base_var.is_owning_the_same_rc_value_as    = Option(Box(Variable)).None;
+          });
+          // Partial ownership → error
+          if(((any_owning && !(all_owning)) && !(base_var.is_owning_the_rc_value)), {
+            err_list := ArrayList(TokenAndError).new();
+            (oei : usize) = usize(0);
+            while runtime((oei < n_cases)), {
+              tok_opt := match(owning_at_tokens.get(oei), .Some(v) => v, .None => Option(Token).None);
+              body_tok := ast_expr_token(match(bodies.get(oei), .Some(b) => b, .None => make_err_expr()));
+              msg := cond(
+                (oei == usize(0)) => `Variable "${var_name}" might be holding the Rc value in some cases but not holding the Rc value in other cases:`,
+                match(tok_opt, .Some(_) => true, .None => false) => `Might be owning the Rc value here:`,
+                true => `Might be not owning the Rc value here:`
+              );
+              err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
+              { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
+              oei = (oei + usize(1));
+            };
+            exn.throw(dyn format_error_messages(err_list, false, .None));
+          });
+
+          // ---- Handle variable ID reassignment across branches ----
+          // If any branch has a different variable ID, generate a new one.
+          original_id := base_var.id;
+          (has_reassignment : bool) = false;
+          (rid_i : usize) = usize(0);
+          while runtime((rid_i < n_cases)), {
+            case_id := match(var_ids.get(rid_i), .Some(s) => s, .None => String.from(""));
+            if((case_id != original_id), { has_reassignment = true; });
+            rid_i = (rid_i + usize(1));
+          };
+          if(has_reassignment, {
+            new_id := generate_variable_id(env.module_path, var_name);
+            base_var.id                                = new_id;
+            base_var.value                             = Option(EvalValue).None;
+            base_var.is_owning_the_same_rc_value_as   = Option(Box(Variable)).None;
+          });
+
+          var_j = (var_j + usize(1));
+        };
+      }
+    );
+    frame_i = (frame_i + usize(1));
+  };
+
+  env
+});
 
 // ---------------------------------------------------------------------------
 // are_values_equal  (Phase 2ae prerequisite)
