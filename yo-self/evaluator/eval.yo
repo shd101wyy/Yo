@@ -926,6 +926,12 @@ handle_method_dispatch :: (fn(
         // ---------------------------------------------------------------
         ((mname == "clone") && (method_call_args.len() == usize(0))) =>
           { return Option(EvalResult).Some(eval_result(recv_val, type_of_eval_value(recv_val))); },
+        // ---------------------------------------------------------------
+        // Phase 5ad: Integer conversion passthroughs — .to_usize(), .to_i64(), etc.
+        // In proto-eval all integers are the same. Just return recv_val.
+        // ---------------------------------------------------------------
+        ((((((mname == "to_usize") || (mname == "to_i64")) || (mname == "to_i32")) || ((mname == "to_u8") || (mname == "to_u32"))) || ((mname == "to_u64") || (mname == "to_f64"))) && (match(recv_val, .IntLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          { return Option(EvalResult).Some(eval_result(recv_val, type_of_eval_value(recv_val))); },
         // String concatenation: StrLit(lhs).(+)(rhs_expr)
         ((mname == "+") && match(recv_val, .StrLit(_) => true, _ => false)) =>
           match(method_call_args.get(usize(0)),
@@ -1268,6 +1274,44 @@ handle_method_dispatch :: (fn(
                 ci = (ci + usize(1));
               };
               return Option(EvalResult).Some(eval_result(.BoolVal(found), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ad: ArrayVal.join(sep) — join StrLit elements with separator
+        // ---------------------------------------------------------------
+        ((mname == "join") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_j) => {
+              sep_str := match(method_call_args.get(usize(0)),
+                .Some(se) => match(match(g_eval_fn, .Some(ef) => ef(se, env), .None => Option(EvalResult).None),
+                  .Some(sr) => match(sr.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; }),
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              sep_inner := cond((sep_str.len() >= usize(2)) => sep_str.substring(usize(1), (sep_str.len() - usize(1))), true => sep_str);
+              (result_j : String) = String.from("");
+              (ji : usize) = usize(0);
+              while runtime((ji < av_items_j.len())), {
+                match(av_items_j.get(ji),
+                  .Some(jitem) => {
+                    item_inner := match(jitem,
+                      .StrLit(s) => cond((s.len() >= usize(2)) => s.substring(usize(1), (s.len() - usize(1))), true => s),
+                      .IntLit(s) => s,
+                      _ => String.from("")
+                    );
+                    cond(
+                      (ji > usize(0)) => { result_j = ((result_j + sep_inner) + item_inner); },
+                      true => { result_j = (result_j + item_inner); }
+                    );
+                  },
+                  .None => ()
+                );
+                ji = (ji + usize(1));
+              };
+              joined := ((String.from("\"") + result_j) + String.from("\""));
+              return Option(EvalResult).Some(eval_result(.StrLit(joined), t_comptime_string()));
             },
             _ => { return Option(EvalResult).None; }
           ),

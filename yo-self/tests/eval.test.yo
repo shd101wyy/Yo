@@ -6837,3 +6837,78 @@ test "Phase 5ac: ArrayVal.contains returns false for missing element", {
       )
   );
 };
+
+// Phase 5ad — ArrayVal.join, integer conversions
+
+test "Phase 5ad: ArrayVal.join with comma separator", {
+  env := empty_env();
+  // Define arr := ["a", "b", "c"]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.StringLit, "\"a\""));
+  arr_items.push(make_atom(TokenKind.StringLit, "\"b\""));
+  arr_items.push(make_atom(TokenKind.StringLit, "\"c\""));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_j"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_j.join(",")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_j"));
+  dot_args.push(make_atom(TokenKind.Identifier, "join"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\",\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "join returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"a,b,c\""), "join should produce a,b,c"),
+        _ => assert(false, "join should return StrLit")
+      )
+  );
+};
+
+test "Phase 5ad: IntLit.to_usize passthrough", {
+  env := empty_env();
+  // 42.to_usize()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "to_usize"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "to_usize returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "to_usize should return same value"),
+        _ => assert(false, "to_usize should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ad: IntLit.to_i32 passthrough", {
+  env := empty_env();
+  // 7.to_i32()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "7"));
+  dot_args.push(make_atom(TokenKind.Identifier, "to_i32"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "to_i32 returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "7"), "to_i32 should return same value"),
+        _ => assert(false, "to_i32 should return IntLit")
+      )
+  );
+};
