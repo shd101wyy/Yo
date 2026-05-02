@@ -2594,6 +2594,14 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `type_expr_to_c` maps generic containers: `ArrayList(T)`/`Option(T)`/`Result(T,E)`/`Box(T)`/`HashMap(K,V)`/`Impl(T)` → `void*`.
 - 15 new codegen tests + 4 new eval tests; 1078 yo-self tests pass.
 
+**5p. Restructure driver.yo for derive support + additional eval tests** ✅ Done
+
+- Moved `compile_module_to_c` definition from line 1663 to after all derive functions (~line 3702) to fix forward-reference issue (Yo evaluates module-level bindings in source order).
+- Added derive Pass 3 to `compile_module_to_c`: calls `process_derive_tostring`, `process_derive_clone`, `process_derive_eq`, `process_derive_hash`, `process_derive_ord`.
+- 2 new codegen tests (derive(ToString), derive(Clone) in module compilation).
+- 11 new eval tests: bool equality/inequality, string method `.len()`, `.as_str()` passthrough, `where` clause function definition, string concatenation, integer comparisons, float/bool literals.
+- **1091 yo-self tests pass.**
+
 ### Phase 6 — Ancillary systems
 
 **6c. Version management** ✅ Done

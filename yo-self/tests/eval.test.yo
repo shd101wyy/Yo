@@ -4955,3 +4955,107 @@ test "Phase 5p: float literal evaluates to FloatLit", {
   );
 };
 
+test "Phase 5p: bool equality == true", {
+  env := empty_env();
+  eq := make_infix("==", make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Bool, "true"));
+  result := evaluate(eq, &env);
+  match(result,
+    .None => assert(false, "bool == returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "true == true should be true"
+    )
+  );
+};
+
+test "Phase 5p: bool inequality != false", {
+  env := empty_env();
+  neq := make_infix("!=", make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Bool, "false"));
+  result := evaluate(neq, &env);
+  match(result,
+    .None => assert(false, "bool != returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "true != false should be true"
+    )
+  );
+};
+
+test "Phase 5p: string method .len() returns IntLit", {
+  env := empty_env();
+  // "hello".len() — dot dispatch on StrLit
+  recv := make_atom(TokenKind.StringLit, "\"hello\"");
+  // Build: FnCall(FnCall(Dot, [recv, Atom("len")], infix=true), [], infix=false)
+  dot_tok := Token(kind: TokenKind.Dot, value: String.from("."), row: usize(0), column: usize(0), character: usize(0), module_path: String.new(), input: String.new());
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(make_atom(TokenKind.Identifier, "len"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  len_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(len_call, &env);
+  match(result,
+    .None => assert(false, "str.len() returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.IntLit(String.from("5"))),
+      "\"hello\".len() == 5"
+    )
+  );
+};
+
+test "Phase 5p: StrLit.as_str() passthrough", {
+  env := empty_env();
+  recv := make_atom(TokenKind.StringLit, "\"test\"");
+  dot_tok := Token(kind: TokenKind.Dot, value: String.from("."), row: usize(0), column: usize(0), character: usize(0), module_path: String.new(), input: String.new());
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(make_atom(TokenKind.Identifier, "as_str"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  as_str_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(as_str_call, &env);
+  match(result,
+    .None => assert(false, "str.as_str() returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.StrLit(String.from("\"test\""))),
+      "as_str passthrough"
+    )
+  );
+};
+
+test "Phase 5p: where clause in fn definition does not crash", {
+  // fn(forall(T), where(T <: Trait), x : T) -> T
+  // We just verify the function definition succeeds without crashing
+  env := empty_env();
+  // Build: id :: (fn(forall(T), where(T <: Clone), x : T) -> T)(x)
+  params := ArrayList(AstExpr).new();
+  params.push(make_call("forall", {
+    fa := ArrayList(AstExpr).new();
+    fa.push(make_atom(TokenKind.Identifier, "T"));
+    fa
+  }));
+  params.push(make_call("where", {
+    wa := ArrayList(AstExpr).new();
+    wa.push(make_infix("<:", make_atom(TokenKind.Identifier, "T"), make_atom(TokenKind.Identifier, "Clone")));
+    wa
+  }));
+  params.push(make_infix(":", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Identifier, "T")));
+  fn_params := make_call("fn", params);
+  fn_type := make_infix("->", fn_params, make_atom(TokenKind.Identifier, "T"));
+  // Apply: fn_type(x)
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(make_atom(TokenKind.Identifier, "x"));
+  fn_tok := Token(kind: TokenKind.Identifier, value: String.new(), row: usize(0), column: usize(0), character: usize(0), module_path: String.new(), input: String.new());
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  def := make_infix("::", make_atom(TokenKind.Identifier, "id_clone"), fn_app);
+  result := evaluate(def, &env);
+  // Should succeed (defines id_clone as FuncVal)
+  lookup := evaluate(make_atom(TokenKind.Identifier, "id_clone"), &env);
+  match(lookup,
+    .None => assert(false, "id_clone not defined"),
+    .Some(v) => match(v.value,
+      .FuncVal(_, _, _, _, _, _, _, _, _) => (),
+      _ => assert(false, "id_clone should be FuncVal")
+    )
+  );
+};
