@@ -1411,6 +1411,87 @@ handle_method_dispatch :: (fn(
               ),
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5ag: ArrayVal.map(fn) — apply FuncVal to each element
+        // Returns new ArrayVal with transformed elements.
+        // ---------------------------------------------------------------
+        ((mname == "map") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_m) => {
+              fn_val := match(method_call_args.get(usize(0)),
+                .Some(fe) => match(match(g_eval_fn, .Some(ef) => ef(fe, env), .None => Option(EvalResult).None),
+                  .Some(fr) => fr.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              result_arr_m := ArrayList(EvalValue).new();
+              n_m := av_items_m.len();
+              (mi : usize) = usize(0);
+              (m_ok : bool) = true;
+              while runtime(((mi < n_m) && m_ok)), {
+                match(av_items_m.get(mi),
+                  .Some(item_m) => {
+                    call_args_m := ArrayList(EvalResult).new();
+                    call_args_m.push(eval_result(item_m, type_of_eval_value(item_m)));
+                    match(call_funcval_with_args(fn_val, call_args_m),
+                      .Some(mapped) => { result_arr_m.push(mapped.value); },
+                      .None => { m_ok = false; }
+                    );
+                  },
+                  .None => { m_ok = false; }
+                );
+                mi = (mi + usize(1));
+              };
+              cond(
+                m_ok => { return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_m), t_unit())); },
+                true => { return Option(EvalResult).None; }
+              );
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ag: ArrayVal.filter(fn) — keep elements where fn returns true
+        // ---------------------------------------------------------------
+        ((mname == "filter") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_fl) => {
+              fn_val_f := match(method_call_args.get(usize(0)),
+                .Some(fe2) => match(match(g_eval_fn, .Some(ef) => ef(fe2, env), .None => Option(EvalResult).None),
+                  .Some(fr2) => fr2.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              result_arr_f := ArrayList(EvalValue).new();
+              n_fl := av_items_fl.len();
+              (fi2 : usize) = usize(0);
+              (f_ok : bool) = true;
+              while runtime(((fi2 < n_fl) && f_ok)), {
+                match(av_items_fl.get(fi2),
+                  .Some(item_f) => {
+                    call_args_f := ArrayList(EvalResult).new();
+                    call_args_f.push(eval_result(item_f, type_of_eval_value(item_f)));
+                    match(call_funcval_with_args(fn_val_f, call_args_f),
+                      .Some(pred_res) =>
+                        match(pred_res.value,
+                          .BoolVal(keep) => cond(keep => { result_arr_f.push(item_f); }, true => ()),
+                          _ => { f_ok = false; }
+                        ),
+                      .None => { f_ok = false; }
+                    );
+                  },
+                  .None => { f_ok = false; }
+                );
+                fi2 = (fi2 + usize(1));
+              };
+              cond(
+                f_ok => { return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_f), t_unit())); },
+                true => { return Option(EvalResult).None; }
+              );
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {
