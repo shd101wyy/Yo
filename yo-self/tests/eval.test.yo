@@ -6186,3 +6186,190 @@ test "Phase 5x: println is no-op returning unit", {
       )
   );
 };
+
+// Phase 5y — extern, c_include, where, forall, type_of, size_of, align_of,
+// HashMap, unreachable, panic, todo, array .set(), .is_empty()
+
+test "Phase 5y: extern returns unit", {
+  env := empty_env();
+  ext_args := ArrayList(AstExpr).new();
+  ext_args.push(make_atom(TokenKind.StringLit, "\"puts\""));
+  ext_expr := make_fncall_atom("extern", ext_args);
+  result := evaluate(ext_expr, &env);
+  match(result,
+    .None => assert(false, "extern returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "extern should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5y: c_include returns unit", {
+  env := empty_env();
+  ci_args := ArrayList(AstExpr).new();
+  ci_args.push(make_atom(TokenKind.StringLit, "\"stdio.h\""));
+  ci_expr := make_fncall_atom("c_include", ci_args);
+  result := evaluate(ci_expr, &env);
+  match(result,
+    .None => assert(false, "c_include returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "c_include should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5y: where returns unit", {
+  env := empty_env();
+  w_args := ArrayList(AstExpr).new();
+  w_args.push(make_atom(TokenKind.Identifier, "T"));
+  w_expr := make_fncall_atom("where", w_args);
+  result := evaluate(w_expr, &env);
+  match(result,
+    .None => assert(false, "where returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "where should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5y: forall returns unit", {
+  env := empty_env();
+  fa_args := ArrayList(AstExpr).new();
+  fa_args.push(make_atom(TokenKind.Identifier, "T"));
+  fa_expr := make_fncall_atom("forall", fa_args);
+  result := evaluate(fa_expr, &env);
+  match(result,
+    .None => assert(false, "forall returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "forall should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5y: type_of returns TypeVal", {
+  env := empty_env();
+  // type_of(42) should return a TypeVal wrapping the type of IntLit
+  to_args := ArrayList(AstExpr).new();
+  to_args.push(make_atom(TokenKind.Integer, "42"));
+  to_expr := make_fncall_atom("type_of", to_args);
+  result := evaluate(to_expr, &env);
+  match(result,
+    .None => assert(false, "type_of returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "type_of should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5y: size_of returns IntLit 8", {
+  env := empty_env();
+  so_args := ArrayList(AstExpr).new();
+  so_args.push(make_atom(TokenKind.Identifier, "i32"));
+  so_expr := make_fncall_atom("size_of", so_args);
+  result := evaluate(so_expr, &env);
+  match(result,
+    .None => assert(false, "size_of returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "8"), "size_of should return 8"),
+        _ => assert(false, "size_of should return IntLit")
+      )
+  );
+};
+
+test "Phase 5y: HashMap type constructor", {
+  env := empty_env();
+  hm_args := ArrayList(AstExpr).new();
+  hm_args.push(make_atom(TokenKind.Identifier, "String"));
+  hm_args.push(make_atom(TokenKind.Identifier, "i32"));
+  hm_expr := make_fncall_atom("HashMap", hm_args);
+  result := evaluate(hm_expr, &env);
+  match(result,
+    .None => assert(false, "HashMap returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "HashMap should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5y: unreachable returns unit", {
+  env := empty_env();
+  ur_args := ArrayList(AstExpr).new();
+  ur_expr := make_fncall_atom("unreachable", ur_args);
+  result := evaluate(ur_expr, &env);
+  match(result,
+    .None => assert(false, "unreachable returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "unreachable should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5y: array is_empty on non-empty array", {
+  env := empty_env();
+  // Build: arr := [10, 20, 30]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "10"));
+  arr_items.push(make_atom(TokenKind.Integer, "20"));
+  arr_items.push(make_atom(TokenKind.Integer, "30"));
+  arr_expr := make_fncall_atom("array", arr_items);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr.is_empty()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr"));
+  dot_args.push(make_atom(TokenKind.Identifier, "is_empty"));
+  dot_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_expr), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "is_empty returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((!(b)), "non-empty array should be is_empty=false"),
+        _ => assert(false, "is_empty should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5y: array is_empty on empty array", {
+  env := empty_env();
+  // Build: arr := []
+  arr_items := ArrayList(AstExpr).new();
+  arr_expr := make_fncall_atom("array", arr_items);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr.is_empty()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr"));
+  dot_args.push(make_atom(TokenKind.Identifier, "is_empty"));
+  dot_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_expr), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "is_empty returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "empty array should be is_empty=true"),
+        _ => assert(false, "is_empty should return BoolVal")
+      )
+  );
+};

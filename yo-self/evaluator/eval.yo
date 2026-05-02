@@ -1214,6 +1214,15 @@ handle_method_dispatch :: (fn(
               )
           ),
         // ---------------------------------------------------------------
+        // Phase 5y: ArrayVal.is_empty() — returns true if len == 0.
+        // ---------------------------------------------------------------
+        ((mname == "is_empty") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_e) =>
+              { return Option(EvalResult).Some(eval_result(.BoolVal((av_items_e.len() == usize(0))), t_bool())); },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
         // Phase 3am: TypeVal.new() refinement
         // String.new()    → StrLit("")
         // ArrayList.new() → ArrayVal([]) — any non-String TypeVal
@@ -3757,6 +3766,65 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             (fval == "String") =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: extern / c_include — FFI declarations.
+            // In the proto-evaluator these are no-ops (just return unit).
+            // The real compiler uses them for C interop declarations.
+            // -----------------------------------------------------------------
+            (fval == "extern") => .Some(eval_result(.UnitVal, t_unit())),
+            (fval == "c_include") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: where(constraint) — trait bound declarations.
+            // No-op for proto-eval; the real compiler uses these for type checking.
+            // -----------------------------------------------------------------
+            (fval == "where") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: forall(T : Type, ...) — type parameter declarations.
+            // For proto-eval: evaluate the inner (binding exprs) and return unit.
+            // The real evaluator creates type variables; we skip that.
+            // -----------------------------------------------------------------
+            (fval == "forall") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: type_of(expr) — return the type as a TypeVal.
+            // Evaluates the expression, extracts its type, wraps as TypeVal.
+            // -----------------------------------------------------------------
+            ((fval == "type_of") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(typeof_arg) =>
+                  match(recur(typeof_arg, env),
+                    .None => Option(EvalResult).None,
+                    .Some(typeof_res) =>
+                      .Some(eval_result(.TypeVal(box(typeof_res.ty)), t_type()))
+                  )
+              ),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: size_of(Type) / align_of(Type) — return placeholder int.
+            // Real compiler computes actual sizes; proto-eval returns 8 (pointer size).
+            // -----------------------------------------------------------------
+            ((fval == "size_of") && (args.len() == usize(1))) =>
+              .Some(eval_result(.IntLit(String.from("8")), t_comptime_int())),
+            ((fval == "align_of") && (args.len() == usize(1))) =>
+              .Some(eval_result(.IntLit(String.from("8")), t_comptime_int())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: HashMap(K, V) — type constructor placeholder.
+            // -----------------------------------------------------------------
+            ((fval == "HashMap") && (args.len() == usize(2))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Phase 5y: unreachable / panic / todo — control-flow builtins.
+            // In proto-eval these just return unit (we can't actually abort).
+            // -----------------------------------------------------------------
+            (fval == "unreachable") => .Some(eval_result(.UnitVal, t_unit())),
+            (fval == "panic") => .Some(eval_result(.UnitVal, t_unit())),
+            (fval == "todo") => .Some(eval_result(.UnitVal, t_unit())),
 
             // -----------------------------------------------------------------
             // Array literal: [e1, e2, ...] — parsed as array(e1, e2, ...)
