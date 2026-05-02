@@ -4040,3 +4040,105 @@ test "compile_module_to_c: program with nested if/else", {
     }
   );
 };
+// ===========================================================================
+// Phase 5s — More codegen integration tests: for loop, struct ctor, method call
+// ===========================================================================
+
+test "generate_expr: for loop emits iterator-style while loop", {
+  // for(collection, (item) => { body })
+  // Codegen expects 2-arg form: for(iter_expr, handler_lambda)
+  // With a plain identifier as iter_expr, falls back to while(1) pattern
+  // Note: for loop emits code to the emitter (side effect) and returns "0"
+  for_args := ArrayList(AstExpr).new();
+  for_args.push(make_atom_expr(TokenKind.Identifier, "collection"));
+  // Build (item) => { item; } — infix => with [item_ident, body_begin]
+  lambda_args := ArrayList(AstExpr).new();
+  lambda_args.push(make_atom_expr(TokenKind.Identifier, "item"));
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(make_atom_expr(TokenKind.Identifier, "item"));
+  lambda_args.push(make_begin_expr(body_stmts));
+  lambda_tok := make_token_raw(TokenKind.Operator, "=>");
+  lambda_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), lambda_tok)), lambda_args, true, lambda_tok);
+  for_args.push(lambda_expr);
+  for_expr := make_fncall_expr("for", for_args);
+
+  ctx := run_gen_with_ctx(for_expr);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("while")), "for loop fallback should emit 'while'");
+  assert(output.contains(String.from("collection")), "should reference 'collection'");
+};
+
+test "generate_expr: method call emits function call with receiver", {
+  // obj.push(42) → TypeName_push(obj, 42) or similar
+  method_args := ArrayList(AstExpr).new();
+  method_args.push(make_atom_expr(TokenKind.Integer, "42"));
+  method_call := make_method_call_expr(
+    make_atom_expr(TokenKind.Identifier, "obj"),
+    "push",
+    method_args
+  );
+  result := run_gen(method_call);
+  match(result,
+    .None => assert(false, "method call gen returned None"),
+    .Some(code) => {
+      assert(code.contains(String.from("push")), "should contain method name 'push'");
+      assert(code.contains(String.from("obj")), "should contain receiver 'obj'");
+    }
+  );
+};
+
+test "generate_expr: dot access on identifier emits field access", {
+  // point.x → point.x or point->x
+  dot := make_dot_expr(
+    make_atom_expr(TokenKind.Identifier, "point"),
+    make_atom_expr(TokenKind.Identifier, "x")
+  );
+  result := run_gen(dot);
+  match(result,
+    .None => assert(false, "dot access gen returned None"),
+    .Some(code) => {
+      assert(code.contains(String.from("point")), "should contain 'point'");
+      assert(code.contains(String.from("x")), "should contain field 'x'");
+    }
+  );
+};
+
+test "generate_expr: struct constructor emits compound literal", {
+  // Point(x: 1, y: 2) → (Point){.x = 1, .y = 2}
+  ctor_args := ArrayList(AstExpr).new();
+  ctor_args.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "x"),
+    make_atom_expr(TokenKind.Integer, "1")
+  ));
+  ctor_args.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "y"),
+    make_atom_expr(TokenKind.Integer, "2")
+  ));
+  ctor_call := make_fncall_expr("Point", ctor_args);
+
+  result := run_gen(ctor_call);
+  match(result,
+    .None => assert(false, "struct ctor gen returned None"),
+    .Some(code) => {
+      assert(code.contains(String.from(".x")), "should emit '.x' field");
+      assert(code.contains(String.from(".y")), "should emit '.y' field");
+    }
+  );
+};
+
+test "generate_expr: if-else emits ternary or if/else blocks", {
+  // if(cond, then_expr, else_expr) → (cond) ? then : else  or  if (...) {...} else {...}
+  if_args := ArrayList(AstExpr).new();
+  if_args.push(make_atom_expr(TokenKind.Identifier, "flag"));
+  if_args.push(make_atom_expr(TokenKind.Integer, "1"));
+  if_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  if_expr := make_fncall_expr("if", if_args);
+
+  result := run_gen(if_expr);
+  match(result,
+    .None => assert(false, "if-else gen returned None"),
+    .Some(code) => {
+      assert(code.contains(String.from("flag")), "should contain condition 'flag'");
+    }
+  );
+};

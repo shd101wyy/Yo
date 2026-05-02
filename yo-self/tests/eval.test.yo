@@ -10,7 +10,7 @@ open import "std/error";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT,
-  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT } :: import "../expr/expr.yo";
+  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT, BK_ARRAY_VAL } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_i32, t_bool, t_u32, t_f32, t_type,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
@@ -5462,6 +5462,168 @@ test "Phase 5r: nested function calls with arithmetic", {
               match(v,
                 .IntLit(raw) => assert((raw.as_str() == "22"), "add(mul(3,4), mul(2,5)) should be 22"),
                 _ => assert(false, "expected IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+// ===========================================================================
+// Phase 5s — Integration tests: for loop, array literal, given, string concat
+// ===========================================================================
+
+test "Phase 5s: array literal [1, 2, 3] produces ArrayVal with 3 elements", {
+  // [1, 2, 3] → FnCall(Atom("array"), [IntLit(1), IntLit(2), IntLit(3)], false)
+  env := empty_env();
+  elems := ArrayList(AstExpr).new();
+  elems.push(make_atom(TokenKind.Integer, "1"));
+  elems.push(make_atom(TokenKind.Integer, "2"));
+  elems.push(make_atom(TokenKind.Integer, "3"));
+  arr_expr := AstExpr.FnCall(usize(0),
+    box(make_atom(TokenKind.Identifier, BK_ARRAY_VAL)),
+    elems,
+    false,
+    make_token(TokenKind.Identifier, BK_ARRAY_VAL)
+  );
+  result := evaluate(arr_expr, &env);
+  match(result,
+    .None => assert(false, "array literal returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(arr) => {
+          assert((arr.len() == usize(3)), "array should have 3 elements");
+          match(arr.get(usize(0)),
+            .Some(v) => match(v, .IntLit(s) => assert((s.as_str() == "1"), "first elem should be 1"), _ => assert(false, "elem 0 not IntLit")),
+            .None => assert(false, "elem 0 missing")
+          );
+          match(arr.get(usize(2)),
+            .Some(v) => match(v, .IntLit(s) => assert((s.as_str() == "3"), "third elem should be 3"), _ => assert(false, "elem 2 not IntLit")),
+            .None => assert(false, "elem 2 missing")
+          );
+        },
+        _ => assert(false, "expected ArrayVal")
+      )
+  );
+};
+
+test "Phase 5s: for loop iterates over array elements", {
+  // sum := 0; for(x, [1, 2, 3], { sum = sum + x; }); export sum;
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in for test"); escape (); }));
+  src := "sum := 0; arr := [1, 2, 3]; for(x, arr, { sum = (sum + x); }); export sum;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for loop returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "6"), "sum should be 6"),
+                _ => assert(false, "expected IntLit for sum")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5s: for loop with early return exits iteration", {
+  // for(x, [10, 20, 30], { if((x == 20), return x); }); export 0;
+  // → should return ReturnVal(IntLit("20"))
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in for-return test"); escape (); }));
+  src := "arr := [10, 20, 30]; result := for(x, arr, { if((x == 20), return x); }); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for-return returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .ReturnVal(inner, _) =>
+                  match(inner.*,
+                    .IntLit(raw) => assert((raw.as_str() == "20"), "return value should be 20"),
+                    _ => assert(false, "expected IntLit inside ReturnVal")
+                  ),
+                .IntLit(raw) => assert((raw.as_str() == "20"), "direct int should be 20"),
+                _ => assert(false, "expected ReturnVal or IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5s: string concatenation with + operator", {
+  // "hello" + " world" → StrLit("hello world")
+  env := empty_env();
+  str_plus := make_infix("+",
+    make_atom(TokenKind.StringLit, "\"hello\""),
+    make_atom(TokenKind.StringLit, "\" world\"")
+  );
+  result := evaluate(str_plus, &env);
+  match(result,
+    .None => assert(false, "string + returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(raw) => assert((raw.as_str() == "\"hello world\""), "concat should be hello world"),
+        _ => assert(false, "expected StrLit from string +")
+      )
+  );
+};
+
+test "Phase 5s: given declaration binds value in env", {
+  // given(handler) := SomeVal; — binds handler to SomeVal in env as comptime
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in given test"); escape (); }));
+  src := "given(h) := 42; export h;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "given test returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "42"), "given value should be 42"),
+                _ => assert(false, "expected IntLit from given")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5s: for loop with break stops iteration", {
+  // count := 0; for(x, [1,2,3,4,5], { if((x > 3), break()); count = (count + 1); }); export count;
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in for-break test"); escape (); }));
+  src := "count := 0; arr := [1, 2, 3, 4, 5]; for(x, arr, { if((x > 3), break()); count = (count + 1); }); export count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for-break returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "3"), "count should be 3 (break after x>3)"),
+                _ => assert(false, "expected IntLit for count")
               ),
             .None => assert(false, "no export value")
           ),
