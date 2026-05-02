@@ -5248,3 +5248,224 @@ test "Phase 5q: variable reassignment updates value", {
     )
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5r — More evaluator integration tests
+// ---------------------------------------------------------------------------
+
+test "Phase 5r: function definition via :: and call", {
+  // double :: (fn(comptime(x) : comptime_int) -> comptime_int)((x + x));
+  // val := double(7);
+  // val should be IntLit("14")
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in fn def test"); escape (); }));
+  src := "double :: (fn(comptime(x) : comptime_int) -> comptime_int)((x + x)); val := double(7); export val;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fn def+call returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "14"), "double(7) should be 14"),
+                _ => assert(false, "expected IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5r: while loop with early return", {
+  // find_first :: (fn(comptime(n) : comptime_int) -> comptime_int)({
+  //   i := 0;
+  //   while runtime((i < n)), {
+  //     if((i == 3), return i);
+  //     i = (i + 1);
+  //   };
+  //   i;
+  // });
+  // val := find_first(10);
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in while return test"); escape (); }));
+  src := "find_first :: (fn(comptime(n) : comptime_int) -> comptime_int)({ i := 0; while runtime((i < n)), { if((i == 3), return i); i = (i + 1); }; i; }); val := find_first(10); export val;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "while-return returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "3"), "find_first(10) should be 3"),
+                _ => assert(false, "expected IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5r: match on enum with binding extracts value", {
+  // Match on a .Some(val) enum: extract the inner value
+  env := empty_env();
+  // Build AST: match(.Some(42), .Some(x) => x, .None => 0)
+  // Construct .Some(42) as EnumVal
+  some_fields := ArrayList(EvalValue).new();
+  some_fields.push(EvalValue.IntLit(String.from("42")));
+  some_val := EvalValue.EnumVal(String.from(".Some"), some_fields);
+
+  // Build the pattern `.Some(x)`: FnCall(Atom(Dot), [FnCall(Atom("Some"), [Atom("x")])])
+  x_args := ArrayList(AstExpr).new();
+  x_args.push(make_ident("x"));
+  some_pat_inner := make_call("Some", x_args);
+  some_pat_outer_args := ArrayList(AstExpr).new();
+  some_pat_outer_args.push(some_pat_inner);
+  dot_tok := make_token(TokenKind.Dot, ".");
+  some_pat := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), some_pat_outer_args, false, dot_tok);
+
+  // Build .None pattern
+  none_pat_args := ArrayList(AstExpr).new();
+  none_pat_args.push(make_ident("None"));
+  none_pat := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), none_pat_args, true, dot_tok);
+
+  // Build match arms: .Some(x) => x, .None => 0
+  arm1 := make_arm(some_pat, make_ident("x"));
+  arm2 := make_arm(none_pat, make_atom(TokenKind.Integer, "0"));
+
+  // Build scrutinee: we define a variable `opt` = .Some(42) and match on it
+  // First define opt in environment
+  _idx := env.define_val(String.from("opt"), TypeValue.Unit, true, .Some(some_val));
+
+  // Build match(opt, .Some(x) => x, .None => 0)
+  match_args := ArrayList(AstExpr).new();
+  match_args.push(make_ident("opt"));
+  match_args.push(arm1);
+  match_args.push(arm2);
+  match_tok := make_token(TokenKind.Identifier, "match");
+  match_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), match_tok)), match_args, false, match_tok);
+
+  result := evaluate(match_expr, &env);
+  match(result,
+    .None => assert(false, "match on .Some(x) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "42"), "extracted value should be 42"),
+        _ => assert(false, "expected IntLit(42)")
+      )
+  );
+};
+
+test "Phase 5r: ArrayVal push and get operations", {
+  // Test array push and get via method shims.
+  // Pre-define ArrayList as a TypeVal so ArrayList.new() works.
+  env := empty_env();
+  _al_idx := env.define_val(String.from("ArrayList"), TypeValue.TypeUni(usize(0)), true, .Some(EvalValue.TypeVal(box(TypeValue.Unit))));
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in array test"); escape (); }));
+  src := "arr := ArrayList.new(); arr.push(10); arr.push(20); val := arr.get(0); export val;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "array push/get returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .EnumVal(tag, fields) => {
+                  assert((tag.as_str() == ".Some"), "get(0) should return .Some");
+                  match(fields.get(usize(0)),
+                    .Some(inner) =>
+                      match(inner,
+                        .IntLit(raw) => assert((raw.as_str() == "10"), "first element should be 10"),
+                        _ => assert(false, "expected IntLit inside .Some")
+                      ),
+                    .None => assert(false, "no field in .Some")
+                  );
+                },
+                _ => assert(false, "expected EnumVal(.Some)")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5r: template string simple (no interpolation)", {
+  // TemplateString tokens contain raw content without backticks (unlike StringLit
+  // which includes surrounding quotes).  The evaluator wraps it directly in StrLit.
+  env := empty_env();
+  tok := make_token(TokenKind.TemplateString, "hello world");
+  result := evaluate(AstExpr.Atom(usize(0), tok), &env);
+  match(result,
+    .None => assert(false, "template atom returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(raw) => assert((raw.as_str() == "hello world"), "template should be hello world"),
+        _ => assert(false, "expected StrLit from template atom")
+      )
+  );
+};
+
+test "Phase 5r: while loop with break exits early", {
+  // Test break in a while loop evaluated directly (not via function call).
+  // i := 0; count := 0; while runtime((i < 5)), { count = (count + 1); i = (i + 1); }; export count;
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in while-break test"); escape (); }));
+  src := "i := 0; count := 0; while runtime((i < 5)), { count = (count + 1); i = (i + 1); }; export count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "while-count returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "5"), "count after while should be 5"),
+                _ => assert(false, "expected IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 5r: nested function calls with arithmetic", {
+  // add :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a + b));
+  // mul :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a * b));
+  // val := add(mul(3, 4), mul(2, 5));
+  // val should be (12 + 10) = 22
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error in nested calls test"); escape (); }));
+  src := "add :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a + b)); mul :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a * b)); val := add(mul(3, 4), mul(2, 5)); export val;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested calls returned None"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(_, vals) =>
+          match(vals.get(usize(0)),
+            .Some(v) =>
+              match(v,
+                .IntLit(raw) => assert((raw.as_str() == "22"), "add(mul(3,4), mul(2,5)) should be 22"),
+                _ => assert(false, "expected IntLit")
+              ),
+            .None => assert(false, "no export value")
+          ),
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};

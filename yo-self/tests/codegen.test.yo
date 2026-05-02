@@ -3800,3 +3800,243 @@ test "compile_module_to_c: program with break in while loop", {
     }
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5r — More integration tests (assert, type cast, typed decl, continue, nested if)
+// ---------------------------------------------------------------------------
+
+test "compile_module_to_c: program with assert call", {
+  // check :: (fn(x : i32) -> unit)({ assert((x > 0)); });
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "unit"));
+  assert_cond := make_infix_expr(">", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "0"));
+  assert_args := ArrayList(AstExpr).new();
+  assert_args.push(assert_cond);
+  assert_call := make_fncall_expr("assert", assert_args);
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(assert_call);
+  body := make_begin_expr(body_stmts);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "check"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "assert_mod", "main");
+  match(result,
+    .None => assert(false, "assert program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("check")), "should have check fn");
+      assert(c_code.contains(String.from("exit(1)")), "should have exit(1) for assert");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
+
+test "compile_module_to_c: program with type cast i32(x)", {
+  // cast_add :: (fn(a : i32, b : i32) -> i32)((i32(a) + i32(b)));
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "a"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "b"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  cast_a_args := ArrayList(AstExpr).new();
+  cast_a_args.push(make_atom_expr(TokenKind.Identifier, "a"));
+  cast_a := make_fncall_expr("i32", cast_a_args);
+  cast_b_args := ArrayList(AstExpr).new();
+  cast_b_args.push(make_atom_expr(TokenKind.Identifier, "b"));
+  cast_b := make_fncall_expr("i32", cast_b_args);
+  add_expr := make_infix_expr("+", cast_a, cast_b);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(add_expr);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "cast_add"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "cast_mod", "main");
+  match(result,
+    .None => assert(false, "type cast program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("int32_t")), "should have int32_t cast");
+      assert(c_code.contains(String.from("cast_add")), "should have cast_add fn");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
+
+test "compile_module_to_c: program with typed variable declaration", {
+  // countdown :: (fn(n : i32) -> i32)({ (result : i32) = n; result; });
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "n"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  typed_decl := make_typed_decl_expr("result", "i32", make_atom_expr(TokenKind.Identifier, "n"));
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(typed_decl);
+  body_stmts.push(make_atom_expr(TokenKind.Identifier, "result"));
+  body := make_begin_expr(body_stmts);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "countdown"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "typed_decl_mod", "main");
+  match(result,
+    .None => assert(false, "typed decl program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("int32_t")), "should have int32_t type");
+      assert(c_code.contains(String.from("result")), "should have result variable");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
+
+test "compile_module_to_c: program with continue in while loop", {
+  // skip_odds :: (fn(n : i32) -> i32)({
+  //   (i : i32) = i32(0); (sum : i32) = i32(0);
+  //   while runtime((i < n)), {
+  //     i = (i + i32(1));
+  //     if(((i % i32(2)) == i32(1)), continue());
+  //     sum = (sum + i);
+  //   };
+  //   sum;
+  // });
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "n"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
+
+  i_decl := make_typed_decl_expr("i", "i32", make_fncall_expr("i32", { a := ArrayList(AstExpr).new(); a.push(make_atom_expr(TokenKind.Integer, "0")); a }));
+  sum_decl := make_typed_decl_expr("sum", "i32", make_fncall_expr("i32", { a := ArrayList(AstExpr).new(); a.push(make_atom_expr(TokenKind.Integer, "0")); a }));
+
+  while_cond := make_runtime_cond(make_infix_expr("<", make_atom_expr(TokenKind.Identifier, "i"), make_atom_expr(TokenKind.Identifier, "n")));
+  i_inc := make_assign_expr(make_atom_expr(TokenKind.Identifier, "i"), make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "i"), make_fncall_expr("i32", { a := ArrayList(AstExpr).new(); a.push(make_atom_expr(TokenKind.Integer, "1")); a })));
+  // continue()
+  cont_args := ArrayList(AstExpr).new();
+  cont_call := make_fncall_expr("continue", cont_args);
+  // if(((i % 2) == 1), continue())
+  mod_expr := make_infix_expr("%", make_atom_expr(TokenKind.Identifier, "i"), make_fncall_expr("i32", { a := ArrayList(AstExpr).new(); a.push(make_atom_expr(TokenKind.Integer, "2")); a }));
+  cmp_expr := make_infix_expr("==", mod_expr, make_fncall_expr("i32", { a := ArrayList(AstExpr).new(); a.push(make_atom_expr(TokenKind.Integer, "1")); a }));
+  if_cont := make_if_expr(cmp_expr, cont_call);
+  sum_inc := make_assign_expr(make_atom_expr(TokenKind.Identifier, "sum"), make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "sum"), make_atom_expr(TokenKind.Identifier, "i")));
+
+  while_stmts := ArrayList(AstExpr).new();
+  while_stmts.push(i_inc);
+  while_stmts.push(if_cont);
+  while_stmts.push(sum_inc);
+  while_body := make_begin_expr(while_stmts);
+  while_expr := make_while_expr(while_cond, while_body);
+
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(i_decl);
+  body_stmts.push(sum_decl);
+  body_stmts.push(while_expr);
+  body_stmts.push(make_atom_expr(TokenKind.Identifier, "sum"));
+  body := make_begin_expr(body_stmts);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "skip_odds"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "continue_mod", "main");
+  match(result,
+    .None => assert(false, "continue program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("skip_odds")), "should have skip_odds fn");
+      assert(c_code.contains(String.from("while")), "should have while loop");
+      assert(c_code.contains(String.from("continue")), "should have continue statement");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
+
+test "compile_module_to_c: program with nested if/else", {
+  // classify :: (fn(x : i32) -> i32)(
+  //   if((x > 0), i32(1), if((x < 0), i32(-1), i32(0)))
+  // );
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
+
+  // Inner if: if((x < 0), i32(-1), i32(0))
+  inner_cond := make_infix_expr("<", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "0"));
+  neg_one_args := ArrayList(AstExpr).new();
+  neg_one_args.push(make_unary_expr("-", make_atom_expr(TokenKind.Integer, "1")));
+  neg_one := make_fncall_expr("i32", neg_one_args);
+  zero_args := ArrayList(AstExpr).new();
+  zero_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  zero_cast := make_fncall_expr("i32", zero_args);
+  inner_if := make_if_else_expr(inner_cond, neg_one, zero_cast);
+
+  // Outer if: if((x > 0), i32(1), inner_if)
+  outer_cond := make_infix_expr(">", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "0"));
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom_expr(TokenKind.Integer, "1"));
+  one_cast := make_fncall_expr("i32", one_args);
+  outer_if := make_if_else_expr(outer_cond, one_cast, inner_if);
+
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(outer_if);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "classify"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "nested_if_mod", "main");
+  match(result,
+    .None => assert(false, "nested if program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("classify")), "should have classify fn");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
