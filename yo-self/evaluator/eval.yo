@@ -932,6 +932,21 @@ handle_method_dispatch :: (fn(
         // ---------------------------------------------------------------
         ((((((mname == "to_usize") || (mname == "to_i64")) || (mname == "to_i32")) || ((mname == "to_u8") || (mname == "to_u32"))) || ((mname == "to_u64") || (mname == "to_f64"))) && (match(recv_val, .IntLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           { return Option(EvalResult).Some(eval_result(recv_val, type_of_eval_value(recv_val))); },
+        // ---------------------------------------------------------------
+        // Phase 5ae: IntLit.abs() — absolute value of integer
+        // ---------------------------------------------------------------
+        ((mname == "abs") && (match(recv_val, .IntLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .IntLit(raw_abs) =>
+              match(parse_raw_int(raw_abs),
+                .None => { return Option(EvalResult).None; },
+                .Some(n_abs) => {
+                  abs_val := cond((n_abs < i64(0)) => (i64(0) - n_abs), true => n_abs);
+                  return Option(EvalResult).Some(eval_result(.IntLit(abs_val.to_string()), t_comptime_int()));
+                }
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
         // String concatenation: StrLit(lhs).(+)(rhs_expr)
         ((mname == "+") && match(recv_val, .StrLit(_) => true, _ => false)) =>
           match(method_call_args.get(usize(0)),
@@ -1316,8 +1331,57 @@ handle_method_dispatch :: (fn(
             _ => { return Option(EvalResult).None; }
           ),
         // ---------------------------------------------------------------
-        // Phase 5z: StrLit.is_empty() — returns true if inner length == 0.
+        // Phase 5ae: ArrayVal.first() — returns .Some(elem) or .None
         // ---------------------------------------------------------------
+        ((mname == "first") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_f) =>
+              cond(
+                (av_items_f.len() == usize(0)) => {
+                  none_f := ArrayList(EvalValue).new();
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_f), t_unit()));
+                },
+                true =>
+                  match(av_items_f.get(usize(0)),
+                    .Some(fv) => {
+                      some_f := ArrayList(EvalValue).new();
+                      some_f.push(fv);
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_f), t_unit()));
+                    },
+                    .None => {
+                      none_f2 := ArrayList(EvalValue).new();
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_f2), t_unit()));
+                    }
+                  )
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ae: ArrayVal.last() — returns .Some(elem) or .None
+        // ---------------------------------------------------------------
+        ((mname == "last") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_l) =>
+              cond(
+                (av_items_l.len() == usize(0)) => {
+                  none_l := ArrayList(EvalValue).new();
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_l), t_unit()));
+                },
+                true =>
+                  match(av_items_l.get((av_items_l.len() - usize(1))),
+                    .Some(lv) => {
+                      some_l := ArrayList(EvalValue).new();
+                      some_l.push(lv);
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_l), t_unit()));
+                    },
+                    .None => {
+                      none_l2 := ArrayList(EvalValue).new();
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_l2), t_unit()));
+                    }
+                  )
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {
