@@ -2783,7 +2783,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             // Arithmetic operators: + - * / %  (comptime_int only)
             // -----------------------------------------------------------------
-            (is_infix && (((((fval == "+") || (fval == "-")) || (fval == "*")) || (fval == "/")) || (fval == "%"))) => {
+            (is_infix && (((((((((((fval == "+") || (fval == "-")) || (fval == "*")) || (fval == "/")) || (fval == "%")) || (fval == "|")) || (fval == "&")) || (fval == "^")) || (fval == "<<")) || (fval == ">>")))) => {
               lhs_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
               rhs_expr := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
               lv := match(recur(lhs_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
@@ -2802,6 +2802,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     (fval == "*") => Option(i64).Some((a * b)),
                     (fval == "/") => cond((b == i64(0)) => Option(i64).None, true => Option(i64).Some((a / b))),
                     (fval == "%") => cond((b == i64(0)) => Option(i64).None, true => Option(i64).Some((a % b))),
+                    (fval == "|") => Option(i64).Some((a | b)),
+                    (fval == "&") => Option(i64).Some((a & b)),
+                    (fval == "^") => Option(i64).Some((a ^ b)),
+                    (fval == "<<") => Option(i64).Some((a << b)),
+                    (fval == ">>") => Option(i64).Some((a >> b)),
                     true => Option(i64).None
                   );
                   match(res_opt,
@@ -3737,6 +3742,20 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             ((fval == "Box") && (args.len() == usize(1))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
             ((fval == "Pointer") && (args.len() == usize(1))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Phase 5x: println/print — evaluate args but return unit.
+            // In CTFE these are no-ops; we just ensure args are well-formed.
+            // -----------------------------------------------------------------
+            (fval == "println") => .Some(eval_result(.UnitVal, t_unit())),
+            (fval == "print") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5x: String.from(str) — type constructor for String from str.
+            // Returns the string value as a StrLit for the proto-evaluator.
+            // -----------------------------------------------------------------
+            (fval == "String") =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
 
             // -----------------------------------------------------------------
