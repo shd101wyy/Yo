@@ -4746,3 +4746,64 @@ test "Phase 3aq: struct field mutation in loop", {
   );
 };
 
+// =============================================================================
+// Phase 5m: given(name) := expr binding support
+// =============================================================================
+
+test "Phase 5m: given(name) := rhs binds name in scope", {
+  // given(handler) := value — should look up the bound value
+  env := empty_env();
+
+  // Build: given(handler) := 42
+  handler_atom := make_ident("handler");
+  given_args := ArrayList(AstExpr).new();
+  given_args.push(handler_atom);
+  given_e := make_call("given", given_args);
+  rhs_e := make_atom(TokenKind.Integer, "42");
+  given_binding := make_infix(":=", given_e, rhs_e);
+
+  bind_res := evaluate(given_binding, &env);
+  match(bind_res,
+    .None    => assert(false, "given binding returned None"),
+    .Some(_) => ()
+  );
+
+  // Now `handler` should be in scope
+  lookup := evaluate(make_ident("handler"), &env);
+  match(lookup,
+    .None => assert(false, "handler not found in scope after given binding"),
+    .Some(res) =>
+      match(res.value,
+        .IntLit(raw) => assert((raw.as_str() == "42"), "handler value is 42"),
+        _ => assert(false, "expected IntLit(42)")
+      )
+  );
+};
+
+test "Phase 5m: given(name) := rhs binds as compile-time value", {
+  // given bindings are always compile-time in Yo
+  env := empty_env();
+
+  // Build: given(ctx) := true
+  ctx_atom := make_ident("ctx");
+  given_args := ArrayList(AstExpr).new();
+  given_args.push(ctx_atom);
+  given_e := make_call("given", given_args);
+  rhs_e := make_atom(TokenKind.Bool, "true");
+  given_binding := make_infix(":=", given_e, rhs_e);
+
+  _bind := evaluate(given_binding, &env);
+
+  // Lookup should succeed and value is compile-time
+  lookup := evaluate(make_ident("ctx"), &env);
+  match(lookup,
+    .None => assert(false, "ctx not found after given binding"),
+    .Some(res) =>
+      // BoolVal is always a compile-time value
+      match(res.value,
+        .BoolVal(_) => (), // compile-time bool — correct
+        _ => assert(false, "expected BoolVal (compile-time bool)")
+      )
+  );
+};
+

@@ -2645,6 +2645,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 .None => Option(EvalResult).None
                               ),
                             // typed: (x : T) := rhs  — declare with explicit type
+                            // given(name) := rhs  — implicit/effect parameter installation
                             .FnCall(_, colon_box_a, colon_args_a, _, _) =>
                               match(colon_box_a.*,
                                 .Atom(_, colon_tok_a) =>
@@ -2669,6 +2670,26 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                             .FnCall(_, _, _, _, _) => Option(EvalResult).None
                                           ),
                                         .None => Option(EvalResult).None
+                                      ),
+                                    // given(name) := rhs — implicit parameter installation.
+                                    // Mirrors TypeScript binding.ts: sets isImplicit=true, isCompileTimeOnly=true,
+                                    // then binds the inner name like a regular comptime binding.
+                                    (colon_tok_a.value.as_str() == "given") =>
+                                      match(colon_args_a.get(usize(0)),
+                                        .None => Option(EvalResult).None,
+                                        .Some(inner_expr) =>
+                                          match(inner_expr,
+                                            .FnCall(_, _, _, _, _) => Option(EvalResult).None,
+                                            .Atom(_, inner_tok) =>
+                                              match(recur(rhs, env),
+                                                .None => Option(EvalResult).None,
+                                                .Some(rhs_res) => {
+                                                  // Bind as compile-time (isCompileTimeOnly = true)
+                                                  _gidx := env.define_val(inner_tok.value, rhs_res.ty, true, .Some(rhs_res.value));
+                                                  .Some(eval_result(.UnitVal, t_unit()))
+                                                }
+                                              )
+                                          )
                                       ),
                                     true => Option(EvalResult).None
                                   ),
