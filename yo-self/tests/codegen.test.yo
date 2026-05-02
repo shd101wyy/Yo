@@ -2983,3 +2983,93 @@ test "Phase 5o: type_expr_to_c maps Option(T) to void*", {
     .Some(ty) => assert((ty == String.from("void*")), "Option(T) -> void*")
   );
 };
+
+test "Phase 5p: compile_module_to_c with derive(ToString) emits toString fn", {
+  // Build a module with:
+  //   Point :: struct(x : i32, y : i32)
+  //   derive(Point, ToString)
+  //   main :: (fn() -> unit)({ () })
+  exprs := ArrayList(AstExpr).new();
+
+  // Point :: struct(x : i32, y : i32)
+  struct_fields := ArrayList(AstExpr).new();
+  struct_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "y"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_call := make_fncall_expr("struct", struct_fields);
+  point_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Point"), struct_call);
+  exprs.push(point_def);
+
+  // derive(Point, ToString)
+  derive_args := ArrayList(AstExpr).new();
+  derive_args.push(make_atom_expr(TokenKind.Identifier, "Point"));
+  derive_args.push(make_atom_expr(TokenKind.Identifier, "ToString"));
+  derive_call := make_fncall_expr("derive", derive_args);
+  exprs.push(derive_call);
+
+  // main :: (fn() -> unit)(0)
+  main_params := ArrayList(AstExpr).new();
+  main_body := make_atom_expr(TokenKind.Integer, "0");
+  main_fn_inner := make_fncall_expr("fn", main_params);
+  main_ret := make_atom_expr(TokenKind.Identifier, "unit");
+  main_fn_type := make_infix_expr("->", main_fn_inner, main_ret);
+  main_fn_app_args := ArrayList(AstExpr).new();
+  main_fn_app_args.push(main_body);
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+  main_fn_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_fn_app_args, false, fn_tok);
+  main_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_fn_app);
+  exprs.push(main_def);
+
+  result := compile_module_to_c(exprs, "test_mod", "main");
+  match(result,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c_code) => {
+      // Verify struct was emitted
+      has_struct := c_code.contains(String.from("typedef struct"));
+      assert(has_struct, "output should contain typedef struct");
+      // Check derive output - the toString function emitted as fn_Point_to_string
+      has_tostring := c_code.contains(String.from("fn_Point_to_string"));
+      assert(has_tostring, "derive(ToString) should emit fn_Point_to_string");
+    }
+  );
+};
+
+test "Phase 5p: compile_module_to_c with derive(Clone) emits clone fn", {
+  exprs := ArrayList(AstExpr).new();
+
+  // Vec2 :: struct(x : f64, y : f64)
+  struct_fields := ArrayList(AstExpr).new();
+  struct_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "f64")));
+  struct_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "y"), make_atom_expr(TokenKind.Identifier, "f64")));
+  struct_call := make_fncall_expr("struct", struct_fields);
+  vec_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Vec2"), struct_call);
+  exprs.push(vec_def);
+
+  // derive(Vec2, Clone)
+  derive_args := ArrayList(AstExpr).new();
+  derive_args.push(make_atom_expr(TokenKind.Identifier, "Vec2"));
+  derive_args.push(make_atom_expr(TokenKind.Identifier, "Clone"));
+  derive_call := make_fncall_expr("derive", derive_args);
+  exprs.push(derive_call);
+
+  // main :: (fn() -> unit)(0)
+  main_params := ArrayList(AstExpr).new();
+  main_body := make_atom_expr(TokenKind.Integer, "0");
+  main_fn_inner := make_fncall_expr("fn", main_params);
+  main_ret := make_atom_expr(TokenKind.Identifier, "unit");
+  main_fn_type := make_infix_expr("->", main_fn_inner, main_ret);
+  main_fn_app_args := ArrayList(AstExpr).new();
+  main_fn_app_args.push(main_body);
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+  main_fn_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_fn_app_args, false, fn_tok);
+  main_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_fn_app);
+  exprs.push(main_def);
+
+  result := compile_module_to_c(exprs, "test_mod", "main");
+  match(result,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c_code) => {
+      has_clone := c_code.contains(String.from("fn_Vec2_clone"));
+      assert(has_clone, "derive(Clone) should emit fn_Vec2_clone");
+    }
+  );
+};
