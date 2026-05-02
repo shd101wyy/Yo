@@ -5059,3 +5059,192 @@ test "Phase 5p: where clause in fn definition does not crash", {
     )
   );
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5q: more eval tests — nested blocks, function call, unary ops
+// ---------------------------------------------------------------------------
+
+test "Phase 5q: nested begin blocks evaluate to inner result", {
+  // { { 42; }; } => IntLit(42)
+  env := empty_env();
+  inner_stmts := ArrayList(AstExpr).new();
+  inner_stmts.push(make_atom(TokenKind.Integer, "42"));
+  inner := make_begin(inner_stmts);
+  outer_stmts := ArrayList(AstExpr).new();
+  outer_stmts.push(inner);
+  outer := make_begin(outer_stmts);
+  result := evaluate(outer, &env);
+  match(result,
+    .None => assert(false, "nested begin returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "42"), "expected 42"),
+      _ => assert(false, "expected IntLit from nested begin")
+    )
+  );
+};
+
+test "Phase 5q: begin block with multiple stmts returns last", {
+  // { x := 10; y := 20; (x + y); } => IntLit(30)
+  env := empty_env();
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "10")));
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "y"), make_atom(TokenKind.Integer, "20")));
+  stmts.push(make_infix("+", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Identifier, "y")));
+  block := make_begin(stmts);
+  result := evaluate(block, &env);
+  match(result,
+    .None => assert(false, "begin block returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "30"), "expected 30"),
+      _ => assert(false, "expected IntLit(30)")
+    )
+  );
+};
+
+test "Phase 5q: unary negation on integer", {
+  // -(5) => IntLit(-5)
+  env := empty_env();
+  neg_args := ArrayList(AstExpr).new();
+  neg_args.push(make_atom(TokenKind.Integer, "5"));
+  neg_expr := AstExpr.FnCall(usize(0),
+    box(AstExpr.Atom(usize(0), make_token(TokenKind.Operator, "-"))),
+    neg_args, false,
+    make_token(TokenKind.Operator, "-")
+  );
+  result := evaluate(neg_expr, &env);
+  match(result,
+    .None => assert(false, "unary neg returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "-5"), "expected -5"),
+      _ => assert(false, "expected IntLit(-5)")
+    )
+  );
+};
+
+test "Phase 5q: logical not on true", {
+  // !(true) => BoolVal(false)
+  env := empty_env();
+  not_args := ArrayList(AstExpr).new();
+  not_args.push(make_atom(TokenKind.Bool, "true"));
+  not_expr := AstExpr.FnCall(usize(0),
+    box(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "!"))),
+    not_args, false,
+    make_token(TokenKind.Identifier, "!")
+  );
+  result := evaluate(not_expr, &env);
+  match(result,
+    .None => assert(false, "not true returned None"),
+    .Some(r) => match(r.value,
+      .BoolVal(b) => assert((!(b)), "expected false"),
+      _ => assert(false, "expected BoolVal(false)")
+    )
+  );
+};
+
+test "Phase 5q: cond with multiple arms evaluates correct branch", {
+  // x := 5; cond((x < 0) => -1, (x == 0) => 0, true => 1) => IntLit(1)
+  env := empty_env();
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "5")));
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(
+    make_infix("<", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "0")),
+    make_atom(TokenKind.Integer, "-1")
+  ));
+  arms.push(make_arm(
+    make_infix("==", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "0")),
+    make_atom(TokenKind.Integer, "0")
+  ));
+  arms.push(make_arm(
+    make_atom(TokenKind.Bool, "true"),
+    make_atom(TokenKind.Integer, "1")
+  ));
+  stmts.push(make_cond(arms));
+  block := make_begin(stmts);
+  result := evaluate(block, &env);
+  match(result,
+    .None => assert(false, "cond returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "1"), "expected 1 from true branch"),
+      _ => assert(false, "expected IntLit(1)")
+    )
+  );
+};
+
+test "Phase 5q: integer modulo operator", {
+  // (10 % 3) => IntLit(1)
+  env := empty_env();
+  result := evaluate(make_infix("%", make_atom(TokenKind.Integer, "10"), make_atom(TokenKind.Integer, "3")), &env);
+  match(result,
+    .None => assert(false, "modulo returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "1"), "expected 1"),
+      _ => assert(false, "expected IntLit(1) from 10 % 3")
+    )
+  );
+};
+
+test "Phase 5q: integer division", {
+  // (7 / 2) => IntLit(3)
+  env := empty_env();
+  result := evaluate(make_infix("/", make_atom(TokenKind.Integer, "7"), make_atom(TokenKind.Integer, "2")), &env);
+  match(result,
+    .None => assert(false, "division returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "3"), "expected 3"),
+      _ => assert(false, "expected IntLit(3) from 7 / 2")
+    )
+  );
+};
+
+test "Phase 5q: chained comparison through begin block", {
+  // { a := 3; b := 5; c := (a < b); c; } => BoolVal(true)
+  env := empty_env();
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "a"), make_atom(TokenKind.Integer, "3")));
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "b"), make_atom(TokenKind.Integer, "5")));
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "c"),
+    make_infix("<", make_atom(TokenKind.Identifier, "a"), make_atom(TokenKind.Identifier, "b"))
+  ));
+  stmts.push(make_atom(TokenKind.Identifier, "c"));
+  block := make_begin(stmts);
+  result := evaluate(block, &env);
+  match(result,
+    .None => assert(false, "chained comparison returned None"),
+    .Some(r) => match(r.value,
+      .BoolVal(b) => assert(b, "expected true"),
+      _ => assert(false, "expected BoolVal(true)")
+    )
+  );
+};
+
+test "Phase 5q: string + string concatenation", {
+  // ("hello" + " world") => StrLit("hello world")
+  env := empty_env();
+  result := evaluate(make_infix("+", make_atom(TokenKind.StringLit, "\"hello\""), make_atom(TokenKind.StringLit, "\" world\"")), &env);
+  match(result,
+    .None => assert(false, "str concat returned None"),
+    .Some(r) => match(r.value,
+      .StrLit(s) => assert((s.as_str() == "\"hello world\""), "expected hello world"),
+      _ => assert(false, "expected StrLit")
+    )
+  );
+};
+
+test "Phase 5q: variable reassignment updates value", {
+  // { x := 1; x = 2; x; } => IntLit(2)
+  env := empty_env();
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_infix(":=", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "1")));
+  stmts.push(make_infix("=", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "2")));
+  stmts.push(make_atom(TokenKind.Identifier, "x"));
+  block := make_begin(stmts);
+  result := evaluate(block, &env);
+  match(result,
+    .None => assert(false, "reassignment returned None"),
+    .Some(r) => match(r.value,
+      .IntLit(n) => assert((n.as_str() == "2"), "expected 2 after reassignment"),
+      _ => assert(false, "expected IntLit(2)")
+    )
+  );
+};
