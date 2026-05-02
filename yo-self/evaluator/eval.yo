@@ -3864,6 +3864,168 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
               ),
 
             // -----------------------------------------------------------------
+            // Phase 5v: FnMut closure: (params) =>> body
+            // Identical to => for the proto-evaluator (difference is type-level).
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "=>>")) =>
+              cond(
+                (args.len() != usize(2)) => Option(EvalResult).None,
+                true => {
+                  p_opt := args.get(usize(0));
+                  b_opt := args.get(usize(1));
+                  match(p_opt,
+                    .None => Option(EvalResult).None,
+                    .Some(p_expr) => match(b_opt,
+                      .None => Option(EvalResult).None,
+                      .Some(b_expr) => {
+                        params_m := ArrayList(String).new();
+                        ptnames_m := ArrayList(String).new();
+                        match(p_expr,
+                          .Atom(_, ptk) => {
+                            params_m.push(ptk.value);
+                            ptnames_m.push(String.from(""));
+                          },
+                          .FnCall(_, pfb, pfa, _, _) =>
+                            match(pfb.*,
+                              .Atom(_, pft) =>
+                                cond(
+                                  (pft.value.as_str() == BK_TUPLE) => {
+                                    np := pfa.len();
+                                    (pi : usize) = usize(0);
+                                    while runtime((pi < np)), {
+                                      match(pfa.get(pi),
+                                        .Some(pe) =>
+                                          match(pe,
+                                            .Atom(_, pet) => {
+                                              params_m.push(pet.value);
+                                              ptnames_m.push(String.from(""));
+                                            },
+                                            .FnCall(_, cff, cfa, _, _) =>
+                                              match(cff.*,
+                                                .Atom(_, cft) =>
+                                                  cond(
+                                                    (cft.value.as_str() == ":") =>
+                                                      match(cfa.get(usize(0)),
+                                                        .Some(cfe) =>
+                                                          match(cfe,
+                                                            .Atom(_, cpn) => {
+                                                              params_m.push(cpn.value);
+                                                              ptnames_m.push(String.from(""));
+                                                            },
+                                                            .FnCall(_, _, _, _, _) => ()
+                                                          ),
+                                                        .None => ()
+                                                      ),
+                                                    true => ()
+                                                  ),
+                                                .FnCall(_, _, _, _, _) => ()
+                                              )
+                                          ),
+                                        .None => ()
+                                      );
+                                      pi = (pi + usize(1));
+                                    };
+                                  },
+                                  true => {
+                                    params_m.push(pft.value);
+                                    ptnames_m.push(String.from(""));
+                                  }
+                                ),
+                              .FnCall(_, _, _, _, _) => ()
+                            )
+                        );
+                        // Capture environment
+                        cn_m := ArrayList(String).new();
+                        ct_m := ArrayList(TypeValue).new();
+                        cv_m := ArrayList(EvalValue).new();
+                        nf_m := env.*.frames.len();
+                        (fi_m : usize) = usize(0);
+                        while runtime((fi_m < nf_m)), {
+                          match(env.*.frames.get(fi_m),
+                            .Some(frame_m) => {
+                              nv_m := frame_m.variables.len();
+                              (vi_m : usize) = usize(0);
+                              while runtime((vi_m < nv_m)), {
+                                match(frame_m.variables.get(vi_m),
+                                  .Some(v_m) => {
+                                    cn_m.push(v_m.name);
+                                    ct_m.push(v_m.ty);
+                                    cv_m.push(match(v_m.value, .Some(a) => a, .None => EvalValue.VarRef(v_m.name)));
+                                  },
+                                  .None => ()
+                                );
+                                vi_m = (vi_m + usize(1));
+                              };
+                            },
+                            .None => ()
+                          );
+                          fi_m = (fi_m + usize(1));
+                        };
+                        .Some(eval_result(
+                          .FuncVal(
+                            ArrayList(String).new(),
+                            params_m,
+                            ptnames_m,
+                            ArrayList(String).new(),
+                            box(b_expr),
+                            cn_m,
+                            ct_m,
+                            cv_m,
+                            random_id(String.from("lambda_mut"))
+                          ),
+                          t_unit()
+                        ))
+                      }
+                    )
+                  )
+                }
+              ),
+
+            // -----------------------------------------------------------------
+            // Phase 5v: Logical NOT: !(expr) → evaluates to !bool
+            // -----------------------------------------------------------------
+            ((fval == "!") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(not_arg) =>
+                  match(recur(not_arg, env),
+                    .None => Option(EvalResult).None,
+                    .Some(not_res) =>
+                      match(not_res.value,
+                        .BoolVal(b) => .Some(eval_result(.BoolVal(!(b)), t_bool())),
+                        _ => Option(EvalResult).None
+                      )
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // Phase 5v: Unary negation: -(expr) → negate integer
+            // (Only handles prefix `-` as a function call with 1 arg)
+            // -----------------------------------------------------------------
+            ((fval == "-") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(neg_arg) =>
+                  match(recur(neg_arg, env),
+                    .None => Option(EvalResult).None,
+                    .Some(neg_res) =>
+                      match(neg_res.value,
+                        .IntLit(raw) => {
+                          neg_str := String.from("-").concat(raw);
+                          .Some(eval_result(.IntLit(neg_str), t_comptime_int()))
+                        },
+                        .FloatLit(raw) => {
+                          neg_str := String.from("-").concat(raw);
+                          .Some(eval_result(.FloatLit(neg_str), t_comptime_float()))
+                        },
+                        _ => Option(EvalResult).None
+                      )
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
             // General identifier: struct constructor or FuncVal call.
             // Detect struct construction: first arg is a `:` infix call (named field)
             true => {

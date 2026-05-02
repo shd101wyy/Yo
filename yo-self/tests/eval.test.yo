@@ -5907,3 +5907,106 @@ test "Phase 5u: comptime_assert(true, msg) returns unit", {
       )
   );
 };
+
+// ===========================================================================
+// Phase 5v — FnMut closure (=>>), logical NOT (!), unary negation (-)
+// ===========================================================================
+
+test "Phase 5v: FnMut closure (x) =>> (x + 1) creates FuncVal", {
+  env := empty_env();
+  lambda := make_infix("=>>", make_ident("x"), make_infix("+", make_ident("x"), make_atom(TokenKind.Integer, "1")));
+  result := evaluate(lambda, &env);
+  match(result,
+    .None => assert(false, "=>> lambda returned None"),
+    .Some(r) =>
+      match(r.value,
+        .FuncVal(_, params, _, _, _, _, _, _, _) =>
+          assert((params.len() == usize(1)), "=>> lambda should have 1 param"),
+        _ => assert(false, "expected FuncVal from =>>")
+      )
+  );
+};
+
+test "Phase 5v: FnMut closure called returns result", {
+  env := empty_env();
+  // f := (x) =>> (x + 10)
+  lambda := make_infix("=>>", make_ident("x"), make_infix("+", make_ident("x"), make_atom(TokenKind.Integer, "10")));
+  _ := evaluate(make_infix(":=", make_ident("f"), lambda), &env);
+  // f(5)
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "5"));
+  call_f := AstExpr.FnCall(usize(0), box(make_ident("f")), call_args, false, make_token(TokenKind.Identifier, "f"));
+  result := evaluate(call_f, &env);
+  match(result,
+    .None => assert(false, "=>> call returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "15"), "f(5) with =>> should be 15"),
+        _ => assert(false, "expected IntLit from =>> call")
+      )
+  );
+};
+
+test "Phase 5v: logical NOT !(true) returns false", {
+  env := empty_env();
+  not_args := ArrayList(AstExpr).new();
+  not_args.push(make_atom(TokenKind.Bool, "true"));
+  not_expr := make_fncall_atom("!", not_args);
+  result := evaluate(not_expr, &env);
+  match(result,
+    .None => assert(false, "!(true) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((b == false), "!(true) should be false"),
+        _ => assert(false, "expected BoolVal from !(true)")
+      )
+  );
+};
+
+test "Phase 5v: logical NOT !(false) returns true", {
+  env := empty_env();
+  not_args := ArrayList(AstExpr).new();
+  not_args.push(make_atom(TokenKind.Bool, "false"));
+  not_expr := make_fncall_atom("!", not_args);
+  result := evaluate(not_expr, &env);
+  match(result,
+    .None => assert(false, "!(false) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((b == true), "!(false) should be true"),
+        _ => assert(false, "expected BoolVal from !(false)")
+      )
+  );
+};
+
+test "Phase 5v: unary negate -(5) returns -5", {
+  env := empty_env();
+  neg_args := ArrayList(AstExpr).new();
+  neg_args.push(make_atom(TokenKind.Integer, "5"));
+  neg_expr := make_fncall_atom("-", neg_args);
+  result := evaluate(neg_expr, &env);
+  match(result,
+    .None => assert(false, "-(5) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "-5"), "-(5) should be -5"),
+        _ => assert(false, "expected IntLit from -(5)")
+      )
+  );
+};
+
+test "Phase 5v: unary negate -(3.14) returns -3.14", {
+  env := empty_env();
+  neg_args := ArrayList(AstExpr).new();
+  neg_args.push(make_atom(TokenKind.Float, "3.14"));
+  neg_expr := make_fncall_atom("-", neg_args);
+  result := evaluate(neg_expr, &env);
+  match(result,
+    .None => assert(false, "-(3.14) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .FloatLit(raw) => assert((raw.as_str() == "-3.14"), "-(3.14) should be -3.14"),
+        _ => assert(false, "expected FloatLit from -(3.14)")
+      )
+  );
+};
