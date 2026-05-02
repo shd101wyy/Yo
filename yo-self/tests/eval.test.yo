@@ -5631,3 +5631,107 @@ test "Phase 5s: for loop with break stops iteration", {
       )
   );
 };
+
+// ===========================================================================
+// Phase 5t — Closure (=>) evaluation tests using raw AST construction
+// (The self-hosted parser currently crashes on `=>` — see issues/parser-lambda-crash.md)
+// ===========================================================================
+
+test "Phase 5t: simple lambda (x) => x creates FuncVal", {
+  // (x) => x → FnCall(Atom("=>"), [Atom("x"), Atom("x")], is_infix=true)
+  env := empty_env();
+  lambda := make_infix("=>", make_ident("x"), make_ident("x"));
+  result := evaluate(lambda, &env);
+  match(result,
+    .None => assert(false, "lambda returned None"),
+    .Some(r) =>
+      match(r.value,
+        .FuncVal(_, params, _, _, _, _, _, _, _) =>
+          assert((params.len() == usize(1)), "lambda should have 1 param"),
+        _ => assert(false, "expected FuncVal from lambda")
+      )
+  );
+};
+
+test "Phase 5t: multi-param lambda (x, y) => (x + y) creates FuncVal", {
+  // Build: (x, y) => (x + y)
+  // LHS is tuple(x, y): FnCall(Atom("tuple"), [Atom("x"), Atom("y")], false)
+  env := empty_env();
+  param_list := ArrayList(AstExpr).new();
+  param_list.push(make_ident("x"));
+  param_list.push(make_ident("y"));
+  params_tuple := AstExpr.FnCall(usize(0),
+    box(make_atom(TokenKind.Identifier, BK_TUPLE)),
+    param_list,
+    false,
+    make_token(TokenKind.Identifier, BK_TUPLE)
+  );
+  body := make_infix("+", make_ident("x"), make_ident("y"));
+  lambda := make_infix("=>", params_tuple, body);
+  result := evaluate(lambda, &env);
+  match(result,
+    .None => assert(false, "multi lambda returned None"),
+    .Some(r) =>
+      match(r.value,
+        .FuncVal(_, params, _, _, _, _, _, _, _) =>
+          assert((params.len() == usize(2)), "lambda should have 2 params"),
+        _ => assert(false, "expected FuncVal from multi-lambda")
+      )
+  );
+};
+
+test "Phase 5t: lambda captures outer variable", {
+  // Define a := 10 in env, then create (x) => (x + a)
+  // The closure should capture 'a' in its cap_vals
+  env := empty_env();
+  // First define 'a' in the env
+  define_a := make_infix(":=",
+    make_ident("a"),
+    make_atom(TokenKind.Integer, "10")
+  );
+  _ := evaluate(define_a, &env);
+  // Create lambda that references 'a'
+  lambda := make_infix("=>", make_ident("x"), make_infix("+", make_ident("x"), make_ident("a")));
+  result := evaluate(lambda, &env);
+  match(result,
+    .None => assert(false, "capture lambda returned None"),
+    .Some(r) =>
+      match(r.value,
+        .FuncVal(_, params, _, _, _, cap_names, _, _, _) => {
+          assert((params.len() == usize(1)), "lambda should have 1 param");
+          assert((cap_names.len() > usize(0)), "lambda should capture at least 'a'");
+        },
+        _ => assert(false, "expected FuncVal with captures")
+      )
+  );
+};
+
+test "Phase 5t: lambda invocation returns computed result", {
+  // Define: f := (x) => (x + 1), then call f(5) → should get 6
+  env := empty_env();
+  // f := (x) => (x + 1)
+  lambda := make_infix("=>",
+    make_ident("x"),
+    make_infix("+", make_ident("x"), make_atom(TokenKind.Integer, "1"))
+  );
+  define_f := make_infix(":=", make_ident("f"), lambda);
+  _ := evaluate(define_f, &env);
+  // f(5)
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "5"));
+  call_f := AstExpr.FnCall(usize(0),
+    box(make_ident("f")),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, "f")
+  );
+  result := evaluate(call_f, &env);
+  match(result,
+    .None => assert(false, "lambda call returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "6"), "f(5) should be 6"),
+        _ => assert(false, "expected IntLit from lambda call")
+      )
+  );
+};

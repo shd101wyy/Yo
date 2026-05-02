@@ -3664,6 +3664,149 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             },
 
             // -----------------------------------------------------------------
+            // Closure/lambda: (params) => body  or  param => body
+            // Creates a FuncVal capturing the current environment.
+            // Proto-evaluator simplified: no type checking, just captures env.
+            // -----------------------------------------------------------------
+            (is_infix && (fval == "=>")) =>
+              cond(
+                (args.len() != usize(2)) => Option(EvalResult).None,
+                true => {
+                  param_expr_opt := args.get(usize(0));
+                  body_expr_opt  := args.get(usize(1));
+                  match(param_expr_opt,
+                    .None => Option(EvalResult).None,
+                    .Some(param_expr) => match(body_expr_opt,
+                      .None => Option(EvalResult).None,
+                      .Some(body_expr) => {
+                        // Extract parameter names from LHS
+                        // Single param: Atom("x")
+                        // Multiple: FnCall(Atom("tuple"), [Atom("x"), Atom("y"), ...], false)
+                        params_f := ArrayList(String).new();
+                        param_type_names_f := ArrayList(String).new();
+                        match(param_expr,
+                          .Atom(_, ptok) => {
+                            params_f.push(ptok.value);
+                            param_type_names_f.push(String.from("_"));
+                          },
+                          .FnCall(_, pf, pargs, _, _) =>
+                            match(pf.*,
+                              .Atom(_, pftok) =>
+                                cond(
+                                  (pftok.value.as_str() == BK_TUPLE) => {
+                                    // (x, y, z) — multiple params
+                                    (pi : usize) = usize(0);
+                                    pn := pargs.len();
+                                    while runtime((pi < pn)), {
+                                      match(pargs.get(pi),
+                                        .Some(pe) =>
+                                          match(pe,
+                                            .Atom(_, petok) => {
+                                              params_f.push(petok.value);
+                                              param_type_names_f.push(String.from("_"));
+                                            },
+                                            .FnCall(_, pe_f, pe_args, pe_infix, _) =>
+                                              cond(
+                                                // (x : T) — typed param
+                                                (pe_infix && match(pe_f.*, .Atom(_, ct) => (ct.value.as_str() == ":"), .FnCall(_, _, _, _, _) => false)) =>
+                                                  match(pe_args.get(usize(0)),
+                                                    .Some(name_e) => match(name_e,
+                                                      .Atom(_, nt) => {
+                                                        params_f.push(nt.value);
+                                                        param_type_names_f.push(String.from("_"));
+                                                      },
+                                                      .FnCall(_, _, _, _, _) => ()
+                                                    ),
+                                                    .None => ()
+                                                  ),
+                                                // using(x : T) — effect param (treat as regular for now)
+                                                true =>
+                                                  match(pe_args.get(usize(0)),
+                                                    .Some(name_e) => match(name_e,
+                                                      .Atom(_, nt) => {
+                                                        params_f.push(nt.value);
+                                                        param_type_names_f.push(String.from("_"));
+                                                      },
+                                                      .FnCall(_, _, _, _, _) => ()
+                                                    ),
+                                                    .None => ()
+                                                  )
+                                              )
+                                          ),
+                                        .None => ()
+                                      );
+                                      pi = (pi + usize(1));
+                                    };
+                                  },
+                                  // (x : T) — single typed param in parens
+                                  (pftok.value.as_str() == ":") =>
+                                    match(pargs.get(usize(0)),
+                                      .Some(name_e) => match(name_e,
+                                        .Atom(_, nt) => {
+                                          params_f.push(nt.value);
+                                          param_type_names_f.push(String.from("_"));
+                                        },
+                                        .FnCall(_, _, _, _, _) => ()
+                                      ),
+                                      .None => ()
+                                    ),
+                                  true => ()
+                                ),
+                              .FnCall(_, _, _, _, _) => ()
+                            )
+                        );
+                        // Capture current environment (all frames)
+                        cap_names_f := ArrayList(String).new();
+                        cap_tys_f   := ArrayList(TypeValue).new();
+                        cap_vals_f  := ArrayList(EvalValue).new();
+                        n_frames := env.*.frames.len();
+                        (cfi : usize) = usize(0);
+                        while runtime((cfi < n_frames)), {
+                          match(env.*.frames.get(cfi),
+                            .Some(frame) => {
+                              n_cv := frame.variables.len();
+                              (cvi : usize) = usize(0);
+                              while runtime((cvi < n_cv)), {
+                                match(frame.variables.get(cvi),
+                                  .Some(v) => {
+                                    cap_names_f.push(v.name);
+                                    cap_tys_f.push(v.ty);
+                                    cap_val_f := match(v.value,
+                                      .Some(actual) => actual,
+                                      .None => EvalValue.VarRef(v.name)
+                                    );
+                                    cap_vals_f.push(cap_val_f);
+                                  },
+                                  .None => ()
+                                );
+                                cvi = (cvi + usize(1));
+                              };
+                            },
+                            .None => ()
+                          );
+                          cfi = (cfi + usize(1));
+                        };
+                        .Some(eval_result(
+                          .FuncVal(
+                            ArrayList(String).new(),
+                            params_f,
+                            param_type_names_f,
+                            ArrayList(String).new(),
+                            box(body_expr),
+                            cap_names_f,
+                            cap_tys_f,
+                            cap_vals_f,
+                            random_id(String.from("lambda"))
+                          ),
+                          t_unit()
+                        ))
+                      }
+                    )
+                  )
+                }
+              ),
+
+            // -----------------------------------------------------------------
             // General identifier: struct constructor or FuncVal call.
             // Detect struct construction: first arg is a `:` infix call (named field)
             true => {
