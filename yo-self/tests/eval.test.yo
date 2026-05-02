@@ -113,6 +113,16 @@ make_typedef_call :: (fn(keyword : str, type_args : ArrayList(AstExpr)) -> AstEx
   )
 );
 
+/// Build `func_name(arg1, arg2, …)` — a non-infix function call.
+make_fncall_atom :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
 /// Build a `label : type_expr` labeled field expression (infix colon).
 make_labeled_field :: (fn(label : str, type_expr : AstExpr) -> AstExpr)(
   .FnCall(usize(0),
@@ -5732,6 +5742,168 @@ test "Phase 5t: lambda invocation returns computed result", {
       match(r.value,
         .IntLit(raw) => assert((raw.as_str() == "6"), "f(5) should be 6"),
         _ => assert(false, "expected IntLit from lambda call")
+      )
+  );
+};
+
+// ===========================================================================
+// Phase 5u — continue keyword, assert, and comptime_assert
+// ===========================================================================
+
+test "Phase 5u: continue in while loop skips rest of body", {
+  // sum = 0; i = 0; while (i < 5) { i = i + 1; if (i == 3) continue; sum = sum + i; }
+  // Expected: sum = 1+2+4+5 = 12 (skips adding when i=3)
+  env := empty_env();
+
+  // sum := 0
+  _ := evaluate(make_infix(":=", make_ident("sum"), make_atom(TokenKind.Integer, "0")), &env);
+  // i := 0
+  _ := evaluate(make_infix(":=", make_ident("i"), make_atom(TokenKind.Integer, "0")), &env);
+
+  // Build: while((i < 5), { i = (i + 1); if((i == 3), continue); sum = (sum + i); })
+  cond_expr := make_infix("<", make_ident("i"), make_atom(TokenKind.Integer, "5"));
+  inc_i := make_infix("=", make_ident("i"), make_infix("+", make_ident("i"), make_atom(TokenKind.Integer, "1")));
+
+  // if((i == 3), continue)
+  if_args := ArrayList(AstExpr).new();
+  if_args.push(make_infix("==", make_ident("i"), make_atom(TokenKind.Integer, "3")));
+  if_args.push(make_fncall_atom("continue", ArrayList(AstExpr).new()));
+  if_expr := make_fncall_atom("if", if_args);
+
+  add_sum := make_infix("=", make_ident("sum"), make_infix("+", make_ident("sum"), make_ident("i")));
+
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(inc_i);
+  body_stmts.push(if_expr);
+  body_stmts.push(add_sum);
+  body_block := AstExpr.FnCall(usize(0),
+    box(make_atom(TokenKind.Identifier, BK_BEGIN)),
+    body_stmts,
+    false,
+    make_token(TokenKind.Identifier, BK_BEGIN)
+  );
+
+  while_args := ArrayList(AstExpr).new();
+  while_args.push(cond_expr);
+  while_args.push(body_block);
+  while_expr := make_fncall_atom("while", while_args);
+
+  _ := evaluate(while_expr, &env);
+
+  // Check sum
+  result := evaluate(make_ident("sum"), &env);
+  match(result,
+    .None => assert(false, "continue while returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "12"), "sum with continue should be 12"),
+        _ => assert(false, "expected IntLit for sum")
+      )
+  );
+};
+
+test "Phase 5u: continue in for loop skips iteration", {
+  // arr = [1,2,3,4,5]; sum = 0; for(item, arr, { if (item == 3) continue; sum = sum + item; })
+  // Expected: sum = 1+2+4+5 = 12
+  env := empty_env();
+
+  // arr := [1,2,3,4,5]
+  arr_elems := ArrayList(AstExpr).new();
+  arr_elems.push(make_atom(TokenKind.Integer, "1"));
+  arr_elems.push(make_atom(TokenKind.Integer, "2"));
+  arr_elems.push(make_atom(TokenKind.Integer, "3"));
+  arr_elems.push(make_atom(TokenKind.Integer, "4"));
+  arr_elems.push(make_atom(TokenKind.Integer, "5"));
+  arr_lit := AstExpr.FnCall(usize(0),
+    box(make_atom(TokenKind.Identifier, BK_ARRAY_VAL)),
+    arr_elems,
+    false,
+    make_token(TokenKind.Identifier, BK_ARRAY_VAL)
+  );
+  _ := evaluate(make_infix(":=", make_ident("arr"), arr_lit), &env);
+  // sum := 0
+  _ := evaluate(make_infix(":=", make_ident("sum"), make_atom(TokenKind.Integer, "0")), &env);
+
+  // Build for(item, arr, { if((item == 3), continue); sum = (sum + item); })
+  if_args := ArrayList(AstExpr).new();
+  if_args.push(make_infix("==", make_ident("item"), make_atom(TokenKind.Integer, "3")));
+  if_args.push(make_fncall_atom("continue", ArrayList(AstExpr).new()));
+  if_expr := make_fncall_atom("if", if_args);
+
+  add_sum := make_infix("=", make_ident("sum"), make_infix("+", make_ident("sum"), make_ident("item")));
+
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(if_expr);
+  body_stmts.push(add_sum);
+  body_block := AstExpr.FnCall(usize(0),
+    box(make_atom(TokenKind.Identifier, BK_BEGIN)),
+    body_stmts,
+    false,
+    make_token(TokenKind.Identifier, BK_BEGIN)
+  );
+
+  for_args := ArrayList(AstExpr).new();
+  for_args.push(make_ident("item"));
+  for_args.push(make_ident("arr"));
+  for_args.push(body_block);
+  for_expr := make_fncall_atom("for", for_args);
+
+  _ := evaluate(for_expr, &env);
+
+  result := evaluate(make_ident("sum"), &env);
+  match(result,
+    .None => assert(false, "continue for returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "12"), "sum with continue in for should be 12"),
+        _ => assert(false, "expected IntLit for sum")
+      )
+  );
+};
+
+test "Phase 5u: assert(true, msg) returns unit", {
+  env := empty_env();
+  assert_args := ArrayList(AstExpr).new();
+  assert_args.push(make_atom(TokenKind.Bool, "true"));
+  assert_args.push(make_atom(TokenKind.StringLit, "\"ok\""));
+  assert_expr := make_fncall_atom("assert", assert_args);
+  result := evaluate(assert_expr, &env);
+  match(result,
+    .None => assert(false, "assert(true) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "assert(true) should return UnitVal")
+      )
+  );
+};
+
+test "Phase 5u: assert(false, msg) returns None (error)", {
+  env := empty_env();
+  assert_args := ArrayList(AstExpr).new();
+  assert_args.push(make_atom(TokenKind.Bool, "false"));
+  assert_args.push(make_atom(TokenKind.StringLit, "\"fail\""));
+  assert_expr := make_fncall_atom("assert", assert_args);
+  result := evaluate(assert_expr, &env);
+  match(result,
+    .None => (),
+    .Some(_) => assert(false, "assert(false) should return None")
+  );
+};
+
+test "Phase 5u: comptime_assert(true, msg) returns unit", {
+  env := empty_env();
+  ca_args := ArrayList(AstExpr).new();
+  ca_args.push(make_atom(TokenKind.Bool, "true"));
+  ca_args.push(make_atom(TokenKind.StringLit, "\"ok\""));
+  ca_expr := make_fncall_atom("comptime_assert", ca_args);
+  result := evaluate(ca_expr, &env);
+  match(result,
+    .None => assert(false, "comptime_assert(true) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .UnitVal => (),
+        _ => assert(false, "comptime_assert(true) should return UnitVal")
       )
   );
 };

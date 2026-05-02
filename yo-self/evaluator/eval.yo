@@ -206,6 +206,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .FuncVal(_, _, _, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
     .BreakVal        => true,
+    .ContinueVal     => true,
     .TypeVal(_)      => true,
     .ModuleVal(_, _) => true,
     // Phase 2h variants
@@ -236,23 +237,28 @@ eval_type_annotation_expr :: (fn(type_expr : AstExpr) -> TypeValue)(
 /// Look up an identifier in the environment. Returns the stored compile-time
 /// value when available; otherwise a `VarRef` carrying the variable's type.
 /// Returns `None` if the name is unbound.
-eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
-  match((env.*).lookup(tok.value),
-    .Some(var) =>
-      match(var.value,
-        .Some(v)  => .Some(eval_result(v, var.ty)),
-        .None     => .Some(eval_result(.VarRef(tok.value), var.ty))
-      ),
-    .None =>
-      // Not in env — check if the name is a known primitive type name.
-      // This makes `i32`, `bool`, `usize`, etc. resolve to TypeVal at
-      // use sites like `(x : i32) = …` or generic type-param bindings.
-      match(type_from_name_opt(tok.value.as_str()),
-        .Some(ty) => .Some(eval_result(.TypeVal(box(ty)), t_type())),
-        .None     => Option(EvalResult).None
+eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))({
+  name := tok.value.as_str();
+  // Special keywords that can appear as bare identifiers
+  cond(
+    (name == "break") => .Some(eval_result(.BreakVal, t_unit())),
+    (name == "continue") => .Some(eval_result(.ContinueVal, t_unit())),
+    true =>
+      match((env.*).lookup(tok.value),
+        .Some(var) =>
+          match(var.value,
+            .Some(v)  => .Some(eval_result(v, var.ty)),
+            .None     => .Some(eval_result(.VarRef(tok.value), var.ty))
+          ),
+        .None =>
+          // Not in env — check if the name is a known primitive type name.
+          match(type_from_name_opt(tok.value.as_str()),
+            .Some(ty) => .Some(eval_result(.TypeVal(box(ty)), t_type())),
+            .None     => Option(EvalResult).None
+          )
       )
   )
-);
+});
 
 /// Evaluate a single-token `Atom` expression (does not recurse into evaluate).
 eval_atom :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
@@ -297,6 +303,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .FuncVal(_, _, _, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .BreakVal        => t_unit(),
+    .ContinueVal     => t_unit(),
     .TypeVal(_)      => t_type(),
     .ModuleVal(_, _) => t_unit(),
     // Phase 2h variants
@@ -2545,7 +2552,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                   (had_error : bool) = false;
                   (returning : bool) = false;
                   (breaking  : bool) = false;
-                  while runtime((((i < n) && (!(had_error))) && ((!(returning)) && (!(breaking))))), {
+                  (continuing : bool) = false;
+                  while runtime((((i < n) && (!(had_error))) && (((!(returning)) && (!(breaking))) && (!(continuing))))), {
                     match(args.get(i),
                       .Some(stmt) =>
                         match(recur(stmt, env),
@@ -2554,6 +2562,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                             match(r.value,
                               .ReturnVal(_, _) => { returning = true; },
                               .BreakVal        => { breaking  = true; },
+                              .ContinueVal     => { continuing = true; },
                               _ => ()
                             );
                           },
@@ -3217,6 +3226,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                             match(bv.value,
                                               .ReturnVal(_, _) => { keep_going = false; },
                                               .BreakVal        => { keep_going = false; },
+                                              .ContinueVal     => (),
                                               _ => ()
                                             );
                                           }
@@ -3230,7 +3240,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           }
                         );
                       };
-                      .Some(match(last.value, .BreakVal => eval_result(.UnitVal, t_unit()), _ => last))
+                      .Some(match(last.value, .BreakVal => eval_result(.UnitVal, t_unit()), .ContinueVal => eval_result(.UnitVal, t_unit()), _ => last))
                     }
                   )
 
@@ -3286,6 +3296,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             ,
 
             // -----------------------------------------------------------------
+            // continue — emit a ContinueVal signal to skip rest of loop body
+            // -----------------------------------------------------------------
+            (fval == "continue") =>
+              .Some(eval_result(.ContinueVal, t_unit()))
+            ,
+
+            // -----------------------------------------------------------------
             // for(item_pat, collection_expr, body_expr) — iterate over ArrayVal
             // -----------------------------------------------------------------
             (fval == "for") =>
@@ -3326,6 +3343,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                             match(body_res.value,
                                               .ReturnVal(_, _) => { for_ok = false; },
                                               .BreakVal        => { for_ok = false; },
+                                              .ContinueVal     => (),
                                               _ => ()
                                             );
                                           }
@@ -3334,7 +3352,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                     );
                                     fi = (fi + usize(1));
                                   };
-                                  .Some(match(last_fe.value, .BreakVal => eval_result(.UnitVal, t_unit()), _ => last_fe))
+                                  .Some(match(last_fe.value, .BreakVal => eval_result(.UnitVal, t_unit()), .ContinueVal => eval_result(.UnitVal, t_unit()), _ => last_fe))
                                 },
                                 _ => Option(EvalResult).None
                               )
@@ -3612,6 +3630,45 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // Labeled fields keep their name; positional fields get "__field_N".
             // -----------------------------------------------------------------
             (fval == BK_ANON_STRUCT) => handle_anon_struct_form(args, env),
+
+            // -----------------------------------------------------------------
+            // Phase 5u: assert(cond, msg) — compile-time assertion check.
+            // Evaluates cond; if truthy returns unit; if false returns None (error).
+            // -----------------------------------------------------------------
+            ((fval == "assert") && ((args.len() == usize(2)) || (args.len() == usize(1)))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(cond_expr) =>
+                  match(recur(cond_expr, env),
+                    .None => Option(EvalResult).None,
+                    .Some(cond_res) =>
+                      match(cond_res.value,
+                        .BoolVal(b) =>
+                          cond(b => .Some(eval_result(.UnitVal, t_unit())), true => Option(EvalResult).None),
+                        _ => .Some(eval_result(.UnitVal, t_unit()))
+                      )
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // Phase 5u: comptime_assert(cond, msg) — same as assert for CTFE.
+            // -----------------------------------------------------------------
+            ((fval == "comptime_assert") && ((args.len() == usize(2)) || (args.len() == usize(1)))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(cond_expr) =>
+                  match(recur(cond_expr, env),
+                    .None => Option(EvalResult).None,
+                    .Some(cond_res) =>
+                      match(cond_res.value,
+                        .BoolVal(b) =>
+                          cond(b => .Some(eval_result(.UnitVal, t_unit())), true => Option(EvalResult).None),
+                        _ => .Some(eval_result(.UnitVal, t_unit()))
+                      )
+                  )
+              )
+            ,
 
             // -----------------------------------------------------------------
             // Phase 3am: box(expr) — heap-boxing. At compile time, wraps the
