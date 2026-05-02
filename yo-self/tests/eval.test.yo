@@ -7600,3 +7600,39 @@ test "Phase 5aj: ArrayVal.set(1, 99) in [10,20,30]", {
     )
   );
 };
+
+// Phase 5ak — escape keyword + additional operations
+
+test "Phase 5ak: escape acts like return", {
+  env := empty_env();
+  // escape 42 → ReturnVal wrapping IntLit("42")
+  esc_expr := AstExpr.FnCall(usize(0), box(make_atom(TokenKind.Identifier, "escape")), {
+    (a := ArrayList(AstExpr).new());
+    a.push(make_atom(TokenKind.Integer, "42"));
+    a
+  }, false, make_token(TokenKind.Identifier, "escape"));
+  result := evaluate(esc_expr, &env);
+  match(result,
+    .None => assert(false, "escape returned None"),
+    .Some(r) => match(r.value,
+      .ReturnVal(inner, _) => match(inner.*,
+        .IntLit(v) => assert((v.as_str() == "42"), "escape should wrap 42"),
+        _ => assert(false, "expected IntLit inside ReturnVal")
+      ),
+      _ => assert(false, "expected ReturnVal")
+    )
+  );
+};
+
+test "Phase 5ak: escape without args", {
+  env := empty_env();
+  esc_expr := AstExpr.FnCall(usize(0), box(make_atom(TokenKind.Identifier, "escape")), ArrayList(AstExpr).new(), false, make_token(TokenKind.Identifier, "escape"));
+  result := evaluate(esc_expr, &env);
+  match(result,
+    .None => assert(false, "escape returned None"),
+    .Some(r) => match(r.value,
+      .ReturnVal(inner, _) => match(inner.*, .UnitVal => assert(true, "ok"), _ => assert(false, "expected UnitVal")),
+      _ => assert(false, "expected ReturnVal")
+    )
+  );
+};

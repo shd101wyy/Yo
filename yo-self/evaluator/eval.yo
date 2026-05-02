@@ -4152,6 +4152,29 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             ,
 
             // -----------------------------------------------------------------
+            // escape — in comptime context, acts same as return (discards continuation)
+            // -----------------------------------------------------------------
+            (fval == "escape") => 
+              cond(
+                (args.len() == usize(0)) =>
+                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
+                true =>
+                  match(args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(esc_expr) =>
+                      match(recur(esc_expr, env),
+                        .None => Option(EvalResult).None,
+                        .Some(esc_res) =>
+                          .Some(eval_result(
+                            .ReturnVal(box(esc_res.value), esc_res.ty),
+                            t_unit()
+                          ))
+                      )
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
             // break — emit a BreakVal signal to stop the nearest while/for loop
             // -----------------------------------------------------------------
             (fval == "break") =>
