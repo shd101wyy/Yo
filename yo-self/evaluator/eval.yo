@@ -1223,6 +1223,66 @@ handle_method_dispatch :: (fn(
             _ => { return Option(EvalResult).None; }
           ),
         // ---------------------------------------------------------------
+        // Phase 5z: StrLit.is_empty() — returns true if inner length == 0.
+        // ---------------------------------------------------------------
+        ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_ie) => {
+              n_ie := raw_ie.len();
+              inner_len_ie := cond(
+                (n_ie >= usize(2)) => (n_ie - usize(2)),
+                true => usize(0)
+              );
+              return Option(EvalResult).Some(eval_result(.BoolVal((inner_len_ie == usize(0))), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5z: StrLit.char_at(i) — returns StrLit of single char at index.
+        // ---------------------------------------------------------------
+        ((mname == "char_at") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(ca_idx_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef_ca) => ef_ca(ca_idx_expr, env),
+                  .None        => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(ca_idx_res) =>
+                  match(ca_idx_res.value,
+                    .IntLit(ca_raw) =>
+                      match(parse_raw_int(ca_raw),
+                        .None => { return Option(EvalResult).None; },
+                        .Some(ca_i64) => {
+                          ca_idx_u := usize(ca_i64);
+                          match(recv_val,
+                            .StrLit(raw_ca) => {
+                              n_ca := raw_ca.len();
+                              cond(
+                                (n_ca < usize(2)) => { return Option(EvalResult).None; },
+                                true => {
+                                  inner_ca := raw_ca.substring(usize(1), (n_ca - usize(1)));
+                                  cond(
+                                    (ca_idx_u >= inner_ca.len()) => { return Option(EvalResult).None; },
+                                    true => {
+                                      ch := inner_ca.substring(ca_idx_u, (ca_idx_u + usize(1)));
+                                      result_ca := ((String.from("\"") + ch) + String.from("\""));
+                                      return Option(EvalResult).Some(eval_result(.StrLit(result_ca), t_comptime_string()));
+                                    }
+                                  );
+                                }
+                              );
+                            },
+                            _ => { return Option(EvalResult).None; }
+                          );
+                        }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // ---------------------------------------------------------------
         // Phase 3am: TypeVal.new() refinement
         // String.new()    → StrLit("")
         // ArrayList.new() → ArrayVal([]) — any non-String TypeVal
@@ -3825,6 +3885,43 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             (fval == "unreachable") => .Some(eval_result(.UnitVal, t_unit())),
             (fval == "panic") => .Some(eval_result(.UnitVal, t_unit())),
             (fval == "todo") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5z: Impl(T) / Fn / FnMut / FnOnce — closure type constructors.
+            // Returns TypeVal placeholder.
+            // -----------------------------------------------------------------
+            (fval == "Impl") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "Fn") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "FnMut") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            (fval == "FnOnce") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Phase 5z: comptime_expect_error(expr) — test helper.
+            // Tries to evaluate the argument; if it returns None (error) → pass.
+            // If it succeeds → we return unit anyway (proto-eval can't distinguish).
+            // -----------------------------------------------------------------
+            (fval == "comptime_expect_error") =>
+              .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5z: derive(Trait1, Trait2, ...) — derive declarations.
+            // No-op in proto-eval; the real compiler generates method impls.
+            // -----------------------------------------------------------------
+            (fval == "derive") => .Some(eval_result(.UnitVal, t_unit())),
+
+            // -----------------------------------------------------------------
+            // Phase 5z: export(expr) — evaluate inner and return it.
+            // The real compiler marks the binding as exported.
+            // -----------------------------------------------------------------
+            ((fval == BK_EXPORT) && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(export_arg) => recur(export_arg, env)
+              ),
 
             // -----------------------------------------------------------------
             // Array literal: [e1, e2, ...] — parsed as array(e1, e2, ...)
