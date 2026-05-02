@@ -15,7 +15,8 @@ open import "std/error";
   is_labeled_arg, all_labeled_args, is_uppercase_start,
   handle_struct_constructor, handle_regular_call,
   gen_match_arm, handle_match_value,
-  handle_dot_access } :: import "../codegen/exprs.yo";
+  handle_dot_access,
+  is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
 { TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
@@ -3070,6 +3071,132 @@ test "Phase 5p: compile_module_to_c with derive(Clone) emits clone fn", {
     .Some(c_code) => {
       has_clone := c_code.contains(String.from("fn_Vec2_clone"));
       assert(has_clone, "derive(Clone) should emit fn_Vec2_clone");
+    }
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Lambda codegen tests — Phase 5p
+// ---------------------------------------------------------------------------
+
+/// Helper: make a single-param lambda AST: `(param) => body`
+make_lambda_expr :: (fn(param : str, body : AstExpr) -> AstExpr)({
+  arrow_tok := make_token_raw(TokenKind.Operator, "->");
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, param));
+  args.push(body);
+  AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arrow_tok)), args, true, arrow_tok)
+});
+
+/// Helper: make a multi-param lambda AST: `(p1, p2) => body`
+make_multi_lambda_expr :: (fn(params : ArrayList(str), body : AstExpr) -> AstExpr)({
+  arrow_tok := make_token_raw(TokenKind.Operator, "->");
+  tuple_args := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while runtime((i < params.len())), {
+    match(params.get(i),
+      .Some(p) => { tuple_args.push(make_atom_expr(TokenKind.Identifier, p)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  tuple_tok := make_token_raw(TokenKind.Identifier, "tuple");
+  tuple_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tuple_tok)), tuple_args, false, tuple_tok);
+  args := ArrayList(AstExpr).new();
+  args.push(tuple_expr);
+  args.push(body);
+  AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arrow_tok)), args, true, arrow_tok)
+});
+
+test "is_lambda_expr: single-param lambda detected", {
+  // (x) => (x + 1)
+  body := make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "1"));
+  lam := make_lambda_expr("x", body);
+  assert(is_lambda_expr(lam), "single param lambda should be detected");
+};
+
+test "is_lambda_expr: multi-param lambda detected", {
+  // (x, y) => (x + y)
+  body := make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "y"));
+  params := ArrayList(str).new();
+  params.push("x");
+  params.push("y");
+  lam := make_multi_lambda_expr(params, body);
+  assert(is_lambda_expr(lam), "multi param lambda should be detected");
+};
+
+test "is_lambda_expr: plain atom is not lambda", {
+  atom := make_atom_expr(TokenKind.Identifier, "foo");
+  assert(!(is_lambda_expr(atom)), "atom should not be lambda");
+};
+
+test "is_lambda_expr: infix + is not lambda", {
+  plus := make_infix_expr("+", make_atom_expr(TokenKind.Integer, "1"), make_atom_expr(TokenKind.Integer, "2"));
+  assert(!(is_lambda_expr(plus)), "infix + should not be lambda");
+};
+
+test "extract_lambda_param_names: single param extracts name", {
+  param_expr := make_atom_expr(TokenKind.Identifier, "x");
+  names := extract_lambda_param_names(param_expr);
+  assert((names.len() == usize(1)), "should extract 1 param name");
+  match(names.get(usize(0)),
+    .Some(n) => assert((n.as_str() == "x"), "param name should be x"),
+    .None => assert(false, "no param at index 0")
+  );
+};
+
+test "extract_lambda_param_names: multi param extracts all names", {
+  tuple_args := ArrayList(AstExpr).new();
+  tuple_args.push(make_atom_expr(TokenKind.Identifier, "a"));
+  tuple_args.push(make_atom_expr(TokenKind.Identifier, "b"));
+  tuple_args.push(make_atom_expr(TokenKind.Identifier, "c"));
+  tuple_tok := make_token_raw(TokenKind.Identifier, "tuple");
+  tuple_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tuple_tok)), tuple_args, false, tuple_tok);
+  names := extract_lambda_param_names(tuple_expr);
+  assert((names.len() == usize(3)), "should extract 3 param names");
+  match(names.get(usize(0)), .Some(n) => assert((n.as_str() == "a"), "first param a"), .None => assert(false, "no 0"));
+  match(names.get(usize(1)), .Some(n) => assert((n.as_str() == "b"), "second param b"), .None => assert(false, "no 1"));
+  match(names.get(usize(2)), .Some(n) => assert((n.as_str() == "c"), "third param c"), .None => assert(false, "no 2"));
+};
+
+test "lift_non_capturing_lambda: single param emits static function", {
+  ctx := CodegenContext.new();
+  // (x) => 42
+  body := make_atom_expr(TokenKind.Integer, "42");
+  lam := make_lambda_expr("x", body);
+  // Function pointer type: int32_t(*_FP_)(int32_t)
+  fp_ty := String.from("int32_t(*_FP_)(int32_t)");
+  result := lift_non_capturing_lambda((&(ctx)), lam, fp_ty);
+  match(result,
+    .None => assert(false, "lift should succeed"),
+    .Some(fn_name) => {
+      // The lambda name should start with "__lambda_"
+      assert(fn_name.starts_with(String.from("__yo_lambda_")), "fn name should start with __yo_lambda_");
+      // The emitter should have the static function declaration
+      output := ctx.emitter.print();
+      assert(output.contains(String.from("static int32_t")), "should have static int32_t return type");
+      assert(output.contains(String.from("int32_t x")), "should have param declaration");
+    }
+  );
+};
+
+test "lift_non_capturing_lambda: multi param emits correct params", {
+  ctx := CodegenContext.new();
+  // (a, b) => 0
+  body := make_atom_expr(TokenKind.Integer, "0");
+  params := ArrayList(str).new();
+  params.push("a");
+  params.push("b");
+  lam := make_multi_lambda_expr(params, body);
+  // Function pointer type: int32_t(*_FP_)(int32_t, int32_t)
+  fp_ty := String.from("int32_t(*_FP_)(int32_t, int32_t)");
+  result := lift_non_capturing_lambda((&(ctx)), lam, fp_ty);
+  match(result,
+    .None => assert(false, "lift multi-param should succeed"),
+    .Some(fn_name) => {
+      output := ctx.emitter.print();
+      assert(output.contains(String.from("int32_t a")), "should have param a");
+      assert(output.contains(String.from("int32_t b")), "should have param b");
     }
   );
 };
