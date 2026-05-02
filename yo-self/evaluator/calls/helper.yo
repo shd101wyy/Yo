@@ -1112,7 +1112,7 @@ evaluate_ctl_function_body_inline :: (fn(
   // Mirrors: let specializedEnv = pushEnvFrame(calleeEnv);
   // -------------------------------------------------------------------------
   specialized_env := clone_env(callee_env);
-  ___ := specialized_env.push_frame(false);
+  _push_frame_res := specialized_env.push_frame(false);
 
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from
@@ -1135,22 +1135,22 @@ evaluate_ctl_function_body_inline :: (fn(
                   .Some(cv3) => match(cv3, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
                   .None => false
                 );
-                if(!(is_fn_val), {
-                  existing := get_variables_from_env(specialized_env, caller_var.name);
-                  if((existing.len() == usize(0)), {
-                    ___ := add_variable_to_env(
-                      &(specialized_env),
-                      (&caller_var.name).clone(),
-                      caller_var.ty,
-                      caller_var.value,
-                      true,
-                      false,
-                      false,
-                      caller_var.is_implicit,
-                      caller_var.token
-                    );
+                  if(!(is_fn_val), {
+                    existing := get_variables_from_env(specialized_env, caller_var.name);
+                    if((existing.len() == usize(0)), {
+                      _add_caller_var_res := add_variable_to_env(
+                        &(specialized_env),
+                        (&caller_var.name).clone(),
+                        caller_var.ty,
+                        caller_var.value,
+                        true,
+                        false,
+                        false,
+                        caller_var.is_implicit,
+                        caller_var.token
+                      );
+                    });
                   });
-                });
               });
             },
             .None => ()
@@ -1181,7 +1181,7 @@ evaluate_ctl_function_body_inline :: (fn(
     fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
     fl_ty    := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
     ctl_tok  := synthetic_token((&fl_label).clone(), specialized_env.module_path);
-    ___ := add_variable_to_env(
+    _add_forall_var_res := add_variable_to_env(
       &(specialized_env),
       (&fl_label).clone(),
       fl_ty,

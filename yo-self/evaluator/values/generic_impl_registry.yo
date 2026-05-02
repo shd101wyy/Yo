@@ -78,7 +78,7 @@ GenericImplEntry :: struct(
 // ---------------------------------------------------------------------------
 
 /// Type of `type_implements_trait_bool` from trait_checking.yo.
-TypeImplementsTraitFn :: (fn(TypeValue, TypeValue, Environment) -> bool);
+TypeImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue, env : Environment) -> bool);
 
 /// Global slot — set once by `set_type_implements_trait_fn` (called from
 /// trait_checking.yo after `type_implements_trait` is defined).
@@ -254,12 +254,10 @@ try_match_generic_impl :: (fn(
           .Some(ev) => {
             match(ev,
               .TypeVal(b) => {
-                if(!(is_some_type(b.*)), {
-                  // Found a concrete binding via name — still count as bound.
-                  ()
-                }, {
-                  all_bound = false;
-                });
+                if(!(is_some_type(b.*)),
+                  (), // Found a concrete binding via name — still count as bound.
+                  { all_bound = false; }
+                );
               },
               _ => { all_bound = false; }
             );
