@@ -19,7 +19,7 @@ open import "std/string";
 { ExprInfoTable, expr_info_table_get }                      :: import "../expr/expr_info.yo";
 { Environment, Variable, Frame, new_frame,
   get_variables_from_env, make_err_variable,
-  generate_variable_id }                                     :: import "../env/env.yo";
+  generate_variable_id, add_variable_to_begin_block_frame } :: import "../env/env.yo";
 { Token }                                                    :: import "../lexer/token.yo";
 { EvalContext }                                              :: import "./context.yo";
 { atof }                                                     :: import "std/libc/stdlib";
@@ -29,6 +29,8 @@ open import "std/string";
 { EvalValue, is_unknown_val, is_var_ref }                   :: import "./value.yo";
 { TypeValue }                                               :: import "../types/type.yo";
 { are_types_compatible }                                    :: import "../types/compatibility.yo";
+{ type_contains_rc_type }                                   :: import "../types/utils.yo";
+{ expr_info_table_set }                                     :: import "../expr/expr_info.yo";
 
 // ---------------------------------------------------------------------------
 // Temp variable name generation
@@ -115,21 +117,90 @@ random_id :: (fn(_module_path : String) -> String)({
 // attach_temp_variable_to_expr
 // ---------------------------------------------------------------------------
 
-/// Attach a generated temp variable name to `expr`'s ExprInfo so that RC-typed
-/// results are tracked for drop-at-scope-exit.
+/// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
-/// Phase 2x stub: no-op. The full implementation (Phase 3) will:
-///   1. Look up ExprInfo from `ctx.expr_info_table` by `ast_expr_id(expr)`.
-///   2. Generate a temp name via `generate_new_temp_variable_name`.
-///   3. Add the variable to the env at the nearest begin-block frame.
-///   4. Update `ExprInfo.variable_name` and `ExprInfo.env` in the table.
+/// Steps (mirrors `attachTempVariableToExpr` in `src/expr.ts`):
+///  1. Look up ExprInfo from `ctx.expr_info_table` by `ast_expr_id(expr)`.
+///  2. Choose effective type: use `capture_type` when present and RC-containing
+///     and `is_owning_the_rc_value` is true (closure capture struct semantics).
+///  3. Determine `_is_owning_rc := is_owning_the_rc_value && type_contains_rc_type(ty)`.
+///  4. If `ExprInfo.variable_name` already set: update the existing variable.
+///  5. Otherwise: generate a fresh temp name, add to nearest begin-block frame,
+///     store name + updated env back in the ExprInfo table.
 ///
 /// Mirrors `attachTempVariableToExpr` in `src/expr.ts`.
 attach_temp_variable_to_expr :: (fn(
-  _expr                   : AstExpr,
-  _is_owning_the_rc_value : bool,
-  _ctx                    : *(EvalContext)
-) -> unit)(());
+  expr                    : AstExpr,
+  is_owning_the_rc_value  : bool,
+  ctx                     : *(EvalContext)
+) -> unit)({
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  match(info_opt,
+    .None => (),
+    .Some(info) => {
+      // Choose effective type: capture_type for closures with RC captures.
+      effective_ty := match(info.capture_type,
+        .Some(cap_ty) => cond(
+          ((type_contains_rc_type(cap_ty)) && is_owning_the_rc_value) => cap_ty,
+          true => info.ty
+        ),
+        .None => info.ty
+      );
+
+      // Only mark as owning if the effective type actually contains RC.
+      _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
+
+      // Compute compile-time-only flag and value: owning RC vars are always runtime.
+      is_ctonly := cond(_is_owning_rc => false, true => match(info.value, .Some(_) => true, .None => false));
+      var_value  := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
+
+      expr_tok := ast_expr_token(expr);
+
+      match(info.variable_name,
+        .Some(existing_name) => {
+          // Update the existing variable (if found in env).
+          existing_vars := get_variables_from_env(info.env, existing_name);
+          if((existing_vars.len() > usize(0)), {
+            existing_var := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => make_err_variable(info.env));
+            // Preserve borrowing: if variable was not owning, keep it not-owning.
+            preserved_rc := cond(
+              (!(existing_var.is_owning_the_rc_value)) => false,
+              true => _is_owning_rc
+            );
+            existing_var.ty                   = effective_ty;
+            existing_var.value                = cond(preserved_rc => Option(EvalValue).None, true => var_value);
+            existing_var.is_compile_time_only = cond(preserved_rc => false, true => is_ctonly);
+            existing_var.is_owning_the_rc_value = preserved_rc;
+            // Update origin_type if not already set.
+            match(info.origin_type,
+              .None => { info.origin_type = Option(TypeValue).Some(effective_ty); },
+              .Some(_) => ()
+            );
+          }, {
+            // Variable name exists but not in env: add it to begin-block frame.
+            ___ := add_variable_to_begin_block_frame(
+              (&(info.env)), existing_name, effective_ty, var_value,
+              is_ctonly, _is_owning_rc, expr_tok
+            );
+            match(info.origin_type, .None => { info.origin_type = Option(TypeValue).Some(effective_ty); }, .Some(_) => ());
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+          });
+        },
+        .None => {
+          // Create a new temp variable.
+          temp_name := generate_new_temp_variable_name(info.env.module_path);
+          ___ := add_variable_to_begin_block_frame(
+            (&(info.env)), temp_name, effective_ty, var_value,
+            is_ctonly, _is_owning_rc, expr_tok
+          );
+          info.variable_name = Option(String).Some(temp_name);
+          match(info.origin_type, .None => { info.origin_type = Option(TypeValue).Some(effective_ty); }, .Some(_) => ());
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+        }
+      );
+    }
+  );
+});
 
 // ---------------------------------------------------------------------------
 // find_rc_value_owner_relationship
