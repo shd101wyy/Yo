@@ -35,6 +35,7 @@ open import "std/string";
 { Environment } :: import "../env/env.yo";
 { Token } :: import "../lexer/token.yo";
 { YoError, ErrorKind, format_error_message } :: import "../error/error.yo";
+{ is_type_registered_as_trait } :: import "./types/trait_registry.yo";
 
 // ---------------------------------------------------------------------------
 // TraitCheckResult — mirrors { implemented: boolean; env: Environment }
@@ -81,6 +82,30 @@ _trait_type_id :: (fn(ty : TypeValue) -> String)(
     .TraitT(_, _, _, _, id, _, _, _) => id,
     .FnTraitT(base_name, _, _, _)    => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
+    _ => String.from("")
+  )
+);
+
+/// Extract the name string from a trait TypeValue.
+/// Used for registry lookup — TypeScript compares traits by name, not ID.
+_trait_type_name :: (fn(ty : TypeValue) -> String)(
+  match(ty,
+    .TraitT(name, _, _, _, _, _, _, _) => name,
+    .FnTraitT(base_name, _, _, _)      => base_name,
+    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    _ => String.from("")
+  )
+);
+
+/// Extract the unique structural ID from a struct/enum/union TypeValue.
+/// Returns "" for non-nominal types.
+///
+/// Distinct from `_trait_type_id` which extracts IDs from trait types.
+_type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
+  match(ty,
+    .Struct(id, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _)  => id,
+    .Union(name, _, _)            => name,
     _ => String.from("")
   )
 );
@@ -257,9 +282,14 @@ type_implements_trait :: (fn(
     return TraitCheckResult(implemented: true, env: env);
   });
 
-  // 4. Direct trait field match.
-  // Phase 3: requires the `trait` field on Struct/Enum types (impl registry).
-  // Skipped for now — conservative (may miss some implementations).
+  // 4. Direct trait field match — check global auto-derive registry.
+  type_id    := _type_id_for_trait_check(target);
+  trait_name := _trait_type_name(trait_type);
+  if((!(type_id.is_empty()) && !(trait_name.is_empty())), {
+    if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
+      return TraitCheckResult(implemented: true, env: env);
+    });
+  });
 
   // 5. DynType: check required traits and selfConstraints.
   match(target,
@@ -549,7 +579,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
 type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
   // Cycle break: if this type is currently being checked for Send derivation,
   // optimistically assume it implements Send.
-  ty_id := _trait_type_id(ty);
+  ty_id := _type_id_for_trait_check(ty);
   (in_derivation : bool) = false;
   nd := g_send_derivation_in_progress.len();
   (id : usize) = usize(0);

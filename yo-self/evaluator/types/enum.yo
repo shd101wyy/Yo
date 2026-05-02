@@ -35,6 +35,7 @@ open import "std/fmt";
 { is_valid_variable_name }                                    :: import "../exprs/binding.yo";
 { evaluate_expression }                                       :: import "../exprs/expr.yo";
 { ArrayList }                                                 :: import "std/collections/array_list";
+{ auto_derive_traits_for_enum_type }                          :: import "./auto_derive.yo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -399,7 +400,9 @@ evaluate_enum_type :: (fn(
     i = (i + usize(1));
   };
 
-  // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForEnumType stub — no-op.
+  // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
+  // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
+  auto_derive_traits_for_enum_type(String.from(enum_id.as_str()), variant_fields, env);
 
   // Restore SelfType.
   ctx.self_type = old_self_type;

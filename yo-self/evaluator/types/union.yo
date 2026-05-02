@@ -31,6 +31,7 @@ open import "std/fmt";
 { type_implements_runtime, type_is_comptime_only }   :: import "../../types/utils.yo";
 { type_contains_rc_type }                            :: import "../../types/utils.yo";
 { ArrayList }                                        :: import "std/collections/array_list";
+{ auto_derive_traits_for_union_type }                :: import "./auto_derive.yo";
 
 evaluate_union_type :: (fn(
   expr : AstExpr,
@@ -131,10 +132,9 @@ evaluate_union_type :: (fn(
     i = (i + usize(1));
   };
 
-  // TODO (Phase 3): auto_derive_send_for_union_type — stub, no-op for now.
-  // TODO (Phase 3): auto_derive_acyclic_for_union_type — stub, no-op for now.
-  // TODO (Phase 3): auto_derive_runtime_for_union_type — stub, no-op for now.
-  // TODO (Phase 3): propagate ctx.current_module_path to union trait (orphan rule checks).
+  // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
+  // Mirrors `autoDeriveTraitsForUnionType` in TypeScript.
+  auto_derive_traits_for_union_type(String.from(union_id.as_str()), field_types, env);
 
   // Restore SelfType.
   ctx.self_type = old_self_type;

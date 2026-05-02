@@ -31,6 +31,7 @@ open import "std/fmt";
   evaluate_type_field, register_struct_fields }    :: import "./field.yo";
 { random_id }                                      :: import "../utils.yo";
 { ArrayList }                                      :: import "std/collections/array_list";
+{ auto_derive_traits_for_struct_type }             :: import "./auto_derive.yo";
 
 evaluate_struct_type :: (fn(
   expr         : AstExpr,
@@ -129,17 +130,9 @@ evaluate_struct_type :: (fn(
     ));
   });
 
-  // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType stub — no-op for now.
-  // TODO (Phase 3): endSendDerivation stub — no-op for now.
-  // TODO (Phase 3): typeImplementsSend check for atomic objects — skipped for now.
 
-  // Restore SelfType
-  ctx.self_type = old_self_type;
-
-  // Register TypeField metadata in global registry
-  register_struct_fields(String.from(struct_id.as_str()), fields);
-
-  // Build final struct TypeValue with all fields populated
+  // Build final struct TypeValue with all fields populated.
+  // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
   struct_ty  := TypeValue.Struct(
     String.from(struct_id.as_str()),
     String.from(""),
@@ -149,6 +142,23 @@ evaluate_struct_type :: (fn(
     is_atomic_rc,
     is_newtype
   );
+
+  // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
+  // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
+  auto_derive_traits_for_struct_type(
+    String.from(struct_id.as_str()),
+    field_types,
+    is_reference_semantics,
+    is_atomic_rc,
+    env,
+    struct_ty
+  );
+
+  // Restore SelfType
+  ctx.self_type = old_self_type;
+
+  // Register TypeField metadata in global registry
+  register_struct_fields(String.from(struct_id.as_str()), fields);
 
   struct_val := create_type_value(struct_ty);
   meta_ty    := type_of_type(struct_ty);
