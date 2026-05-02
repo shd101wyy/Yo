@@ -1608,8 +1608,64 @@ handle_method_dispatch :: (fn(
             _ => { return Option(EvalResult).None; }
           ),
         // ---------------------------------------------------------------
-        // Phase 5z: StrLit.is_empty() — returns true if inner length == 0.
+        // Phase 5ai: ArrayVal.concat(other) — concatenate two arrays
         // ---------------------------------------------------------------
+        ((mname == "concat") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_co) => {
+              other_val := match(method_call_args.get(usize(0)),
+                .Some(oe2) => match(match(g_eval_fn, .Some(ef) => ef(oe2, env), .None => Option(EvalResult).None),
+                  .Some(or3) => or3.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              result_arr_co := ArrayList(EvalValue).new();
+              (coi : usize) = usize(0);
+              while runtime((coi < av_items_co.len())), {
+                match(av_items_co.get(coi), .Some(v) => { result_arr_co.push(v); }, .None => ());
+                coi = (coi + usize(1));
+              };
+              match(other_val,
+                .ArrayVal(other_items) => {
+                  (coj : usize) = usize(0);
+                  while runtime((coj < other_items.len())), {
+                    match(other_items.get(coj), .Some(v) => { result_arr_co.push(v); }, .None => ());
+                    coj = (coj + usize(1));
+                  };
+                },
+                _ => ()
+              );
+              return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_co), t_unit()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ai: ArrayVal.reverse() — returns reversed copy
+        // ---------------------------------------------------------------
+        ((mname == "reverse") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_rv) => {
+              result_arr_rv := ArrayList(EvalValue).new();
+              n_rv := av_items_rv.len();
+              cond(
+                (n_rv == usize(0)) => (),
+                true => {
+                  (rvi : usize) = (n_rv - usize(1));
+                  (rv_done : bool) = false;
+                  while runtime((!(rv_done))), {
+                    match(av_items_rv.get(rvi), .Some(v) => { result_arr_rv.push(v); }, .None => ());
+                    cond(
+                      (rvi == usize(0)) => { rv_done = true; },
+                      true => { rvi = (rvi - usize(1)); }
+                    );
+                  };
+                }
+              );
+              return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_rv), t_unit()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {

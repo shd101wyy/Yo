@@ -7355,3 +7355,87 @@ test "Phase 5ah: ArrayVal.all returns false when not all match", {
       )
   );
 };
+
+// Phase 5ai — ArrayVal.concat/reverse
+
+test "Phase 5ai: ArrayVal.concat merges two arrays", {
+  env := empty_env();
+  // arr1 := [1, 2]
+  arr1_items := ArrayList(AstExpr).new();
+  arr1_items.push(make_atom(TokenKind.Integer, "1"));
+  arr1_items.push(make_atom(TokenKind.Integer, "2"));
+  arr1_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr1_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr1_tok)), arr1_items, false, arr1_tok);
+  def_arr1 := make_infix(":=", make_atom(TokenKind.Identifier, "arr1"), arr1_expr);
+  _ := evaluate(def_arr1, &env);
+  // arr2 := [3, 4]
+  arr2_items := ArrayList(AstExpr).new();
+  arr2_items.push(make_atom(TokenKind.Integer, "3"));
+  arr2_items.push(make_atom(TokenKind.Integer, "4"));
+  arr2_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr1_tok)), arr2_items, false, arr1_tok);
+  def_arr2 := make_infix(":=", make_atom(TokenKind.Identifier, "arr2"), arr2_expr);
+  _ := evaluate(def_arr2, &env);
+  // arr1.concat(arr2)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr1"));
+  dot_args.push(make_atom(TokenKind.Identifier, "concat"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "arr2"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "concat returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(4)), "concat should produce 4 elements");
+          match(items.get(usize(3)),
+            .Some(v3) => match(v3, .IntLit(s) => assert((s.as_str() == "4"), "last should be 4"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 3")
+          );
+        },
+        _ => assert(false, "concat should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ai: ArrayVal.reverse reverses order", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_rv"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_rv.reverse()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_rv"));
+  dot_args.push(make_atom(TokenKind.Identifier, "reverse"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "reverse returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(3)), "reverse should have 3 elements");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "3"), "first should be 3 (reversed)"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 0")
+          );
+          match(items.get(usize(2)),
+            .Some(v2) => match(v2, .IntLit(s) => assert((s.as_str() == "1"), "last should be 1 (reversed)"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 2")
+          );
+        },
+        _ => assert(false, "reverse should return ArrayVal")
+      )
+  );
+};
