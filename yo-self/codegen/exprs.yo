@@ -1973,7 +1973,9 @@ type_name_to_c :: (fn(name : str) -> String)(
     (name == "f64")   => String.from("double"),
     (name == "bool")  => String.from("bool"),
     (name == "str")   => String.from("const char*"),
+    (name == "String") => String.from("const char*"),
     (name == "unit")  => String.from("void"),
+    (name == "rune")  => String.from("uint32_t"),
     true              => String.from(name)
   )
 );
@@ -2133,7 +2135,17 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
             )
           ),
           // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
-          (!(ftok.value.as_str() == "*")) => Option(String).None,
+          (!(ftok.value.as_str() == "*")) => cond(
+            // Generic container types: ArrayList(T), Option(T), Result(T, E), Box(T), HashMap(K, V)
+            // In proto-codegen these are all opaque pointer types (void*).
+            ((ftok.value.as_str() == "ArrayList") || (ftok.value.as_str() == "HashMap")) =>
+              Option(String).Some(String.from("void*")),
+            (ftok.value.as_str() == "Option") => Option(String).Some(String.from("void*")),
+            (ftok.value.as_str() == "Result") => Option(String).Some(String.from("void*")),
+            (ftok.value.as_str() == "Box") => Option(String).Some(String.from("void*")),
+            (ftok.value.as_str() == "Impl") => Option(String).Some(String.from("void*")),
+            true => Option(String).None
+          ),
           true => match(func_args.get(usize(0)),
             .None => Option(String).None,
             .Some(inner_ty) => match(inner_ty,

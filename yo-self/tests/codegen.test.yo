@@ -2950,3 +2950,36 @@ test "Phase 5o: compile_module_to_c with impl emits method", {
     }
   );
 };
+
+test "Phase 5o: type_name_to_c maps String to const char*", {
+  result := type_name_to_c("String");
+  assert((result == String.from("const char*")), "String maps to const char*");
+};
+
+test "Phase 5o: type_name_to_c maps rune to uint32_t", {
+  result := type_name_to_c("rune");
+  assert((result == String.from("uint32_t")), "rune maps to uint32_t");
+};
+
+test "Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
+  // ArrayList(String) → FnCall(Atom("ArrayList"), [Atom("String")], false)
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "String"));
+  expr := make_fncall_expr("ArrayList", args);
+  result := type_expr_to_c(expr);
+  match(result,
+    .None => assert(false, "expected Some for ArrayList(String)"),
+    .Some(ty) => assert((ty == String.from("void*")), "ArrayList(T) -> void*")
+  );
+};
+
+test "Phase 5o: type_expr_to_c maps Option(T) to void*", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "i32"));
+  expr := make_fncall_expr("Option", args);
+  result := type_expr_to_c(expr);
+  match(result,
+    .None => assert(false, "expected Some for Option(i32)"),
+    .Some(ty) => assert((ty == String.from("void*")), "Option(T) -> void*")
+  );
+};
