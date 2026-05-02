@@ -1666,6 +1666,115 @@ handle_method_dispatch :: (fn(
             },
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5aj: ArrayVal.remove(index) — remove element at index, return new array
+        // ---------------------------------------------------------------
+        ((mname == "remove") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_rm) => {
+              idx_rm := match(method_call_args.get(usize(0)),
+                .Some(ie) => match(match(g_eval_fn, .Some(ef) => ef(ie, env), .None => Option(EvalResult).None),
+                  .Some(ir) => match(ir.value, .IntLit(s) => s, _ => { return Option(EvalResult).None; }),
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              match(parse_raw_int(idx_rm),
+                .None => { return Option(EvalResult).None; },
+                .Some(idx_i64) => {
+                  idx_u := usize(idx_i64);
+                  result_arr_rm := ArrayList(EvalValue).new();
+                  (rmi : usize) = usize(0);
+                  rm_n := av_items_rm.len();
+                  while runtime((rmi < rm_n)), {
+                    cond(
+                      (rmi == idx_u) => (),
+                      true => match(av_items_rm.get(rmi), .Some(v) => { result_arr_rm.push(v); }, .None => ())
+                    );
+                    rmi = (rmi + usize(1));
+                  };
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_rm), t_unit()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5aj: ArrayVal.set(index, val) — return new array with element at index replaced
+        // ---------------------------------------------------------------
+        ((mname == "set") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_st) => {
+              idx_st := match(method_call_args.get(usize(0)),
+                .Some(ie) => match(match(g_eval_fn, .Some(ef) => ef(ie, env), .None => Option(EvalResult).None),
+                  .Some(ir) => match(ir.value, .IntLit(s) => s, _ => { return Option(EvalResult).None; }),
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              new_val_st := match(method_call_args.get(usize(1)),
+                .Some(ve) => match(match(g_eval_fn, .Some(ef) => ef(ve, env), .None => Option(EvalResult).None),
+                  .Some(vr) => vr.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              match(parse_raw_int(idx_st),
+                .None => { return Option(EvalResult).None; },
+                .Some(idx_i64_st) => {
+                  idx_u_st := usize(idx_i64_st);
+                  result_arr_st := ArrayList(EvalValue).new();
+                  (sti : usize) = usize(0);
+                  st_n := av_items_st.len();
+                  while runtime((sti < st_n)), {
+                    cond(
+                      (sti == idx_u_st) => { result_arr_st.push(new_val_st); },
+                      true => match(av_items_st.get(sti), .Some(v) => { result_arr_st.push(v); }, .None => ())
+                    );
+                    sti = (sti + usize(1));
+                  };
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr_st), t_unit()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5aj: EnumVal.is_some() — true if tag is ".Some"
+        // ---------------------------------------------------------------
+        ((mname == "is_some") && (match(recv_val, .EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .EnumVal(tag_is, _) => {
+              return Option(EvalResult).Some(eval_result(.BoolVal((tag_is.as_str() == ".Some")), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5aj: EnumVal.is_none() — true if tag is ".None"
+        // ---------------------------------------------------------------
+        ((mname == "is_none") && (match(recv_val, .EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .EnumVal(tag_in, _) => {
+              return Option(EvalResult).Some(eval_result(.BoolVal((tag_in.as_str() == ".None")), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5aj: EnumVal.unwrap() — extract .Some(val) inner value
+        // ---------------------------------------------------------------
+        ((mname == "unwrap") && (match(recv_val, .EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .EnumVal(tag_uw, fields_uw) =>
+              cond(
+                ((tag_uw.as_str() == ".Some") && (fields_uw.len() > usize(0))) =>
+                  match(fields_uw.get(usize(0)),
+                    .Some(inner_uw) => { return Option(EvalResult).Some(eval_result(inner_uw, type_of_eval_value(inner_uw))); },
+                    .None => { return Option(EvalResult).None; }
+                  ),
+                true => { return Option(EvalResult).None; }
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {
@@ -3342,10 +3451,64 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                               ),
                             // typed: (x : T) := rhs  — declare with explicit type
                             // given(name) := rhs  — implicit/effect parameter installation
+                            // (a, b) := rhs — tuple destructuring
                             .FnCall(_, colon_box_a, colon_args_a, _, _) =>
                               match(colon_box_a.*,
                                 .Atom(_, colon_tok_a) =>
                                   cond(
+                                    // Tuple destructuring: (a, b, c) := rhs
+                                    (colon_tok_a.value.as_str() == BK_TUPLE) =>
+                                      match(recur(rhs, env),
+                                        .None => Option(EvalResult).None,
+                                        .Some(rhs_res) =>
+                                          match(rhs_res.value,
+                                            .StructVal(_, _, svals) => {
+                                              nd := colon_args_a.len();
+                                              (di2 : usize) = usize(0);
+                                              while runtime((di2 < nd)), {
+                                                match(colon_args_a.get(di2),
+                                                  .Some(de) => match(de,
+                                                    .Atom(_, dtok) =>
+                                                      cond(
+                                                        (dtok.value.as_str() == "_") => (),
+                                                        true =>
+                                                          match(svals.get(di2),
+                                                            .Some(dval) => {
+                                                              _didx := env.define_val(dtok.value, type_of_eval_value(dval), value_is_comptime(dval), .Some(dval));
+                                                            },
+                                                            .None => {
+                                                              _didx := env.define_val(dtok.value, t_unit(), true, .Some(EvalValue.UnitVal));
+                                                            }
+                                                          )
+                                                      ),
+                                                    .FnCall(_, _, _, _, _) => ()
+                                                  ),
+                                                  .None => ()
+                                                );
+                                                di2 = (di2 + usize(1));
+                                              };
+                                              .Some(eval_result(.UnitVal, t_unit()))
+                                            },
+                                            _ => {
+                                              // Not a struct — just bind to first destructuring name if single
+                                              cond(
+                                                (colon_args_a.len() == usize(1)) =>
+                                                  match(colon_args_a.get(usize(0)),
+                                                    .Some(se) => match(se,
+                                                      .Atom(_, stok) => {
+                                                        _sidx := env.define_val(stok.value, rhs_res.ty, value_is_comptime(rhs_res.value), .Some(rhs_res.value));
+                                                        ()
+                                                      },
+                                                      .FnCall(_, _, _, _, _) => ()
+                                                    ),
+                                                    .None => ()
+                                                  ),
+                                                true => ()
+                                              );
+                                              .Some(eval_result(.UnitVal, t_unit()))
+                                            }
+                                          )
+                                      ),
                                     (colon_tok_a.value.as_str() == ":") =>
                                       match(colon_args_a.get(usize(0)),
                                         .Some(name_expr_a) =>

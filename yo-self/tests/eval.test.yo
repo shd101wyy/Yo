@@ -12,7 +12,7 @@ open import "std/error";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT,
   BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT, BK_ARRAY_VAL } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
-  t_i32, t_bool, t_u32, t_f32, t_type,
+  t_i32, t_bool, t_u32, t_f32, t_type, t_unit,
   t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
@@ -7437,5 +7437,166 @@ test "Phase 5ai: ArrayVal.reverse reverses order", {
         },
         _ => assert(false, "reverse should return ArrayVal")
       )
+  );
+};
+
+// Phase 5aj — tuple destructuring
+
+test "Phase 5aj: tuple destructuring (a, b) := (1, 2)", {
+  env := empty_env();
+  // First create the tuple (1, 2)
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "1"));
+  tup_args.push(make_atom(TokenKind.Integer, "2"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  // LHS: (a, b)
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Identifier, "a"));
+  lhs_args.push(make_atom(TokenKind.Identifier, "b"));
+  lhs_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), lhs_args, false, tup_tok);
+  // (a, b) := (1, 2)
+  def_expr := make_infix(":=", lhs_expr, tup_expr);
+  _ := evaluate(def_expr, &env);
+  // Check a == 1
+  result_a := evaluate(make_atom(TokenKind.Identifier, "a"), &env);
+  match(result_a,
+    .None => assert(false, "a not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "1"), "a should be 1"), _ => assert(false, "a should be IntLit"))
+  );
+  // Check b == 2
+  result_b := evaluate(make_atom(TokenKind.Identifier, "b"), &env);
+  match(result_b,
+    .None => assert(false, "b not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "2"), "b should be 2"), _ => assert(false, "b should be IntLit"))
+  );
+};
+
+test "Phase 5aj: tuple destructuring with wildcard (_, b) := (1, 2)", {
+  env := empty_env();
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "10"));
+  tup_args.push(make_atom(TokenKind.Integer, "20"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Identifier, "_"));
+  lhs_args.push(make_atom(TokenKind.Identifier, "b2"));
+  lhs_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), lhs_args, false, tup_tok);
+  def_expr := make_infix(":=", lhs_expr, tup_expr);
+  _ := evaluate(def_expr, &env);
+  // b2 should be 20, _ should not be defined (wildcard)
+  result_b := evaluate(make_atom(TokenKind.Identifier, "b2"), &env);
+  match(result_b,
+    .None => assert(false, "b2 not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "20"), "b2 should be 20"), _ => assert(false, "b2 should be IntLit"))
+  );
+};
+
+test "Phase 5aj: EnumVal.is_some() true", {
+  env := empty_env();
+  // Create .Some(42) as an EnumVal in the env
+  some_fields := ArrayList(EvalValue).new();
+  some_fields.push(.IntLit(String.from("42")));
+  _ := env.define_val(String.from("opt"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".Some"), some_fields)));
+  // opt.is_some()
+  recv_ast := make_atom(TokenKind.Identifier, "opt");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "is_some");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "is_some returned None"),
+    .Some(r) => match(r.value, .BoolVal(v) => assert(v, "is_some should be true"), _ => assert(false, "expected BoolVal"))
+  );
+};
+
+test "Phase 5aj: EnumVal.is_none() true", {
+  env := empty_env();
+  none_fields := ArrayList(EvalValue).new();
+  _ := env.define_val(String.from("opt2"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".None"), none_fields)));
+  recv_ast := make_atom(TokenKind.Identifier, "opt2");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "is_none");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "is_none returned None"),
+    .Some(r) => match(r.value, .BoolVal(v) => assert(v, "is_none should be true"), _ => assert(false, "expected BoolVal"))
+  );
+};
+
+test "Phase 5aj: EnumVal.unwrap() extracts inner value", {
+  env := empty_env();
+  some_fields := ArrayList(EvalValue).new();
+  some_fields.push(.IntLit(String.from("99")));
+  _ := env.define_val(String.from("opt3"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".Some"), some_fields)));
+  recv_ast := make_atom(TokenKind.Identifier, "opt3");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "unwrap");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "unwrap returned None"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "99"), "unwrap should return 99"), _ => assert(false, "expected IntLit"))
+  );
+};
+
+test "Phase 5aj: ArrayVal.remove(1) from [10,20,30]", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "remove");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "remove returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(2)), "should have 2 elements");
+        match(items.get(usize(0)), .Some(ev0) => match(ev0, .IntLit(v) => assert((v.as_str() == "10"), "first should be 10"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 0"));
+        match(items.get(usize(1)), .Some(ev1) => match(ev1, .IntLit(v) => assert((v.as_str() == "30"), "second should be 30"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 1"));
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5aj: ArrayVal.set(1, 99) in [10,20,30]", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr2"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "arr2");
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "set");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "set returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(3)), "should have 3 elements");
+        match(items.get(usize(0)), .Some(ev0) => match(ev0, .IntLit(v) => assert((v.as_str() == "10"), "first should be 10"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 0"));
+        match(items.get(usize(1)), .Some(ev1) => match(ev1, .IntLit(v) => assert((v.as_str() == "99"), "second should be 99"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 1"));
+        match(items.get(usize(2)), .Some(ev2) => match(ev2, .IntLit(v) => assert((v.as_str() == "30"), "third should be 30"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 2"));
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
   );
 };
