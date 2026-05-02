@@ -3335,6 +3335,8 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == "using")                => true,
     // given(name) at expression level — compile-time only, skip
     (name == "given")                => true,
+    (name == "break")                => true,
+    (name == "continue")             => true,
     true                             => false
   )
 );
@@ -5776,6 +5778,24 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             }
           )
         ),
+        // break — emit C `break;`
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "break")
+        )) => {
+          ctx.*.emitter.emit_string(indent);
+          ctx.*.emitter.emit_line("break;");
+          .Some(String.from("0"))
+        },
+        // continue — emit C `continue;`
+        ((!is_infix) && match(ident_opt,
+          .None    => false,
+          .Some(id) => (id.as_str() == "continue")
+        )) => {
+          ctx.*.emitter.emit_string(indent);
+          ctx.*.emitter.emit_line("continue;");
+          .Some(String.from("0"))
+        },
         // cond(arm1, arm2, …)
         match(ident_opt,
           .None    => false,

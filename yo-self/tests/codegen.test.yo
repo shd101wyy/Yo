@@ -3707,3 +3707,96 @@ test "compile_module_to_c: program with newtype emits typedef", {
     }
   );
 };
+
+test "generate_expr: break emits break statement", {
+  ctx := CodegenContext.new();
+  pctx := &ctx;
+  // break() => emits "break;\n" and returns "0"
+  break_args := ArrayList(AstExpr).new();
+  break_expr := make_fncall_expr("break", break_args);
+  result := generate_expr(break_expr, pctx, String.from("  "));
+  match(result,
+    .None => assert(false, "break should return Some"),
+    .Some(v) => assert((v.as_str() == "0"), "break returns 0 sentinel")
+  );
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("break;")), "should contain break;");
+};
+
+test "generate_expr: continue emits continue statement", {
+  ctx := CodegenContext.new();
+  pctx := &ctx;
+  // continue() => emits "continue;\n" and returns "0"
+  cont_args := ArrayList(AstExpr).new();
+  cont_expr := make_fncall_expr("continue", cont_args);
+  result := generate_expr(cont_expr, pctx, String.from("  "));
+  match(result,
+    .None => assert(false, "continue should return Some"),
+    .Some(v) => assert((v.as_str() == "0"), "continue returns 0 sentinel")
+  );
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("continue;")), "should contain continue;");
+};
+
+test "compile_module_to_c: program with break in while loop", {
+  // find_first :: (fn(n : i32) -> i32)({
+  //   (i : i32) = 0;
+  //   while runtime(true), { if((i > n), break()); i = (i + 1); };
+  //   i;
+  // });
+  // main :: (fn() -> i32)(0);
+  exprs := ArrayList(AstExpr).new();
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "n"), make_atom_expr(TokenKind.Identifier, "i32")));
+  fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  // (i : i32) = 0
+  i_decl := make_assign_expr(
+    make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "i"), make_atom_expr(TokenKind.Identifier, "i32")),
+    make_atom_expr(TokenKind.Integer, "0")
+  );
+  // while runtime(true), { if((i > n), break()); i = (i + 1); }
+  while_cond := make_runtime_cond(make_atom_expr(TokenKind.Bool, "true"));
+  // break()
+  break_args := ArrayList(AstExpr).new();
+  break_call := make_fncall_expr("break", break_args);
+  // if((i > n), break())
+  if_cond := make_infix_expr(">", make_atom_expr(TokenKind.Identifier, "i"), make_atom_expr(TokenKind.Identifier, "n"));
+  if_then := break_call;
+  if_call := make_if_expr(if_cond, if_then);
+  // i = (i + 1)
+  i_inc := make_assign_expr(make_atom_expr(TokenKind.Identifier, "i"), make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "i"), make_atom_expr(TokenKind.Integer, "1")));
+  while_stmts := ArrayList(AstExpr).new();
+  while_stmts.push(if_call);
+  while_stmts.push(i_inc);
+  while_body := make_begin_expr(while_stmts);
+  while_expr := make_while_expr(while_cond, while_body);
+  body_stmts := ArrayList(AstExpr).new();
+  body_stmts.push(i_decl);
+  body_stmts.push(while_expr);
+  body_stmts.push(make_atom_expr(TokenKind.Identifier, "i"));
+  body := make_begin_expr(body_stmts);
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "find_first"), fn_app));
+
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type := make_infix_expr("->", make_fncall_expr("fn", main_params), make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app));
+
+  result := compile_module_to_c(exprs, "break_mod", "main");
+  match(result,
+    .None => assert(false, "break program should compile"),
+    .Some(c_code) => {
+      assert(c_code.contains(String.from("find_first")), "should have find_first fn");
+      assert(c_code.contains(String.from("while")), "should have while loop");
+      assert(c_code.contains(String.from("break")), "should have break statement");
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
