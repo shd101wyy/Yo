@@ -827,6 +827,94 @@ emit_newtype_to_c :: (fn(name : str, inner_c : str, ctx : *(CodegenContext)) -> 
 });
 
 // ---------------------------------------------------------------------------
+// extract_const_def — module-level constants: Name :: literal
+// ---------------------------------------------------------------------------
+
+/// A compile-time constant definition: `Name :: literal`.
+/// Represents the result of extracting a module-level constant.
+ConstDef :: struct(
+  name  : String,
+  value : String,
+  kind  : String
+);
+derive(ConstDef, Clone);
+
+/// Try to extract a module-level constant `Name :: literal` from an AST expr.
+/// Recognises string literals, integers, and booleans.
+/// Returns None for function defs, type defs, or non-literal RHS.
+extract_const_def :: (fn(expr : AstExpr) -> Option(ConstDef))(
+  match(expr,
+    .Atom(_, _) => Option(ConstDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(ConstDef).None,
+      (top_args.len() < usize(2)) => Option(ConstDef).None,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _, _) => Option(ConstDef).None,
+        .Atom(_, op_tok) => cond(
+          (!(op_tok.value.as_str() == "::")) => Option(ConstDef).None,
+          true => match(top_args.get(usize(0)),
+            .None => Option(ConstDef).None,
+            .Some(name_expr) => match(atom_ident(name_expr),
+              .None => Option(ConstDef).None,
+              .Some(name_str) => match(top_args.get(usize(1)),
+                .None => Option(ConstDef).None,
+                .Some(rhs) => match(rhs,
+                  .FnCall(_, _, _, _, _) => Option(ConstDef).None,
+                  .Atom(_, rhs_tok) => {
+                    val_str := rhs_tok.value.as_str();
+                    cond(
+                      (rhs_tok.kind == TokenKind.StringLit) => .Some(ConstDef(
+                        name:  String.from(name_str),
+                        value: String.from(val_str),
+                        kind:  String.from("str")
+                      )),
+                      (rhs_tok.kind == TokenKind.Integer) => .Some(ConstDef(
+                        name:  String.from(name_str),
+                        value: String.from(val_str),
+                        kind:  String.from("int")
+                      )),
+                      ((val_str == "true") || (val_str == "false")) => .Some(ConstDef(
+                        name:  String.from(name_str),
+                        value: cond((val_str == "true") => String.from("1"), true => String.from("0")),
+                        kind:  String.from("bool")
+                      )),
+                      true => Option(ConstDef).None
+                    )
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+/// Emit a module-level constant to C declarations.
+/// - Strings: `static const char* Name = "value";`
+/// - Integers/booleans: `#define Name value`
+emit_const_to_c :: (fn(cd : ConstDef, ctx : *(CodegenContext)) -> unit)({
+  cond(
+    (cd.kind.as_str() == "str") => {
+      ctx.*.emitter.emit_declaration("static const char* ");
+      ctx.*.emitter.emit_declaration(cd.name.as_str());
+      ctx.*.emitter.emit_declaration(" = ");
+      ctx.*.emitter.emit_declaration(cd.value.as_str());
+      ctx.*.emitter.emit_declaration_line(";");
+      ()
+    },
+    true => {
+      ctx.*.emitter.emit_declaration("#define ");
+      ctx.*.emitter.emit_declaration(cd.name.as_str());
+      ctx.*.emitter.emit_declaration(" ");
+      ctx.*.emitter.emit_declaration_line(cd.value.as_str());
+      ()
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
 // extract_enum_def / emit_enum_to_c
 // ---------------------------------------------------------------------------
 
@@ -1019,7 +1107,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                     true => match(rhs_func.*,
                       .FnCall(_, _, _, _, _) => Option(EnumDef).None,
                       .Atom(_, rhs_tok) => cond(
-                        (!(rhs_tok.value.as_str() == "enum")) => Option(EnumDef).None,
+                        (!((rhs_tok.value.as_str() == "enum") || (rhs_tok.value.as_str() == "union"))) => Option(EnumDef).None,
                         true => {
                           variants   := ArrayList(EnumVariant).new();
                           (is_complex : bool) = false;
@@ -1696,6 +1784,13 @@ compile_module_to_c :: (fn(
                     }
                   );
                 };
+                // Fifth: try to extract a module-level constant.
+                if((nm == usize(0)), {
+                  match(extract_const_def(expr),
+                    .Some(cd) => emit_const_to_c(cd, pctx),
+                    .None => ()
+                  );
+                });
               }
             )
               }
@@ -1721,6 +1816,7 @@ export FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, e
        c_type_has_self, struct_has_self_fields,
        EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
        extract_newtype_def, emit_newtype_to_c,
+       ConstDef, extract_const_def, emit_const_to_c,
        extract_impl_fns, compile_module_to_c;
 
 // ---------------------------------------------------------------------------

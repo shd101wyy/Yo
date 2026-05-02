@@ -31,6 +31,7 @@ open import "std/error";
 { FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
   EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
   extract_newtype_def, emit_newtype_to_c,
+  ConstDef, extract_const_def, emit_const_to_c,
   extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
@@ -2763,6 +2764,136 @@ test "Phase 5n: extract_newtype_def recognizes newtype(u8)", {
         .None => assert(false, "inner type missing"),
         .Some(ty_s) => assert((ty_s == String.from("uint8_t")), "inner type is uint8_t")
       );
+    }
+  );
+};
+
+test "Phase 5o: extract_enum_def recognizes union keyword", {
+  // Value :: union(IntVal(n: i32), BoolVal(b: bool))
+  // Build: IntVal(n: i32)
+  int_fields := ArrayList(AstExpr).new();
+  int_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "n"), make_atom_expr(TokenKind.Identifier, "i32")));
+  int_variant := make_fncall_expr("IntVal", int_fields);
+  // Build: BoolVal(b: bool)
+  bool_fields := ArrayList(AstExpr).new();
+  bool_fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "b"), make_atom_expr(TokenKind.Identifier, "bool")));
+  bool_variant := make_fncall_expr("BoolVal", bool_fields);
+  // Build: union(IntVal(...), BoolVal(...))
+  union_args := ArrayList(AstExpr).new();
+  union_args.push(int_variant);
+  union_args.push(bool_variant);
+  union_call := make_fncall_expr("union", union_args);
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Value"), union_call);
+  result := extract_enum_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(EnumDef) for union keyword"),
+    .Some(ed) => {
+      assert((ed.name == String.from("Value")), "name is Value");
+      assert((ed.variants.len() == usize(2)), "two variants");
+      assert(ed.is_complex, "union with fields is complex");
+      match(ed.variants.get(usize(0)),
+        .None => assert(false, "variant 0 missing"),
+        .Some(v0) => {
+          assert((v0.name == String.from("IntVal")), "variant 0 is IntVal");
+          assert((v0.fields.len() == usize(1)), "IntVal has 1 field");
+        }
+      );
+      match(ed.variants.get(usize(1)),
+        .None => assert(false, "variant 1 missing"),
+        .Some(v1) => {
+          assert((v1.name == String.from("BoolVal")), "variant 1 is BoolVal");
+          assert((v1.fields.len() == usize(1)), "BoolVal has 1 field");
+        }
+      );
+    }
+  );
+};
+
+test "Phase 5o: extract_const_def recognizes string constant", {
+  // BK_TUPLE :: "tuple"
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "BK_TUPLE"), make_atom_expr(TokenKind.StringLit, "\"tuple\""));
+  result := extract_const_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(ConstDef) for string constant"),
+    .Some(cd) => {
+      assert((cd.name == String.from("BK_TUPLE")), "name is BK_TUPLE");
+      assert((cd.value == String.from("\"tuple\"")), "value is quoted");
+      assert((cd.kind == String.from("str")), "kind is str");
+    }
+  );
+};
+
+test "Phase 5o: extract_const_def recognizes integer constant", {
+  // MAX_SIZE :: 1024
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "MAX_SIZE"), make_atom_expr(TokenKind.Integer, "1024"));
+  result := extract_const_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(ConstDef) for int constant"),
+    .Some(cd) => {
+      assert((cd.name == String.from("MAX_SIZE")), "name is MAX_SIZE");
+      assert((cd.value == String.from("1024")), "value is 1024");
+      assert((cd.kind == String.from("int")), "kind is int");
+    }
+  );
+};
+
+test "Phase 5o: extract_const_def recognizes bool constant", {
+  // DEBUG :: true
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "DEBUG"), make_atom_expr(TokenKind.Identifier, "true"));
+  result := extract_const_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(ConstDef) for bool constant"),
+    .Some(cd) => {
+      assert((cd.name == String.from("DEBUG")), "name is DEBUG");
+      assert((cd.value == String.from("1")), "value is 1");
+      assert((cd.kind == String.from("bool")), "kind is bool");
+    }
+  );
+};
+
+test "Phase 5o: extract_const_def returns None for function def", {
+  // foo :: (fn() -> unit)(...) → should NOT be a const
+  fn_args := ArrayList(AstExpr).new();
+  fn_body := make_fncall_expr("fn", fn_args);
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "foo"), fn_body);
+  result := extract_const_def(expr);
+  match(result,
+    .None => (),
+    .Some(_) => assert(false, "should not match function def as constant")
+  );
+};
+
+test "Phase 5o: emit_const_to_c emits string constant", {
+  ctx := CodegenContext.new();
+  cd := ConstDef(name: String.from("MY_STR"), value: String.from("\"hello\""), kind: String.from("str"));
+  emit_const_to_c(cd, &ctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static const char* MY_STR")), "has static const char*");
+  assert(output.contains(String.from("\"hello\"")), "has value");
+};
+
+test "Phase 5o: emit_const_to_c emits int constant as define", {
+  ctx := CodegenContext.new();
+  cd := ConstDef(name: String.from("MAX_SIZE"), value: String.from("1024"), kind: String.from("int"));
+  emit_const_to_c(cd, &ctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("#define MAX_SIZE 1024")), "has #define");
+};
+
+test "Phase 5o: compile_module_to_c emits constants", {
+  exprs := ArrayList(AstExpr).new();
+  // Add a constant: MAGIC :: 42
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "MAGIC"), make_atom_expr(TokenKind.Integer, "42")));
+  // Add a main fn using existing helpers
+  body  := make_begin_expr(ArrayList(AstExpr).new());
+  ret   := make_atom_expr(TokenKind.Identifier, "unit");
+  rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
+  exprs.push(make_define_expr("main", rhs));
+  result := compile_module_to_c(exprs, "test_const", "main");
+  match(result,
+    .None => assert(false, "expected C output"),
+    .Some(output) => {
+      assert(output.contains(String.from("#define MAGIC 42")), "output has MAGIC constant");
     }
   );
 };
