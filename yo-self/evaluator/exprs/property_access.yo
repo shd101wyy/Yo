@@ -6,9 +6,9 @@
 //! Phase 2 simplifications vs the TypeScript source:
 //! - TypeValue.Struct has no `.trait` field; struct type-val access searches
 //!   `field_labels` directly instead of `trait.fields`.
-//! - `findMethodsFromGenericImpls`, `findAssociatedTypeFromGenericImpls`,
-//!   `findMethodFromGenericImplForTrait` are all stubbed (no generic impl
-//!   registry in Phase 2).
+//! - `findMethodsFromGenericImpls`: wired in Phase 3.5 (single-match case only).
+//! - `findAssociatedTypeFromGenericImpls`, `findMethodFromGenericImplForTrait`:
+//!   stubbed (no associated-type support yet).
 //! - `traitType.receiverType` block (TS lines 651-723) is skipped — Phase 3.
 //! - `isRuntimeOnly` propagation on UnknownVal — skipped (no flag in Phase 2).
 //! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
@@ -62,6 +62,9 @@ open import "std/string";
 { TokenKind } :: import "../../lexer/token.yo";
 
 { Exception } :: import "std/error";
+
+{ find_methods_from_generic_impls, MethodCandidate }
+  :: import "../values/generic_impl_registry.yo";
 
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -497,7 +500,25 @@ evaluate_property_access :: (fn(
         .None => ()
       );
 
+      // Check generic impl registry for methods on generic receiver types
+      // (mirrors `findMethodsFromGenericImpls` in TS property-access.ts line 526-546).
+      // Only resolve when exactly 1 candidate — multiple candidates are deferred to
+      // function.yo which can disambiguate by argument types.
+      generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
+      if((generic_methods_su.len() == usize(1)), {
+        method_su := match(generic_methods_su.get(usize(0)), .Some(m) => m, .None => {
+          return expr;
+        });
+        out_gm_su := new_expr_info(env, method_su.method_type);
+        out_gm_su.value               = method_su.method_value;
+        out_gm_su.is_accessing_property = Option(bool).Some(true);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_su);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_su);
+        return expr;
+      });
+
       // During generic impl specialization, the associated type may be in env.
+      // (mirrors TS isEvaluatingGenericImplSpecialization block at line 553)
       if(ctx.is_evaluating_generic_impl_specialization, {
         spec_vars := get_variables_from_env(env, prop_name_su);
         n_spec := spec_vars.len();
@@ -524,7 +545,7 @@ evaluate_property_access :: (fn(
         });
       });
 
-      // Not found — let function.ts handle it as a method call.
+      // Not found — let function.yo handle it as a method call.
       return expr;
     });
 

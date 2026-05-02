@@ -16,11 +16,12 @@ open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr,
-  ast_expr_is_fn_call_of }                             :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call_of, BF_DOT }                    :: import "../../expr/expr.yo";
 { ExprInfo, new_expr_info,
   expr_info_table_get, expr_info_table_set }              :: import "../../expr/expr_info.yo";
 { Variable,
-  Environment, add_variable_to_env, synthetic_token }    :: import "../../env/env.yo";
+  Environment, add_variable_to_env, synthetic_token,
+  get_variables_from_env }                             :: import "../../env/env.yo";
 { TypeValue, t_unit, t_type }                            :: import "../../types/type.yo";
 { EvalValue, is_unknown_val, type_of_eval_value }        :: import "../value.yo";
 { random_id }                                            :: import "../utils.yo";
@@ -45,11 +46,148 @@ open import "std/string";
 { evaluate_iso_value_call }                              :: import "./iso.yo";
 { TypeField, get_struct_fields }                         :: import "../types/field.yo";
 { try_to_call_function_with_arguments }                  :: import "./helper.yo";
+{ MethodCandidate,
+  find_methods_from_generic_impls }                      :: import "../values/generic_impl_registry.yo";
 { create_unknown_val }                                   :: import "../value.yo";
 { format_error_message }                                 :: import "../../error/error.yo";
 { Exception }                                            :: import "std/error";
 
-/// Evaluate a function-call expression `expr`, resolving the callee, matching
+// ---------------------------------------------------------------------------
+// ReceiverMethodResult — carries the resolved method info when a property-
+// access callee (`.`) is matched to a registered impl method.
+// Used by `_try_find_receiver_method` / `_type_value_base_name` below.
+// ---------------------------------------------------------------------------
+
+ReceiverMethodResult :: struct(
+  method_val_opt : Option(EvalValue),
+  method_ty      : TypeValue,
+  receiver_expr  : AstExpr
+);
+
+// ---------------------------------------------------------------------------
+// _type_value_base_name — extract the nominal type name from a TypeValue for
+// qualified method lookup ("TypeName.method_name").
+// Mirrors the name extraction inside `getReceiverMethodsByNameFromEnv` in
+// `src/env.ts`.
+// ---------------------------------------------------------------------------
+
+_type_value_base_name :: (fn(ty : TypeValue) -> Option(String))(
+  match(ty,
+    .Struct(_, name, _, _, _, _, _)        => Option(String).Some((&name).clone()),
+    .EnumT(_, name, _, _, _, _, _)         => Option(String).Some((&name).clone()),
+    .Union(name, _, _)                     => Option(String).Some((&name).clone()),
+    .ModuleT(_, name, _, _)                => Option(String).Some((&name).clone()),
+    .TraitT(name, _, _, _, _, _, _, _)     => Option(String).Some((&name).clone()),
+    .SomeT(_, name, _, _, _, _, _, _, _)   => Option(String).Some((&name).clone()),
+    .TypeAppT(ctor_box, _)                 => recur(ctor_box.*),
+    .Pointer(pt_box)                       => recur(pt_box.*),
+    _                                      => Option(String).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// _try_find_receiver_method — when the callee is a property-access expression
+// `.(receiver, method_name)` with no ExprInfo, look up the method by qualified
+// name ("TypeName.method") in the env (Case 3 non-generic impls) or the generic-
+// impl registry.
+//
+// Returns `.Some(ReceiverMethodResult)` if a method was found, `.None` otherwise.
+//
+// Mirrors the property-access branch of `evaluateFunctionCall` in TypeScript's
+// `function.ts` (lines 265-362), specifically the instance-method case.
+// ---------------------------------------------------------------------------
+
+_try_find_receiver_method :: (fn(
+  callee : AstExpr,
+  env    : Environment,
+  ctx    : *(EvalContext)
+) -> Option(ReceiverMethodResult))({
+  // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
+  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+    return Option(ReceiverMethodResult).None;
+  });
+
+  prop_args := match(callee,
+    .FnCall(_, _, pargs, _, _) => pargs,
+    _                          => { return Option(ReceiverMethodResult).None; }
+  );
+  receiver_expr    := match(prop_args.get(usize(0)), .Some(a) => a,
+    .None => { return Option(ReceiverMethodResult).None; });
+  method_name_expr := match(prop_args.get(usize(1)), .Some(a) => a,
+    .None => { return Option(ReceiverMethodResult).None; });
+
+  // 2. Get receiver's compiled type from the expr-info table.
+  receiver_type := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(receiver_expr)),
+    .Some(ri) => ri.ty,
+    .None     => { return Option(ReceiverMethodResult).None; }
+  );
+
+  // 3. Method name token.
+  method_tok  := ast_expr_token(method_name_expr);
+  method_name := (&method_tok.value).clone();
+
+  // 4. Dereference pointer layers on the receiver type to reach the base type.
+  (base_ty    : TypeValue) = receiver_type;
+  (keep_deref : bool)      = true;
+  while runtime(keep_deref), {
+    match(base_ty,
+      .Pointer(pt_box) => { base_ty = pt_box.*; },
+      _                => { keep_deref = false; }
+    );
+  };
+
+  // 5. Build the qualified name "TypeName.method".
+  type_name := match(
+    _type_value_base_name(base_ty),
+    .Some(tn) => tn,
+    .None     => { return Option(ReceiverMethodResult).None; }
+  );
+  qualified := `${type_name}.${method_name}`;
+
+  // 6. Resolve the method: try env lookup first, then generic-impl registry.
+  (method_val_opt : Option(EvalValue)) = Option(EvalValue).None;
+  (method_ty      : TypeValue)         = t_unit();
+  (found_method   : bool)              = false;
+
+  // 6a. Non-generic impls registered as "TypeName.method" in env (Case 3 of impl.yo).
+  vars := get_variables_from_env(env, (&qualified).clone());
+  if((vars.len() > usize(0)), {
+    match(vars.get((vars.len() - usize(1))),
+      .Some(mv) => {
+        method_val_opt = mv.value;
+        method_ty      = mv.ty;
+        found_method   = true;
+      },
+      .None => ()
+    );
+  });
+
+  // 6b. Generic impls registered via impl(forall(T), ReceiverType(T), …).
+  if((!(found_method)), {
+    candidates := find_methods_from_generic_impls(base_ty, (&method_name).clone(), env);
+    if((candidates.len() > usize(0)), {
+      match(candidates.get(usize(0)),
+        .Some(c) => {
+          method_val_opt = c.method_value;
+          method_ty      = c.method_type;
+          found_method   = true;
+        },
+        .None => ()
+      );
+    });
+  });
+
+  if((!(found_method)), { return Option(ReceiverMethodResult).None; });
+
+  Option(ReceiverMethodResult).Some(ReceiverMethodResult(
+    method_val_opt: method_val_opt,
+    method_ty:      method_ty,
+    receiver_expr:  receiver_expr
+  ))
+});
+
+
 /// arguments, and returning the annotated expression.
 ///
 /// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
@@ -730,24 +868,56 @@ evaluate_function_call :: (fn(
       expr
     }
   ),
-  // Callee produced no compile-time value: evaluate args via
-  // try_to_call_function_with_arguments and return UnknownVal.
-  // Mirrors TypeScript's isFunctionType path when functionToCall.value == undefined.
+  // Callee produced no compile-time value.
+  // First try instance-method dispatch for property-access callees
+  // (when property_access.yo could not resolve the method).
+  // Mirrors the `if (!functionToCall.$?.type)` block in TypeScript's
+  // `evaluateFunctionCall` (function.ts lines 265-362).
   .None => {
-    callee_ty_none := match(callee_info_opt,
-      .Some(ci) => ci.ty,
-      .None     => t_unit()
-    );
-    call_result_none := try_to_call_function_with_arguments(
-      Option(EvalValue).None, callee_ty_none, expr, func_expr, args, callee_env,
-      ctx, false, false, false, using(exn)
-    );
-    ret_type_none := call_result_none.return_type;
-    out_none      := new_expr_info(call_result_none.caller_env, ret_type_none);
-    out_none.value = Option(EvalValue).Some(create_unknown_val(ret_type_none));
-    out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
-    expr
+    method_info_opt := _try_find_receiver_method(evaluated_callee, callee_env, ctx);
+    match(method_info_opt,
+      // Instance method found: build [receiver, ...args] and call it.
+      .Some(method_info) => {
+        all_args := ArrayList(AstExpr).new();
+        all_args.push(method_info.receiver_expr);
+        (ai : usize) = usize(0);
+        while runtime((ai < args.len())), {
+          match(args.get(ai),
+            .Some(a) => { all_args.push(a); },
+            .None    => ()
+          );
+          ai = (ai + usize(1));
+        };
+        call_result_m := try_to_call_function_with_arguments(
+          method_info.method_val_opt, method_info.method_ty,
+          expr, evaluated_callee, all_args,
+          callee_env, ctx, true, false, false, using(exn)
+        );
+        out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
+        out_m.value = Option(EvalValue).Some(create_unknown_val(call_result_m.return_type));
+        out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
+        expr
+      },
+      // No method found: evaluate args via try_to_call_function_with_arguments.
+      // Mirrors TypeScript's isFunctionType path when functionToCall.value == undefined.
+      .None => {
+        callee_ty_none := match(callee_info_opt,
+          .Some(ci) => ci.ty,
+          .None     => t_unit()
+        );
+        call_result_none := try_to_call_function_with_arguments(
+          Option(EvalValue).None, callee_ty_none, expr, func_expr, args, callee_env,
+          ctx, false, false, false, using(exn)
+        );
+        ret_type_none := call_result_none.return_type;
+        out_none      := new_expr_info(call_result_none.caller_env, ret_type_none);
+        out_none.value = Option(EvalValue).Some(create_unknown_val(ret_type_none));
+        out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
+        expr
+      }
+    )
   }
 )
 });

@@ -1,22 +1,25 @@
-//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j + 3n.
+//! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j + 3n + 3aj + 3ak + 3al + 3am + 3an + 3ao + 3ap + 3aq.
 //!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
 //!   - Identifier atoms (returns stored compile-time value when available,
 //!     otherwise a `VarRef` carrying the variable's type)
 //!   - Unit expression `()`
-//!   - Begin blocks `{ stmts… }`
+//!   - Begin blocks `{ stmts… }` (stops propagation on ReturnVal or BreakVal)
 //!   - `cond(cond1 => body1, …)` conditional expressions
 //!   - `if(cond, then)` / `if(cond, then, else)` conditional expressions
 //!   - Variable define `name := expr`, typed `(name : T) := expr`, constant `name :: expr`
 //!   - Variable assign `name = expr` and typed declaration `(name : T) = expr`
-//!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int and float)
+//!   - Arithmetic operators `+`, `-`, `*`, `/`, `%` (comptime_int, float, and StrLit concat)
 //!   - Comparison operators `==`, `!=`, `<`, `>`, `<=`, `>=` (int, bool, str, float)
 //!   - Boolean operators `&&`, `||` (short-circuit), unary `!`
 //!   - Unary negation `-` (int and float)
 //!   - Enum variant construction `.Variant(args…)` and fieldless `.Variant`
 //!   - `match(scrutinee, arm1, …)` pattern matching on compile-time enum values
 //!   - `while condition, body` compile-time while loops (condition must fold to bool)
+//!   - `break` — emits BreakVal to terminate the enclosing while/for loop
+//!   - `for(item, collection, body)` — iterates over ArrayVal, binds item per iteration
+//!   - Array literals `[e1, e2, …]` → ArrayVal
 //!   - Function definition `(fn(params) -> RetType)(body)` → FuncVal with closure capture;
 //!     `comptime(Name)` parameter annotations are supported
 //!   - Function calls `name(args…)` where `name` is bound to a FuncVal
@@ -28,6 +31,14 @@
 //!   - Field access `struct_val.field_name` → field value
 //!   - Method dispatch `struct_val.method(args…)` via `TypeName.method` lookup
 //!   - `impl(TypeName, method: fn_def, …)` — registers methods in the environment
+//!   - Phase 3ai: primitive `.to_string()` and StrLit `.(+)(rhs)` string concat
+//!   - Phase 3aj: `String` identifier → TypeVal; `String.from(s)`, `String.new()` static shims;
+//!                StrLit `+` StrLit infix concatenation; higher-order functions; closures
+//!   - Phase 3ak: `StrLit.as_str()` passthrough; `StrLit.len()` → IntLit char count
+//!   - Phase 3al: `StrLit.starts_with()`, `StrLit.ends_with()`, `StrLit.contains()` predicates;
+//!                Fixed bug: method dispatch now invoked for all receiver types (not just StructVal)
+//!   - Phase 3aq: struct field mutation `s.field = rhs` — `handle_struct_field_mutation` helper;
+//!                `=` assignment handler extended to detect dot-infix LHS expressions
 //!
 //! Phase 3j adds `impl(...)` support and struct method dispatch. To keep
 //! evaluate's C stack frame small (avoiding stack overflows during deep
@@ -37,6 +48,7 @@
 //!   - `call_funcval_with_args` — handles FuncVal invocation with pre-evaled args
 //!   - `handle_method_dispatch` — resolves and calls a struct method
 //!   - `handle_impl_form` — registers impl method bindings in the environment
+//!   - `handle_struct_field_mutation` — handles `s.field = rhs` struct mutation (Phase 3aq)
 //!
 //! All recursive sub-evaluations call `recur` (which is `evaluate` itself).
 //!
@@ -52,7 +64,7 @@ open import "std/fmt";
 
 { TokenKind, Token } :: import "../lexer/token.yo";
 { AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_IMPORT, BK_EXPORT, BK_OPEN,
-  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT } :: import "../expr/expr.yo";
+  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT, BK_ARRAY_VAL } :: import "../expr/expr.yo";
 { TypeValue, type_value_tag,
   t_unit, t_bool, t_void,
   t_i8, t_i16, t_i32, t_i64,
@@ -66,7 +78,7 @@ open import "std/fmt";
 { Environment } :: import "../env/env.yo";
 { EvalValue, EvalResult, eval_result,
   is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref,
-  is_enum_val, is_func_val, is_return_val, is_type_val, is_struct_val, is_module_val,
+  is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val,
   is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val,
   is_comptime_list_val, is_expr_val,
   value_to_string } :: import "./value.yo";
@@ -131,8 +143,11 @@ type_from_name_opt :: (fn(name : str) -> Option(TypeValue))(
     (name == "f64")   => .Some(t_f64()),
     (name == "bool")  => .Some(t_bool()),
     (name == "unit")  => .Some(t_unit()),
-    (name == "Type")  => .Some(t_type()),
-    true              => Option(TypeValue).None
+    (name == "Type")   => .Some(t_type()),
+    // Phase 3aj: String resolves to t_comptime_string() so `String.from(s)`
+    // and `String.new()` can be dispatched as static method calls on TypeVal.
+    (name == "String") => .Some(t_comptime_string()),
+    true               => Option(TypeValue).None
   )
 );
 
@@ -190,8 +205,8 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .EnumVal(_, _) => true,
     .FuncVal(_, _, _, _, _, _, _, _, _) => true,
     .ReturnVal(_, _) => true,
-    .TypeVal(_)    => true,
-    .StructVal(_, _, _) => true,
+    .BreakVal        => true,
+    .TypeVal(_)      => true,
     .ModuleVal(_, _) => true,
     // Phase 2h variants
     .TupleVal(_)           => true,
@@ -202,7 +217,9 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .ComptimeListVal(_)    => true,
     .ExprVal(_)            => true,
     // Phase 2u variants
-    .UnknownVal(_)         => true
+    .UnknownVal(_)         => true,
+    // Phase 3z variants
+    .StructVal(_, _, _)    => true
   )
 );
 
@@ -279,8 +296,8 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .EnumVal(_, _)   => t_unit(),
     .FuncVal(_, _, _, _, _, _, _, _, _)   => t_unit(),
     .ReturnVal(_, _) => t_unit(),
+    .BreakVal        => t_unit(),
     .TypeVal(_)      => t_type(),
-    .StructVal(_, _, _) => t_unit(),
     .ModuleVal(_, _) => t_unit(),
     // Phase 2h variants
     .TupleVal(_)        => t_unit(),
@@ -291,7 +308,9 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .ComptimeListVal(_) => t_unit(),
     .ExprVal(_)         => t_expr_t(),
     // Phase 2u
-    .UnknownVal(ty)     => ty.*
+    .UnknownVal(ty)     => ty.*,
+    // Phase 3z
+    .StructVal(_, _, _) => t_unit()
   )
 );
 
@@ -326,25 +345,71 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
     // -----------------------------------------------------------------------
     .FnCall(_, pat_func, pat_args, _, _) =>
       match(pat_func.*,
-        // Fieldless variant: FnCall(Atom(Dot), [Atom("None")], _)
+        // Fieldless variant — TS format  : FnCall(Atom(Dot), [Atom("None")], infix=true)
+        // Variant-with-args — self-hosted: FnCall(Atom(Dot), [FnCall(Atom("Some"), [x, …], false)], false)
         .Atom(_, dot_tok) =>
           cond(
             (dot_tok.kind != TokenKind.Dot) => false,
-            true => {
-              // variant name is pat_args[0]
-              vname := match(pat_args.get(usize(0)),
-                .Some(vne) => match(vne,
-                  .Atom(_, vntok) => vntok.value.as_str(),
-                  .FnCall(_, _, _, _, _) => { return false; }
-                ),
-                .None => { return false; }
-              );
-              full_variant := `.${ String.from(vname) }`;
-              match(scrutinee_val,
-                .EnumVal(svar, _) => (svar.as_str() == full_variant.as_str()),
-                _ => false
+            true =>
+              match(pat_args.get(usize(0)),
+                .None => false,
+                .Some(vne) =>
+                  match(vne,
+                    // Fieldless variant: .None, .True, etc.
+                    .Atom(_, vntok) => {
+                      full_v := `.${ vntok.value }`;
+                      match(scrutinee_val,
+                        .EnumVal(svar, _) => (svar.as_str() == full_v.as_str()),
+                        _ => false
+                      )
+                    },
+                    // Variant-with-args — self-hosted format: .Some(x, …)
+                    .FnCall(_, sh_vfunc, sh_vargs, _, _) => {
+                      sh_vname := match(sh_vfunc.*,
+                        .Atom(_, sh_vntok) => sh_vntok.value.as_str(),
+                        .FnCall(_, _, _, _, _) => { return false; }
+                      );
+                      sh_full_v := `.${ String.from(sh_vname) }`;
+                      match(scrutinee_val,
+                        .EnumVal(sh_svar, sh_sfields) =>
+                          cond(
+                            (!(sh_svar.as_str() == sh_full_v.as_str())) => false,
+                            (sh_sfields.len() != sh_vargs.len()) => false,
+                            true => {
+                              n_sh := sh_vargs.len();
+                              (i_sh : usize) = usize(0);
+                              (ok_sh : bool) = true;
+                              while runtime(((i_sh < n_sh) && ok_sh)), {
+                                match(sh_sfields.get(i_sh),
+                                  .Some(sh_fval) =>
+                                    match(sh_vargs.get(i_sh),
+                                      .Some(sh_bexpr) =>
+                                        match(sh_bexpr,
+                                          .Atom(_, sh_btok) =>
+                                            cond(
+                                              (sh_btok.value.as_str() == "_") => (),
+                                              true => {
+                                                sh_bty := type_of_eval_value(sh_fval);
+                                                _sh_idx := env.define_val(sh_btok.value, sh_bty, true, .Some(sh_fval));
+                                                ()
+                                              }
+                                            ),
+                                          .FnCall(_, _, _, _, _) => { ok_sh = false; }
+                                        ),
+                                      .None => { ok_sh = false; }
+                                    ),
+                                  .None => { ok_sh = false; }
+                                );
+                                i_sh = (i_sh + usize(1));
+                              };
+                              ok_sh
+                            }
+                          ),
+                        _ => false
+                      )
+                    }
+                  )
               )
-            }
           ),
 
         // Variant-with-args: FnCall(FnCall(Atom(Dot), [Atom("Some")], _), [x, …], false)
@@ -422,11 +487,11 @@ digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
       cond((d < base) => .Some(d), true => .None)
     },
     ((b >= u8(97)) && (b <= u8(102))) => {  // 'a'-'f'
-      d := ((i64(b) - i64(97)) + i64(10));
+      d := (((i64(b) - i64(97)) + i64(10)));
       cond((d < base) => .Some(d), true => .None)
     },
     ((b >= u8(65)) && (b <= u8(70))) => {  // 'A'-'F'
-      d := ((i64(b) - i64(65)) + i64(10));
+      d := (((i64(b) - i64(65)) + i64(10)));
       cond((d < base) => .Some(d), true => .None)
     },
     true => .None
@@ -641,6 +706,160 @@ call_funcval_with_args :: (fn(
 );
 
 // ---------------------------------------------------------------------------
+// Phase 3am: ArrayVal mutation helper — handles arr.push(x) where arr is a
+// bare identifier. Called BEFORE evaluating the receiver so we can look up
+// and update the binding by name.
+// Returns Some(UnitVal) on success, None if not applicable.
+// ---------------------------------------------------------------------------
+handle_array_push_mutation :: (fn(
+  recv_expr        : AstExpr,
+  rhs_expr         : AstExpr,
+  env              : *(Environment)
+) -> Option(EvalResult))(
+  match(rhs_expr,
+    .FnCall(_, mfunc_box_m, margs_m, _, _) =>
+      match(mfunc_box_m.*,
+        .Atom(_, mtok_m) =>
+          cond(
+            ((mtok_m.value.as_str() == "push") && (margs_m.len() == usize(1))) =>
+              match(recv_expr,
+                // Only handle bare identifier receivers: arr.push(x)
+                .Atom(_, arr_tok_m) =>
+                  match(env.*.lookup(arr_tok_m.value),
+                    .None => Option(EvalResult).None,
+                    .Some(var_m) =>
+                      match(var_m.value,
+                        .None => Option(EvalResult).None,
+                        .Some(var_ev_m) =>
+                          match(var_ev_m,
+                            .ArrayVal(items_m) =>
+                              match(margs_m.get(usize(0)),
+                                .None => Option(EvalResult).None,
+                                .Some(push_arg_expr) =>
+                                  match(match(g_eval_fn,
+                                      .Some(ef_p) => ef_p(push_arg_expr, env),
+                                      .None => Option(EvalResult).None
+                                    ),
+                                    .None => Option(EvalResult).None,
+                                    .Some(push_res) => {
+                                      items_m.push(push_res.value);
+                                      _ok_p := env.*.set_value(arr_tok_m.value, .ArrayVal(items_m));
+                                      .Some(eval_result(.UnitVal, t_unit()))
+                                    }
+                                  )
+                          ),
+                            _ => Option(EvalResult).None
+                          )
+                      )
+                  ),
+                _ => Option(EvalResult).None
+              ),
+            true => Option(EvalResult).None
+          ),
+        _ => Option(EvalResult).None
+      ),
+    _ => Option(EvalResult).None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 3aq: Struct field mutation helper — handles `s.field = rhs` where s
+// is a bare identifier bound to a StructVal. Called from the `=` assignment
+// handler in `evaluate` when the LHS is a dot-infix expression.
+// Returns Some(UnitVal) on success, None if not applicable.
+// ---------------------------------------------------------------------------
+handle_struct_field_mutation :: (fn(
+  recv_opt  : Option(AstExpr),
+  field_opt : Option(AstExpr),
+  rhs_expr  : AstExpr,
+  env       : *(Environment)
+) -> Option(EvalResult))(
+  match(recv_opt,
+    .None => Option(EvalResult).None,
+    .Some(recv_expr) =>
+      match(recv_expr,
+        .FnCall(_, _, _, _, _) => Option(EvalResult).None,
+        .Atom(_, recv_tok) =>
+          match(field_opt,
+            .None => Option(EvalResult).None,
+            .Some(field_expr) =>
+              match(field_expr,
+                .FnCall(_, _, _, _, _) => Option(EvalResult).None,
+                .Atom(_, field_tok) =>
+                  match(g_eval_fn,
+                    .None => Option(EvalResult).None,
+                    .Some(ef) =>
+                      match(ef(rhs_expr, env),
+                        .None => Option(EvalResult).None,
+                        .Some(rhs_res) =>
+                          match(env.*.lookup(recv_tok.value),
+                            .None => Option(EvalResult).None,
+                            .Some(recv_var) =>
+                              match(recv_var.value,
+                                .None => Option(EvalResult).None,
+                                .Some(recv_ev) =>
+                                  match(recv_ev,
+                                    .StructVal(stype, sfnames, sfvals) => {
+                                      fname   := field_tok.value.as_str();
+                                      n_sf    := sfnames.len();
+                                      (fi     : usize)         = usize(0);
+                                      (fidx   : Option(usize)) = Option(usize).None;
+                                      (sf_fnd : bool)          = false;
+                                      while runtime(((fi < n_sf) && (!(sf_fnd)))), {
+                                        match(sfnames.get(fi),
+                                          .Some(sfn) => {
+                                            cond(
+                                              (sfn.as_str() == fname) => {
+                                                fidx   = .Some(fi);
+                                                sf_fnd = true;
+                                              },
+                                              true => ()
+                                            );
+                                          },
+                                          .None => ()
+                                        );
+                                        fi = (fi + usize(1));
+                                      };
+                                      match(fidx,
+                                        .None => Option(EvalResult).None,
+                                        .Some(target_idx) => {
+                                          new_fvals := ArrayList(EvalValue).new();
+                                          (k : usize) = usize(0);
+                                          while runtime((k < n_sf)), {
+                                            cond(
+                                              (k == target_idx) => {
+                                                new_fvals.push(rhs_res.value);
+                                              },
+                                              true => {
+                                                match(sfvals.get(k),
+                                                  .Some(sv) => { new_fvals.push(sv); },
+                                                  .None => ()
+                                                );
+                                              }
+                                            );
+                                            k = (k + usize(1));
+                                          };
+                                          _sfok := env.*.set_value(
+                                            recv_tok.value,
+                                            .StructVal(stype, sfnames, new_fvals)
+                                          );
+                                          .Some(eval_result(.UnitVal, t_unit()))
+                                        }
+                                      )
+                                    },
+                                    _ => Option(EvalResult).None
+                                  )
+                              )
+                          )
+                      )
+                  )
+              )
+          )
+      )
+  )
+);
+
+// ---------------------------------------------------------------------------
 // method dispatch helper — Phase 3j
 // Handles `recv.method(args)` dispatch. Factored out of evaluate to keep
 // evaluate's C stack frame small. Uses g_eval_fn to evaluate arg expressions.
@@ -660,6 +879,481 @@ handle_method_dispatch :: (fn(
         _ => ""
       );
       qn := `${String.from(ty_nm)}.${String.from(mname)}`;
+
+      // -----------------------------------------------------------------
+      // Built-in primitive method shims (Phase 3ai)
+      // These intercept method calls on primitive EvalValues before any
+      // environment lookup, enabling template-string interpolation and
+      // the string-concatenation chain that parse_template_string emits.
+      //
+      // to_string() — produces StrLit("\"<repr>\"") for primitives.
+      // +    (rhs)  — StrLit + StrLit → StrLit (concat, strip re-quote).
+      // -----------------------------------------------------------------
+      cond(
+        ((mname == "to_string") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .IntLit(raw)   => { return Option(EvalResult).Some(eval_result(.StrLit((String.from("\"") + raw) + String.from("\"")),  t_comptime_string())); },
+            .FloatLit(raw) => { return Option(EvalResult).Some(eval_result(.StrLit((String.from("\"") + raw) + String.from("\"")),  t_comptime_string())); },
+            .BoolVal(b)    => { return Option(EvalResult).Some(eval_result(.StrLit(cond(b => String.from("\"true\""),  true => String.from("\"false\""))), t_comptime_string())); },
+            .StrLit(s)     => { return Option(EvalResult).Some(eval_result(.StrLit(s),                                             t_comptime_string())); },
+            _ => ()
+          ),
+        // String concatenation: StrLit(lhs).(+)(rhs_expr)
+        ((mname == "+") && match(recv_val, .StrLit(_) => true, _ => false)) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(rhs_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef) => ef(rhs_expr, env),
+                  .None     => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(rhs_res) =>
+                  match(recv_val,
+                    .StrLit(lhs_raw) =>
+                      match(rhs_res.value,
+                        .StrLit(rhs_raw) => {
+                          ln := lhs_raw.len();
+                          rn := rhs_raw.len();
+                          cond(
+                            ((ln < usize(2)) || (rn < usize(2))) => { return Option(EvalResult).None; },
+                            true => {
+                              lhs_inner := lhs_raw.substring(usize(1), (ln - usize(1)));
+                              rhs_inner := rhs_raw.substring(usize(1), (rn - usize(1)));
+                              concat_str :=
+                                (((String.from("\"") + lhs_inner) + rhs_inner) + String.from("\""));
+                              return Option(EvalResult).Some(eval_result(.StrLit(concat_str), t_comptime_string()));
+                            }
+                          )
+                        },
+                        _ => { return Option(EvalResult).None; }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3aj: static type method shims — TypeVal.from(s), .new()
+        // These intercept `String.from(s)` and `String.new()` before env
+        // lookup, enabling programs that use Yo's String API.
+        // ---------------------------------------------------------------
+        // String.from(s) — evaluate arg and return unchanged (passthrough)
+        ((mname == "from") && (match(recv_val, .TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(arg_expr_sf) =>
+              match(match(g_eval_fn,
+                  .Some(ef_sf) => ef_sf(arg_expr_sf, env),
+                  .None     => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(arg_res_sf) => { return Option(EvalResult).Some(arg_res_sf); }
+              )
+          ),
+        // TypeVal.new() — String.new() returns empty StrLit; any other TypeVal
+        // (e.g. ArrayList placeholder) returns an empty ArrayVal (Phase 3am).
+        ((mname == "new") && (match(recv_val, .TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .TypeVal(ty_box_n) =>
+              match(ty_box_n.*,
+                .ComptimeString =>
+                  { return Option(EvalResult).Some(eval_result(.StrLit(String.from("\"\"")), t_comptime_string())); },
+                _ =>
+                  { return Option(EvalResult).Some(eval_result(.ArrayVal(ArrayList(EvalValue).new()), t_unit())); }
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3ak: StrLit instance method shims — .as_str(), .len()
+        // These intercept common string operations on StrLit values before
+        // falling through to env lookup (which would fail for runtime stubs).
+        // ---------------------------------------------------------------
+        // StrLit.as_str() — passthrough (StrLit is already str-like)
+        ((mname == "as_str") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          { return Option(EvalResult).Some(eval_result(recv_val, t_comptime_string())); },
+        // StrLit.len() — length of the inner content (without surrounding quotes)
+        // Returns IntLit (comptime_int) with the decimal character count.
+        ((mname == "len") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_l) => {
+              n_raw := raw_l.len();
+              inner_len := cond(
+                (n_raw >= usize(2)) => (n_raw - usize(2)),
+                true                => usize(0)
+              );
+              return Option(EvalResult).Some(eval_result(.IntLit(usize(inner_len).to_string()), t_comptime_int()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3al: StrLit string predicate shims — starts_with, ends_with, contains
+        // Each strips the surrounding quotes from the StrLit raw value, then
+        // delegates to the real Yo String method.
+        // ---------------------------------------------------------------
+        // StrLit.starts_with(prefix) — bool: does inner string start with prefix_inner?
+        ((mname == "starts_with") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(sw_arg_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef_sw) => ef_sw(sw_arg_expr, env),
+                  .None        => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(sw_arg_res) =>
+                  match(recv_val,
+                    .StrLit(raw_sw) =>
+                      match(sw_arg_res.value,
+                        .StrLit(pfx_raw) => {
+                          n_sw  := raw_sw.len();
+                          n_pfx := pfx_raw.len();
+                          cond(
+                            ((n_sw < usize(2)) || (n_pfx < usize(2))) =>
+                              { return Option(EvalResult).None; },
+                            true => {
+                              inner_sw  := raw_sw.substring(usize(1), (n_sw - usize(1)));
+                              pfx_inner := pfx_raw.substring(usize(1), (n_pfx - usize(1)));
+                              return Option(EvalResult).Some(eval_result(.BoolVal(inner_sw.starts_with(pfx_inner)), t_bool()));
+                            }
+                          )
+                        },
+                        _ => { return Option(EvalResult).None; }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // StrLit.ends_with(suffix) — bool: does inner string end with suffix_inner?
+        ((mname == "ends_with") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(ew_arg_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef_ew) => ef_ew(ew_arg_expr, env),
+                  .None        => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(ew_arg_res) =>
+                  match(recv_val,
+                    .StrLit(raw_ew) =>
+                      match(ew_arg_res.value,
+                        .StrLit(sfx_raw) => {
+                          n_ew  := raw_ew.len();
+                          n_sfx := sfx_raw.len();
+                          cond(
+                            ((n_ew < usize(2)) || (n_sfx < usize(2))) =>
+                              { return Option(EvalResult).None; },
+                            true => {
+                              inner_ew  := raw_ew.substring(usize(1), (n_ew - usize(1)));
+                              sfx_inner := sfx_raw.substring(usize(1), (n_sfx - usize(1)));
+                              return Option(EvalResult).Some(eval_result(.BoolVal(inner_ew.ends_with(sfx_inner)), t_bool()));
+                            }
+                          )
+                        },
+                        _ => { return Option(EvalResult).None; }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // StrLit.contains(sub) — bool: does inner string contain sub_inner?
+        ((mname == "contains") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(con_arg_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef_con) => ef_con(con_arg_expr, env),
+                  .None         => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(con_arg_res) =>
+                  match(recv_val,
+                    .StrLit(raw_con) =>
+                      match(con_arg_res.value,
+                        .StrLit(sub_raw) => {
+                          n_con := raw_con.len();
+                          n_sub := sub_raw.len();
+                          cond(
+                            ((n_con < usize(2)) || (n_sub < usize(2))) =>
+                              { return Option(EvalResult).None; },
+                            true => {
+                              inner_con := raw_con.substring(usize(1), (n_con - usize(1)));
+                              sub_inner := sub_raw.substring(usize(1), (n_sub - usize(1)));
+                              return Option(EvalResult).Some(eval_result(.BoolVal(inner_con.contains(sub_inner)), t_bool()));
+                            }
+                          )
+                        },
+                        _ => { return Option(EvalResult).None; }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3am: StrLit.substring(start, end) — slice inner content
+        // ---------------------------------------------------------------
+        // StrLit.substring(start, end) — returns StrLit of inner[start..end] re-quoted
+        ((mname == "substring") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(sub_start_expr) =>
+              match(method_call_args.get(usize(1)),
+                .None => { return Option(EvalResult).None; },
+                .Some(sub_end_expr) =>
+                  match(match(g_eval_fn,
+                      .Some(ef_ss) => ef_ss(sub_start_expr, env),
+                      .None        => Option(EvalResult).None
+                    ),
+                    .None => { return Option(EvalResult).None; },
+                    .Some(start_res) =>
+                      match(match(g_eval_fn,
+                          .Some(ef_se) => ef_se(sub_end_expr, env),
+                          .None        => Option(EvalResult).None
+                        ),
+                        .None => { return Option(EvalResult).None; },
+                        .Some(end_res) =>
+                          match(recv_val,
+                            .StrLit(raw_sb) =>
+                              match(start_res.value,
+                                .IntLit(start_raw) =>
+                                  match(end_res.value,
+                                    .IntLit(end_raw) => {
+                                      n_sb := raw_sb.len();
+                                      cond(
+                                        (n_sb < usize(2)) => { return Option(EvalResult).None; },
+                                        true => {
+                                          inner_sb := raw_sb.substring(usize(1), (n_sb - usize(1)));
+                                          inner_len_sb := inner_sb.len();
+                                          start_i := match(parse_raw_int(start_raw),
+                                            .Some(si) => usize(si),
+                                            .None => { return Option(EvalResult).None; }
+                                          );
+                                          end_i := match(parse_raw_int(end_raw),
+                                            .Some(ei) => usize(ei),
+                                            .None => { return Option(EvalResult).None; }
+                                          );
+                                          cond(
+                                            ((start_i > inner_len_sb) || (end_i > inner_len_sb)) =>
+                                              { return Option(EvalResult).None; },
+                                            (start_i > end_i) =>
+                                              { return Option(EvalResult).None; },
+                                            true => {
+                                              sliced := inner_sb.substring(start_i, end_i);
+                                              result_raw := ((String.from("\"") + sliced) + String.from("\""));
+                                              return Option(EvalResult).Some(eval_result(.StrLit(result_raw), t_comptime_string()));
+                                            }
+                                          )
+                                        }
+                                      )
+                                    },
+                                    _ => { return Option(EvalResult).None; }
+                                  ),
+                                _ => { return Option(EvalResult).None; }
+                              ),
+                            _ => { return Option(EvalResult).None; }
+                          )
+                      )
+                  )
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3am: ArrayVal method shims — len(), get(i)
+        // ArrayVal mutation (push) is handled via the dot-dispatch pre-pass;
+        // read-only operations are simpler and live here.
+        // ---------------------------------------------------------------
+        // ArrayVal.len() — number of elements
+        ((mname == "len") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items) =>
+              { return Option(EvalResult).Some(eval_result(.IntLit(av_items.len().to_string()), t_usize())); },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ArrayVal.get(i) — returns Option(element) as EnumVal
+        ((mname == "get") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(get_idx_expr) =>
+              match(match(g_eval_fn,
+                  .Some(ef_gi) => ef_gi(get_idx_expr, env),
+                  .None        => Option(EvalResult).None
+                ),
+                .None => { return Option(EvalResult).None; },
+                .Some(idx_res) =>
+                  match(idx_res.value,
+                    .IntLit(idx_raw) =>
+                      match(parse_raw_int(idx_raw),
+                        .None => { return Option(EvalResult).None; },
+                        .Some(idx_i64) => {
+                          arr_idx := usize(idx_i64);
+                          match(recv_val,
+                            .ArrayVal(av_items_g) =>
+                              match(av_items_g.get(arr_idx),
+                                .Some(elem) => {
+                                  some_fields := ArrayList(EvalValue).new();
+                                  some_fields.push(elem);
+                                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_fields), t_unit()));
+                                },
+                                .None => {
+                                  none_fields := ArrayList(EvalValue).new();
+                                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_fields), t_unit()));
+                                }
+                              ),
+                            _ => { return Option(EvalResult).None; }
+                          )
+                        }
+                      ),
+                    _ => { return Option(EvalResult).None; }
+                  )
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3am: TypeVal.new() refinement
+        // String.new()    → StrLit("")
+        // ArrayList.new() → ArrayVal([]) — any non-String TypeVal
+        // ---------------------------------------------------------------
+        // ---------------------------------------------------------------
+        // Phase 3an: StrLit string mutation shims
+        // StrLit.replace_all(from, to) — replace all occurrences
+        // StrLit.trim()               — strip leading/trailing whitespace
+        // StrLit.to_uppercase()       — uppercase inner content
+        // StrLit.to_lowercase()       — lowercase inner content
+        // StrLit.chars_count()        — alias for len (UTF-8 char count approx)
+        // ---------------------------------------------------------------
+        // StrLit.replace_all(from, to) — substitutes all occurrences of `from` with `to`
+        ((mname == "replace_all") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(method_call_args.get(usize(0)),
+            .None => { return Option(EvalResult).None; },
+            .Some(ra_from_expr) =>
+              match(method_call_args.get(usize(1)),
+                .None => { return Option(EvalResult).None; },
+                .Some(ra_to_expr) =>
+                  match(match(g_eval_fn,
+                      .Some(ef_ra1) => ef_ra1(ra_from_expr, env),
+                      .None         => Option(EvalResult).None
+                    ),
+                    .None => { return Option(EvalResult).None; },
+                    .Some(from_res) =>
+                      match(match(g_eval_fn,
+                          .Some(ef_ra2) => ef_ra2(ra_to_expr, env),
+                          .None         => Option(EvalResult).None
+                        ),
+                        .None => { return Option(EvalResult).None; },
+                        .Some(to_res) =>
+                          match(recv_val,
+                            .StrLit(raw_ra) =>
+                              match(from_res.value,
+                                .StrLit(from_raw) =>
+                                  match(to_res.value,
+                                    .StrLit(to_raw) => {
+                                      n_ra := raw_ra.len();
+                                      n_fr := from_raw.len();
+                                      n_tr := to_raw.len();
+                                      cond(
+                                        ((n_ra < usize(2)) || ((n_fr < usize(2)) || (n_tr < usize(2)))) =>
+                                          { return Option(EvalResult).None; },
+                                        true => {
+                                          inner_ra := raw_ra.substring(usize(1), (n_ra - usize(1)));
+                                          from_inner := from_raw.substring(usize(1), (n_fr - usize(1)));
+                                          to_inner   := to_raw.substring(usize(1), (n_tr - usize(1)));
+                                          replaced := inner_ra.replace_all(from_inner, to_inner);
+                                          result_ra := ((String.from("\"") + replaced) + String.from("\""));
+                                          return Option(EvalResult).Some(eval_result(.StrLit(result_ra), t_comptime_string()));
+                                        }
+                                      )
+                                    },
+                                    _ => { return Option(EvalResult).None; }
+                                  ),
+                                _ => { return Option(EvalResult).None; }
+                              ),
+                            _ => { return Option(EvalResult).None; }
+                          )
+                      )
+                  )
+              )
+          ),
+        // StrLit.trim() — strip leading/trailing ASCII whitespace
+        ((mname == "trim") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_tr) => {
+              n_tr2 := raw_tr.len();
+              cond(
+                (n_tr2 < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_tr := raw_tr.substring(usize(1), (n_tr2 - usize(1)));
+                  trimmed := inner_tr.trim();
+                  result_tr := ((String.from("\"") + trimmed) + String.from("\""));
+                  return Option(EvalResult).Some(eval_result(.StrLit(result_tr), t_comptime_string()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // StrLit.to_uppercase() — uppercase the inner content
+        ((mname == "to_uppercase") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_up) => {
+              n_up := raw_up.len();
+              cond(
+                (n_up < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_up := raw_up.substring(usize(1), (n_up - usize(1)));
+                  result_up := ((String.from("\"") + inner_up.to_uppercase()) + String.from("\""));
+                  return Option(EvalResult).Some(eval_result(.StrLit(result_up), t_comptime_string()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // StrLit.to_lowercase() — lowercase the inner content
+        ((mname == "to_lowercase") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_lo) => {
+              n_lo := raw_lo.len();
+              cond(
+                (n_lo < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_lo := raw_lo.substring(usize(1), (n_lo - usize(1)));
+                  result_lo := ((String.from("\"") + inner_lo.to_lowercase()) + String.from("\""));
+                  return Option(EvalResult).Some(eval_result(.StrLit(result_lo), t_comptime_string()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 3ao: StrLit.parse_i64() — parse the inner string as i64
+        // Returns EnumVal(".Some", [IntLit(n)]) or EnumVal(".None", [])
+        // ---------------------------------------------------------------
+        ((mname == "parse_i64") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .StrLit(raw_pi) => {
+              n_pi := raw_pi.len();
+              cond(
+                (n_pi < usize(2)) => {
+                  none_pi := ArrayList(EvalValue).new();
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_pi), t_unit()));
+                },
+                true => {
+                  inner_pi := raw_pi.substring(usize(1), (n_pi - usize(1)));
+                  match(parse_raw_int(inner_pi),
+                    .None => {
+                      none_pi2 := ArrayList(EvalValue).new();
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_pi2), t_unit()));
+                    },
+                    .Some(n_i64) => {
+                      some_pi := ArrayList(EvalValue).new();
+                      some_pi.push(.IntLit(n_i64.to_string()));
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_pi), t_unit()));
+                    }
+                  )
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        true => ()
+      );
+
       maybe_mval := match(env.*.lookup(qn),
         .Some(mv) => mv.value,
         .None =>
@@ -1521,36 +2215,107 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
           match(inner_func.*,
             .Atom(_, dt) =>
               cond(
-                // ---- enum variant with args ----
-                (dt.kind == TokenKind.Dot) => {
-                  vname := match(inner_args.get(usize(0)),
-                    .Some(vne) => match(vne,
-                      .Atom(_, vntok) => vntok.value.as_str(),
-                      .FnCall(_, _, _, _, _) => { return Option(EvalResult).None; }
-                    ),
-                    .None => { return Option(EvalResult).None; }
-                  );
-                  variant_str := `.${ String.from(vname) }`;
-                  n_args := args.len();
-                  fields := ArrayList(EvalValue).new();
-                  (i : usize) = usize(0);
-                  (ok : bool) = true;
-                  while runtime(((i < n_args) && ok)), {
-                    match(args.get(i),
-                      .Some(arg_expr) =>
-                        match(recur(arg_expr, env),
-                          .Some(r) => { fields.push(r.value); },
-                          .None    => { ok = false; }
-                        ),
-                      .None => { ok = false; }
-                    );
-                    i = (i + usize(1));
-                  };
+                // ---- Dot head: two cases ----
+                // 1. Self-hosted method call:
+                //    FnCall(FnCall(Dot,[recv,method],true), outer_args, false)
+                //    inner_args.len() == 2: [receiver_expr, method_name_expr]
+                //    Evaluate receiver, then dispatch via handle_method_dispatch.
+                //
+                // 2. TS-format enum variant with args:
+                //    FnCall(FnCall(Dot,[Atom("VName")],true), fields, false)
+                //    inner_args.len() == 1: [Atom("VariantName")]
+                //    Build EnumVal with evaluated outer args as fields.
+                (dt.kind == TokenKind.Dot) =>
                   cond(
-                    ok => .Some(eval_result(.EnumVal(variant_str, fields), t_unit())),
-                    true => Option(EvalResult).None
-                  )
-                },
+                    // Method call: inner_args has 2 elements [receiver, method_name]
+                    (inner_args.len() == usize(2)) => {
+                      recv_expr := match(inner_args.get(usize(0)),
+                        .Some(x) => x,
+                        .None    => { return Option(EvalResult).None; }
+                      );
+                      method_expr := match(inner_args.get(usize(1)),
+                        .Some(x) => x,
+                        .None    => { return Option(EvalResult).None; }
+                      );
+                      // Phase 3am SH-format ArrayVal.push pre-pass:
+                      // In self-hosted format, arr.push(x) parses as (arr.push)(x),
+                      // so handle_array_push_mutation (TS-format path) is never called.
+                      // Mirror the push logic here for bare-identifier ArrayVal receivers.
+                      match(method_expr,
+                        .Atom(_, sh_push_tok) =>
+                          cond(
+                            ((sh_push_tok.value.as_str() == "push") && (args.len() == usize(1))) =>
+                              match(recv_expr,
+                                .Atom(_, sh_arr_tok) =>
+                                  match(env.*.lookup(sh_arr_tok.value),
+                                    .None => (),
+                                    .Some(sh_var) =>
+                                      match(sh_var.value,
+                                        .None => (),
+                                        .Some(sh_arr_ev) =>
+                                          match(sh_arr_ev,
+                                            .ArrayVal(sh_items) =>
+                                              match(args.get(usize(0)),
+                                                .None => (),
+                                                .Some(sh_push_arg) =>
+                                                  match(match(g_eval_fn,
+                                                      .Some(ef_sh) => ef_sh(sh_push_arg, env),
+                                                      .None => Option(EvalResult).None
+                                                    ),
+                                                    .None => (),
+                                                    .Some(sh_push_res) => {
+                                                      sh_items.push(sh_push_res.value);
+                                                      return Option(EvalResult).Some(eval_result(.UnitVal, t_unit()));
+                                                    }
+                                                  )
+                                              ),
+                                            _ => ()
+                                          )
+                                      )
+                                  ),
+                                _ => ()
+                              ),
+                            true => ()
+                          ),
+                        .FnCall(_, _, _, _, _) => ()
+                      );
+                      recv_res := match(recur(recv_expr, env),
+                        .Some(x) => x,
+                        .None    => { return Option(EvalResult).None; }
+                      );
+                      handle_method_dispatch(recv_res.value, box(method_expr), args, env)
+                    },
+                    // TS-format enum variant with args: inner_args has 1 element
+                    true => {
+                      vname := match(inner_args.get(usize(0)),
+                        .Some(vne) => match(vne,
+                          .Atom(_, vntok) => vntok.value.as_str(),
+                          .FnCall(_, _, _, _, _) => { return Option(EvalResult).None; }
+                        ),
+                        .None => { return Option(EvalResult).None; }
+                      );
+                      variant_str := `.${ String.from(vname) }`;
+                      n_args := args.len();
+                      fields := ArrayList(EvalValue).new();
+                      (i : usize) = usize(0);
+                      (ok : bool) = true;
+                      while runtime(((i < n_args) && ok)), {
+                        match(args.get(i),
+                          .Some(arg_expr) =>
+                            match(recur(arg_expr, env),
+                              .Some(r) => { fields.push(r.value); },
+                              .None    => { ok = false; }
+                            ),
+                          .None => { ok = false; }
+                        );
+                        i = (i + usize(1));
+                      };
+                      cond(
+                        ok => .Some(eval_result(.EnumVal(variant_str, fields), t_unit())),
+                        true => Option(EvalResult).None
+                      )
+                    }
+                  ),
 
                 // ---- function definition: (fn(params) -> RetType)(body) ----
                 (dt.value.as_str() == "->") =>
@@ -1779,7 +2544,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                   (i : usize) = usize(0);
                   (had_error : bool) = false;
                   (returning : bool) = false;
-                  while runtime((((i < n) && (!(had_error))) && (!(returning)))), {
+                  (breaking  : bool) = false;
+                  while runtime((((i < n) && (!(had_error))) && ((!(returning)) && (!(breaking))))), {
                     match(args.get(i),
                       .Some(stmt) =>
                         match(recur(stmt, env),
@@ -1787,6 +2553,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                             last = .Some(r);
                             match(r.value,
                               .ReturnVal(_, _) => { returning = true; },
+                              .BreakVal        => { breaking  = true; },
                               _ => ()
                             );
                           },
@@ -1938,8 +2705,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 },
                                 .None => Option(EvalResult).None
                               ),
-                            // typed: (x : T) = rhs  — typed variable declaration
-                            .FnCall(_, colon_box_b, colon_args_b, _, _) =>
+                            // struct field mutation OR typed declaration
+                            .FnCall(_, colon_box_b, colon_args_b, lhs_infix_b, _) =>
                               match(colon_box_b.*,
                                 .Atom(_, colon_tok_b) =>
                                   cond(
@@ -1963,6 +2730,14 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                             .FnCall(_, _, _, _, _) => Option(EvalResult).None
                                           ),
                                         .None => Option(EvalResult).None
+                                      ),
+                                    // struct field assignment: s.field = rhs (Phase 3aq)
+                                    ((colon_tok_b.value.as_str() == ".") && lhs_infix_b) =>
+                                      handle_struct_field_mutation(
+                                        colon_args_b.get(usize(0)),
+                                        colon_args_b.get(usize(1)),
+                                        rhs,
+                                        env
                                       ),
                                     true => Option(EvalResult).None
                                   ),
@@ -2007,6 +2782,23 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 // Fold float × float (comptime or typed); result preserves lv type
                 (is_eval_float_type(lv.ty) && is_eval_float_type(rv.ty)) =>
                   eval_float_arith(fval, lv, rv),
+                // Phase 3aj: StrLit + StrLit — infix string concatenation
+                // Strips surrounding `"` delimiters, concatenates inner text, re-quotes.
+                ((fval == "+") && (match(lv.value, .StrLit(_) => true, _ => false) && match(rv.value, .StrLit(_) => true, _ => false))) => {
+                  lhs_raw_s := match(lv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
+                  rhs_raw_s := match(rv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
+                  ln_s := lhs_raw_s.len();
+                  rn_s := rhs_raw_s.len();
+                  cond(
+                    ((ln_s < usize(2)) || (rn_s < usize(2))) => Option(EvalResult).None,
+                    true => {
+                      lhs_inner_s := lhs_raw_s.substring(usize(1), (ln_s - usize(1)));
+                      rhs_inner_s := rhs_raw_s.substring(usize(1), (rn_s - usize(1)));
+                      concat_s := (((String.from("\"") + lhs_inner_s) + rhs_inner_s) + String.from("\""));
+                      .Some(eval_result(.StrLit(concat_s), t_comptime_string()))
+                    }
+                  )
+                },
                 true => Option(EvalResult).None
               )
             },
@@ -2158,6 +2950,13 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 ((is_infix) && (args.len() == usize(2))) => {
                   recv_expr := match(args.get(usize(0)), .Some(x) => x, .None => { return Option(EvalResult).None; });
                   rhs := match(args.get(usize(1)), .Some(x) => x, .None => { return Option(EvalResult).None; });
+                  // Phase 3am: ArrayVal mutation pre-pass — handle arr.push(x) before evaluating receiver.
+                  // We need the variable name from recv_expr to update the binding in-place.
+                  push_res_pa := handle_array_push_mutation(recv_expr, rhs, env);
+                  match(push_res_pa,
+                    .Some(r_pa) => { return Option(EvalResult).Some(r_pa); },
+                    .None => ()
+                  );
                   recv_res := match(recur(recv_expr, env), .Some(x) => x, .None => { return Option(EvalResult).None; });
                   match(recv_res.value,
                     .StructVal(_, fnames, fvals) =>
@@ -2200,7 +2999,27 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           handle_method_dispatch(recv_res.value, method_func_box, method_call_args, env),
                         _ => Option(EvalResult).None
                       ),
-                    _ => Option(EvalResult).None
+                    // Phase 3al fix: method calls on non-StructVal receivers
+                    // (TypeVal for static methods, StrLit/IntLit/etc. for instance shims).
+                    // Dispatch to handle_method_dispatch which has shims for these types.
+                    // Phase 3am: also handle val.* (PtrVal dereference) here.
+                    _ =>
+                      match(rhs,
+                        // val.* — dereference a PtrVal (Phase 3am)
+                        .Atom(_, deref_tok) =>
+                          cond(
+                            (deref_tok.value.as_str() == "*") =>
+                              match(recv_res.value,
+                                .PtrVal(inner_box, _) =>
+                                  .Some(eval_result(inner_box.*, type_of_eval_value(inner_box.*))),
+                                _ => Option(EvalResult).None
+                              ),
+                            true => Option(EvalResult).None
+                          ),
+                        .FnCall(_, method_func_box2, method_call_args2, _, _) =>
+                          handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env),
+                        _ => Option(EvalResult).None
+                      )
                   )
                 },
 
@@ -2376,6 +3195,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                             last = bv;
                                             match(bv.value,
                                               .ReturnVal(_, _) => { keep_going = false; },
+                                              .BreakVal        => { keep_going = false; },
                                               _ => ()
                                             );
                                           }
@@ -2389,7 +3209,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           }
                         );
                       };
-                      .Some(last)
+                      .Some(match(last.value, .BreakVal => eval_result(.UnitVal, t_unit()), _ => last))
                     }
                   )
 
@@ -2432,6 +3252,72 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                             .ReturnVal(box(ret_res.value), ret_res.ty),
                             t_unit()
                           ))
+                      )
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // break — emit a BreakVal signal to stop the nearest while/for loop
+            // -----------------------------------------------------------------
+            (fval == "break") =>
+              .Some(eval_result(.BreakVal, t_unit()))
+            ,
+
+            // -----------------------------------------------------------------
+            // for(item_pat, collection_expr, body_expr) — iterate over ArrayVal
+            // -----------------------------------------------------------------
+            (fval == "for") =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(item_pat) =>
+                  match(args.get(usize(1)),
+                    .None => Option(EvalResult).None,
+                    .Some(col_expr) =>
+                      match(args.get(usize(2)),
+                        .None => Option(EvalResult).None,
+                        .Some(body_expr) =>
+                          match(recur(col_expr, env),
+                            .None => Option(EvalResult).None,
+                            .Some(col_res) =>
+                              match(col_res.value,
+                                .ArrayVal(elements) => {
+                                  n_fe := elements.len();
+                                  (fi : usize) = usize(0);
+                                  (last_fe : EvalResult) = eval_result(.UnitVal, t_unit());
+                                  (for_ok : bool) = true;
+                                  while runtime(((fi < n_fe) && for_ok)), {
+                                    match(elements.get(fi),
+                                      .None => { for_ok = false; },
+                                      .Some(elem_val) => {
+                                        env.push_frame(false);
+                                        match(item_pat,
+                                          .Atom(_, item_tok) => {
+                                            _fidx := env.define_val(item_tok.value, type_of_eval_value(elem_val), false, .Some(elem_val));
+                                          },
+                                          .FnCall(_, _, _, _, _) => ()
+                                        );
+                                        match(recur(body_expr, env),
+                                          .None => { env.pop_frame(); for_ok = false; },
+                                          .Some(body_res) => {
+                                            env.pop_frame();
+                                            last_fe = body_res;
+                                            match(body_res.value,
+                                              .ReturnVal(_, _) => { for_ok = false; },
+                                              .BreakVal        => { for_ok = false; },
+                                              _ => ()
+                                            );
+                                          }
+                                        );
+                                      }
+                                    );
+                                    fi = (fi + usize(1));
+                                  };
+                                  .Some(match(last_fe.value, .BreakVal => eval_result(.UnitVal, t_unit()), _ => last_fe))
+                                },
+                                _ => Option(EvalResult).None
+                              )
+                          )
                       )
                   )
               )
@@ -2706,8 +3592,60 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             (fval == BK_ANON_STRUCT) => handle_anon_struct_form(args, env),
 
+            // -----------------------------------------------------------------
+            // Phase 3am: box(expr) — heap-boxing. At compile time, wraps the
+            // value in PtrVal so that `box(x).*` round-trips correctly.
+            // -----------------------------------------------------------------
+            ((fval == "box") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(box_arg) =>
+                  match(recur(box_arg, env),
+                    .None => Option(EvalResult).None,
+                    .Some(box_res) =>
+                      .Some(eval_result(.PtrVal(box(box_res.value), usize(0)), box_res.ty))
+                  )
+              ),
+
+            // -----------------------------------------------------------------
+            // Phase 3am: ArrayList(T) type constructor — returns a TypeVal
+            // placeholder so that `ArrayList(T).new()` can dispatch correctly.
+            // The type argument T is evaluated but ignored; only the shape
+            // matters for the proto-evaluator's purpose.
+            // -----------------------------------------------------------------
+            (fval == "ArrayList") =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
+            // Array literal: [e1, e2, ...] — parsed as array(e1, e2, ...)
+            // Evaluates all elements and produces an ArrayVal.
+            // -----------------------------------------------------------------
+            (fval == BK_ARRAY_VAL) => {
+              arr_elems := ArrayList(EvalValue).new();
+              n_ae := args.len();
+              (ae_i : usize) = usize(0);
+              (ae_ok : bool) = true;
+              while runtime(((ae_i < n_ae) && ae_ok)), {
+                match(args.get(ae_i),
+                  .Some(ae_expr) =>
+                    match(recur(ae_expr, env),
+                      .Some(ae_res) => { arr_elems.push(ae_res.value); },
+                      .None => { ae_ok = false; }
+                    ),
+                  .None => { ae_ok = false; }
+                );
+                ae_i = (ae_i + usize(1));
+              };
+              cond(
+                (!(ae_ok)) => Option(EvalResult).None,
+                true => .Some(eval_result(.ArrayVal(arr_elems), t_unit()))
+              )
+            },
+
+            // -----------------------------------------------------------------
+            // General identifier: struct constructor or FuncVal call.
+            // Detect struct construction: first arg is a `:` infix call (named field)
             true => {
-              // Detect struct construction: first arg is a `:` infix call (named field)
               is_struct_ctor := match(args.get(usize(0)),
                 .Some(a0) =>
                   match(a0,

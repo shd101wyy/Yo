@@ -52,7 +52,7 @@ open import "std/string";
 { random_id } :: import "../utils.yo";
 { format_error_message } :: import "../../error/error.yo";
 { Exception } :: import "std/error";
-{ extract_fn_trait_from_type } :: import "../trait_checking.yo";
+{ register_definition_site_return }  :: import "../types/definition_site_registry.yo";
 
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
@@ -308,6 +308,50 @@ evaluate_anonymous_function_implementation :: (fn(
   });
 
   // -------------------------------------------------------------------------
+  // Phase 3ad: snapshot outer env for closure/function capture.
+  // Mirrors eval.yo lines 1696-1730: iterate all outer frames and collect
+  // all visible variable bindings. Runtime variables (no comptime value) are
+  // stored as VarRef(name) in cap_vals so they can be found at call time.
+  // This must happen BEFORE pushing the parameter frame so we only capture
+  // the outer lexical scope (params are bound fresh at each call site).
+  // -------------------------------------------------------------------------
+  cap_names  := ArrayList(String).new();
+  cap_tys    := ArrayList(TypeValue).new();
+  cap_vals   := ArrayList(EvalValue).new();
+  n_cap_fr   := env.frames.len();
+  (cap_fi : usize) = usize(0);
+  while runtime((cap_fi < n_cap_fr)), {
+    match(env.frames.get(cap_fi),
+      .Some(cap_frame) => {
+        n_cap_v := cap_frame.variables.len();
+        (cap_vi : usize) = usize(0);
+        while runtime((cap_vi < n_cap_v)), {
+          match(cap_frame.variables.get(cap_vi),
+            .Some(cv) => {
+              cond(
+                (!(cv.name.as_str() == "__recur_fn")) => {
+                  cap_names.push(cv.name);
+                  cap_tys.push(cv.ty);
+                  cap_val := match(cv.value,
+                    .Some(actual) => actual,
+                    .None => EvalValue.VarRef(cv.name)
+                  );
+                  cap_vals.push(cap_val);
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+          cap_vi = (cap_vi + usize(1));
+        };
+      },
+      .None => ()
+    );
+    cap_fi = (cap_fi + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
   _frame_idx := env.push_frame(false);
@@ -410,7 +454,7 @@ evaluate_anonymous_function_implementation :: (fn(
 
   // -------------------------------------------------------------------------
   // Build the FuncVal.
-  // Phase 3: captures are empty (future phase will snapshot the outer env).
+  // Phase 3ad: captures are populated from the outer env snapshot above.
   // -------------------------------------------------------------------------
   func_id := cond(
     is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
@@ -423,10 +467,31 @@ evaluate_anonymous_function_implementation :: (fn(
     param_type_names,
     implicit_labels,
     box(body_expr),
-    ArrayList(String).new(),    // cap_names  (empty; Phase 3 limitation)
-    ArrayList(TypeValue).new(), // cap_tys
-    ArrayList(EvalValue).new(), // cap_vals
-    func_id
+    cap_names,
+    cap_tys,
+    cap_vals,
+    (&func_id).clone()
+  );
+
+  // Register definitionSiteEnclosingFunctionType return type.
+  // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+  //   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type : undefined
+  // in src/evaluator/values/anonymous-function.ts.
+  match(ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(fb_ctx.kind,
+      .FunctionBody => match(fb_ctx.func_type,
+        .Some(enclosing_func_ty) => {
+          enclosing_return_ty := match(enclosing_func_ty,
+            .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
+            _ => TypeValue.Unit
+          );
+          register_definition_site_return((&func_id).clone(), enclosing_return_ty);
+        },
+        .None => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
   );
 
   // -------------------------------------------------------------------------

@@ -2476,3 +2476,97 @@ test "handle_begin: sibling begin blocks are wrapped in C braces for variable sc
   assert(code.contains(String.from("{")),  "opening brace emitted");
   assert(code.contains(String.from("}")),  "closing brace emitted");
 };
+
+// Phase 5j: while loop codegen tests ----------------------------------------
+
+test "handle_while: 2-arg while(cond, body) emits C while loop", {
+  // while(flag, { break; })  →  while (flag) { ... break ... }
+  cond_e := make_atom_expr(TokenKind.Identifier, "flag");
+  body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
+  w_e    := make_while_expr(cond_e, body_e);
+
+  ctx := run_gen_with_ctx(w_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("while (")), "C while emitted");
+  assert(code.contains(String.from("flag")),    "condition present");
+  assert(code.contains(String.from("break")),   "break in body");
+};
+
+test "handle_while: runtime(cond) wrapper is stripped from condition", {
+  // while(runtime(i < n), { x; })  →  while (i < n) { ... }
+  cond_inner := make_infix_expr("<",
+    make_atom_expr(TokenKind.Identifier, "i"),
+    make_atom_expr(TokenKind.Identifier, "n")
+  );
+  cond_e := make_runtime_cond(cond_inner);
+  body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "x"));
+  w_e    := make_while_expr(cond_e, body_e);
+
+  ctx := run_gen_with_ctx(w_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("while (")),          "C while emitted");
+  assert(code.contains(String.from("i")),                "i in condition");
+  assert(code.contains(String.from("n")),                "n in condition");
+  assert((!code.contains(String.from("runtime"))), "runtime wrapper stripped");
+};
+
+test "handle_while: 3-arg while(cond, step, body) emits C for loop", {
+  // while(cond, i = i + 1, body)  →  for (;cond;...) { body }
+  cond_e := make_atom_expr(TokenKind.Identifier, "cond");
+  step_e := make_assign_expr(
+    make_atom_expr(TokenKind.Identifier, "i"),
+    make_infix_expr("+",
+      make_atom_expr(TokenKind.Identifier, "i"),
+      make_atom_expr(TokenKind.Integer, "1")
+    )
+  );
+  body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "x"));
+  a := ArrayList(AstExpr).new();
+  a.push(cond_e);
+  a.push(step_e);
+  a.push(body_e);
+  w_e := make_fncall_expr("while", a);
+
+  ctx := run_gen_with_ctx(w_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("for (;")), "C for loop emitted");
+  assert(code.contains(String.from("cond")),   "condition present");
+};
+
+// Phase 5k: for-loop codegen tests -------------------------------------------
+
+test "handle_for: for(iter, elem => body) emits fallback while(1) loop", {
+  // for(my_iter, elem => { break; })
+  // → __auto_type _yo_tN = my_iter;
+  //   while (1) { __auto_type _yo_tM = _yo_tN.next(); if (!_yo_tM) break; __auto_type elem = _yo_tM; break; }
+  iter_e  := make_atom_expr(TokenKind.Identifier, "my_iter");
+  param_e := make_atom_expr(TokenKind.Identifier, "elem");
+  body_e  := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
+  handler_e := make_cond_arm(param_e, body_e);
+  a := ArrayList(AstExpr).new();
+  a.push(iter_e);
+  a.push(handler_e);
+  for_e := make_fncall_expr("for", a);
+
+  ctx := run_gen_with_ctx(for_e);
+  code := ctx.emitter.code;
+  assert(code.contains(String.from("while (1)")), "fallback while(1) emitted");
+  assert(code.contains(String.from("my_iter")),   "iterator present");
+  assert(code.contains(String.from("elem")),      "param name present");
+  assert(code.contains(String.from(".next()")),   "next() call present");
+  assert(code.contains(String.from("break")),     "break in body");
+};
+
+test "handle_for: wrong arity (1 arg) returns None", {
+  // for(iter_only) — missing handler → None
+  iter_e := make_atom_expr(TokenKind.Identifier, "my_iter");
+  a := ArrayList(AstExpr).new();
+  a.push(iter_e);
+  for_e := make_fncall_expr("for", a);
+
+  result_opt := run_gen(for_e);
+  match(result_opt,
+    .None => (),
+    .Some(_) => assert(false, "expected None for wrong-arity for")
+  );
+};

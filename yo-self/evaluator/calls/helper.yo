@@ -30,7 +30,8 @@ open import "std/string";
   get_all_variables_from_env,
   add_variable_to_env,
   update_existing_variable,
-  synthetic_token }                           :: import "../../env/env.yo";
+  synthetic_token,
+  clone_env }                                 :: import "../../env/env.yo";
 { TypeValue, t_unit }                         :: import "../../types/type.yo";
 { type_to_string }                            :: import "../../types/string.yo";
 { get_all_some_types,
@@ -39,9 +40,11 @@ open import "std/string";
 { type_implements_future,
   type_implements_fn }                        :: import "../trait_checking.yo";
 { EvalValue, eval_value_eq,
-  value_to_string }                           :: import "../value.yo";
+  value_to_string, create_type_value }         :: import "../value.yo";
 { EvalContext,
   FuncCallResult,
+  FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
+  ImplConcreteTypeInfo,
   ArgValues, ArgEntry, VarArgEntry,
   ExpectedTypeCtx,
   SpecializingFunctionInfo,
@@ -61,6 +64,7 @@ open import "std/string";
 { generate_expr_from_code }                   :: import "../../parser/parser.yo";
 { format_error_message }                      :: import "../../error/error.yo";
 { mark_as_control_fn, is_control_fn }         :: import "../types/control_fn_registry.yo";
+{ get_definition_site_return }               :: import "../types/definition_site_registry.yo";
 { Exception }                                 :: import "std/error";
 
 // ---------------------------------------------------------------------------
@@ -1007,6 +1011,302 @@ create_specialized_function_inline :: (fn(
   result
 });
 // ---------------------------------------------------------------------------
+// evaluate_ctl_function_body_inline
+// ---------------------------------------------------------------------------
+
+/// Inline-evaluate a control function body to produce a specialized version
+/// with the forall type parameter bound to the concrete call-site type.
+///
+/// Called for `isControlFunction` functions (effect handlers that use `escape`)
+/// when they have forall parameters. This is separate from normal specialization
+/// because the concrete type comes from the CALL SITE's enclosing function return
+/// type (not from the arguments).
+///
+/// Mirrors `evaluateCtlFunctionBodyInline` in `src/evaluator/calls/helper.ts`
+/// (lines 3616–3790).
+evaluate_ctl_function_body_inline :: (fn(
+  original_func_val : EvalValue,
+  func_type         : TypeValue,
+  callee_env        : Environment,
+  caller_env        : Environment,
+  ctx               : *(EvalContext),
+  using(exn         : Exception)
+) -> EvalValue)({
+  // Extract FuncVal fields individually to avoid tuple destructuring.
+  orig_forall_labels := match(original_func_val, .FuncVal(fl, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
+  orig_params        := match(original_func_val, .FuncVal(_, p,  _, _, _, _, _, _, _) => p,  _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val, .FuncVal(_, _, ptn, _, _, _, _, _, _) => ptn, _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val, .FuncVal(_, _, _, ep, _, _, _, _, _) => ep, _ => ArrayList(String).new());
+  orig_body          := match(original_func_val, .FuncVal(_, _, _, _, b,  _, _, _, _) => b,  _ => Box(AstExpr)(make_err_expr()));
+  orig_cap_names     := match(original_func_val, .FuncVal(_, _, _, _, _, cn, _, _, _) => cn, _ => ArrayList(String).new());
+  orig_cap_tys       := match(original_func_val, .FuncVal(_, _, _, _, _, _, ct, _, _) => ct, _ => ArrayList(TypeValue).new());
+  orig_cap_vals      := match(original_func_val, .FuncVal(_, _, _, _, _, _, _, cv, _) => cv, _ => ArrayList(EvalValue).new());
+  orig_func_id       := match(original_func_val, .FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("__err_ctl"));
+
+  // -------------------------------------------------------------------------
+  // Determine concreteTypeForForall from context.
+  // For function-body contexts, it's the enclosing function's return type.
+  // Mirrors:
+  //   context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+  //     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+  //     : functionType.return.type
+  // -------------------------------------------------------------------------
+  (concrete_type_for_forall : TypeValue) = match(ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(fb_ctx.kind,
+      .FunctionBody => match(fb_ctx.func_type,
+        .Some(enclosing_ty) => match(enclosing_ty,
+          .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
+          _ => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+        ),
+        .None => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+      ),
+      _ => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+    ),
+    .None => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+  );
+
+  // -------------------------------------------------------------------------
+  // Determine enclosing return type from definition-site registry.
+  // Mirrors:
+  //   originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()
+  // -------------------------------------------------------------------------
+  enclosing_return_ty := get_definition_site_return(orig_func_id.as_str());
+
+  // -------------------------------------------------------------------------
+  // Build cache key: <original_func_id>_ctl_<sanitized_type_string>.
+  // Mirrors:
+  //   const ctlSignature = sanitizeForCIdentifier(typeToString(concreteTypeForForall));
+  //   funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
+  // -------------------------------------------------------------------------
+  ctl_sig_raw := type_to_string(concrete_type_for_forall);
+  ctl_sig_san := sanitize_for_sig(ctl_sig_raw);
+  ctl_func_id := `${orig_func_id}_ctl_${ctl_sig_san}`;
+
+  // -------------------------------------------------------------------------
+  // Check cache: if we already have a specialization with this _ctl_ func_id,
+  // return it immediately.
+  // -------------------------------------------------------------------------
+  // Build a compile-time arg list containing the concrete type as the sole entry.
+  ctl_ct_args := ArrayList(EvalValue).new();
+  ctl_ct_args.push(create_type_value(concrete_type_for_forall));
+  cached_result := _find_specialization_cache(
+    ctx,
+    ctl_func_id.as_str(),
+    ctl_ct_args,
+    ArrayList(TypeValue).new(),
+    caller_env
+  );
+  (found_cached : bool) = false;
+  (cached_val : EvalValue) = EvalValue.UnitVal;
+  match(cached_result,
+    .Some(cv2) => {
+      found_cached = true;
+      cached_val = cv2;
+    },
+    .None => ()
+  );
+  if(found_cached, { return cached_val; });
+
+  // -------------------------------------------------------------------------
+  // Build specialized env: clone callee_env and push a new frame.
+  // Mirrors: let specializedEnv = pushEnvFrame(calleeEnv);
+  // -------------------------------------------------------------------------
+  specialized_env := clone_env(callee_env);
+  ___ := specialized_env.push_frame(false);
+
+  // -------------------------------------------------------------------------
+  // Add compile-time bindings from caller's scope that are missing from
+  // specializedEnv (types, modules, traits — not plain function values).
+  // Mirrors the callerEnv injection loop in evaluateCtlFunctionBodyInline.
+  // -------------------------------------------------------------------------
+  n_caller_frames := caller_env.frames.len();
+  (cfi : usize) = usize(0);
+  while runtime((cfi < n_caller_frames)), {
+    match(caller_env.frames.get(cfi),
+      .Some(caller_frame) => {
+        n_vars := caller_frame.variables.len();
+        (vi : usize) = usize(0);
+        while runtime((vi < n_vars)), {
+          match(caller_frame.variables.get(vi),
+            .Some(caller_var) => {
+              if(caller_var.is_compile_time_only, {
+                // Skip plain function values (only types, modules, traits need to cross).
+                is_fn_val := match(caller_var.value,
+                  .Some(cv3) => match(cv3, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
+                  .None => false
+                );
+                if(!(is_fn_val), {
+                  existing := get_variables_from_env(specialized_env, caller_var.name);
+                  if((existing.len() == usize(0)), {
+                    ___ := add_variable_to_env(
+                      &(specialized_env),
+                      (&caller_var.name).clone(),
+                      caller_var.ty,
+                      caller_var.value,
+                      true,
+                      false,
+                      false,
+                      caller_var.is_implicit,
+                      caller_var.token
+                    );
+                  });
+                });
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        };
+      },
+      .None => ()
+    );
+    cfi = (cfi + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Bind each forall parameter to concreteTypeForForall.
+  // Mirrors the forallParam loop in evaluateCtlFunctionBodyInline.
+  // -------------------------------------------------------------------------
+  forall_labels := match(func_type,
+    .Func(fl, _, _, _, _, _, _, _, _) => fl,
+    _ => ArrayList(String).new()
+  );
+  forall_types_list := match(func_type,
+    .Func(_, ft, _, _, _, _, _, _, _) => ft,
+    _ => ArrayList(TypeValue).new()
+  );
+  n_forall := forall_labels.len();
+  (fi2 : usize) = usize(0);
+  while runtime((fi2 < n_forall)), {
+    fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
+    fl_ty    := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
+    ctl_tok  := synthetic_token((&fl_label).clone(), specialized_env.module_path);
+    ___ := add_variable_to_env(
+      &(specialized_env),
+      (&fl_label).clone(),
+      fl_ty,
+      Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
+      true,
+      false,
+      false,
+      false,
+      ctl_tok
+    );
+    fi2 = (fi2 + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Build a handler context with modified enclosingFunctionReturnType.
+  // Mirrors:
+  //   const handlerContext: EvaluatorContext = {
+  //     ...context,
+  //     expectedType: undefined,
+  //     enclosingFunctionReturnType: enclosingReturnType,
+  //     isEvaluatingFunctionBodyOrAsyncBlock: { kind: "function-body", type: functionType, value: originalFunction, evaluationEnv: specializedEnv },
+  //     functionReturnImplConcreteType: [],
+  //   };
+  // -------------------------------------------------------------------------
+  handler_fb_ctx := FuncOrAsyncBlockCtx(
+    kind:       FuncOrAsyncBlockKind.FunctionBody,
+    func_type:  Option(TypeValue).Some(func_type),
+    func_value: Option(EvalValue).Some(original_func_val),
+    eval_env:   specialized_env
+  );
+
+  prev_expected_type  := ctx.expected_type;
+  prev_is_eval_fb     := ctx.is_evaluating_function_body_or_async_block;
+  prev_enclosing_ret  := ctx.enclosing_function_return_type;
+  prev_impl_concrete  := ctx.function_return_impl_concrete_type;
+
+  ctx.expected_type                          = Option(ExpectedTypeCtx).None;
+  ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(handler_fb_ctx);
+  ctx.enclosing_function_return_type        = Option(TypeValue).Some(enclosing_return_ty);
+  ctx.function_return_impl_concrete_type    = Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new());
+
+  // -------------------------------------------------------------------------
+  // Evaluate the body.
+  // -------------------------------------------------------------------------
+  ctl_body := evaluate_begin_expression(
+    orig_body.*,
+    specialized_env,
+    ctx,
+    ArrayList(Variable).new(),
+    true,
+    using(exn)
+  );
+
+  // Restore context fields.
+  ctx.expected_type                          = prev_expected_type;
+  ctx.is_evaluating_function_body_or_async_block = prev_is_eval_fb;
+  ctx.enclosing_function_return_type        = prev_enclosing_ret;
+  ctx.function_return_impl_concrete_type    = prev_impl_concrete;
+
+  // -------------------------------------------------------------------------
+  // Build the specialized FuncVal.
+  // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
+  // -------------------------------------------------------------------------
+  ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
+  ctl_body_has_escape := evaluated_body_contains_escape(ctl_body);
+  if((ctl_parent_is_ctl || ctl_body_has_escape), {
+    mark_as_control_fn((&ctl_func_id).clone());
+  });
+
+  // Rebuild captures (same as original + forall type bindings).
+  ctl_cap_names := ArrayList(String).new();
+  ctl_cap_tys   := ArrayList(TypeValue).new();
+  ctl_cap_vals  := ArrayList(EvalValue).new();
+
+  (oci : usize) = usize(0);
+  n_oc := orig_cap_names.len();
+  while runtime((oci < n_oc)), {
+    ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
+    ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
+    ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
+    oci = (oci + usize(1));
+  };
+
+  // Add forall type bindings as extra captures.
+  (fi3 : usize) = usize(0);
+  while runtime((fi3 < n_forall)), {
+    fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
+    ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
+    ctl_cap_names.push((&fl3).clone());
+    ctl_cap_tys.push(ft3);
+    ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
+    fi3 = (fi3 + usize(1));
+  };
+
+  ctl_func_val := EvalValue.FuncVal(
+    orig_forall_labels,
+    orig_params,
+    orig_param_type_names,
+    orig_evidence_params,
+    Box(AstExpr)(orig_body.*),
+    ctl_cap_names,
+    ctl_cap_tys,
+    ctl_cap_vals,
+    (&ctl_func_id).clone()
+  );
+
+  // -------------------------------------------------------------------------
+  // Cache the result.
+  // -------------------------------------------------------------------------
+  // Use ctl_func_id as the cache key with the concrete type as the sole arg.
+  ctl_cache_args := ArrayList(EvalValue).new();
+  ctl_cache_args.push(create_type_value(concrete_type_for_forall));
+  _store_specialization_cache(
+    ctx,
+    (&ctl_func_id).clone(),
+    ctl_cache_args,
+    ArrayList(TypeValue).new(),
+    ctl_func_val,
+    specialized_env
+  );
+
+  ctl_func_val
+});
+
+// ---------------------------------------------------------------------------
 // try_to_call_function_with_arguments
 // ---------------------------------------------------------------------------
 
@@ -1443,17 +1743,40 @@ try_to_call_function_with_arguments :: (fn(
         );
         if((!(is_recursive_spec) && is_concrete_fv), {
           fv2      := match(func_val, .Some(v) => v, .None => EvalValue.UnitVal);
-          spec_av  := ArgValues(
-            forall_args:   forall_arg_vals,
-            args:          arg_vals,
-            implicit_args: implicit_args_result,
-            variadic_args: ArrayList(VarArgEntry).new()
+
+          // ----------------------------------------------------------------
+          // Ctl function path: isControlFunction + has forall params.
+          // Must come before regular specialization to override it.
+          // Mirrors the `isControlFunction` branch in helper.ts step 12b.
+          // ----------------------------------------------------------------
+          fv2_func_id := match(fv2,
+            .FuncVal(_, _, _, _, _, _, _, _, fid2) => fid2,
+            _ => String.from("")
           );
-          spec_func_val = Option(EvalValue).Some(
-            create_specialized_function_inline(
-              fv2, func_type, spec_av, callee_env_m, caller_env_m, ctx, using(exn)
-            )
-          );
+          is_ctl := is_control_fn(fv2_func_id.as_str());
+          has_forall := (fl.len() > usize(0));
+          if((is_ctl && has_forall), {
+            spec_func_val = Option(EvalValue).Some(
+              evaluate_ctl_function_body_inline(
+                fv2, func_type, callee_env_m, caller_env_m, ctx, using(exn)
+              )
+            );
+          });
+
+          // Regular specialization if ctl path did not produce a result.
+          if(spec_func_val.is_none(), {
+            spec_av  := ArgValues(
+              forall_args:   forall_arg_vals,
+              args:          arg_vals,
+              implicit_args: implicit_args_result,
+              variadic_args: ArrayList(VarArgEntry).new()
+            );
+            spec_func_val = Option(EvalValue).Some(
+              create_specialized_function_inline(
+                fv2, func_type, spec_av, callee_env_m, caller_env_m, ctx, using(exn)
+              )
+            );
+          });
         });
       });
 
@@ -1511,3 +1834,4 @@ export generate_deferred_drop_expressions;
 export value_to_signature_string;
 export compute_compile_time_signature;
 export create_specialized_function_inline;
+export evaluate_ctl_function_body_inline;

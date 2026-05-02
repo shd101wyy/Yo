@@ -36,6 +36,8 @@ open import "std/string";
 { Token } :: import "../lexer/token.yo";
 { YoError, ErrorKind, format_error_message } :: import "../error/error.yo";
 { is_type_registered_as_trait } :: import "./types/trait_registry.yo";
+{ find_matching_generic_impl, set_type_implements_trait_fn }
+  :: import "./values/generic_impl_registry.yo";
 
 // ---------------------------------------------------------------------------
 // TraitCheckResult — mirrors { implemented: boolean; env: Environment }
@@ -176,9 +178,10 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 // Phase 3 stubs
 // ---------------------------------------------------------------------------
 
-/// Phase 3 stub for `findMatchingGenericImpl`.
-/// Always returns false — the generic impl registry is not yet ported.
-_find_matching_generic_impl :: (fn(_target : TypeValue, _trait_ty : TypeValue, _env : Environment) -> bool)(false);
+/// Checks if any registered generic impl matches the (target, trait_ty) pair.
+_find_matching_generic_impl :: (fn(target : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+  find_matching_generic_impl(target, trait_ty, env)
+);
 
 /// Phase 3 stub for `findAssociatedTypeFromGenericImpls`.
 /// Always returns false.
@@ -919,6 +922,14 @@ mark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String
 /// Mirrors `unmarkConcreteImplBeingRegistered` in
 /// `src/evaluator/trait-checking.ts`.
 unmark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
+
+// Install type_implements_trait_bool as the function pointer used by
+// generic_impl_registry.yo's try_match_generic_impl for where-clause checking.
+// This breaks the circular dependency between the two modules.
+_trait_checking_init := (fn() -> bool)({
+  set_type_implements_trait_fn(type_implements_trait_bool);
+  true
+})();
 
 // ---------------------------------------------------------------------------
 // Exports

@@ -91,6 +91,12 @@ EvalValue :: enum(
   /// the function call boundary, where it is unwrapped into the return value.
   ReturnVal(val : Box(Self), ty : TypeValue),
 
+  /// Control-flow signal emitted by a `break` statement inside a while or for loop.
+  ///
+  /// Propagated upward through begin blocks until it reaches the enclosing loop,
+  /// where it terminates iteration and the loop returns `UnitVal`.
+  BreakVal,
+
   /// A compile-time type value (Phase 3k).
   ///
   /// Represents a Yo type as a first-class compile-time value.  For example,
@@ -249,6 +255,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       ),
     .FuncVal(_, _, _, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
+    .BreakVal => match(b, .BreakVal => true, _ => false),
     .TypeVal(at) =>
       match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
     .StructVal(atn, anames, avals) =>
@@ -576,6 +583,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       inner := recur(val.*);
       `return(${inner})`
     },
+    .BreakVal => String.from("break"),
     .TypeVal(ty) => type_to_string(ty.*),
     .StructVal(ty_name, field_names, field_values) => {
       parts_sv := String.from("");
@@ -788,6 +796,7 @@ is_var_ref           :: (fn(v : EvalValue) -> bool)(match(v, .VarRef(_)        =
 is_enum_val          :: (fn(v : EvalValue) -> bool)(match(v, .EnumVal(_, _)    => true, _ => false));
 is_func_val          :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false));
 is_return_val        :: (fn(v : EvalValue) -> bool)(match(v, .ReturnVal(_, _)  => true, _ => false));
+is_break_val         :: (fn(v : EvalValue) -> bool)(match(v, .BreakVal          => true, _ => false));
 is_type_val          :: (fn(v : EvalValue) -> bool)(match(v, .TypeVal(_)       => true, _ => false));
 is_struct_val        :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
 is_module_val        :: (fn(v : EvalValue) -> bool)(match(v, .ModuleVal(_, _)  => true, _ => false));
@@ -887,7 +896,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
 export EvalValue, EvalResult, eval_result, create_type_value, type_of_eval_value;
 export value_to_string;
 export is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref;
-export is_enum_val, is_func_val, is_return_val, is_type_val, is_struct_val, is_module_val;
+export is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val;
 export is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val;
 export is_comptime_list_val, is_expr_val, is_unknown_val;
 export is_type_value, create_unknown_val;
