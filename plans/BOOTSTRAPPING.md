@@ -2602,6 +2602,24 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - 11 new eval tests: bool equality/inequality, string method `.len()`, `.as_str()` passthrough, `where` clause function definition, string concatenation, integer comparisons, float/bool literals.
 - **1091 yo-self tests pass.**
 
+**5aa-5ak. Evaluator method shims + tuple destructuring + bug fixes** ✅ Done
+
+Phases 5aa through 5ak added comprehensive evaluator capabilities:
+
+- **5aa**: `.clone()` passthrough, tuple construction (`BK_TUPLE`), type constructors (Slice, Future, Array, IO, Exception).
+- **5ab**: `StrLit.replace(old, new)`, `StrLit.index_of(needle)` → Option, string ordering `</>/<=/>=`.
+- **5ac**: `eval_values_equal` structural equality helper, `ArrayVal.contains(val)`, `StrLit.split(delim)`.
+- **5ad**: `ArrayVal.join(sep)`, integer conversion passthroughs (`to_usize`, `to_i64`, `to_i32`, `to_u8`, etc.).
+- **5ae**: `ArrayVal.first()`, `ArrayVal.last()` → Option, `IntLit.abs()`.
+- **5af**: `IntLit.min(other)`, `IntLit.max(other)`, `StrLit.repeat(n)`.
+- **5ag**: `ArrayVal.map(fn)`, `ArrayVal.filter(fn)` — higher-order operations via `call_funcval_with_args`.
+- **5ah**: `ArrayVal.fold(init, fn)`, `ArrayVal.any(fn)`, `ArrayVal.all(fn)`.
+- **5ai**: `ArrayVal.concat(other)`, `ArrayVal.reverse()`.
+- **5aj**: Tuple destructuring `(a, b) := expr` in `:=` handler, `EnumVal.is_some()`, `EnumVal.is_none()`, `EnumVal.unwrap()`, `ArrayVal.remove(idx)`, `ArrayVal.set(idx, val)`.
+- **5ak**: `escape` keyword (acts like `return` in comptime), fixed `clone_value.yo` exhaustiveness (`ContinueVal` variant was missing), unlocked `evaluator_index.test.yo` (18 tests) and `init_assignment.test.yo` (4 tests).
+
+- 288 eval tests, **1232 yo-self tests pass (0 failures, 1 skipped).**
+
 ### Phase 6 — Ancillary systems
 
 **6c. Version management** ✅ Done
