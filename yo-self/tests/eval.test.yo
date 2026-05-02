@@ -6742,3 +6742,98 @@ test "Phase 5ab: string <= comparison equal case", {
       )
   );
 };
+
+// Phase 5ac — split, contains, eval_values_equal
+
+test "Phase 5ac: StrLit.split splits by delimiter", {
+  env := empty_env();
+  // "a,b,c".split(",")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"a,b,c\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "split"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\",\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "split returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(3)), "split should produce 3 parts");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .StrLit(s) => assert((s.as_str() == "\"a\""), "first part should be a"), _ => assert(false, "should be StrLit")),
+            .None => assert(false, "should have part 0")
+          );
+          match(items.get(usize(2)),
+            .Some(v2) => match(v2, .StrLit(s) => assert((s.as_str() == "\"c\""), "third part should be c"), _ => assert(false, "should be StrLit")),
+            .None => assert(false, "should have part 2")
+          );
+        },
+        _ => assert(false, "split should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ac: ArrayVal.contains finds existing element", {
+  env := empty_env();
+  // Build array [1, 2, 3], then call .contains(2)
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  // define arr_c
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_c"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_c.contains(2)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_c"));
+  dot_args.push(make_atom(TokenKind.Identifier, "contains"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "2"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "contains returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "array should contain 2"),
+        _ => assert(false, "contains should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ac: ArrayVal.contains returns false for missing element", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_d"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_d.contains(99)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_d"));
+  dot_args.push(make_atom(TokenKind.Identifier, "contains"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "contains returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((!(b)), "array should not contain 99"),
+        _ => assert(false, "contains should return BoolVal")
+      )
+  );
+};

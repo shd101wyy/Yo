@@ -867,6 +867,20 @@ handle_struct_field_mutation :: (fn(
 );
 
 // ---------------------------------------------------------------------------
+// Phase 5ac: eval_values_equal — structural equality check for EvalValue
+// ---------------------------------------------------------------------------
+eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
+  match(a,
+    .IntLit(sa) => match(b, .IntLit(sb) => (sa.as_str() == sb.as_str()), _ => false),
+    .FloatLit(sa) => match(b, .FloatLit(sb) => (sa.as_str() == sb.as_str()), _ => false),
+    .BoolVal(ba) => match(b, .BoolVal(bb) => (ba == bb), _ => false),
+    .StrLit(sa) => match(b, .StrLit(sb) => (sa.as_str() == sb.as_str()), _ => false),
+    .UnitVal => match(b, .UnitVal => true, _ => false),
+    _ => false
+  )
+);
+
+// ---------------------------------------------------------------------------
 // method dispatch helper — Phase 3j
 // Handles `recv.method(args)` dispatch. Factored out of evaluate to keep
 // evaluate's C stack frame small. Uses g_eval_fn to evaluate arg expressions.
@@ -1230,6 +1244,34 @@ handle_method_dispatch :: (fn(
             _ => { return Option(EvalResult).None; }
           ),
         // ---------------------------------------------------------------
+        // Phase 5ac: ArrayVal.contains(val) — linear search equality check
+        // ---------------------------------------------------------------
+        ((mname == "contains") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_c) => {
+              needle_val := match(method_call_args.get(usize(0)),
+                .Some(ne) => match(match(g_eval_fn, .Some(ef) => ef(ne, env), .None => Option(EvalResult).None),
+                  .Some(nr) => nr.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              (found : bool) = false;
+              (ci : usize) = usize(0);
+              while runtime(((ci < av_items_c.len()) && (!(found)))), {
+                match(av_items_c.get(ci),
+                  .Some(item) => {
+                    found = eval_values_equal(item, needle_val);
+                  },
+                  .None => ()
+                );
+                ci = (ci + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.BoolVal(found), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
         // Phase 5z: StrLit.is_empty() — returns true if inner length == 0.
         // ---------------------------------------------------------------
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
@@ -1503,6 +1545,43 @@ handle_method_dispatch :: (fn(
                       return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_ix2), t_unit()));
                     }
                   )
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ac: StrLit.split(delim) — split string into ArrayVal of StrLits
+        // ---------------------------------------------------------------
+        ((mname == "split") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .StrLit(raw_sp) => {
+              n_sp := raw_sp.len();
+              cond(
+                (n_sp < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_sp := raw_sp.substring(usize(1), (n_sp - usize(1)));
+                  delim_str := match(method_call_args.get(usize(0)),
+                    .Some(de) => match(match(g_eval_fn, .Some(ef) => ef(de, env), .None => Option(EvalResult).None),
+                      .Some(dr) => match(dr.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  delim_inner := cond((delim_str.len() >= usize(2)) => delim_str.substring(usize(1), (delim_str.len() - usize(1))), true => delim_str);
+                  parts := inner_sp.split(delim_inner);
+                  result_arr := ArrayList(EvalValue).new();
+                  (spi : usize) = usize(0);
+                  while runtime((spi < parts.len())), {
+                    match(parts.get(spi),
+                      .Some(part) => {
+                        result_arr.push(.StrLit(((String.from("\"") + part) + String.from("\""))));
+                      },
+                      .None => ()
+                    );
+                    spi = (spi + usize(1));
+                  };
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(result_arr), t_unit()));
                 }
               )
             },
