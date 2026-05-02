@@ -1434,6 +1434,80 @@ handle_method_dispatch :: (fn(
             },
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5ab: StrLit.replace(old, new) — string replacement
+        // ---------------------------------------------------------------
+        ((mname == "replace") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(recv_val,
+            .StrLit(raw_rep) => {
+              n_rep := raw_rep.len();
+              cond(
+                (n_rep < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_rep := raw_rep.substring(usize(1), (n_rep - usize(1)));
+                  old_arg := match(method_call_args.get(usize(0)),
+                    .Some(oa) => match(match(g_eval_fn, .Some(ef) => ef(oa, env), .None => Option(EvalResult).None),
+                      .Some(oar) => match(oar.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  new_arg := match(method_call_args.get(usize(1)),
+                    .Some(na) => match(match(g_eval_fn, .Some(ef) => ef(na, env), .None => Option(EvalResult).None),
+                      .Some(nar) => match(nar.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  old_inner := cond((old_arg.len() >= usize(2)) => old_arg.substring(usize(1), (old_arg.len() - usize(1))), true => old_arg);
+                  new_inner := cond((new_arg.len() >= usize(2)) => new_arg.substring(usize(1), (new_arg.len() - usize(1))), true => new_arg);
+                  replaced := inner_rep.replace(old_inner, new_inner);
+                  result_rep := ((String.from("\"") + replaced) + String.from("\""));
+                  return Option(EvalResult).Some(eval_result(.StrLit(result_rep), t_comptime_string()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ab: StrLit.index_of(needle) — find substring position
+        // Returns Option(comptime_int): .Some(IntLit(pos)) or .None
+        // ---------------------------------------------------------------
+        ((mname == "index_of") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .StrLit(raw_ix) => {
+              n_ix := raw_ix.len();
+              cond(
+                (n_ix < usize(2)) => {
+                  none_ix := ArrayList(EvalValue).new();
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_ix), t_unit()));
+                },
+                true => {
+                  inner_ix := raw_ix.substring(usize(1), (n_ix - usize(1)));
+                  needle_str := match(method_call_args.get(usize(0)),
+                    .Some(na2) => match(match(g_eval_fn, .Some(ef) => ef(na2, env), .None => Option(EvalResult).None),
+                      .Some(nar2) => match(nar2.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  needle_inner := cond((needle_str.len() >= usize(2)) => needle_str.substring(usize(1), (needle_str.len() - usize(1))), true => needle_str);
+                  match(inner_ix.index_of(needle_inner),
+                    .Some(pos) => {
+                      some_ix := ArrayList(EvalValue).new();
+                      some_ix.push(.IntLit(pos.to_string()));
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_ix), t_unit()));
+                    },
+                    .None => {
+                      none_ix2 := ArrayList(EvalValue).new();
+                      return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_ix2), t_unit()));
+                    }
+                  )
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         true => ()
       );
 
@@ -2978,11 +3052,19 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                   res := cond((fval == "==") => (la == rb), true => (!(la == rb)));
                   .Some(eval_result(.BoolVal(res), t_bool()))
                 },
-                // str × str (== and != only)
-                (((type_value_tag(lv.ty) == TypeTag.TComptimeString) && (type_value_tag(rv.ty) == TypeTag.TComptimeString)) && ((fval == "==") || (fval == "!="))) => {
+                // str × str (==, !=, <, >, <=, >=)
+                (((type_value_tag(lv.ty) == TypeTag.TComptimeString) && (type_value_tag(rv.ty) == TypeTag.TComptimeString)) && ((((fval == "==") || (fval == "!=")) || ((fval == "<") || (fval == ">"))) || ((fval == "<=") || (fval == ">=")))) => {
                   la_str := match(lv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
                   rb_str := match(rv.value, .StrLit(s) => s, _ => { return Option(EvalResult).None; });
-                  res := cond((fval == "==") => (la_str.as_str() == rb_str.as_str()), true => (!(la_str.as_str() == rb_str.as_str())));
+                  res := cond(
+                    (fval == "==") => (la_str.as_str() == rb_str.as_str()),
+                    (fval == "!=") => (!(la_str.as_str() == rb_str.as_str())),
+                    (fval == "<")  => (la_str.as_str() < rb_str.as_str()),
+                    (fval == ">")  => (la_str.as_str() > rb_str.as_str()),
+                    (fval == "<=") => (la_str.as_str() <= rb_str.as_str()),
+                    (fval == ">=") => (la_str.as_str() >= rb_str.as_str()),
+                    true => { return Option(EvalResult).None; }
+                  );
                   .Some(eval_result(.BoolVal(res), t_bool()))
                 },
                 // float × float
