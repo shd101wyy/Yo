@@ -873,6 +873,11 @@ extract_const_def :: (fn(expr : AstExpr) -> Option(ConstDef))(
                         value: String.from(val_str),
                         kind:  String.from("int")
                       )),
+                      (rhs_tok.kind == TokenKind.Float) => .Some(ConstDef(
+                        name:  String.from(name_str),
+                        value: String.from(val_str),
+                        kind:  String.from("float")
+                      )),
                       ((val_str == "true") || (val_str == "false")) => .Some(ConstDef(
                         name:  String.from(name_str),
                         value: cond((val_str == "true") => String.from("1"), true => String.from("0")),
@@ -894,10 +899,19 @@ extract_const_def :: (fn(expr : AstExpr) -> Option(ConstDef))(
 /// Emit a module-level constant to C declarations.
 /// - Strings: `static const char* Name = "value";`
 /// - Integers/booleans: `#define Name value`
+/// - Floats: `static const double Name = value;`
 emit_const_to_c :: (fn(cd : ConstDef, ctx : *(CodegenContext)) -> unit)({
   cond(
     (cd.kind.as_str() == "str") => {
       ctx.*.emitter.emit_declaration("static const char* ");
+      ctx.*.emitter.emit_declaration(cd.name.as_str());
+      ctx.*.emitter.emit_declaration(" = ");
+      ctx.*.emitter.emit_declaration(cd.value.as_str());
+      ctx.*.emitter.emit_declaration_line(";");
+      ()
+    },
+    (cd.kind.as_str() == "float") => {
+      ctx.*.emitter.emit_declaration("static const double ");
       ctx.*.emitter.emit_declaration(cd.name.as_str());
       ctx.*.emitter.emit_declaration(" = ");
       ctx.*.emitter.emit_declaration(cd.value.as_str());
@@ -1672,7 +1686,43 @@ compile_module_to_c :: (fn(
             name_copy := String.from(fd.name.as_str());
             pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
           },
-          .None => ()
+          .None => {
+            // Also register impl method names for forward reference support.
+            match(expr,
+              .Atom(_, _) => (),
+              .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
+                (imp_infix) => (),
+                (imp_args.len() < usize(2)) => (),
+                true => match(imp_func.*,
+                  .FnCall(_, _, _, _, _) => (),
+                  .Atom(_, itok) => cond(
+                    (!(itok.value.as_str() == "impl")) => (),
+                    true => match(imp_args.get(usize(0)),
+                      .None => (),
+                      .Some(tn_e) => match(atom_ident(tn_e),
+                        .None => (),
+                        .Some(type_name) => {
+                          impl_fns := extract_impl_fns(expr, type_name);
+                          nim := impl_fns.len();
+                          (mi : usize) = usize(0);
+                          while runtime((mi < nim)), {
+                            mi = (mi + usize(1));
+                            match(impl_fns.get(mi - usize(1)),
+                              .None => (),
+                              .Some(ifd) => {
+                                iname := String.from(ifd.name.as_str());
+                                pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
+                              }
+                            );
+                          };
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            );
+          }
         );
       }
     );

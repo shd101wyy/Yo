@@ -2897,3 +2897,56 @@ test "Phase 5o: compile_module_to_c emits constants", {
     }
   );
 };
+
+test "Phase 5o: extract_const_def recognizes float constant", {
+  // PI :: 3.14159
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "PI"), make_atom_expr(TokenKind.Float, "3.14159"));
+  result := extract_const_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(ConstDef) for float constant"),
+    .Some(cd) => {
+      assert((cd.name == String.from("PI")), "name is PI");
+      assert((cd.value == String.from("3.14159")), "value is 3.14159");
+      assert((cd.kind == String.from("float")), "kind is float");
+    }
+  );
+};
+
+test "Phase 5o: emit_const_to_c emits float as static const double", {
+  ctx := CodegenContext.new();
+  cd := ConstDef(name: String.from("PI"), value: String.from("3.14159"), kind: String.from("float"));
+  emit_const_to_c(cd, &ctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static const double PI")), "has static const double");
+  assert(output.contains(String.from("3.14159")), "has value");
+};
+
+test "Phase 5o: compile_module_to_c with impl emits method", {
+  exprs := ArrayList(AstExpr).new();
+  // Define a struct: Counter :: struct(n: i32)
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "n"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_call := make_fncall_expr("struct", fields);
+  exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Counter"), struct_call));
+  // impl(Counter, { inc :: (fn() -> unit)({ }); })
+  impl_body_stmts := ArrayList(AstExpr).new();
+  inc_rhs := make_fn_app(ArrayList(AstExpr).new(), make_atom_expr(TokenKind.Identifier, "unit"), make_begin_expr(ArrayList(AstExpr).new()));
+  impl_body_stmts.push(make_define_expr("inc", inc_rhs));
+  impl_body := make_begin_expr(impl_body_stmts);
+  impl_args := ArrayList(AstExpr).new();
+  impl_args.push(make_atom_expr(TokenKind.Identifier, "Counter"));
+  impl_args.push(impl_body);
+  exprs.push(make_fncall_expr("impl", impl_args));
+  // main fn
+  main_body := make_begin_expr(ArrayList(AstExpr).new());
+  main_ret  := make_atom_expr(TokenKind.Identifier, "unit");
+  main_rhs  := make_fn_app(ArrayList(AstExpr).new(), main_ret, main_body);
+  exprs.push(make_define_expr("main", main_rhs));
+  result := compile_module_to_c(exprs, "test_impl_pass1", "main");
+  match(result,
+    .None => assert(false, "expected C output"),
+    .Some(output) => {
+      assert(output.contains(String.from("Counter_inc")), "impl method has correct C name");
+    }
+  );
+};
