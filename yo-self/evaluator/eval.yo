@@ -3695,6 +3695,51 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
 
             // -----------------------------------------------------------------
+            // Phase 5w: runtime(expr) — unwrap runtime wrapper, just eval inner.
+            // In the real compiler this prevents CTFE; for proto-eval, pass-through.
+            // -----------------------------------------------------------------
+            ((fval == "runtime") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(rt_arg) => recur(rt_arg, env)
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // Phase 5w: dyn(expr) — dynamic trait object creation.
+            // For proto-eval, just evaluate the inner expression and pass through.
+            // -----------------------------------------------------------------
+            ((fval == "dyn") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(dyn_arg) => recur(dyn_arg, env)
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // Phase 5w: comptime(expr) — compile-time evaluation marker.
+            // For proto-eval, just evaluate the inner expression.
+            // -----------------------------------------------------------------
+            ((fval == "comptime") && (args.len() == usize(1))) =>
+              match(args.get(usize(0)),
+                .None => Option(EvalResult).None,
+                .Some(ct_arg) => recur(ct_arg, env)
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // Phase 5w: Common type constructors — return TypeVal placeholder.
+            // -----------------------------------------------------------------
+            ((fval == "Option") && (args.len() == usize(1))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            ((fval == "Result") && (args.len() <= usize(2))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            ((fval == "Box") && (args.len() == usize(1))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+            ((fval == "Pointer") && (args.len() == usize(1))) =>
+              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+
+            // -----------------------------------------------------------------
             // Array literal: [e1, e2, ...] — parsed as array(e1, e2, ...)
             // Evaluates all elements and produces an ArrayVal.
             // -----------------------------------------------------------------

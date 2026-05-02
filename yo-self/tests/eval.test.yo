@@ -6010,3 +6010,89 @@ test "Phase 5v: unary negate -(3.14) returns -3.14", {
       )
   );
 };
+
+// ===========================================================================
+// Phase 5w — runtime(), dyn(), comptime(), type constructors
+// ===========================================================================
+
+test "Phase 5w: runtime(expr) just evaluates inner expression", {
+  env := empty_env();
+  // runtime(42) → 42
+  rt_args := ArrayList(AstExpr).new();
+  rt_args.push(make_atom(TokenKind.Integer, "42"));
+  rt_expr := make_fncall_atom("runtime", rt_args);
+  result := evaluate(rt_expr, &env);
+  match(result,
+    .None => assert(false, "runtime(42) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "42"), "runtime(42) should be 42"),
+        _ => assert(false, "expected IntLit from runtime()")
+      )
+  );
+};
+
+test "Phase 5w: dyn(expr) passes through evaluated value", {
+  env := empty_env();
+  _ := evaluate(make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "99")), &env);
+  dyn_args := ArrayList(AstExpr).new();
+  dyn_args.push(make_ident("x"));
+  dyn_expr := make_fncall_atom("dyn", dyn_args);
+  result := evaluate(dyn_expr, &env);
+  match(result,
+    .None => assert(false, "dyn(x) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(raw) => assert((raw.as_str() == "99"), "dyn(x) should pass through 99"),
+        _ => assert(false, "expected IntLit from dyn()")
+      )
+  );
+};
+
+test "Phase 5w: comptime(expr) evaluates inner expression", {
+  env := empty_env();
+  ct_args := ArrayList(AstExpr).new();
+  ct_args.push(make_atom(TokenKind.Bool, "true"));
+  ct_expr := make_fncall_atom("comptime", ct_args);
+  result := evaluate(ct_expr, &env);
+  match(result,
+    .None => assert(false, "comptime(true) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "comptime(true) should be true"),
+        _ => assert(false, "expected BoolVal from comptime()")
+      )
+  );
+};
+
+test "Phase 5w: Option(T) returns TypeVal", {
+  env := empty_env();
+  opt_args := ArrayList(AstExpr).new();
+  opt_args.push(make_ident("i32"));
+  opt_expr := make_fncall_atom("Option", opt_args);
+  result := evaluate(opt_expr, &env);
+  match(result,
+    .None => assert(false, "Option(i32) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "expected TypeVal from Option()")
+      )
+  );
+};
+
+test "Phase 5w: Box(T) returns TypeVal", {
+  env := empty_env();
+  box_args := ArrayList(AstExpr).new();
+  box_args.push(make_ident("i32"));
+  box_expr := make_fncall_atom("Box", box_args);
+  result := evaluate(box_expr, &env);
+  match(result,
+    .None => assert(false, "Box(i32) returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "expected TypeVal from Box()")
+      )
+  );
+};
