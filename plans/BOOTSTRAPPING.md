@@ -2583,6 +2583,17 @@ Second largest subsystem (~40K lines). Break into sub-phases:
 - `compile_module_to_c` Pass 2 now processes newtype definitions.
 - 8 new tests (6 codegen + 2 eval); 1061 yo-self tests pass.
 
+**5o. Union keyword, module-level constants, type mappings, impl Pass 1** ✅ Done
+
+- `extract_enum_def` now accepts `"union"` keyword in addition to `"enum"`.
+- New `ConstDef` struct + `extract_const_def` function: recognizes string/int/float/bool module-level constants.
+- New `emit_const_to_c`: strings → `static const char*`, ints/bools → `#define`, floats → `static const double`.
+- `compile_module_to_c` Pass 1 now registers impl method names (prevents `fn_` prefix duplication).
+- `compile_module_to_c` Pass 2 processes constants.
+- `type_name_to_c` now maps `String` → `const char*`, `rune` → `uint32_t`.
+- `type_expr_to_c` maps generic containers: `ArrayList(T)`/`Option(T)`/`Result(T,E)`/`Box(T)`/`HashMap(K,V)`/`Impl(T)` → `void*`.
+- 15 new codegen tests + 4 new eval tests; 1078 yo-self tests pass.
+
 ### Phase 6 — Ancillary systems
 
 **6c. Version management** ✅ Done

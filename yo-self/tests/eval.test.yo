@@ -4807,3 +4807,58 @@ test "Phase 5m: given(name) := rhs binds as compile-time value", {
   );
 };
 
+test "Phase 5o: multiple defines in same env", {
+  // Verify that defining multiple names in same env works and doesn't clobber
+  env := empty_env();
+  _r1 := evaluate(
+    make_infix("::", make_ident("aaa"),
+      make_atom(TokenKind.Integer, "10")),
+    &env
+  );
+  _r2 := evaluate(
+    make_infix("::", make_ident("bbb"),
+      make_atom(TokenKind.Integer, "20")),
+    &env
+  );
+  ra := evaluate(make_ident("aaa"), &env);
+  rb := evaluate(make_ident("bbb"), &env);
+  match(ra,
+    .None => assert(false, "aaa not found"),
+    .Some(va) => assert(
+      (va.value == EvalValue.IntLit(String.from("10"))),
+      "aaa should be 10"
+    )
+  );
+  match(rb,
+    .None => assert(false, "bbb not found"),
+    .Some(vb) => assert(
+      (vb.value == EvalValue.IntLit(String.from("20"))),
+      "bbb should be 20"
+    )
+  );
+};
+
+test "Phase 5o: nested arithmetic evaluation", {
+  // ((2 + 3) * (4 - 1)) should equal 15
+  env := empty_env();
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(make_atom(TokenKind.Integer, "2"));
+  three_args := ArrayList(AstExpr).new();
+  three_args.push(make_atom(TokenKind.Integer, "3"));
+  four_args := ArrayList(AstExpr).new();
+  four_args.push(make_atom(TokenKind.Integer, "4"));
+  one_args := ArrayList(AstExpr).new();
+  one_args.push(make_atom(TokenKind.Integer, "1"));
+  add := make_infix("+", make_call("i32", two_args), make_call("i32", three_args));
+  sub := make_infix("-", make_call("i32", four_args), make_call("i32", one_args));
+  mul := make_infix("*", add, sub);
+  result := evaluate(mul, &env);
+  match(result,
+    .None => assert(false, "nested arithmetic returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.IntLit(String.from("15"))),
+      "((2+3)*(4-1)) == 15"
+    )
+  );
+};
+
