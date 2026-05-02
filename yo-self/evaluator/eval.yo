@@ -947,7 +947,36 @@ handle_method_dispatch :: (fn(
               ),
             _ => { return Option(EvalResult).None; }
           ),
-        // String concatenation: StrLit(lhs).(+)(rhs_expr)
+        // ---------------------------------------------------------------
+        // Phase 5af: IntLit.min(other), IntLit.max(other)
+        // ---------------------------------------------------------------
+        (((mname == "min") || (mname == "max")) && (match(recv_val, .IntLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .IntLit(raw_mm) =>
+              match(parse_raw_int(raw_mm),
+                .None => { return Option(EvalResult).None; },
+                .Some(a_mm) => {
+                  other_val := match(method_call_args.get(usize(0)),
+                    .Some(oe) => match(match(g_eval_fn, .Some(ef) => ef(oe, env), .None => Option(EvalResult).None),
+                      .Some(or2) => match(or2.value, .IntLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  match(parse_raw_int(other_val),
+                    .None => { return Option(EvalResult).None; },
+                    .Some(b_mm) => {
+                      res_mm := cond(
+                        (mname == "min") => cond((a_mm < b_mm) => a_mm, true => b_mm),
+                        true => cond((a_mm > b_mm) => a_mm, true => b_mm)
+                      );
+                      return Option(EvalResult).Some(eval_result(.IntLit(res_mm.to_string()), t_comptime_int()));
+                    }
+                  )
+                }
+              ),
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "+") && match(recv_val, .StrLit(_) => true, _ => false)) =>
           match(method_call_args.get(usize(0)),
             .None => { return Option(EvalResult).None; },
@@ -1391,6 +1420,42 @@ handle_method_dispatch :: (fn(
                 true => usize(0)
               );
               return Option(EvalResult).Some(eval_result(.BoolVal((inner_len_ie == usize(0))), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5af: StrLit.repeat(n) — repeat string n times
+        // ---------------------------------------------------------------
+        ((mname == "repeat") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .StrLit(raw_rp) => {
+              n_rp := raw_rp.len();
+              cond(
+                (n_rp < usize(2)) => { return Option(EvalResult).None; },
+                true => {
+                  inner_rp := raw_rp.substring(usize(1), (n_rp - usize(1)));
+                  count_val := match(method_call_args.get(usize(0)),
+                    .Some(ce) => match(match(g_eval_fn, .Some(ef) => ef(ce, env), .None => Option(EvalResult).None),
+                      .Some(cr) => match(cr.value, .IntLit(s) => s, _ => { return Option(EvalResult).None; }),
+                      .None => { return Option(EvalResult).None; }
+                    ),
+                    .None => { return Option(EvalResult).None; }
+                  );
+                  match(parse_raw_int(count_val),
+                    .None => { return Option(EvalResult).None; },
+                    .Some(count_i64) => {
+                      (result_rp : String) = String.from("");
+                      (ri : i64) = i64(0);
+                      while runtime((ri < count_i64)), {
+                        result_rp = (result_rp + inner_rp);
+                        ri = (ri + i64(1));
+                      };
+                      final_rp := ((String.from("\"") + result_rp) + String.from("\""));
+                      return Option(EvalResult).Some(eval_result(.StrLit(final_rp), t_comptime_string()));
+                    }
+                  )
+                }
+              )
             },
             _ => { return Option(EvalResult).None; }
           ),
