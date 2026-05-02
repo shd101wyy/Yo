@@ -9,7 +9,7 @@
 //!   - `generate_captured_variable_dup_expressions` → no ARC (returns None)
 //!   - `create_capture_type_and_value`          → simplified inference only;
 //!     explicit capture struct type deferred to Phase 4.
-//!   - `autoDeriveTraitsAndAddRcFunctions…`     → deferred (not yet ported)
+//!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 
 open import "std/string";
 { ArrayList }    :: import "std/collections/array_list";
@@ -42,6 +42,7 @@ open import "std/string";
   register_struct_fields
 }                :: import "../types/field.yo";
 { random_id }    :: import "../utils.yo";
+{ auto_derive_traits_for_struct_type } :: import "../types/auto_derive.yo";
 
 // ---------------------------------------------------------------------------
 // FuncCapturedVarInfo
@@ -269,6 +270,17 @@ create_capture_type_and_value :: (fn(
         false,
         false,
         false
+      );
+
+      // Auto-derive trait markers for the capture struct.
+      // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` call in closure.ts.
+      auto_derive_traits_for_struct_type(
+        String.from(struct_id.as_str()),
+        field_types,
+        false,
+        false,
+        env,
+        capture_ty
       );
 
       // Build the capture struct EvalValue if all values are known.

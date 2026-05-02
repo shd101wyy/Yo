@@ -22,7 +22,8 @@ open import "std/string";
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_fn_call_of, ast_expr_is_atom_of,
-  make_err_expr }                              :: import "../../expr/expr.yo";
+  make_err_expr,
+  evaluated_body_contains_escape }             :: import "../../expr/expr.yo";
 { Environment,
   Variable,
   get_variables_from_env,
@@ -59,6 +60,7 @@ open import "std/string";
 { evaluate_begin_expression }                 :: import "../exprs/begin.yo";
 { generate_expr_from_code }                   :: import "../../parser/parser.yo";
 { format_error_message }                      :: import "../../error/error.yo";
+{ mark_as_control_fn, is_control_fn }         :: import "../types/control_fn_registry.yo";
 { Exception }                                 :: import "std/error";
 
 // ---------------------------------------------------------------------------
@@ -86,14 +88,61 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
 /// Return true if any field of `module_type` is a "control function"
 /// (one that uses `escape` to control the continuation).
 ///
-/// Phase 3 simplification: `FuncVal` has no `isControlFunction` flag in
-/// yo-self, so this always returns `false`.
-///
 /// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
+/// Uses the global control-function registry since FuncVal has no isControlFunction flag.
 _module_type_contains_ctl_field :: (fn(
-  _module_type : TypeValue,
-  _module_val  : Option(EvalValue)
-) -> bool)(false);
+  module_type : TypeValue,
+  module_val  : Option(EvalValue)
+) -> bool)(
+  match(module_type,
+    .ModuleT(_, _, field_labels, field_types) => {
+      n := field_types.len();
+      (fi : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((fi < n) && (!(found)))), {
+        field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        (field_val_opt : Option(EvalValue)) = match(module_val,
+          .None => Option(EvalValue).None,
+          .Some(mv) => match(mv,
+            .ModuleVal(_, vals) => match(vals.get(fi),
+              .Some(v) => Option(EvalValue).Some(v),
+              .None    => Option(EvalValue).None
+            ),
+            _ => Option(EvalValue).None
+          )
+        );
+        // Check if field is a Func type and value is a control function
+        is_func_field := match(field_ty, .Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
+        if(is_func_field, {
+          match(field_val_opt,
+            .Some(fv) => match(fv,
+              .FuncVal(_, _, _, _, _, _, _, _, fid) => {
+                if(is_control_fn(fid.as_str()), { found = true; });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+        // Recurse into nested module fields
+        is_module_field := match(field_ty, .ModuleT(_, _, _, _) => true, _ => false);
+        if((is_module_field && (!(found))), {
+          (inner_module_val_opt : Option(EvalValue)) = match(field_val_opt,
+            .None => Option(EvalValue).None,
+            .Some(fv) => match(fv,
+              .ModuleVal(_, _) => Option(EvalValue).Some(fv),
+              _                => Option(EvalValue).None
+            )
+          );
+          if(recur(field_ty, inner_module_val_opt), { found = true; });
+        });
+        fi = (fi + usize(1));
+      };
+      found
+    },
+    _ => false
+  )
+);
 
 // ---------------------------------------------------------------------------
 // _get_variables_needing_drop
@@ -928,6 +977,16 @@ create_specialized_function_inline :: (fn(
             new_cap_vals,
             specialized_func_id
           );
+
+          // Detect isControlFunction: set if the original was already a control
+          // function OR if the specialized body contains escape.
+          // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
+          //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
+          parent_is_ctl := is_control_fn(func_id.as_str());
+          body_has_escape := evaluated_body_contains_escape(specialized_body);
+          if((parent_is_ctl || body_has_escape), {
+            mark_as_control_fn((&specialized_func_id).clone());
+          });
 
           // Store in cache
           _store_specialization_cache(

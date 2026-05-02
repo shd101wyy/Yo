@@ -527,6 +527,95 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
   )
 );
 
+// ---------------------------------------------------------------------------
+// Expr traversal helpers
+// ---------------------------------------------------------------------------
+
+/// True if `expr` introduces a new function/closure boundary and should NOT
+/// be recursed into when scanning for escape/return/await.
+///
+/// Mirrors `isFunctionBoundaryArrow` in `src/expr-traversal.ts`.
+/// A simplified port: checks for `->`, `=>`, `=>>` operators, and the
+/// `(fn(...) -> T)({body})` pattern (outer FnCall whose func is a fn-type call).
+is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, _, _, _) => match(func_box.*,
+      .Atom(_, tok) => {
+        v := tok.value.as_str();
+        ((v == "->") || ((v == "=>") || (v == "=>>")))
+      },
+      .FnCall(_, inner_func_box, _, _, _) => match(inner_func_box.*,
+        .Atom(_, inner_tok) => {
+          iv := inner_tok.value.as_str();
+          ((iv == BK_FN) || ((iv == BK_UNSAFE_FN) || (iv == BK_FN_TRAIT)))
+        },
+        .FnCall(_, _, _, _, _) => false
+      )
+    )
+  )
+);
+
+/// Traverse an evaluated expression tree checking for an `escape` keyword usage.
+/// Skips new function/closure boundaries (`->`, `=>`, function type calls).
+/// Recurses into `cond`/`match` branches without treating branch arrows as
+/// function boundaries.
+///
+/// The cond/match branch traversal is inlined here (rather than delegated to a
+/// separate visitor function) to avoid mutual-recursion forward-reference issues.
+///
+/// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
+evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_, tok) => (tok.value.as_str() == BF_ESCAPE),
+    .FnCall(_, func_box, args, _, _) => {
+      is_cond  := ast_expr_is_fn_call_of(e, BK_COND,  .None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
+      if((is_cond || is_match), {
+        // Inline traverseCondMatchBranches: recurse into each arg.
+        // Branch arrows `condition => body` are NOT function boundaries:
+        // recurse into both the condition and the body parts.
+        if(recur(func_box.*), { return true; });
+        na := args.len();
+        (ia : usize) = usize(0);
+        (found_a : bool) = false;
+        while runtime(((ia < na) && (!(found_a)))), {
+          arg_a := match(args.get(ia), .Some(a) => a, .None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>", .None);
+          if(is_branch_arrow, {
+            inner_args := match(arg_a,
+              .FnCall(_, _, ia_inner, _, _) => ia_inner,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            ni := inner_args.len();
+            (ji : usize) = usize(0);
+            while runtime(((ji < ni) && (!(found_a)))), {
+              bp := match(inner_args.get(ji), .Some(a) => a, .None => make_err_expr());
+              if(recur(bp), { found_a = true; });
+              ji = (ji + usize(1));
+            };
+          }, {
+            if(recur(arg_a), { found_a = true; });
+          });
+          ia = (ia + usize(1));
+        };
+        return found_a;
+      });
+      if(is_function_boundary_arrow(e), { return false; });
+      if(recur(func_box.*), { return true; });
+      n := args.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && (!(found)))), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        if(recur(arg), { found = true; });
+        i = (i + usize(1));
+      };
+      found
+    }
+  )
+);
+
 export BK_FN, BK_UNSAFE_FN, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION;
 export BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO;
 export BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER;
@@ -651,3 +740,4 @@ export ast_expr_is_atom_of, ast_expr_is_atom_of_any;
 export ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any;
 export exprs_are_equal;
 export expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any;
+export is_function_boundary_arrow, evaluated_body_contains_escape;
