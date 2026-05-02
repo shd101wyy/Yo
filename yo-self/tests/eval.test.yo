@@ -4862,3 +4862,96 @@ test "Phase 5o: nested arithmetic evaluation", {
   );
 };
 
+test "Phase 5p: string literal concatenation", {
+  // "hello" + " world" => "hello world"
+  env := empty_env();
+  lhs := make_atom(TokenKind.StringLit, "\"hello\"");
+  rhs := make_atom(TokenKind.StringLit, "\" world\"");
+  concat_expr := make_infix("+", lhs, rhs);
+  result := evaluate(concat_expr, &env);
+  match(result,
+    .None => assert(false, "string concat returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.StrLit(String.from("\"hello world\""))),
+      "hello + world = hello world"
+    )
+  );
+};
+
+test "Phase 5p: integer comparison ==", {
+  env := empty_env();
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Integer, "5"));
+  rhs_args := ArrayList(AstExpr).new();
+  rhs_args.push(make_atom(TokenKind.Integer, "5"));
+  eq_expr := make_infix("==", make_call("i32", lhs_args), make_call("i32", rhs_args));
+  result := evaluate(eq_expr, &env);
+  match(result,
+    .None => assert(false, "== comparison returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "5 == 5 should be true"
+    )
+  );
+};
+
+test "Phase 5p: integer comparison != (not equal)", {
+  env := empty_env();
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Integer, "3"));
+  rhs_args := ArrayList(AstExpr).new();
+  rhs_args.push(make_atom(TokenKind.Integer, "7"));
+  neq_expr := make_infix("!=", make_call("i32", lhs_args), make_call("i32", rhs_args));
+  result := evaluate(neq_expr, &env);
+  match(result,
+    .None => assert(false, "!= comparison returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "3 != 7 should be true"
+    )
+  );
+};
+
+test "Phase 5p: integer comparison < (less than)", {
+  env := empty_env();
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Integer, "2"));
+  rhs_args := ArrayList(AstExpr).new();
+  rhs_args.push(make_atom(TokenKind.Integer, "10"));
+  lt_expr := make_infix("<", make_call("i32", lhs_args), make_call("i32", rhs_args));
+  result := evaluate(lt_expr, &env);
+  match(result,
+    .None => assert(false, "< comparison returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "2 < 10 should be true"
+    )
+  );
+};
+
+test "Phase 5p: boolean literal true evaluates to BoolVal(true)", {
+  env := empty_env();
+  expr := make_atom(TokenKind.Bool, "true");
+  result := evaluate(expr, &env);
+  match(result,
+    .None => assert(false, "bool true returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.BoolVal(true)),
+      "true literal"
+    )
+  );
+};
+
+test "Phase 5p: float literal evaluates to FloatLit", {
+  env := empty_env();
+  expr := make_atom(TokenKind.Float, "3.14");
+  result := evaluate(expr, &env);
+  match(result,
+    .None => assert(false, "float returned None"),
+    .Some(r) => assert(
+      (r.value == EvalValue.FloatLit(String.from("3.14"))),
+      "float literal 3.14"
+    )
+  );
+};
+
