@@ -3200,3 +3200,170 @@ test "lift_non_capturing_lambda: multi param emits correct params", {
     }
   );
 };
+
+// ---------------------------------------------------------------------------
+// Integration test: compile a complete program through compile_module_to_c
+// ---------------------------------------------------------------------------
+
+test "compile_module_to_c: complete program with struct, fn, and main", {
+  // Program:
+  //   Point :: struct(x : i32, y : i32);
+  //   add_points :: (fn(a : Point, b : Point) -> Point)(
+  //     Point(x: (a.x + b.x), y: (a.y + b.y))
+  //   );
+  //   main :: (fn() -> i32)(0);
+  //   export main;
+  exprs := ArrayList(AstExpr).new();
+
+  // Point :: struct(x : i32, y : i32)
+  struct_args := ArrayList(AstExpr).new();
+  struct_args.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_args.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "y"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_call := make_fncall_expr("struct", struct_args);
+  point_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Point"), struct_call);
+  exprs.push(point_def);
+
+  // add_points :: (fn(a : Point, b : Point) -> Point)(body)
+  fn_params := ArrayList(AstExpr).new();
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "a"), make_atom_expr(TokenKind.Identifier, "Point")));
+  fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "b"), make_atom_expr(TokenKind.Identifier, "Point")));
+  fn_type_call := make_fncall_expr("fn", fn_params);
+  fn_type := make_infix_expr("->", fn_type_call, make_atom_expr(TokenKind.Identifier, "Point"));
+  fn_body_args := ArrayList(AstExpr).new();
+  fn_body_args.push(make_atom_expr(TokenKind.Integer, "0"));  // simplified body
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+  fn_app := AstExpr.FnCall(usize(0), box(fn_type), fn_body_args, false, fn_tok);
+  add_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "add_points"), fn_app);
+  exprs.push(add_def);
+
+  // main :: (fn() -> i32)(0)
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type_call := make_fncall_expr("fn", main_params);
+  main_fn_type := make_infix_expr("->", main_fn_type_call, make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  main_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app);
+  exprs.push(main_def);
+
+  result := compile_module_to_c(exprs, "point_mod", "main");
+  match(result,
+    .None => assert(false, "full program should compile"),
+    .Some(c_code) => {
+      // Should contain the struct typedef
+      assert(c_code.contains(String.from("typedef struct")), "should have typedef struct");
+      assert(c_code.contains(String.from("Point")), "should have Point type");
+      // Should contain the function
+      assert(c_code.contains(String.from("add_points")), "should have add_points function");
+      // Should contain int main()
+      assert(c_code.contains(String.from("int main")), "should have main function");
+      // Should contain the #include <stdint.h> from preamble
+      assert(c_code.contains(String.from("#include")), "should have #include directives");
+    }
+  );
+};
+
+test "compile_module_to_c: program with enum and match emits switch", {
+  // Program:
+  //   Color :: enum(Red, Green, Blue);
+  //   main :: (fn() -> i32)(0);
+  //   export main;
+  exprs := ArrayList(AstExpr).new();
+
+  // Color :: enum(Red, Green, Blue)
+  enum_args := ArrayList(AstExpr).new();
+  enum_args.push(make_atom_expr(TokenKind.Identifier, "Red"));
+  enum_args.push(make_atom_expr(TokenKind.Identifier, "Green"));
+  enum_args.push(make_atom_expr(TokenKind.Identifier, "Blue"));
+  enum_call := make_fncall_expr("enum", enum_args);
+  color_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Color"), enum_call);
+  exprs.push(color_def);
+
+  // main :: (fn() -> i32)(0)
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type_call := make_fncall_expr("fn", main_params);
+  main_fn_type := make_infix_expr("->", main_fn_type_call, make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  main_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app);
+  exprs.push(main_def);
+
+  result := compile_module_to_c(exprs, "color_mod", "main");
+  match(result,
+    .None => assert(false, "enum program should compile"),
+    .Some(c_code) => {
+      // Should contain the enum type
+      assert(c_code.contains(String.from("Color")), "should have Color enum");
+      // Should contain enum variants as defines or enum values
+      assert(c_code.contains(String.from("Color_Red")), "should have Color_Red variant");
+      assert(c_code.contains(String.from("Color_Green")), "should have Color_Green variant");
+      assert(c_code.contains(String.from("Color_Blue")), "should have Color_Blue variant");
+      // Should contain int main()
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
+
+test "compile_module_to_c: program with impl method emits TypeName_method", {
+  // Program:
+  //   Counter :: struct(count : i32);
+  //   impl(Counter, inc : (fn(self : *(Self)) -> unit)(...));
+  //   main :: (fn() -> i32)(0);
+  //   export main;
+  exprs := ArrayList(AstExpr).new();
+
+  // Counter :: struct(count : i32)
+  struct_args := ArrayList(AstExpr).new();
+  struct_args.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "count"), make_atom_expr(TokenKind.Identifier, "i32")));
+  struct_call := make_fncall_expr("struct", struct_args);
+  counter_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Counter"), struct_call);
+  exprs.push(counter_def);
+
+  // impl(Counter, inc : (fn(self : *(Self)) -> unit)(0))
+  impl_args := ArrayList(AstExpr).new();
+  impl_args.push(make_atom_expr(TokenKind.Identifier, "Counter"));
+  // inc : fn_def
+  fn_params_i := ArrayList(AstExpr).new();
+  fn_params_i.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "self"),
+    make_fncall_expr("*", {
+      pa := ArrayList(AstExpr).new();
+      pa.push(make_atom_expr(TokenKind.Identifier, "Self"));
+      pa
+    })
+  ));
+  fn_type_call_i := make_fncall_expr("fn", fn_params_i);
+  fn_type_i := make_infix_expr("->", fn_type_call_i, make_atom_expr(TokenKind.Identifier, "unit"));
+  fn_body_args_i := ArrayList(AstExpr).new();
+  fn_body_args_i.push(make_atom_expr(TokenKind.Integer, "0"));
+  fn_tok := make_token_raw(TokenKind.Identifier, "");
+  fn_app_i := AstExpr.FnCall(usize(0), box(fn_type_i), fn_body_args_i, false, fn_tok);
+  meth_def := make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "inc"), fn_app_i);
+  impl_args.push(meth_def);
+  impl_call := make_fncall_expr("impl", impl_args);
+  exprs.push(impl_call);
+
+  // main :: (fn() -> i32)(0)
+  main_params := ArrayList(AstExpr).new();
+  main_fn_type_call := make_fncall_expr("fn", main_params);
+  main_fn_type := make_infix_expr("->", main_fn_type_call, make_atom_expr(TokenKind.Identifier, "i32"));
+  main_body_args := ArrayList(AstExpr).new();
+  main_body_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  main_app := AstExpr.FnCall(usize(0), box(main_fn_type), main_body_args, false, fn_tok);
+  main_def := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "main"), main_app);
+  exprs.push(main_def);
+
+  result := compile_module_to_c(exprs, "counter_mod", "main");
+  match(result,
+    .None => assert(false, "impl program should compile"),
+    .Some(c_code) => {
+      // Should contain the struct typedef
+      assert(c_code.contains(String.from("Counter")), "should have Counter type");
+      // Should contain the impl method as Counter_inc
+      assert(c_code.contains(String.from("Counter_inc")), "should have Counter_inc method");
+      // Should contain int main()
+      assert(c_code.contains(String.from("int main")), "should have main");
+    }
+  );
+};
