@@ -30,6 +30,7 @@ open import "std/error";
   generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
 { FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
   EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
+  extract_newtype_def, emit_newtype_to_c,
   extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
 
 // ---------------------------------------------------------------------------
@@ -2719,4 +2720,49 @@ test "Phase 5n: given(name) := rhs emits __auto_type define", {
   assert(code.contains(String.from("__auto_type")), "auto type declare present");
   assert(code.contains(String.from("handler")), "name is handler");
   assert(code.contains(String.from("42")), "rhs value 42 present");
+};
+
+test "Phase 5n: extract_struct_def recognizes object keyword", {
+  // Emitter :: object(code : String) → treated same as struct
+  fields := ArrayList(AstExpr).new();
+  fields.push(make_colon_expr(
+    make_atom_expr(TokenKind.Identifier, "code"),
+    make_atom_expr(TokenKind.Identifier, "String")
+  ));
+  object_type := make_fncall_expr("object", fields);
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "Emitter"), object_type);
+  result := extract_struct_def(expr);
+  match(result,
+    .None => assert(false, "expected Some(StructDef) for object"),
+    .Some(sd) => {
+      assert((sd.name == String.from("Emitter")), "name is Emitter");
+      assert((sd.field_names.len() == usize(1)), "one field");
+      match(sd.field_names.get(usize(0)),
+        .None  => assert(false, "field name missing"),
+        .Some(n) => assert((n == String.from("code")), "field name is 'code'")
+      );
+    }
+  );
+};
+
+test "Phase 5n: extract_newtype_def recognizes newtype(u8)", {
+  // TokenKind :: newtype(u8) → should extract name="TokenKind", inner="uint8_t"
+  nt_args := ArrayList(AstExpr).new();
+  nt_args.push(make_atom_expr(TokenKind.Identifier, "u8"));
+  newtype_call := make_fncall_expr("newtype", nt_args);
+  expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "TokenKind"), newtype_call);
+  result := extract_newtype_def(expr);
+  match(result,
+    .None => assert(false, "expected Some for newtype(u8)"),
+    .Some(pair) => {
+      match(pair.get(usize(0)),
+        .None => assert(false, "name missing"),
+        .Some(name_s) => assert((name_s == String.from("TokenKind")), "name is TokenKind")
+      );
+      match(pair.get(usize(1)),
+        .None => assert(false, "inner type missing"),
+        .Some(ty_s) => assert((ty_s == String.from("uint8_t")), "inner type is uint8_t")
+      );
+    }
+  );
 };

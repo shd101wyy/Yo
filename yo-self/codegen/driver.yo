@@ -450,7 +450,8 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                     true => match(rhs_func.*,
                       .FnCall(_, _, _, _, _) => Option(StructDef).None,
                       .Atom(_, rhs_tok) => cond(
-                        (!(rhs_tok.value.as_str() == "struct")) => Option(StructDef).None,
+                        // Accept both "struct" and "object" (object = struct + RC in full compiler)
+                        (!((rhs_tok.value.as_str() == "struct") || (rhs_tok.value.as_str() == "object"))) => Option(StructDef).None,
                         true => {
                           // Extract field names and C types from the struct args.
                           out_names := ArrayList(String).new();
@@ -757,6 +758,72 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : *(CodegenContext)) -> unit)({
     line.push_str(";");
     ctx.*.emitter.emit_declaration_string_line(line);
   });
+});
+
+// ---------------------------------------------------------------------------
+// extract_newtype_def / emit_newtype_to_c
+// ---------------------------------------------------------------------------
+
+/// Try to extract a newtype definition from `Name :: newtype(InnerType)`.
+/// Returns (name, inner_type_c) or None.
+extract_newtype_def :: (fn(expr : AstExpr) -> Option(ArrayList(String)))(
+  match(expr,
+    .Atom(_, _) => Option(ArrayList(String)).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(ArrayList(String)).None,
+      (top_args.len() < usize(2)) => Option(ArrayList(String)).None,
+      true => match(top_func.*,
+        .FnCall(_, _, _, _, _) => Option(ArrayList(String)).None,
+        .Atom(_, op_tok) => cond(
+          (!(op_tok.value.as_str() == "::")) => Option(ArrayList(String)).None,
+          true => match(top_args.get(usize(0)),
+            .None => Option(ArrayList(String)).None,
+            .Some(name_expr) => match(atom_ident(name_expr),
+              .None => Option(ArrayList(String)).None,
+              .Some(name_str) => match(top_args.get(usize(1)),
+                .None => Option(ArrayList(String)).None,
+                .Some(rhs) => match(rhs,
+                  .Atom(_, _) => Option(ArrayList(String)).None,
+                  .FnCall(_, rhs_func, rhs_args, rhs_infix, _) => cond(
+                    rhs_infix => Option(ArrayList(String)).None,
+                    true => match(rhs_func.*,
+                      .FnCall(_, _, _, _, _) => Option(ArrayList(String)).None,
+                      .Atom(_, rhs_tok) => cond(
+                        (!(rhs_tok.value.as_str() == "newtype")) => Option(ArrayList(String)).None,
+                        (rhs_args.len() != usize(1)) => Option(ArrayList(String)).None,
+                        true => match(rhs_args.get(usize(0)),
+                          .None => Option(ArrayList(String)).None,
+                          .Some(inner_te) => match(type_expr_to_c(inner_te),
+                            .None => Option(ArrayList(String)).None,
+                            .Some(inner_c) => {
+                              result := ArrayList(String).new();
+                              result.push(String.from(name_str));
+                              result.push(inner_c);
+                              .Some(result)
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+/// Emit `typedef inner_type Name;` for a newtype definition.
+emit_newtype_to_c :: (fn(name : str, inner_c : str, ctx : *(CodegenContext)) -> unit)({
+  ctx.*.emitter.emit_declaration("typedef ");
+  ctx.*.emitter.emit_declaration(inner_c);
+  ctx.*.emitter.emit_declaration(" ");
+  ctx.*.emitter.emit_declaration(name);
+  ctx.*.emitter.emit_declaration_line(";");
+  ()
 });
 
 // ---------------------------------------------------------------------------
@@ -1567,6 +1634,23 @@ compile_module_to_c :: (fn(
                 emit_struct_to_c(sd, pctx);
               },
               .None => {
+            // Third-b: try to extract a newtype definition.
+            nt_opt := extract_newtype_def(expr);
+            match(nt_opt,
+              .Some(nt_pair) => {
+                nt_name := match(nt_pair.get(usize(0)),
+                  .Some(nt_n) => nt_n,
+                  .None => String.new()
+                );
+                nt_inner := match(nt_pair.get(usize(1)),
+                  .Some(nt_t) => nt_t,
+                  .None => String.new()
+                );
+                if((nt_name.len() > usize(0)), {
+                  emit_newtype_to_c(nt_name.as_str(), nt_inner.as_str(), pctx);
+                });
+              },
+              .None => {
                 // Fourth: try to extract impl methods.
                 // We detect `impl(TypeName, { ... })` by checking if the
                 // expression starts with `impl` and has 2 args.
@@ -1616,6 +1700,8 @@ compile_module_to_c :: (fn(
             )
               }
             )
+              }
+            )
           }
         );
       }
@@ -1634,6 +1720,7 @@ compile_module_to_c :: (fn(
 export FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, emit_struct_to_c,
        c_type_has_self, struct_has_self_fields,
        EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
+       extract_newtype_def, emit_newtype_to_c,
        extract_impl_fns, compile_module_to_c;
 
 // ---------------------------------------------------------------------------
