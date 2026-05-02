@@ -1492,6 +1492,124 @@ handle_method_dispatch :: (fn(
             },
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5ah: ArrayVal.fold(init, fn) — reduce array to single value
+        // fn(acc, elem) -> acc
+        // ---------------------------------------------------------------
+        ((mname == "fold") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_fo) => {
+              init_val := match(method_call_args.get(usize(0)),
+                .Some(ie) => match(match(g_eval_fn, .Some(ef) => ef(ie, env), .None => Option(EvalResult).None),
+                  .Some(ir) => ir.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              fn_val_fo := match(method_call_args.get(usize(1)),
+                .Some(fe3) => match(match(g_eval_fn, .Some(ef) => ef(fe3, env), .None => Option(EvalResult).None),
+                  .Some(fr3) => fr3.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              (acc : EvalValue) = init_val;
+              n_fo := av_items_fo.len();
+              (foi : usize) = usize(0);
+              (fo_ok : bool) = true;
+              while runtime(((foi < n_fo) && fo_ok)), {
+                match(av_items_fo.get(foi),
+                  .Some(item_fo) => {
+                    call_args_fo := ArrayList(EvalResult).new();
+                    call_args_fo.push(eval_result(acc, type_of_eval_value(acc)));
+                    call_args_fo.push(eval_result(item_fo, type_of_eval_value(item_fo)));
+                    match(call_funcval_with_args(fn_val_fo, call_args_fo),
+                      .Some(new_acc) => { acc = new_acc.value; },
+                      .None => { fo_ok = false; }
+                    );
+                  },
+                  .None => { fo_ok = false; }
+                );
+                foi = (foi + usize(1));
+              };
+              cond(
+                fo_ok => { return Option(EvalResult).Some(eval_result(acc, type_of_eval_value(acc))); },
+                true => { return Option(EvalResult).None; }
+              );
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ah: ArrayVal.any(fn) — true if any elem satisfies predicate
+        // ---------------------------------------------------------------
+        ((mname == "any") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_an) => {
+              fn_val_an := match(method_call_args.get(usize(0)),
+                .Some(fe4) => match(match(g_eval_fn, .Some(ef) => ef(fe4, env), .None => Option(EvalResult).None),
+                  .Some(fr4) => fr4.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              n_an := av_items_an.len();
+              (ani : usize) = usize(0);
+              (found_an : bool) = false;
+              while runtime(((ani < n_an) && (!(found_an)))), {
+                match(av_items_an.get(ani),
+                  .Some(item_an) => {
+                    call_args_an := ArrayList(EvalResult).new();
+                    call_args_an.push(eval_result(item_an, type_of_eval_value(item_an)));
+                    match(call_funcval_with_args(fn_val_an, call_args_an),
+                      .Some(an_res) => match(an_res.value, .BoolVal(b) => { found_an = b; }, _ => ()),
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+                ani = (ani + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.BoolVal(found_an), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5ah: ArrayVal.all(fn) — true if all elems satisfy predicate
+        // ---------------------------------------------------------------
+        ((mname == "all") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_al) => {
+              fn_val_al := match(method_call_args.get(usize(0)),
+                .Some(fe5) => match(match(g_eval_fn, .Some(ef) => ef(fe5, env), .None => Option(EvalResult).None),
+                  .Some(fr5) => fr5.value,
+                  .None => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              n_al := av_items_al.len();
+              (ali : usize) = usize(0);
+              (all_true : bool) = true;
+              while runtime(((ali < n_al) && all_true)), {
+                match(av_items_al.get(ali),
+                  .Some(item_al) => {
+                    call_args_al := ArrayList(EvalResult).new();
+                    call_args_al.push(eval_result(item_al, type_of_eval_value(item_al)));
+                    match(call_funcval_with_args(fn_val_al, call_args_al),
+                      .Some(al_res) => match(al_res.value, .BoolVal(b) => { all_true = b; }, _ => { all_true = false; }),
+                      .None => { all_true = false; }
+                    );
+                  },
+                  .None => { all_true = false; }
+                );
+                ali = (ali + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.BoolVal(all_true), t_bool()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5z: StrLit.is_empty() — returns true if inner length == 0.
+        // ---------------------------------------------------------------
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {

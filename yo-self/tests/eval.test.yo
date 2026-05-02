@@ -7238,3 +7238,120 @@ test "Phase 5ag: ArrayVal.filter keeps evens", {
       )
   );
 };
+
+// Phase 5ah — ArrayVal.fold/any/all
+
+test "Phase 5ah: ArrayVal.fold sum", {
+  env := empty_env();
+  // add := (acc, x) => acc + x
+  add_body := make_infix("+", make_atom(TokenKind.Identifier, "acc"), make_atom(TokenKind.Identifier, "x"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  param_args := ArrayList(AstExpr).new();
+  param_args.push(make_atom(TokenKind.Identifier, "acc"));
+  param_args.push(make_atom(TokenKind.Identifier, "x"));
+  params := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), param_args, false, tup_tok);
+  add_lam := make_infix("=>", params, add_body);
+  def_add := make_infix(":=", make_atom(TokenKind.Identifier, "add_fn"), add_lam);
+  _ := evaluate(def_add, &env);
+  // arr := [1, 2, 3, 4]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_items.push(make_atom(TokenKind.Integer, "4"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_fo"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_fo.fold(0, add_fn)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_fo"));
+  dot_args.push(make_atom(TokenKind.Identifier, "fold"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "0"));
+  call_args.push(make_atom(TokenKind.Identifier, "add_fn"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "fold returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "10"), "sum of 1+2+3+4 should be 10"),
+        _ => assert(false, "fold should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ah: ArrayVal.any returns true when match found", {
+  env := empty_env();
+  // gt3 := (x) => x > 3
+  gt_body := make_infix(">", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "3"));
+  gt_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), gt_body);
+  def_gt := make_infix(":=", make_atom(TokenKind.Identifier, "gt3"), gt_lam);
+  _ := evaluate(def_gt, &env);
+  // arr := [1, 2, 5]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "5"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_an"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_an.any(gt3)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_an"));
+  dot_args.push(make_atom(TokenKind.Identifier, "any"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "gt3"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "any returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "any should be true since 5 > 3"),
+        _ => assert(false, "any should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ah: ArrayVal.all returns false when not all match", {
+  env := empty_env();
+  // pos := (x) => x > 0
+  pos_body := make_infix(">", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "0"));
+  pos_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), pos_body);
+  def_pos := make_infix(":=", make_atom(TokenKind.Identifier, "pos"), pos_lam);
+  _ := evaluate(def_pos, &env);
+  // arr := [1, -2, 3]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "-2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_al"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_al.all(pos)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_al"));
+  dot_args.push(make_atom(TokenKind.Identifier, "all"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "pos"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "all returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((!(b)), "all should be false since -2 < 0"),
+        _ => assert(false, "all should return BoolVal")
+      )
+  );
+};
