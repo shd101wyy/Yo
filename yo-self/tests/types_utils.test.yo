@@ -7,7 +7,7 @@ open import "std/fmt";
 { TypeValue, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64,
   t_usize, t_isize, t_bool, t_unit, t_f32, t_f64,
   t_comptime_int, t_comptime_float, t_comptime_string,
-  t_some_t, t_array }
+  t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple }
   :: import "../types/type.yo";
 { Environment } :: import "../env/env.yo";
 { ArrayList } :: import "std/collections/array_list";
@@ -18,7 +18,7 @@ open import "std/fmt";
   type_implements_runtime_builtin, type_implements_runtime,
   type_is_comptime_only,
   type_requires_comptime_modifier, type_prohibits_comptime_modifier,
-  get_all_some_types }
+  get_all_some_types, type_contains_rc_type }
   :: import "../types/utils.yo";
 
 // ---------------------------------------------------------------------------
@@ -411,4 +411,74 @@ test "get_all_some_types: SomeT nested in Array is collected", {
 test "get_all_some_types: bool has no SomeT", {
   result := get_all_some_types(t_bool());
   assert((result.len() == usize(0)), "bool should have no SomeT");
+};
+
+// ---------------------------------------------------------------------------
+// type_contains_rc_type: Phase 3 implementation tests
+// ---------------------------------------------------------------------------
+
+test "type_contains_rc_type: primitives return false", {
+  assert(!(type_contains_rc_type(t_i32())),  "i32 → false");
+  assert(!(type_contains_rc_type(t_bool())), "bool → false");
+  assert(!(type_contains_rc_type(t_unit())), "unit → false");
+};
+
+test "type_contains_rc_type: array of i32 returns false", {
+  ty := t_array(t_i32(), usize(3));
+  assert(!(type_contains_rc_type(ty)), "Array(i32) → false");
+};
+
+test "type_contains_rc_type: object struct is RC", {
+  labels := ArrayList(String).new();
+  types  := ArrayList(TypeValue).new();
+  obj := TypeValue.Struct(
+    String.from("id1"), String.from("Obj"),
+    labels, types,
+    true, false, false
+  );
+  assert(type_contains_rc_type(obj), "object → true");
+};
+
+test "type_contains_rc_type: plain struct returns false", {
+  labels := ArrayList(String).new();
+  types  := ArrayList(TypeValue).new();
+  s := TypeValue.Struct(
+    String.from("id2"), String.from("Point"),
+    labels, types,
+    false, false, false
+  );
+  assert(!(type_contains_rc_type(s)), "plain struct → false");
+};
+
+test "type_contains_rc_type: struct containing object field returns true", {
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("inner"));
+  inner_types := ArrayList(TypeValue).new();
+  inner_types.push(TypeValue.Struct(
+    String.from("id3"), String.from("Inner"),
+    ArrayList(String).new(), ArrayList(TypeValue).new(),
+    true, false, false
+  ));
+  outer := TypeValue.Struct(
+    String.from("id4"), String.from("Outer"),
+    field_labels, inner_types,
+    false, false, false
+  );
+  assert(type_contains_rc_type(outer), "Struct(object field) → true");
+};
+
+test "type_contains_rc_type: IsoT returns true", {
+  iso := t_iso(t_i32());
+  assert(type_contains_rc_type(iso), "IsoT → true");
+};
+
+test "type_contains_rc_type: DynT returns true", {
+  dyn := t_dyn_simple(ArrayList(TypeValue).new());
+  assert(type_contains_rc_type(dyn), "DynT → true");
+};
+
+test "type_contains_rc_type: unresolved SomeT is conservatively true", {
+  // Unresolved generic — conservative: true
+  some := t_some_t(String.from("T"), usize(0));
+  assert(type_contains_rc_type(some), "SomeT unresolved → true");
 };

@@ -496,3 +496,70 @@ test "is_trait_type: FnTraitT and FutureTraitT are also trait types", {
   assert(is_trait_type(f1),   "FutureTraitT is trait type");
   assert(!(is_trait_type(t_i32())), "i32 not trait type");
 };
+
+// ---------------------------------------------------------------------------
+// is_rc_type: Phase 3 implementation tests
+// ---------------------------------------------------------------------------
+
+test "is_rc_type: i32 and primitives are not RC", {
+  assert(!(is_rc_type(t_i32())),        "i32 → false");
+  assert(!(is_rc_type(t_bool())),       "bool → false");
+  assert(!(is_rc_type(t_usize())),      "usize → false");
+  assert(!(is_rc_type(t_unit())),       "unit → false");
+};
+
+test "is_rc_type: struct (not object) is not RC", {
+  labels := ArrayList(String).new();
+  types  := ArrayList(TypeValue).new();
+  struct_ty := TypeValue.Struct(
+    String.from("id1"), String.from("Point"),
+    labels, types,
+    false, false, false
+  );
+  assert(!(is_rc_type(struct_ty)), "struct → false");
+};
+
+test "is_rc_type: object (is_reference_semantics=true) is RC", {
+  labels := ArrayList(String).new();
+  types  := ArrayList(TypeValue).new();
+  obj_ty := TypeValue.Struct(
+    String.from("id2"), String.from("MyObj"),
+    labels, types,
+    true, false, false
+  );
+  assert(is_rc_type(obj_ty), "object → true");
+};
+
+test "is_rc_type: DynT is RC", {
+  dyn_ty := t_dyn_simple(ArrayList(TypeValue).new());
+  assert(is_rc_type(dyn_ty), "DynT → true");
+};
+
+test "is_rc_type: IsoT is RC", {
+  iso_ty := t_iso(t_i32());
+  assert(is_rc_type(iso_ty), "IsoT → true");
+};
+
+test "is_rc_type: SomeT with no Future constraint is not RC", {
+  // A SomeT with no required traits: not RC
+  some_ty := t_some_t(String.from("T"), usize(0));
+  assert(!(is_rc_type(some_ty)), "SomeT no future → false");
+};
+
+test "is_rc_type: SomeT with Future trait constraint is RC", {
+  // A SomeT with a Future trait in required_trait_types
+  req := ArrayList(TypeValue).new();
+  req.push(t_future_trait_simple(String.from("IO"), t_unit()));
+  some_ty := TypeValue.SomeT(
+    String.from("id3"),
+    String.from("T"),
+    usize(0),
+    box(TypeValue.TypeUni(usize(0))),
+    req,
+    ArrayList(usize).new(),
+    ArrayList(TypeValue).new(),
+    ArrayList(usize).new(),
+    false
+  );
+  assert(is_rc_type(some_ty), "SomeT with Future → true");
+};

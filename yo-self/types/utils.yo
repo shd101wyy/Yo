@@ -37,7 +37,7 @@ open import "std/fmt";
 { TypeValue, t_i32, t_f64, type_value_tag } :: import "./type.yo";
 { TypeTag } :: import "./tags.yo";
 { is_integer_type, is_float_type, is_comptime_int_type, is_comptime_float_type,
-  is_comptime_string_type, is_some_type }
+  is_comptime_string_type, is_some_type, is_rc_type }
   :: import "./guards.yo";
 { Variable, Environment, get_variables_from_env } :: import "../env/env.yo";
 { EvalValue } :: import "../evaluator/value.yo";
@@ -330,10 +330,117 @@ type_implements_runtime :: (fn(ty : TypeValue, _env : Environment) -> bool)(
   )
 );
 
-/// Return `true` if the type contains an RC-managed type (object/Dyn/Box).
-/// Full implementation needs `isRcType` and `typeImplementsFuture` (Phase 3).
-/// Stub: always returns `false` — conservative (variables won't be marked owning-RC).
-type_contains_rc_type :: (fn(_ty : TypeValue) -> bool)(false);
+/// Private depth-limited recursive helper for type_contains_rc_type.
+/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+/// Uses a depth limit instead of a checkedTypes set to prevent infinite
+/// recursion on self-referential types (e.g. recursive enums).
+_type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+  cond(
+    // Depth limit — conservative: return false at max depth
+    (depth > u32(8)) => false,
+    // Direct RC type
+    (is_rc_type(ty)) => true,
+    true => match(ty,
+      // Array — recurse on element type
+      .Array(element: elem, length: _) =>
+        recur(elem.*, (depth + u32(1))),
+
+      // Slice — recurse on element type
+      .Slice(element: elem) =>
+        recur(elem.*, (depth + u32(1))),
+
+      // Tuple — check all field types
+      .Tuple(field_labels: _, field_types: fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // Union — check all field types
+      .Union(name: _, field_labels: _, field_types: fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // Struct — check all field types
+      .Struct(id: _, name: _, field_labels: _, field_types: fields, is_reference_semantics: _, is_atomic_rc: _, is_newtype: _) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // EnumT — check all variant fields
+      .EnumT(id: _, name: _, variant_names: _, variant_fields: all_fields, selected_variant_name: _, variant_field_labels: _, variant_discriminants: _) => {
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while runtime(((vi < all_fields.len()) && !(found))), {
+          match(all_fields.get(vi),
+            .Some(v_fields) => {
+              (fi : usize) = usize(0);
+              while runtime(((fi < v_fields.len()) && !(found))), {
+                match(v_fields.get(fi),
+                  .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              };
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        };
+        found
+      },
+
+      // Iso — check child type
+      .IsoT(child: child) => recur(child.*, (depth + u32(1))),
+
+      // SomeT — conservatively true (unresolved generic)
+      .SomeT(required_trait_types: _) => true,
+
+      // Module — false (modules don't own references)
+      .ModuleT(id: _, name: _, field_labels: _, field_types: _) => false,
+
+      // Function — false (functions are not reference types)
+      .Func(forall_labels: _) => false,
+
+      // Everything else — false
+      _ => false
+    )
+  )
+);
+
+/// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
+///
+/// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
+/// Uses a depth limit to handle self-referential types safely.
+///
+/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
+  _type_contains_rc_inner(ty, u32(0))
+);
 
 /// Return `true` if the type can form an RC reference cycle.
 /// Full implementation needs `typeImplementsAcyclic` (Phase 3).
