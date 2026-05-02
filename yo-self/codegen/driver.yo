@@ -18,7 +18,7 @@
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import "../expr/expr.yo";
-{ TokenKind }         :: import "../lexer/token.yo";
+{ TokenKind, Token }  :: import "../lexer/token.yo";
 { CodegenContext }    :: import "./context.yo";
 { type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl }    :: import "./exprs.yo";
 { generate_function } :: import "./functions.yo";
@@ -1649,225 +1649,13 @@ build_param_tys_pipe :: (fn(param_tys : ArrayList(String)) -> String)({
   sb
 });
 
-// ---------------------------------------------------------------------------
-// compile_module_to_c
-// ---------------------------------------------------------------------------
-
-/// Walk a parsed module body and generate a complete C11 source file.
-///
-/// * Every `name :: (fn(…) -> T)(body)` top-level expression is compiled as a
-///   static C function.
-/// * A `int main(void)` wrapper that calls the function named `main_name` is
-///   appended.
-/// * Returns `None` if no functions were found or the main function is absent.
-compile_module_to_c :: (fn(
-  exprs     : ArrayList(AstExpr),
-  module_id : str,
-  main_name : str
-) -> Option(String))({
-  ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
-
-  emit_c_preamble(module_id, pctx);
-
-  n := exprs.len();
-  (i : usize) = usize(0);
-
-  // === Pass 1: register all top-level Yo function names ===
-  // This allows forward calls (foo calls bar defined later) to receive the
-  // correct `fn_` prefix in the generated C.
-  while runtime((i < n)), {
-    i = (i + usize(1));
-    match(exprs.get(i - usize(1)),
-      .None => (),
-      .Some(expr) => {
-        match(extract_fn_def(expr),
-          .Some(fd) => {
-            name_copy := String.from(fd.name.as_str());
-            pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
-          },
-          .None => {
-            // Also register impl method names for forward reference support.
-            match(expr,
-              .Atom(_, _) => (),
-              .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
-                (imp_infix) => (),
-                (imp_args.len() < usize(2)) => (),
-                true => match(imp_func.*,
-                  .FnCall(_, _, _, _, _) => (),
-                  .Atom(_, itok) => cond(
-                    (!(itok.value.as_str() == "impl")) => (),
-                    true => match(imp_args.get(usize(0)),
-                      .None => (),
-                      .Some(tn_e) => match(atom_ident(tn_e),
-                        .None => (),
-                        .Some(type_name) => {
-                          impl_fns := extract_impl_fns(expr, type_name);
-                          nim := impl_fns.len();
-                          (mi : usize) = usize(0);
-                          while runtime((mi < nim)), {
-                            mi = (mi + usize(1));
-                            match(impl_fns.get(mi - usize(1)),
-                              .None => (),
-                              .Some(ifd) => {
-                                iname := String.from(ifd.name.as_str());
-                                pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
-                              }
-                            );
-                          };
-                        }
-                      )
-                    )
-                  )
-                )
-              )
-            );
-          }
-        );
-      }
-    );
-  };
-
-  // === Pass 2: emit structs, functions, and impl methods ===
-  (i = usize(0));
-  (main_found : bool) = false;
-  (main_c_name : String) = String.new();
-
-  while runtime((i < n)), {
-    i = (i + usize(1));
-    match(exprs.get(i - usize(1)),
-      .None => (),
-      .Some(expr) => {
-        // First: try to extract a function definition.
-        fn_opt := extract_fn_def(expr);
-        match(fn_opt,
-          .Some(fd) => {
-            // Build C function name: fn_<yo_name> (simple convention)
-            c_name := `fn_${ fd.name }`;
-            if((fd.name.as_str() == main_name), {
-              main_found = true;
-              main_c_name = c_name;
-            });
-            generate_function(
-              c_name.as_str(),
-              fd.ret_ty_c.as_str(),
-              fd.params,
-              fd.param_tys,
-              fd.body,
-              pctx
-            );
-          },
-          .None => {
-            // Second: try to extract an enum definition.
-            ed_opt := extract_enum_def(expr);
-            match(ed_opt,
-              .Some(ed) => {
-                emit_enum_to_c(ed, pctx);
-              },
-              .None => {
-            // Third: try to extract a struct definition.
-            sd_opt := extract_struct_def(expr);
-            match(sd_opt,
-              .Some(sd) => {
-                emit_struct_to_c(sd, pctx);
-              },
-              .None => {
-            // Third-b: try to extract a newtype definition.
-            nt_opt := extract_newtype_def(expr);
-            match(nt_opt,
-              .Some(nt_pair) => {
-                nt_name := match(nt_pair.get(usize(0)),
-                  .Some(nt_n) => nt_n,
-                  .None => String.new()
-                );
-                nt_inner := match(nt_pair.get(usize(1)),
-                  .Some(nt_t) => nt_t,
-                  .None => String.new()
-                );
-                if((nt_name.len() > usize(0)), {
-                  emit_newtype_to_c(nt_name.as_str(), nt_inner.as_str(), pctx);
-                });
-              },
-              .None => {
-                // Fourth: try to extract impl methods.
-                // We detect `impl(TypeName, { ... })` by checking if the
-                // expression starts with `impl` and has 2 args.
-                impl_fns := match(expr,
-                  .Atom(_, _) => ArrayList(FnDef).new(),
-                  .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
-                    (imp_infix) => ArrayList(FnDef).new(),
-                    (imp_args.len() < usize(2)) => ArrayList(FnDef).new(),
-                    true => match(imp_func.*,
-                      .FnCall(_, _, _, _, _) => ArrayList(FnDef).new(),
-                      .Atom(_, itok) => cond(
-                        (!(itok.value.as_str() == "impl")) => ArrayList(FnDef).new(),
-                        true => match(imp_args.get(usize(0)),
-                          .None => ArrayList(FnDef).new(),
-                          .Some(tn_e) => match(atom_ident(tn_e),
-                            .None => ArrayList(FnDef).new(),
-                            .Some(type_name) => extract_impl_fns(expr, type_name)
-                          )
-                        )
-                      )
-                    )
-                  )
-                );
-                nm := impl_fns.len();
-                (mi : usize) = usize(0);
-                while runtime((mi < nm)), {
-                  mi = (mi + usize(1));
-                  match(impl_fns.get(mi - usize(1)),
-                    .None => (),
-                    .Some(fd) => {
-                      if((fd.name.as_str() == main_name), {
-                        main_found = true;
-                        main_c_name = fd.name;
-                      });
-                      generate_function(
-                        fd.name.as_str(),
-                        fd.ret_ty_c.as_str(),
-                        fd.params,
-                        fd.param_tys,
-                        fd.body,
-                        pctx
-                      );
-                    }
-                  );
-                };
-                // Fifth: try to extract a module-level constant.
-                if((nm == usize(0)), {
-                  match(extract_const_def(expr),
-                    .Some(cd) => emit_const_to_c(cd, pctx),
-                    .None => ()
-                  );
-                });
-              }
-            )
-              }
-            )
-              }
-            )
-          }
-        );
-      }
-    );
-  };
-
-  cond(
-    (!(main_found)) => Option(String).None,
-    true => {
-      emit_main_wrapper(main_c_name.as_str(), pctx);
-      .Some(generate_c_output(pctx))
-    }
-  )
-});
 
 export FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, emit_struct_to_c,
        c_type_has_self, struct_has_self_fields,
        EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
        extract_newtype_def, emit_newtype_to_c,
        ConstDef, extract_const_def, emit_const_to_c,
-       extract_impl_fns, compile_module_to_c;
+       extract_impl_fns;
 
 // ---------------------------------------------------------------------------
 // extract_import_path — Phase 5g import resolution
@@ -3900,6 +3688,235 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
 
 ///
 /// The body is wrapped in a `static void fn_test_body(void)` function.
+// ---------------------------------------------------------------------------
+// compile_module_to_c
+// ---------------------------------------------------------------------------
+
+/// Walk a parsed module body and generate a complete C11 source file.
+///
+/// * Every `name :: (fn(…) -> T)(body)` top-level expression is compiled as a
+///   static C function.
+/// * A `int main(void)` wrapper that calls the function named `main_name` is
+///   appended.
+/// * Returns `None` if no functions were found or the main function is absent.
+compile_module_to_c :: (fn(
+  exprs     : ArrayList(AstExpr),
+  module_id : str,
+  main_name : str
+) -> Option(String))({
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+
+  emit_c_preamble(module_id, pctx);
+
+  n := exprs.len();
+  (i : usize) = usize(0);
+
+  // === Pass 1: register all top-level Yo function names ===
+  // This allows forward calls (foo calls bar defined later) to receive the
+  // correct `fn_` prefix in the generated C.
+  while runtime((i < n)), {
+    i = (i + usize(1));
+    match(exprs.get(i - usize(1)),
+      .None => (),
+      .Some(expr) => {
+        match(extract_fn_def(expr),
+          .Some(fd) => {
+            name_copy := String.from(fd.name.as_str());
+            pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+          },
+          .None => {
+            // Also register impl method names for forward reference support.
+            match(expr,
+              .Atom(_, _) => (),
+              .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
+                (imp_infix) => (),
+                (imp_args.len() < usize(2)) => (),
+                true => match(imp_func.*,
+                  .FnCall(_, _, _, _, _) => (),
+                  .Atom(_, itok) => cond(
+                    (!(itok.value.as_str() == "impl")) => (),
+                    true => match(imp_args.get(usize(0)),
+                      .None => (),
+                      .Some(tn_e) => match(atom_ident(tn_e),
+                        .None => (),
+                        .Some(type_name) => {
+                          impl_fns := extract_impl_fns(expr, type_name);
+                          nim := impl_fns.len();
+                          (mi : usize) = usize(0);
+                          while runtime((mi < nim)), {
+                            mi = (mi + usize(1));
+                            match(impl_fns.get(mi - usize(1)),
+                              .None => (),
+                              .Some(ifd) => {
+                                iname := String.from(ifd.name.as_str());
+                                pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
+                              }
+                            );
+                          };
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            );
+          }
+        );
+      }
+    );
+  };
+
+  // === Pass 2: emit structs, functions, and impl methods ===
+  (i = usize(0));
+  (main_found : bool) = false;
+  (main_c_name : String) = String.new();
+
+  while runtime((i < n)), {
+    i = (i + usize(1));
+    match(exprs.get(i - usize(1)),
+      .None => (),
+      .Some(expr) => {
+        // First: try to extract a function definition.
+        fn_opt := extract_fn_def(expr);
+        match(fn_opt,
+          .Some(fd) => {
+            // Build C function name: fn_<yo_name> (simple convention)
+            c_name := `fn_${ fd.name }`;
+            if((fd.name.as_str() == main_name), {
+              main_found = true;
+              main_c_name = c_name;
+            });
+            generate_function(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              fd.body,
+              pctx
+            );
+          },
+          .None => {
+            // Second: try to extract an enum definition.
+            ed_opt := extract_enum_def(expr);
+            match(ed_opt,
+              .Some(ed) => {
+                emit_enum_to_c(ed, pctx);
+              },
+              .None => {
+            // Third: try to extract a struct definition.
+            sd_opt := extract_struct_def(expr);
+            match(sd_opt,
+              .Some(sd) => {
+                emit_struct_to_c(sd, pctx);
+              },
+              .None => {
+            // Third-b: try to extract a newtype definition.
+            nt_opt := extract_newtype_def(expr);
+            match(nt_opt,
+              .Some(nt_pair) => {
+                nt_name := match(nt_pair.get(usize(0)),
+                  .Some(nt_n) => nt_n,
+                  .None => String.new()
+                );
+                nt_inner := match(nt_pair.get(usize(1)),
+                  .Some(nt_t) => nt_t,
+                  .None => String.new()
+                );
+                if((nt_name.len() > usize(0)), {
+                  emit_newtype_to_c(nt_name.as_str(), nt_inner.as_str(), pctx);
+                });
+              },
+              .None => {
+                // Fourth: try to extract impl methods.
+                // We detect `impl(TypeName, { ... })` by checking if the
+                // expression starts with `impl` and has 2 args.
+                impl_fns := match(expr,
+                  .Atom(_, _) => ArrayList(FnDef).new(),
+                  .FnCall(_, imp_func, imp_args, imp_infix, _) => cond(
+                    (imp_infix) => ArrayList(FnDef).new(),
+                    (imp_args.len() < usize(2)) => ArrayList(FnDef).new(),
+                    true => match(imp_func.*,
+                      .FnCall(_, _, _, _, _) => ArrayList(FnDef).new(),
+                      .Atom(_, itok) => cond(
+                        (!(itok.value.as_str() == "impl")) => ArrayList(FnDef).new(),
+                        true => match(imp_args.get(usize(0)),
+                          .None => ArrayList(FnDef).new(),
+                          .Some(tn_e) => match(atom_ident(tn_e),
+                            .None => ArrayList(FnDef).new(),
+                            .Some(type_name) => extract_impl_fns(expr, type_name)
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
+                nm := impl_fns.len();
+                (mi : usize) = usize(0);
+                while runtime((mi < nm)), {
+                  mi = (mi + usize(1));
+                  match(impl_fns.get(mi - usize(1)),
+                    .None => (),
+                    .Some(fd) => {
+                      if((fd.name.as_str() == main_name), {
+                        main_found = true;
+                        main_c_name = fd.name;
+                      });
+                      generate_function(
+                        fd.name.as_str(),
+                        fd.ret_ty_c.as_str(),
+                        fd.params,
+                        fd.param_tys,
+                        fd.body,
+                        pctx
+                      );
+                    }
+                  );
+                };
+                // Fifth: try to extract a module-level constant.
+                if((nm == usize(0)), {
+                  match(extract_const_def(expr),
+                    .Some(cd) => emit_const_to_c(cd, pctx),
+                    .None => ()
+                  );
+                });
+              }
+            )
+              }
+            )
+              }
+            )
+          }
+        );
+      }
+    );
+  };
+
+
+  // === Pass 3: derive code generation ===
+  // Process derive(ToString), derive(Clone), derive(Eq), derive(Hash), derive(Ord)
+  // for any types that have derive annotations.
+  // Note: compile_module_to_c does not have a test body, so pass a dummy begin expr.
+  dummy_body_args := ArrayList(AstExpr).new();
+  dummy_tok := Token(kind: TokenKind.Identifier, value: String.from("begin"), row: usize(0), column: usize(0), character: usize(0), module_path: String.new(), input: String.new());
+  dummy_body := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dummy_tok)), dummy_body_args, false, dummy_tok);
+  process_derive_tostring(exprs, dummy_body, pctx);
+  process_derive_clone(exprs, pctx);
+  process_derive_eq(exprs, pctx);
+  process_derive_hash(exprs, pctx);
+  process_derive_ord(exprs, pctx);
+
+  cond(
+    (!(main_found)) => Option(String).None,
+    true => {
+      emit_main_wrapper(main_c_name.as_str(), pctx);
+      .Some(generate_c_output(pctx))
+    }
+  )
+});
+
+export compile_module_to_c;
+
 /// An `int main(void)` wrapper calls `fn_test_body()`.
 ///
 /// `assert(cond, msg)` in the body emits `if (!(cond)) { exit(1); }` via
