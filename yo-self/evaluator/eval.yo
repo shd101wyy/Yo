@@ -900,6 +900,53 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         ),
       _ => false
     ),
+    .StructVal(tn_a, names_a, vals_a) => match(b,
+      .StructVal(tn_b, names_b, vals_b) =>
+        cond(
+          (!(tn_a.as_str() == tn_b.as_str())) => false,
+          (!(vals_a.len() == vals_b.len())) => false,
+          true => {
+            n_sf := vals_a.len();
+            (si : usize) = usize(0);
+            (s_eq : bool) = true;
+            while runtime(((si < n_sf) && s_eq)), {
+              match(vals_a.get(si),
+                .Some(sfa) => match(vals_b.get(si),
+                  .Some(sfb) => { s_eq = recur(sfa, sfb); },
+                  .None => { s_eq = false; }
+                ),
+                .None => { s_eq = false; }
+              );
+              si = (si + usize(1));
+            };
+            s_eq
+          }
+        ),
+      _ => false
+    ),
+    .ArrayVal(items_a) => match(b,
+      .ArrayVal(items_b) =>
+        cond(
+          (!(items_a.len() == items_b.len())) => false,
+          true => {
+            n_ai := items_a.len();
+            (ai : usize) = usize(0);
+            (a_eq : bool) = true;
+            while runtime(((ai < n_ai) && a_eq)), {
+              match(items_a.get(ai),
+                .Some(aia) => match(items_b.get(ai),
+                  .Some(aib) => { a_eq = recur(aia, aib); },
+                  .None => { a_eq = false; }
+                ),
+                .None => { a_eq = false; }
+              );
+              ai = (ai + usize(1));
+            };
+            a_eq
+          }
+        ),
+      _ => false
+    ),
     _ => false
   )
 );
@@ -4096,7 +4143,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 (is_eval_float_type(lv.ty) && is_eval_float_type(rv.ty)) =>
                   eval_float_cmp(fval, lv, rv),
                 // enum × enum (== and != by tag + fields)
-                (((is_enum_val(lv.value) || is_struct_val(lv.value)) && (is_enum_val(rv.value) || is_struct_val(rv.value))) && ((fval == "==") || (fval == "!="))) => {
+                // enum/struct/array × enum/struct/array (== and != by structural equality)
+                ((((is_enum_val(lv.value) || is_struct_val(lv.value)) || is_array_val(lv.value)) && ((is_enum_val(rv.value) || is_struct_val(rv.value)) || is_array_val(rv.value))) && ((fval == "==") || (fval == "!="))) => {
                   eq := eval_values_equal(lv.value, rv.value);
                   res := cond((fval == "==") => eq, true => (!eq));
                   .Some(eval_result(.BoolVal(res), t_bool()))
