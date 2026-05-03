@@ -10676,3 +10676,256 @@ test "Phase 5bj: struct with boolean fields", {
     )
   );
 };
+
+// Phase 5bk: ArrayList set and get (set returns new array)
+test "Phase 5bk: ArrayList set returns modified array", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3)]; arr2 := arr.set(usize(1), i32(99)); v := arr2.get(usize(1)); export v;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "set returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .EnumVal(tag, fields) => {
+              assert((tag.as_str() == ".Some"), "got Some");
+              match(fields.get(usize(0)),
+                .Some(inner) => match(inner, .IntLit(raw) => assert((raw.as_str() == "99"), "set to 99"), _ => assert(false, "not IntLit")),
+                .None => assert(false, "no inner")
+              );
+            },
+            _ => assert(false, "not EnumVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bk: function returning bool used in cond
+test "Phase 5bk: function returns bool for cond", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "is_positive := (fn(x : i32) -> bool)((x > i32(0))); check := (fn(x : i32) -> str)(cond(is_positive(x) => \"yes\", true => \"no\")); r := check(i32(5)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fn bool cond returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"yes\""), "5 is positive"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bk: nested struct access and mutation
+test "Phase 5bk: struct array field push", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "items := ArrayList(str).new(); items.push(\"a\"); items.push(\"b\"); items.push(\"c\"); n := items.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "str push returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3"), "3 items"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bk: i64 arithmetic
+test "Phase 5bk: i64 arithmetic", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := i64(1000000); b := i64(2000000); c := (a + b); export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "i64 arith returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3000000"), "1M+2M=3M"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bk: enum variant with data field in match arm
+test "Phase 5bk: match with data variant extraction", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Res :: enum(Ok(v : i32), Err(msg : str)); get_or_default := (fn(r : Res, def : i32) -> i32)(match(r, .Ok(v) => v, .Err(msg) => def)); a := get_or_default(Res.Ok(i32(77)), i32(0)); b := get_or_default(Res.Err(\"bad\"), i32(99)); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "match data returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(raw) => assert((raw.as_str() == "77"), "Ok(77)"), _ => assert(false, "not IntLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(raw) => assert((raw.as_str() == "99"), "Err->99"), _ => assert(false, "not IntLit 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bl: string char_at
+test "Phase 5bl: string char_at", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello\"; c := s.char_at(usize(1)); export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "char_at returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"e\""), "char_at(1)=e"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bl: boolean to_string
+test "Phase 5bl: bool to_string", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := true.to_string(); b := false.to_string(); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "bool to_str returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .StrLit(s) => assert((s.as_str() == "\"true\""), "true as str"), _ => assert(false, "not StrLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .StrLit(s) => assert((s.as_str() == "\"false\""), "false as str"), _ => assert(false, "not StrLit 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bl: integer abs
+test "Phase 5bl: integer abs", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := i32(-5).abs(); b := i32(3).abs(); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "abs returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(raw) => assert((raw.as_str() == "5"), "abs(-5)=5"), _ => assert(false, "not IntLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(raw) => assert((raw.as_str() == "3"), "abs(3)=3"), _ => assert(false, "not IntLit 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bl: complex pipeline: map to struct, filter, fold
+test "Phase 5bl: complex struct pipeline", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Pair :: struct(first : i32, second : i32); pairs := [Pair(first: i32(1), second: i32(10)), Pair(first: i32(2), second: i32(20)), Pair(first: i32(3), second: i32(30))]; total := pairs.fold(i32(0), (fn(acc : i32, p : Pair) -> i32)((acc + p.second))); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct pipeline returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "60"), "10+20+30=60"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bl: nested enum (Option of enum variant)
+test "Phase 5bl: enum wrapping enum via type", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Dir :: enum(Up, Down); Wrap :: enum(Has(Dir), Empty); w := Wrap.Has(Dir.Up); export w;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested enum returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .EnumVal(tag, fields) => {
+              assert((tag.as_str() == ".Has"), "outer=.Has");
+              match(fields.get(usize(0)),
+                .Some(inner) => match(inner,
+                  .EnumVal(inner_tag, _) => assert((inner_tag.as_str() == ".Up"), "inner=.Up"),
+                  _ => assert(false, "inner not EnumVal")
+                ),
+                .None => assert(false, "no inner field")
+              );
+            },
+            _ => assert(false, "not EnumVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
