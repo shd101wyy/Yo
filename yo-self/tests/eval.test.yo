@@ -15112,3 +15112,243 @@ test "Phase 5cr: struct fields sum", {
     )
   );
 };
+
+test "Phase 5cs: filter to empty array", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := [i32(1), i32(2)]; b := a.filter((fn(x : i32) -> bool)((x > i32(5)))); r := b.len(); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "0"), "filtered empty len=0"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cs: fn returns struct", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Point :: struct(x : i32, y : i32); origin := (fn() -> Point)(Point(x: i32(0), y: i32(0))); p := origin(); r := ((p.x == i32(0)) && (p.y == i32(0))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert((b == true), "origin is (0,0)"),
+            _ => assert(false, "not BoolVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cs: while binary search pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "r := { (lo : i32) = i32(0); (hi : i32) = i32(100); while(((hi - lo) > i32(1)), { (mid : i32) = ((lo + hi) / i32(2)); lo = cond(((mid * mid) < i32(50)) => mid, true => lo); hi = cond(((mid * mid) >= i32(50)) => mid, true => hi); }); hi }; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "8"), "sqrt(50)~=8"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cs: array map constant", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3)]; ones := arr.map((fn(x : i32) -> i32)(i32(1))); r := ones.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "3"), "3 ones sum=3"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cs: multiple enum variants match", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Op :: enum(Add, Sub, Mul); apply := (fn(op : Op, a : i32, b : i32) -> i32)(match(op, .Add => (a + b), .Sub => (a - b), .Mul => (a * b))); r := apply(.Mul, i32(6), i32(7)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "42"), "6*7=42"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ct: fn with bool param", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "choose := (fn(flag : bool, a : i32, b : i32) -> i32)(cond(flag => a, true => b)); r := choose(true, i32(10), i32(20)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "10"), "choose true=10"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ct: array fold min", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(5), i32(2), i32(8), i32(1), i32(9)]; r := arr.fold(i32(999), (fn(a : i32, b : i32) -> i32)(cond((b < a) => b, true => a))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "1"), "min=1"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ct: for loop count matches", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(2), i32(1)]; r := { (count : i32) = i32(0); for(x, arr, { count = cond((x == i32(2)) => (count + i32(1)), true => count); }); count }; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "2"), "two 2s"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ct: struct field reassign", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Cell :: struct(val : i32); a := Cell(val: i32(1)); a.val = i32(42); r := a.val; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "42"), "updated to 42"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ct: recursive sum tail pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "sum_to := (fn(n : i32, acc : i32) -> i32)(cond((n == i32(0)) => acc, true => recur((n - i32(1)), (acc + n)))); r := sum_to(i32(10), i32(0)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "55"), "sum 1..10=55"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
