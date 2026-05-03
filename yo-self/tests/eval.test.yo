@@ -8662,3 +8662,126 @@ test "Phase 5as: string concatenation via +", {
     )
   );
 };
+
+// Phase 5at: module-level mutable reassignment
+test "Phase 5at: module-level mutable variable", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(counter : i32) = i32(0); counter = (counter + i32(1)); counter = (counter + i32(1)); export counter;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "mut var returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "2"), "counter=2"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5at: passing function as argument
+test "Phase 5at: function passed as argument", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "apply := (fn(f : i32, x : i32) -> i32)(f); double := (fn(x : i32) -> i32)((x * i32(2))); result := apply(double(i32(5)), i32(99)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "apply returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "apply(double(5))=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5at: deeply nested match extraction
+test "Phase 5at: nested match on Option(Option)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "inner := .Some(i32(42)); outer := .Some(inner); result := match(outer, .Some(x) => match(x, .Some(y) => y, .None => i32(0)), .None => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested match returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "nested=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5at: array of enums with map
+test "Phase 5at: array of Option variants mapped", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "opts := [.Some(i32(1)), .None, .Some(i32(3))]; unwrapped := opts.map((fn(o : i32) -> i32)(match(o, .Some(x) => x, .None => i32(0)))); export unwrapped;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "map opts returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(3)), "3 results");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .IntLit(r0) => assert((r0.as_str() == "1"), "first=1"), _ => assert(false, "e0 not IntLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(1)),
+                .Some(e1) => match(e1, .IntLit(r1) => assert((r1.as_str() == "0"), "none=0"), _ => assert(false, "e1 not IntLit")),
+                .None => assert(false, "no e1")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5at: struct construction and access
+test "Phase 5at: struct with multiple fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Token :: struct(kind: i32, value: i32); t := Token(kind: i32(1), value: i32(42)); result := t.value; export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "value=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
