@@ -30184,3 +30184,318 @@ test "Phase 5hd: multiple struct types", {
     match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "41"), "total=41"), _ => assert(false, "t")), .None => assert(false, "v"));
   }, _ => assert(false, "m")));
 };
+
+// Phase 5he: duplicate detection, catalan, binary search, struct swap, digit extract, enum priority, sorted check, occurrence count, tail recursion sum, filter-map-fold pipeline
+test "Phase 5he: array duplicate detection", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(2), i32(4), i32(3)];\n(dups : i32) = i32(0);\n(i : i32) = i32(0);\nwhile((i < arr.len()), {\n(j : i32) = (i + i32(1));\nwhile((j < arr.len()), {\nmatch(arr.get(i.to_usize()), .Some(a) => match(arr.get(j.to_usize()), .Some(b) => cond((a == b) => { dups = (dups + i32(1)); }, true => ()), .None => ()), .None => ());\nj = (j + i32(1));\n});\ni = (i + i32(1));\n});\nexport dups;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "2"), "2 dup pairs"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: recursive catalan number", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "catalan := (fn(n : i32) -> i32)(cond((n <= i32(1)) => i32(1), true => {\n(sum : i32) = i32(0);\n(i : i32) = i32(0);\nwhile((i < n), {\nsum = (sum + (recur(i) * recur((n - i32(1)) - i)));\ni = (i + i32(1));\n});\nsum\n}));\nexport catalan(i32(4));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "14"), "catalan(4)=14"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: array binary search iterative", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(2), i32(5), i32(8), i32(12), i32(16), i32(23), i32(38), i32(56), i32(72), i32(91)];\ntarget := i32(23);\n(lo : i32) = i32(0);\n(hi : i32) = (arr.len() - i32(1));\n(found : i32) = i32(-1);\nwhile((lo <= hi), {\nmid := ((lo + hi) / i32(2));\nmatch(arr.get(mid.to_usize()), .Some(v) => cond((v == target) => { found = mid; lo = (hi + i32(1)); }, (v < target) => { lo = (mid + i32(1)); }, true => { hi = (mid - i32(1)); }), .None => { lo = (hi + i32(1)); });\n});\nexport found;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "inter=5 chars"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: struct pair swap pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Pair :: struct(a : i32, b : i32);\nswap := (fn(p : Pair) -> Pair)(Pair(a: p.b, b: p.a));\np := Pair(a: i32(10), b: i32(20));\nswapped := swap(p);\nexport swapped.a;\nexport swapped.b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "20"), "a=20"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "10"), "b=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5he: while loop digit extraction", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "digits := ArrayList(i32).new();\n(n : i32) = i32(12345);\nwhile((n > i32(0)), {\ndigits.push((n % i32(10)));\nn = (n / i32(10));\n});\nexport digits.len();\nexport digits.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "5 digits"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "15"), "1+2+3+4+5=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5he: enum result chaining", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Status :: enum(Active, Paused, Stopped);\npriority := (fn(s : Status) -> i32)(match(s, .Active => i32(3), .Paused => i32(2), .Stopped => i32(1)));\nstates := [Status.Active, Status.Paused, Status.Stopped, Status.Active];\n(total : i32) = i32(0);\nfor(s, states, {\ntotal = (total + priority(s));\n});\nexport total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "9"), "3+2+1+3=9"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: array sorted check", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "is_sorted := [i32(1), i32(3), i32(5), i32(7), i32(9)];\nnot_sorted := [i32(1), i32(5), i32(3), i32(7)];\ncheck := (fn(arr : [i32]) -> bool)({\n(ok : bool) = true;\n(i : i32) = i32(1);\nwhile((i < arr.len()), {\nmatch(arr.get((i - i32(1)).to_usize()), .Some(prev) => match(arr.get(i.to_usize()), .Some(curr) => cond((prev > curr) => { ok = false; break; }, true => ()), .None => ()), .None => ());\ni = (i + i32(1));\n});\nok\n});\nexport check(is_sorted);\nexport check(not_sorted);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "sorted"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .BoolVal(b) => assert(!(b), "not sorted"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5he: string counting occurrences", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "s := \"abracadabra\";\ntarget := \"a\";\n(count : i32) = i32(0);\n(i : i32) = i32(0);\nwhile((i < s.len()), {\ncond((s.char_at(i.to_usize()) == target) => { count = (count + i32(1)); }, true => ());\ni = (i + i32(1));\n});\nexport count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "5 a's in abracadabra"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: recursive merge count", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "total_sum := (fn(n : i32, acc : i32) -> i32)(cond((n <= i32(0)) => acc, true => recur((n - i32(1)), (acc + n))));\nexport total_sum(i32(100), i32(0));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5050"), "sum(100)=5050"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5he: combined operations pipeline", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6), i32(7), i32(8), i32(9), i32(10)];\nresult := nums.filter((fn(x : i32) -> bool)((x % i32(2)) == i32(0))).map((fn(x : i32) -> i32)((x * x))).fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));\nexport result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "220"), "4+16+36+64+100=220"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+// Phase 5hf: selection sort min, fast power, rectangle ops, factorial countdown, enum message data, chunk sums, word reverse, range sum, weighted index, struct interaction
+test "Phase 5hf: array selection sort minimum finding", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(5), i32(3), i32(8), i32(1), i32(4)];\n(min_val : i32) = i32(999);\n(min_idx : i32) = i32(0);\n(i : i32) = i32(0);\nwhile((i < arr.len()), {\nmatch(arr.get(i.to_usize()), .Some(v) => cond((v < min_val) => { min_val = v; min_idx = i; }, true => ()), .None => ());\ni = (i + i32(1));\n});\nexport min_val;\nexport min_idx;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1"), "min=1"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "at idx 3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hf: recursive power with even optimization", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "fast_pow := (fn(base : i32, exp : i32) -> i32)(cond((exp == i32(0)) => i32(1), ((exp % i32(2)) == i32(0)) => {\nhalf := recur(base, (exp / i32(2)));\n(half * half)\n}, true => (base * recur(base, (exp - i32(1))))));\nexport fast_pow(i32(2), i32(10));\nexport fast_pow(i32(3), i32(5));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1024"), "2^10=1024"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "243"), "3^5=243"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hf: struct rectangle operations", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Rect :: struct(w : i32, h : i32);\narea := (fn(r : Rect) -> i32)((r.w * r.h));\nperimeter := (fn(r : Rect) -> i32)(((r.w + r.h) * i32(2)));\nis_square := (fn(r : Rect) -> bool)((r.w == r.h));\nr1 := Rect(w: i32(5), h: i32(3));\nr2 := Rect(w: i32(4), h: i32(4));\nexport area(r1);\nexport perimeter(r1);\nexport is_square(r1);\nexport is_square(r2);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "15"), "5*3=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "16"), "(5+3)*2=16"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .BoolVal(b) => assert(!(b), "not square"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(3)), .Some(x) => match(x, .BoolVal(b) => assert(b, "is square"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hf: while countdown with accumulator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "(n : i32) = i32(10);\n(acc : i32) = i32(1);\nwhile((n > i32(1)), {\nacc = (acc * n);\nn = (n - i32(1));\n});\nexport acc;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3628800"), "10!=3628800"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: enum message with data", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Msg :: enum(Hello(i32), Goodbye(i32), Reset);\nvalue := (fn(m : Msg) -> i32)(match(m, .Hello(n) => (n * i32(2)), .Goodbye(n) => (n * i32(3)), .Reset => i32(0)));\nmsgs := [Msg.Hello(i32(5)), Msg.Goodbye(i32(4)), Msg.Reset, Msg.Hello(i32(10))];\n(total : i32) = i32(0);\nfor(m, msgs, { total = (total + value(m)); });\nexport total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "42"), "5*2+4*3+0+10*2=42"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: array chunk processing", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6), i32(7), i32(8), i32(9)];\nchunk_size := i32(3);\n(chunk_sums : i32) = i32(0);\n(i : i32) = i32(0);\nwhile((i < arr.len()), {\n(chunk_sum : i32) = i32(0);\n(j : i32) = i32(0);\nwhile(((j < chunk_size) && ((i + j) < arr.len())), {\nmatch(arr.get((i + j).to_usize()), .Some(v) => { chunk_sum = (chunk_sum + v); }, .None => ());\nj = (j + i32(1));\n});\nchunk_sums = (chunk_sums + (chunk_sum * chunk_sum));\ni = (i + chunk_size);\n});\nexport chunk_sums;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "837"), "(1+2+3)^2+(4+5+6)^2+(7+8+9)^2=36+225+576=837"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: string word reverse", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "s := \"hello world foo\";\nwords := s.split(\" \");\nreversed := words.reverse();\nresult := reversed.join(\" \");\nexport result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"foo world hello\""), "reversed words"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: recursive flatten sum", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "sum_range := (fn(lo : i32, hi : i32, acc : i32) -> i32)(cond((lo > hi) => acc, true => recur((lo + i32(1)), hi, (acc + lo))));\nexport sum_range(i32(1), i32(50), i32(0));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1275"), "sum 1..50=1275"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: for with index tracking", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];\n(weighted_sum : i32) = i32(0);\n(idx : i32) = i32(0);\nfor(v, arr, {\nweighted_sum = (weighted_sum + (v * (idx + i32(1))));\nidx = (idx + i32(1));\n});\nexport weighted_sum;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "550"), "10*1+20*2+30*3+40*4+50*5=550"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hf: multiple struct types interaction", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Vec2 :: struct(x : i32, y : i32);\nCircle :: struct(center : Vec2, radius : i32);\nadd := (fn(a : Vec2, b : Vec2) -> Vec2)(Vec2(x: (a.x + b.x), y: (a.y + b.y)));\nc := Circle(center: Vec2(x: i32(3), y: i32(4)), radius: i32(5));\nmoved := Circle(center: add(c.center, Vec2(x: i32(10), y: i32(20))), radius: c.radius);\nexport moved.center.x;\nexport moved.center.y;\nexport moved.radius;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "13"), "3+10=13"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "24"), "4+20=24"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "radius=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+// Phase 5hg: windowed diffs, recursive string, computed stats struct, enum direction count, fib tail, split filter, modular pow, break first odd, digit count, cubed sum
+test "Phase 5hg: array windowed differences", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(3), i32(7), i32(2), i32(9), i32(1), i32(6)];\ndiffs := ArrayList(i32).new();\n(i : i32) = i32(1);\nwhile((i < arr.len()), {\nmatch(arr.get(i.to_usize()), .Some(curr) => match(arr.get((i - i32(1)).to_usize()), .Some(prev) => {\ndiffs.push((curr - prev));\n}, .None => ()), .None => ());\ni = (i + i32(1));\n});\nexport diffs.len();\nexport diffs.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "5 diffs"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "sum of diffs = last-first = 6-3=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hg: recursive string building", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "repeat_str := (fn(s : str, n : i32) -> str)(cond((n <= i32(0)) => \"\", true => (s + recur(s, (n - i32(1))))));\nexport repeat_str(\"ab\", i32(4));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"abababab\""), "ab*4"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hg: struct with computed fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Stats :: struct(min : i32, max : i32, sum : i32, count : i32);\ncompute := (fn(arr : [i32]) -> Stats)({\n(mn : i32) = i32(999);\n(mx : i32) = i32(0);\n(sm : i32) = i32(0);\n(ct : i32) = i32(0);\nfor(v, arr, {\ncond((v < mn) => { mn = v; }, true => ());\ncond((v > mx) => { mx = v; }, true => ());\nsm = (sm + v);\nct = (ct + i32(1));\n});\nStats(min: mn, max: mx, sum: sm, count: ct)\n});\ns := compute([i32(5), i32(2), i32(8), i32(1), i32(9), i32(3)]);\nexport s.min;\nexport s.max;\nexport s.sum;\nexport s.count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1"), "min=1"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "9"), "max=9"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "28"), "sum=28"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(3)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "6"), "count=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hg: enum tree depth", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Direction :: enum(Up, Down, Left, Right);\nmove_count := (fn(dirs : [Direction], target : Direction) -> i32)({\n(count : i32) = i32(0);\nfor(d, dirs, {\ncond((d == target) => { count = (count + i32(1)); }, true => ());\n});\ncount\n});\npath := [Direction.Up, Direction.Right, Direction.Up, Direction.Down, Direction.Up, Direction.Left];\nexport move_count(path, Direction.Up);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "3 Up moves"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hg: fibonacci matrix style", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "fib_pair := (fn(n : i32, a : i32, b : i32) -> i32)(cond((n <= i32(0)) => a, true => recur((n - i32(1)), b, (a + b))));\nexport fib_pair(i32(15), i32(0), i32(1));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "610"), "fib(15)=610"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hg: string split and filter", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "csv := \"10,20,,30,,40,50\";\nparts := csv.split(\",\");\nnon_empty := parts.filter((fn(s : str) -> bool)(!(s.is_empty())));\nexport non_empty.len();";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "5 non-empty parts"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hg: while modular arithmetic", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "mod_pow := (fn(base : i32, exp : i32, m : i32) -> i32)({\n(result : i32) = i32(1);\n(b : i32) = (base % m);\n(e : i32) = exp;\nwhile((e > i32(0)), {\ncond(((e % i32(2)) == i32(1)) => { result = ((result * b) % m); }, true => ());\ne = (e / i32(2));\nb = ((b * b) % m);\n});\nresult\n});\nexport mod_pow(i32(2), i32(10), i32(1000));\nexport mod_pow(i32(3), i32(7), i32(100));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "24"), "2^10 mod 1000=1024 mod 1000=24"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "87"), "3^7 mod 100=2187 mod 100=87"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hg: for loop with early break condition", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(2), i32(4), i32(6), i32(7), i32(8), i32(10)];\n(first_odd : i32) = i32(-1);\n(idx : i32) = i32(0);\nfor(v, arr, {\ncond(((v % i32(2)) != i32(0)) => { first_odd = v; break; }, true => { idx = (idx + i32(1)); });\n});\nexport first_odd;\nexport idx;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "7"), "first odd=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "at index 3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hg: recursive digit count", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "num_digits := (fn(n : i32) -> i32)(cond((n < i32(10)) => i32(1), true => (i32(1) + recur((n / i32(10))))));\nexport num_digits(i32(12345));\nexport num_digits(i32(1));\nexport num_digits(i32(999));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "12345 has 5 digits"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1"), "1 has 1 digit"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "999 has 3 digits"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hg: array map and aggregate", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5)];\ncubed := nums.map((fn(x : i32) -> i32)(((x * x) * x)));\nsum_cubed := cubed.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));\nexport sum_cubed;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "225"), "1+8+27+64+125=225"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
