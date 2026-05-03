@@ -32288,3 +32288,336 @@ test "Phase 5hw: array contains and any combo", {
     match(v.get(usize(2)), .Some(x) => match(x, .BoolVal(b) => assert(b, "charlie starts with ch"), _ => assert(false, "t")), .None => assert(false, "v"));
   }, _ => assert(false, "m")));
 };
+
+test "Phase 5hx: array deduplicate consecutive", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(1), i32(1), i32(2), i32(2), i32(2), i32(3), i32(1)];\nresult := ArrayList(i32).new();\n(prev : i32) = i32(-999);\nfor(x, arr, {\ncond((x != prev) => {\nresult.push(x);\nprev = x;\n}, true => ());\n});\nexport result.len();\nexport result.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "4"), "1,2,3,1 = 4 unique consecutive"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "7"), "1+2+3+1=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: iterative integer sqrt floor", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "(n : i32) = i32(26);\n(s : i32) = i32(0);\nwhile((((s + i32(1)) * (s + i32(1))) <= n), {\ns = (s + i32(1));\n});\nexport s;\nn = i32(100);\n(s2 : i32) = i32(0);\nwhile((((s2 + i32(1)) * (s2 + i32(1))) <= n), {\ns2 = (s2 + i32(1));\n});\nexport s2;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "floor(sqrt(26))=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "10"), "floor(sqrt(100))=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: struct inheritance pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Base :: struct(id : i32, name : str);\nDerived :: struct(base : Base, extra : i32);\nd := Derived(base: Base(id: i32(1), name: \"test\"), extra: i32(42));\nexport d.base.id;\nexport d.base.name;\nexport d.extra;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1"), "id=1"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"test\""), "name=test"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "42"), "extra=42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: while loop GCD of array", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "gcd := (fn(a : i32, b : i32) -> i32)(cond((b == i32(0)) => a, true => recur(b, (a - ((a / b) * b)))));\narr := [i32(12), i32(18), i32(24), i32(36)];\n(result : i32) = i32(0);\nmatch(arr.first(), .Some(first) => {\nresult = first;\n(i : i32) = i32(1);\nwhile((i < arr.len()), {\nmatch(arr.get(i.to_usize()), .Some(x) => {\nresult = gcd(result, x);\n}, .None => ());\ni = (i + i32(1));\n});\n}, .None => ());\nexport result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "6"), "gcd(12,18,24,36)=6"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hx: enum Color mixing", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Color :: enum(Red, Green, Blue, Yellow, Cyan, Magenta);\ncolors := [Color.Red, Color.Blue, Color.Green, Color.Yellow, Color.Red];\n(red_count : i32) = i32(0);\n(blue_count : i32) = i32(0);\nfor(c, colors, {\nmatch(c, .Red => { red_count = (red_count + i32(1)); }, .Blue => { blue_count = (blue_count + i32(1)); }, _ => ());\n});\nexport red_count;\nexport blue_count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "2"), "2 reds"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "1"), "1 blue"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: string word capitalize first", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "word := \"hello\";\nfirst := word.substring(i32(0), i32(1)).to_uppercase();\nrest := word.substring(i32(1), word.len());\nexport (first + rest);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"Hello\""), "capitalized"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hx: map with absolute value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(-3), i32(5), i32(-7), i32(2), i32(-1)];\nabsolutes := arr.map((fn(x : i32) -> i32)(cond((x < i32(0)) => (i32(0) - x), true => x)));\nexport absolutes.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "18"), "3+5+7+2+1=18"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hx: recursive palindrome number", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "reverse_num := (fn(n : i32, acc : i32) -> i32)(cond((n == i32(0)) => acc, true => recur((n / i32(10)), ((acc * i32(10)) + (n - ((n / i32(10)) * i32(10)))))));\nexport (reverse_num(i32(121), i32(0)) == i32(121));\nexport (reverse_num(i32(123), i32(0)) == i32(123));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "121 is palindrome"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .BoolVal(b) => assert(!(b), "123 not palindrome"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: array second largest", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(5), i32(9), i32(3), i32(7), i32(1)];\n(max1 : i32) = i32(0);\n(max2 : i32) = i32(0);\nfor(x, arr, {\ncond((x > max1) => {\nmax2 = max1;\nmax1 = x;\n}, (x > max2) => {\nmax2 = x;\n}, true => ());\n});\nexport max1;\nexport max2;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "9"), "largest=9"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "7"), "second=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hx: boolean De Morgan verification", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "a := true;\nb := false;\nlhs := !(cond(a => b, true => false));\nrhs := cond(!(a) => true, true => !(b));\nexport (lhs == rhs);\nexport lhs;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "De Morgan holds"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .BoolVal(b) => assert(b, "!(a&&b) = true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: array count elements in range", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(3), i32(7), i32(12), i32(5), i32(9), i32(15), i32(2)];\ncount := arr.filter((fn(x : i32) -> bool)(cond((x >= i32(5)) => (x <= i32(10)), true => false))).len();\nexport count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "7,5,9 in [5,10]"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hy: iterative power modular", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "(base : i32) = i32(2);\n(exp : i32) = i32(10);\nmod := i32(1000);\n(result : i32) = i32(1);\nwhile((exp > i32(0)), {\nresult = ((result * base) - (((result * base) / mod) * mod));\nexp = (exp - i32(1));\n});\nexport result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "24"), "2^10 mod 1000=24"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hy: struct student GPA calculation", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Grade :: struct(score : i32, credits : i32);\ngrades := [Grade(score: i32(4), credits: i32(3)), Grade(score: i32(3), credits: i32(4)), Grade(score: i32(4), credits: i32(2))];\n(total_points : i32) = i32(0);\n(total_credits : i32) = i32(0);\nfor(g, grades, {\ntotal_points = (total_points + (g.score * g.credits));\ntotal_credits = (total_credits + g.credits);\n});\nexport (total_points / total_credits);\nexport total_credits;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "(12+12+8)/9=32/9=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "9"), "3+4+2=9 credits"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: while loop collatz steps", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "(n : i32) = i32(27);\n(steps : i32) = i32(0);\nwhile((n != i32(1)), {\ncond(((n - ((n / i32(2)) * i32(2))) == i32(0)) => {\nn = (n / i32(2));\n}, true => {\nn = ((n * i32(3)) + i32(1));\n});\nsteps = (steps + i32(1));\n});\nexport steps;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "111"), "collatz(27)=111 steps"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hy: enum Weekday work hours", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Day :: enum(Mon, Tue, Wed, Thu, Fri, Sat, Sun);\nweek := [Day.Mon, Day.Tue, Day.Wed, Day.Thu, Day.Fri, Day.Sat, Day.Sun];\n(work_hours : i32) = i32(0);\nfor(d, week, {\nwork_hours = (work_hours + match(d, .Sat => i32(0), .Sun => i32(0), _ => i32(8)));\n});\nexport work_hours;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "40"), "5*8=40 work hours"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hy: string join with separator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "parts := [\"a\", \"b\", \"c\", \"d\"];\nexport parts.join(\"-\");\nexport parts.join(\"\");\nexport parts.join(\", \");";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"a-b-c-d\""), "dash join"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"abcd\""), "empty join"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"a, b, c, d\""), "comma join"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: fold product of evens", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6)];\nevens := arr.filter((fn(x : i32) -> bool)((x - ((x / i32(2)) * i32(2))) == i32(0)));\nprod := evens.fold(i32(1), (fn(a : i32, b : i32) -> i32)((a * b)));\nexport prod;\nexport evens.len();";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "48"), "2*4*6=48"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "3"), "3 evens"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: recursive count trailing zeros", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "trailing := (fn(n : i32) -> i32)(cond((n == i32(0)) => i32(0), ((n - ((n / i32(10)) * i32(10))) != i32(0)) => i32(0), true => (i32(1) + recur((n / i32(10))))));\nexport trailing(i32(1200));\nexport trailing(i32(50000));\nexport trailing(i32(123));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "2"), "1200 has 2 trailing zeros"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "4"), "50000 has 4 trailing zeros"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "0"), "123 has 0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: struct array max by field", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Item :: struct(name : str, price : i32);\nitems := [Item(name: \"A\", price: i32(15)), Item(name: \"B\", price: i32(30)), Item(name: \"C\", price: i32(8))];\n(max_price : i32) = i32(0);\n(max_name : str) = \"\";\nfor(item, items, {\ncond((item.price > max_price) => {\nmax_price = item.price;\nmax_name = item.name;\n}, true => ());\n});\nexport max_price;\nexport max_name;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "30"), "max price=30"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"B\""), "max is B"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hy: array all positive check", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "a := [i32(1), i32(5), i32(3), i32(8)];\nb := [i32(1), i32(-2), i32(3)];\nexport a.all((fn(x : i32) -> bool)((x > i32(0))));\nexport b.all((fn(x : i32) -> bool)((x > i32(0))));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "all positive"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .BoolVal(b) => assert(!(b), "not all positive"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: array rotate right by k", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\nk := i32(2);\nlen := arr.len();\nresult := ArrayList(i32).new();\n(i : i32) = i32(0);\nwhile((i < len), {\nidx := ((((i - k) + len) - (((((i - k) + len) / len) * len))));\nmatch(arr.get(idx.to_usize()), .Some(x) => result.push(x), .None => ());\ni = (i + i32(1));\n});\nexport result.len();\nexport result.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "same length"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "15"), "sum preserved"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: recursive sum of odd numbers up to n", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "sum_odd := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(0), ((n - ((n / i32(2)) * i32(2))) != i32(0)) => (n + recur((n - i32(1)))), true => recur((n - i32(1)))));\nexport sum_odd(i32(10));\nexport sum_odd(i32(7));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "25"), "1+3+5+7+9=25"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "16"), "1+3+5+7=16"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: struct inventory total value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Product :: struct(name : str, qty : i32, price : i32);\ninventory := [Product(name: \"Widget\", qty: i32(10), price: i32(5)), Product(name: \"Gadget\", qty: i32(3), price: i32(20)), Product(name: \"Doohickey\", qty: i32(7), price: i32(2))];\n(total : i32) = i32(0);\nfor(p, inventory, {\ntotal = (total + (p.qty * p.price));\n});\nexport total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "124"), "50+60+14=124"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hz: while loop binary search", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "arr := [i32(2), i32(5), i32(8), i32(12), i32(16), i32(23), i32(38), i32(56)];\ntarget := i32(23);\n(lo : i32) = i32(0);\n(hi : i32) = (arr.len() - i32(1));\n(found_idx : i32) = i32(-1);\nwhile((lo <= hi), {\nmid := ((lo + hi) / i32(2));\nmatch(arr.get(mid.to_usize()), .Some(val) => {\ncond((val == target) => {\nfound_idx = mid;\nlo = (hi + i32(1));\n}, (val < target) => {\nlo = (mid + i32(1));\n}, true => {\nhi = (mid - i32(1));\n});\n}, .None => {\nlo = (hi + i32(1));\n});\n});\nexport found_idx;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "23 at index 5"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
+
+test "Phase 5hz: enum suit card value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Suit :: enum(Hearts, Diamonds, Clubs, Spades);\nhand := [Suit.Hearts, Suit.Spades, Suit.Diamonds, Suit.Spades, Suit.Clubs];\n(spade_count : i32) = i32(0);\nfor(card, hand, {\ncond((card == Suit.Spades) => {\nspade_count = (spade_count + i32(1));\n}, true => ());\n});\nexport spade_count;\nexport hand.len();";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "2"), "2 spades"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "5 cards"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: string repeat and length", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "base := \"abc\";\nrepeated := base.repeat(i32(4));\nexport repeated;\nexport repeated.len();";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert((s.as_str() == "\"abcabcabcabc\""), "repeated 4x"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "12"), "3*4=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: array concat and length", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(4), i32(5)];\nc := a.concat(b);\nexport c.len();\nexport c.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "3+2=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "15"), "1+2+3+4+5=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: recursive Jacobsthal numbers", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "jacob := (fn(n : i32) -> i32)(cond((n == i32(0)) => i32(0), (n == i32(1)) => i32(1), true => (recur((n - i32(1))) + (i32(2) * recur((n - i32(2)))))));\nexport jacob(i32(5));\nexport jacob(i32(6));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "11"), "J(5)=11"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "21"), "J(6)=21"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: struct point midpoint", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "Point :: struct(x : i32, y : i32);\np1 := Point(x: i32(2), y: i32(8));\np2 := Point(x: i32(6), y: i32(4));\nmid_x := ((p1.x + p2.x) / i32(2));\nmid_y := ((p1.y + p2.y) / i32(2));\nexport mid_x;\nexport mid_y;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "4"), "mid_x=(2+6)/2=4"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "6"), "mid_y=(8+4)/2=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+};
+
+test "Phase 5hz: for loop count vowels in words", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
+  src := "words := [\"hello\", \"world\", \"foo\"];\n(total_vowels : i32) = i32(0);\nfor(w, words, {\n(i : i32) = i32(0);\nwhile((i < w.len()), {\nch := w.substring(i, (i + i32(1)));\ncond((ch == \"a\") => { total_vowels = (total_vowels + i32(1)); }, (ch == \"e\") => { total_vowels = (total_vowels + i32(1)); }, (ch == \"i\") => { total_vowels = (total_vowels + i32(1)); }, (ch == \"o\") => { total_vowels = (total_vowels + i32(1)); }, (ch == \"u\") => { total_vowels = (total_vowels + i32(1)); }, true => ());\ni = (i + i32(1));\n});\n});\nexport total_vowels;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5"), "e,o + o + o,o = 5 vowels"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+};
