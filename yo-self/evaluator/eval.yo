@@ -3358,6 +3358,35 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         .Some(x) => x,
                         .None    => { return Option(EvalResult).None; }
                       );
+                      // Phase 5ar: TypeVal.Variant(args) — self-hosted format
+                      // Only treat as variant construction if the TypeVal wraps an EnumT.
+                      // Other TypeVals (StructT, etc.) fall through to method dispatch.
+                      sh_is_enum_tv := match(recv_res.value, .TypeVal(tv_box) => match(tv_box.*, .EnumT(_, _, _, _, _, _, _) => true, _ => false), _ => false);
+                      if(sh_is_enum_tv, {
+                        sh_vn_name_sr := match((&method_expr).*, .Atom(_, sh_vtk) => sh_vtk.value.as_str(), .FnCall(_, _, _, _, _) => "");
+                        if((sh_vn_name_sr != ""), {
+                          sh_vn_str_sr := `.${String.from(sh_vn_name_sr)}`;
+                          sh_vn_fields_sr := ArrayList(EvalValue).new();
+                          n_sh_vn_sr := args.len();
+                          (sh_vi_sr : usize) = usize(0);
+                          (sh_vok_sr : bool) = true;
+                          while runtime(((sh_vi_sr < n_sh_vn_sr) && sh_vok_sr)), {
+                            match(args.get(sh_vi_sr),
+                              .Some(sh_va_expr_sr) =>
+                                match(recur(sh_va_expr_sr, env),
+                                  .Some(sh_vr_sr) => { sh_vn_fields_sr.push(sh_vr_sr.value); },
+                                  .None => { sh_vok_sr = false; }
+                                ),
+                              .None => { sh_vok_sr = false; }
+                            );
+                            sh_vi_sr = (sh_vi_sr + usize(1));
+                          };
+                          cond(
+                            (!(sh_vok_sr)) => { return Option(EvalResult).None; },
+                            true => { return Option(EvalResult).Some(eval_result(.EnumVal(sh_vn_str_sr, sh_vn_fields_sr), t_unit())); }
+                          );
+                        });
+                      });
                       handle_method_dispatch(recv_res.value, box(method_expr), args, env)
                     },
                     // TS-format enum variant with args: inner_args has 1 element
@@ -4213,16 +4242,51 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                             true =>
                               // Phase 5ap: TypeVal.VariantName — fieldless enum variant construction
                               match(recv_res.value,
-                                .TypeVal(_) => {
+                                .TypeVal(tv_box_fa) => match(tv_box_fa.*, .EnumT(_, _, _, _, _, _, _) => {
                                   variant_str_tv := `.${deref_tok.value}`;
                                   ev_fields_tv := ArrayList(EvalValue).new();
                                   .Some(eval_result(.EnumVal(variant_str_tv, ev_fields_tv), t_unit()))
-                                },
+                                }, _ => Option(EvalResult).None),
                                 _ => Option(EvalResult).None
                               )
                           ),
                         .FnCall(_, method_func_box2, method_call_args2, _, _) =>
-                          handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env),
+                          // Phase 5aq: TypeVal.Variant(args) — enum variant with data (TS format)
+                          match(recv_res.value,
+                            .TypeVal(tv_box_fq) => match(tv_box_fq.*, .EnumT(_, _, _, _, _, _, _) => {
+                              // Get variant name from method_func_box2
+                              vname_tv2 := match(method_func_box2.*,
+                                .Atom(_, vntok2) => vntok2.value.as_str(),
+                                _ => ""
+                              );
+                              cond(
+                                (vname_tv2 == "") => handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env),
+                                true => {
+                                  variant_str_tv2 := `.${String.from(vname_tv2)}`;
+                                  ev_fields_tv2 := ArrayList(EvalValue).new();
+                                  n_tvargs := method_call_args2.len();
+                                  (tvi : usize) = usize(0);
+                                  (tvok : bool) = true;
+                                  while runtime(((tvi < n_tvargs) && tvok)), {
+                                    match(method_call_args2.get(tvi),
+                                      .Some(tvarg_expr) =>
+                                        match(recur(tvarg_expr, env),
+                                          .Some(tvr) => { ev_fields_tv2.push(tvr.value); },
+                                          .None => { tvok = false; }
+                                        ),
+                                      .None => { tvok = false; }
+                                    );
+                                    tvi = (tvi + usize(1));
+                                  };
+                                  cond(
+                                    (!(tvok)) => Option(EvalResult).None,
+                                    true => .Some(eval_result(.EnumVal(variant_str_tv2, ev_fields_tv2), t_unit()))
+                                  )
+                                }
+                              )
+                            }, _ => handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env)),
+                            _ => handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env)
+                          ),
                         _ => Option(EvalResult).None
                       )
                   )

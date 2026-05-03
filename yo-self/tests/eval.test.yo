@@ -8413,3 +8413,129 @@ test "Phase 5aq: filter then map (chained)", {
     )
   );
 };
+
+// Phase 5ar: TypeVal.Variant(args) — enum variant construction with data
+test "Phase 5ar: TypeVal.Variant(args) — Option.Some(42)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  // Step 1: just test enum def + export the TypeVal
+  src1 := "MyOpt :: enum(None, Some(i32)); export MyOpt;";
+  exprs1 := generate_exprs_from_code(src1, using(exn));
+  result1 := evaluate_module_body(exprs1, &env);
+  match(result1,
+    .None => assert(false, "enum def returned None"),
+    .Some(mod1) => match(mod1,
+      .ModuleVal(_, vals1) =>
+        match(vals1.get(usize(0)),
+          .Some(v1) => match(v1, .TypeVal(_) => assert(true, "got TypeVal"), _ => assert(false, "not TypeVal")),
+          .None => assert(false, "no export")
+        ),
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+  // Step 2: test TypeVal.Variant fieldless
+  env2 := empty_env();
+  src2 := "MyOpt :: enum(None, Some(i32)); val := MyOpt.None; export val;";
+  exprs2 := generate_exprs_from_code(src2, using(exn));
+  result2 := evaluate_module_body(exprs2, &env2);
+  match(result2,
+    .None => assert(false, "TypeVal.None returned None"),
+    .Some(mod2) => match(mod2,
+      .ModuleVal(_, vals2) =>
+        match(vals2.get(usize(0)),
+          .Some(v2) => match(v2, .EnumVal(tag, _) => assert((tag.as_str() == ".None"), "got .None"), _ => assert(false, "not EnumVal")),
+          .None => assert(false, "no export")
+        ),
+      _ => assert(false, "not ModuleVal 2")
+    )
+  );
+  // Step 3: test TypeVal.Variant(args)
+  env3 := empty_env();
+  src3 := "MyOpt :: enum(None, Some(i32)); val := MyOpt.Some(i32(42)); export val;";
+  exprs3 := generate_exprs_from_code(src3, using(exn));
+  result3 := evaluate_module_body(exprs3, &env3);
+  match(result3,
+    .None => assert(false, "TypeVal.Some returned None"),
+    .Some(mod3) => match(mod3,
+      .ModuleVal(_, vals3) =>
+        match(vals3.get(usize(0)),
+          .Some(v3) => match(v3, .EnumVal(tag3, fields3) => {
+            assert((tag3.as_str() == ".Some"), "got .Some");
+            assert((fields3.len() == usize(1)), "1 field");
+          }, _ => assert(false, "not EnumVal 3")),
+          .None => assert(false, "no export 3")
+        ),
+      _ => assert(false, "not ModuleVal 3")
+    )
+  );
+};
+
+// Phase 5ar: TypeVal.Variant(args) with multiple fields
+test "Phase 5ar: TypeVal.Variant — Pair with two fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Pair :: enum(Empty, Both(a: i32, b: i32)); p := Pair.Both(i32(3), i32(7)); result := match(p, .Both(a, b) => (a + b), .Empty => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "Pair returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "3+7=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5ar: array.fold with initial value and reducer
+test "Phase 5ar: array.fold sum", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4)]; total := nums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x))); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fold returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "sum=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5ar: string starts_with and ends_with
+test "Phase 5ar: string starts_with and ends_with", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; r1 := s.starts_with(\"hello\"); r2 := s.ends_with(\"world\"); export r1; export r2;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "string ops returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .BoolVal(b0) => assert(b0, "starts_with hello"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .BoolVal(b1) => assert(b1, "ends_with world"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
