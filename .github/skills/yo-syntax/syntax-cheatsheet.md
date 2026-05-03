@@ -488,6 +488,28 @@ foo();
 bar();
 ```
 
+### Enum pattern matching does NOT support literal values
+
+Match patterns on enum variants only support **variable binding**, not literal comparison.
+`.BoolVal(true)` binds the inner value to a variable named `true` — it does NOT check
+if the value is `true`. The arm always matches any `BoolVal`.
+
+```rust
+// ❌ WRONG — always matches (true is a variable binding, not a comparison)
+match(val,
+  .BoolVal(true) => handle_true(),
+  _ => ()
+);
+
+// ✅ CORRECT — bind to variable, then check with cond
+match(val,
+  .BoolVal(b) => cond(b => handle_true(), true => ()),
+  _ => ()
+);
+```
+
+Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
+
 ### `type` is a reserved keyword — avoid as field/param name
 
 ```rust

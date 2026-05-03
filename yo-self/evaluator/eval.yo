@@ -1981,6 +1981,102 @@ handle_method_dispatch :: (fn(
             },
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5an: ArrayVal.index_of(value) — returns Option with index of first match
+        // ---------------------------------------------------------------
+        ((mname == "index_of") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_io) => {
+              needle_expr_io := match(method_call_args.get(usize(0)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              needle_val_io := match(match(g_eval_fn, .Some(ef_io) => ef_io(needle_expr_io, env), .None => Option(EvalResult).None),
+                .Some(r) => r.value,
+                .None => { return Option(EvalResult).None; }
+              );
+              n_io := av_items_io.len();
+              (ioi : usize) = usize(0);
+              (found_idx_io : Option(EvalValue)) = Option(EvalValue).None;
+              while runtime(((ioi < n_io) && (found_idx_io.is_none()))), {
+                match(av_items_io.get(ioi),
+                  .Some(elem_io) => {
+                    cond(
+                      (eval_values_equal(elem_io, needle_val_io)) => {
+                        found_idx_io = .Some(EvalValue.IntLit(i64(ioi).to_string()));
+                      },
+                      true => ()
+                    );
+                  },
+                  .None => ()
+                );
+                ioi = (ioi + usize(1));
+              };
+              match(found_idx_io,
+                .Some(idx_v_io) => {
+                  some_f_io := ArrayList(EvalValue).new();
+                  some_f_io.push(idx_v_io);
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_f_io), t_unit()));
+                },
+                .None => {
+                  return Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), ArrayList(EvalValue).new()), t_unit()));
+                }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5an: ArrayVal.flat_map(fn) — map elements, flatten results
+        // ---------------------------------------------------------------
+        ((mname == "flat_map") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_fm) => {
+              fn_expr_fm := match(method_call_args.get(usize(0)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              fn_val_fm := match(match(g_eval_fn, .Some(ef_fm) => ef_fm(fn_expr_fm, env), .None => Option(EvalResult).None),
+                .Some(r) => match(r.value,
+                  .FuncVal(_, _, _, _, _, _, _, _, _) => r.value,
+                  _ => { return Option(EvalResult).None; }
+                ),
+                .None => { return Option(EvalResult).None; }
+              );
+              result_fm := ArrayList(EvalValue).new();
+              n_fm := av_items_fm.len();
+              (fmi : usize) = usize(0);
+              while runtime((fmi < n_fm)), {
+                match(av_items_fm.get(fmi),
+                  .Some(elem_fm) => {
+                    call_args_fm := ArrayList(EvalResult).new();
+                    call_args_fm.push(eval_result(elem_fm, type_of_eval_value(elem_fm)));
+                    match(call_funcval_with_args(fn_val_fm, call_args_fm),
+                      .Some(mapped_r) => match(mapped_r.value,
+                        .ArrayVal(inner_arr_fm) => {
+                          // Flatten: push each element from inner array
+                          n_inner_fm := inner_arr_fm.len();
+                          (ifmi : usize) = usize(0);
+                          while runtime((ifmi < n_inner_fm)), {
+                            match(inner_arr_fm.get(ifmi),
+                              .Some(inner_el) => { result_fm.push(inner_el); },
+                              .None => ()
+                            );
+                            ifmi = (ifmi + usize(1));
+                          };
+                        },
+                        _ => { result_fm.push(mapped_r.value); }
+                      ),
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+                fmi = (fmi + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.ArrayVal(result_fm), t_unit()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {
