@@ -536,10 +536,10 @@ function compileBatchedBinary(
         // evaluator's `evaluate()` function has 693+ local variables, which
         // inflates each call frame significantly.  Emscripten's default stack
         // size (64KB) and initial memory (16MB) are insufficient for batch
-        // test binaries that include the full evaluator.  8MB stack + 64MB
+        // test binaries that include the full evaluator.  16MB stack + 128MB
         // initial memory provides enough headroom for all tests.
-        compileArgs.splice(-2, 0, "-sSTACK_SIZE=8388608");
-        compileArgs.splice(-2, 0, "-sINITIAL_MEMORY=67108864");
+        compileArgs.splice(-2, 0, "-sSTACK_SIZE=16777216");
+        compileArgs.splice(-2, 0, "-sINITIAL_MEMORY=134217728");
       } else {
         compileArgs.splice(-2, 0, "-sNODERAWFS=1");
       }
@@ -617,6 +617,8 @@ function runTestFromBatchedBinary(
       runResult = spawnSync(
         "wasmtime",
         [
+          "-W",
+          "max-wasm-stack=16777216",
           "--dir",
           testDir,
           "--dir",
