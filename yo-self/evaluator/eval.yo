@@ -234,6 +234,28 @@ eval_type_annotation_expr :: (fn(type_expr : AstExpr) -> TypeValue)(
   )
 );
 
+/// Check if the first arg in an arg list is a named field (infix `:` expression).
+/// Used to distinguish struct constructors like Box(size: val) from type
+/// constructors like Box(T).
+is_named_field_arg :: (fn(args : ArrayList(AstExpr)) -> bool)(
+  match(args.get(usize(0)),
+    .Some(a0) =>
+      match(a0,
+        .FnCall(_, a0f, _, a0infix, _) =>
+          cond(
+            a0infix =>
+              match(a0f.*,
+                .Atom(_, a0tok) => (a0tok.value.as_str() == ":"),
+                .FnCall(_, _, _, _, _) => false
+              ),
+            true => false
+          ),
+        .Atom(_, _) => false
+      ),
+    .None => false
+  )
+);
+
 /// Look up an identifier in the environment. Returns the stored compile-time
 /// value when available; otherwise a `VarRef` carrying the variable's type.
 /// Returns `None` if the name is unbound.
@@ -2667,7 +2689,19 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                                 .None => { ok = false; }
                               );
                             },
-                            .FnCall(_, _, _, _, _) => { ok = false; }
+                            // Expression export: evaluate the expression and export result
+                            .FnCall(_, _, _, _, _) =>
+                              match(g_eval_fn,
+                                .Some(eval_fn) =>
+                                  match(eval_fn(export_expr, env),
+                                    .Some(expr_res) => {
+                                      names.push(String.from("_"));
+                                      values.push(expr_res.value);
+                                    },
+                                    .None => { ok = false; }
+                                  ),
+                                .None => { ok = false; }
+                              )
                           ),
                         .None => { ok = false; }
                       );
@@ -5069,14 +5103,16 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
 
             // -----------------------------------------------------------------
             // Phase 5w: Common type constructors — return TypeVal placeholder.
+            // Only match if the single arg is NOT a named field (infix `:`)
+            // to avoid shadowing struct constructors like Box(size: i32(5)).
             // -----------------------------------------------------------------
-            ((fval == "Option") && (args.len() == usize(1))) =>
+            (((fval == "Option") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
             ((fval == "Result") && (args.len() <= usize(2))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
-            ((fval == "Box") && (args.len() == usize(1))) =>
+            (((fval == "Box") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
-            ((fval == "Pointer") && (args.len() == usize(1))) =>
+            (((fval == "Pointer") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
               .Some(eval_result(.TypeVal(box(t_type())), t_type())),
 
             // -----------------------------------------------------------------
