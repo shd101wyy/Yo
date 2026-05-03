@@ -8539,3 +8539,126 @@ test "Phase 5ar: string starts_with and ends_with", {
     )
   );
 };
+
+// Phase 5as: StrLit.trim removes whitespace
+test "Phase 5as: StrLit.trim", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"  hello  \"; result := s.trim(); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "trim returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello\""), "trimmed"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5as: StrLit.char_at returns character
+test "Phase 5as: StrLit.char_at", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello\"; result := s.char_at(i32(1)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "char_at returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"e\""), "char_at(1)=e"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5as: StrLit.replace replaces substring
+test "Phase 5as: StrLit.replace", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; result := s.replace(\"world\", \"yo\"); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "replace returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello yo\""), "replaced"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5as: StrLit.split produces array of strings
+test "Phase 5as: StrLit.split", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"a-b-c\"; result := s.split(\"-\"); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "split returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(3)), "3 parts");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .StrLit(s0) => assert((s0.as_str() == "\"a\""), "part0=a"), _ => assert(false, "e0 not StrLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(2)),
+                .Some(e2) => match(e2, .StrLit(s2) => assert((s2.as_str() == "\"c\""), "part2=c"), _ => assert(false, "e2 not StrLit")),
+                .None => assert(false, "no e2")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5as: string concatenation via + operator
+test "Phase 5as: string concatenation via +", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := \"hello\"; b := \" world\"; result := (a + b); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "concat returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello world\""), "concat"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
