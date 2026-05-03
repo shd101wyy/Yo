@@ -1,57 +1,74 @@
-# Multiple `::` Function Definitions at Module Level Break Evaluation
+# `:: fn(...) -> T { body }` Shorthand Not Supported in Self-Hosted Evaluator
 
 ## Problem
 
-When the self-hosted evaluator processes `:: fn` syntax (constant function definitions)
-via `generate_exprs_from_code`, evaluation fails with exit code 134 (SIGABRT/unreachable).
-This affects ALL `name :: fn(...) -> T { body }` definitions, even a single one.
+The bare `name :: fn(...) -> T { body }` shorthand does NOT work when evaluated
+via `generate_exprs_from_code`. The parser splits `{ body }` into a separate
+expression instead of treating it as the function's body argument.
+
+**However**, `name :: (fn(...) -> T)(body)` works perfectly!
+
+## Root Cause
+
+The Yo parser handles `{ ... }` after an expression differently:
+
+- In `(fn(x : i32) -> i32)(body)`: the parenthesized type expr is complete,
+  then `(body)` is an explicit call with it as the callee.
+- In `fn(x : i32) -> i32 { body }`: the parser sees `fn(x:i32) -> i32` as a
+  complete infix expression, then `{ body }` is parsed as a SEPARATE statement
+  (either a struct literal or begin block depending on semicolons).
+
+Additionally, there's an ambiguous operator precedence between `::` and `->`:
+
+```
+name :: fn(x : i32) -> i32 { body }
+```
+
+Could be: `name :: (fn(x:i32) -> i32 {...})` or `(name :: fn(x:i32)) -> i32 {...}`
+The parser requires explicit disambiguation.
 
 ## Reproduction
 
 ```rust
-// FAILS — :: fn syntax
-compute :: fn(x : i32) -> i32 { cond((x > i32(10)) => (x * i32(2)), true => (x + i32(10))) };
-r := compute(i32(21));
-export r;
+// ❌ FAILS — bare fn syntax; { body } parsed as separate expression
+compute :: fn(x : i32) -> i32 { (x + i32(1)) };
 ```
 
 ```rust
-// WORKS — := with anonymous function expression
-compute := (fn(x : i32) -> i32)(cond((x > i32(10)) => (x * i32(2)), true => (x + i32(10))));
-r := compute(i32(21));
-export r;
+// ✅ WORKS — explicit (fn)(body) form with ::
+compute :: (fn(x : i32) -> i32)((x + i32(1)));
 ```
 
-## Working Pattern
+```rust
+// ✅ WORKS — same form with :=
+compute := (fn(x : i32) -> i32)((x + i32(1)));
+```
 
-All functions must be defined using `:=` with anonymous function expressions:
+## Working Patterns
+
+Both `::` and `:=` work with the explicit `(fn(...) -> T)(body)` form:
 
 ```rust
+// Compile-time constant function (idiomatic for module-level functions)
+name :: (fn(params) -> ReturnType)(body);
+
+// Runtime variable holding a function
 name := (fn(params) -> ReturnType)(body);
 ```
 
-NOT:
+## Verified Working (via tests)
 
-```rust
-name :: fn(params) -> ReturnType { body };
-```
+- Single `:: (fn)(body)` function definition ✅
+- Multiple `::` function definitions in same module ✅
+- Recursive functions with `recur(...)` using `::` ✅
+- Functions calling other `::`-defined functions ✅
 
-## Affected Patterns
+## NOT Working
 
-- `name :: fn(...) -> T { body }` — constant function definition syntax
-- Even a single `:: fn` definition fails
-
-## Root Cause (suspected)
-
-The self-hosted evaluator's `evaluate_module_body` via `generate_exprs_from_code`
-does not properly handle `ConstDeclaration` (the `::` infix operator) for function
-definitions. The manual AST-based test (`evaluate: :: fn constant`) works because
-it builds the AST directly, but the parser path may produce a different AST shape.
-
-## Workaround
-
-Always use `:= (fn(...) -> T)(body)` pattern for function definitions in eval tests.
+- `name :: fn(...) -> T { body }` — bare shorthand ❌
+- This is a PARSER issue, not an evaluator issue
 
 ## Discovered
 
-Phase 5ed testing, bootstrapping session.
+Phase 5ed testing (initially misdiagnosed as evaluator bug).
+Correctly diagnosed Phase 5ey: parser splits `{ body }` as separate statement.

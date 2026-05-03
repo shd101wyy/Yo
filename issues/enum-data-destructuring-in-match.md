@@ -1,47 +1,44 @@
-# Enum Data Variant Destructuring in Match Fails
+# Enum Data Destructuring — Syntax Clarification (NOT A BUG)
 
-## Problem
+## Status: RESOLVED — was a syntax misunderstanding
 
-When matching enum variants that carry data fields (e.g., `Shape.Circle(r: i32)`),
-destructuring the fields in match arms (`.Circle(r) => (r * r)`) fails at runtime
-with exit code 134.
+## Summary
 
-## Reproduction
+Enum data destructuring in match WORKS correctly with the positional syntax.
+The original report incorrectly used `enum { Variant(name : Type) }` instead
+of the correct `enum(Variant(Type))`.
 
-```rust
-// FAILS — destructuring enum data in match
-Shape :: enum { Circle(r : i32), Square(s : i32) };
-area := (fn(sh : Shape) -> i32)(match(sh, .Circle(r) => (r * r), .Square(s) => (s * s)));
-r := area(Shape.Circle(r: i32(5)));
-export r;
-```
+## Correct Syntax
 
 ```rust
-// WORKS — simple enum without data, no destructuring
-Direction :: enum { North, South, East, West };
-d := Direction.East;
-r := match(d, .North => i32(1), .South => i32(2), .East => i32(3), .West => i32(4));
-export r;
+// ✅ WORKS — positional enum syntax
+Shape :: enum(Circle(i32), Square(i32));
+area := (fn(s : Shape) -> i32)(match(s, .Circle(r) => (r * r), .Square(side) => (side * side)));
+r := area(.Circle(i32(5)));
+// r == 25
+
+// ✅ Multi-field enum variants
+Shape :: enum(Circle(i32), Rect(i32, i32));
+area := (fn(s : Shape) -> i32)(match(s, .Circle(r) => (r * r), .Rect(w, h) => (w * h)));
+r := area(Shape.Rect(i32(4), i32(7)));
+// r == 28
 ```
 
-## Working Patterns
+## Incorrect Syntax (what caused the original report)
 
-- Simple enums without data fields: `enum { A, B, C }` — matching works fine
-- Enum equality comparison: `(x == MyEnum.Variant)` — works
-- Enum with data construction: `Result.Ok(val: i32(5))` — works for construction
-- Enum data extraction via `match` without variable binding: NOT tested
+```rust
+// ❌ NOT SUPPORTED in self-hosted evaluator
+Shape :: enum { Circle(radius : i32), Square(side : i32) };
+s := Shape.Circle(radius: i32(5));
+```
 
-## Root Cause (suspected)
+## Key Rules
 
-The self-hosted evaluator's match implementation may not correctly bind
-destructured variables from enum data variants. The construction of enum
-variants with data works, but the pattern matching/destructuring side fails.
-
-## Workaround
-
-- Use simple enums without data for match tests
-- For enums with data, only test construction and equality, not destructuring
+1. Enum definition uses `enum(Variants...)` not `enum { Variants... }`
+2. Variant fields are positional: `Circle(i32)` not `Circle(radius : i32)`
+3. Construction uses positional args: `.Circle(i32(5))` or `Shape.Circle(i32(5))`
+4. Destructuring in match: `.Circle(r) => expr` binds positional fields
 
 ## Discovered
 
-Phase 5ef testing, bootstrapping session.
+Phase 5ed testing. Correctly diagnosed Phase 5ey.
