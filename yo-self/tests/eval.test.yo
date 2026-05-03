@@ -15592,3 +15592,250 @@ test "Phase 5cv: struct three fields product", {
     )
   );
 };
+
+test "Phase 5cw: recursive digit count", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "digits := (fn(n : i32) -> i32)(cond((n < i32(10)) => i32(1), true => (i32(1) + recur((n / i32(10)))))); r := digits(i32(12345)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "5"), "12345 has 5 digits"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cw: array map and fold string", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3)]; sq := arr.map((fn(x : i32) -> i32)((x * x))); r := sq.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "14"), "1+4+9=14"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cw: while gcd iterative", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "r := { (a : i32) = i32(56); (b : i32) = i32(98); while((b != i32(0)), { (t : i32) = b; b = (a % b); a = t; }); a }; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "14"), "gcd(56,98)=14"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cw: match with computed result", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Coin :: enum(Penny, Nickel, Dime, Quarter); value := (fn(c : Coin) -> i32)(match(c, .Penny => i32(1), .Nickel => i32(5), .Dime => i32(10), .Quarter => i32(25))); r := (value(.Dime) + value(.Quarter)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "35"), "10+25=35"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cw: nested cond", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "grade := (fn(score : i32) -> i32)(cond((score >= i32(90)) => i32(4), (score >= i32(80)) => i32(3), (score >= i32(70)) => i32(2), true => i32(1))); r := grade(i32(85)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "3"), "85=>grade 3"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cx: array reverse contains", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(1), i32(2), i32(3)]; rev := arr.reverse(); r := rev.contains(i32(2)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert((b == true), "reversed contains 2"),
+            _ => assert(false, "not BoolVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cx: while LCM via GCD", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "r := { (a : i32) = i32(12); (b : i32) = i32(18); (ga : i32) = a; (gb : i32) = b; while((gb != i32(0)), { (t : i32) = gb; gb = (ga % gb); ga = t; }); ((a * b) / ga) }; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "36"), "lcm(12,18)=36"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cx: fn with enum param comparison", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Color :: enum(R, G, B); is_primary := (fn(c : Color) -> bool)((c == .R)); r1 := is_primary(.R); r2 := is_primary(.G); export r1; export r2;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert((b == true), "R is primary"),
+            _ => assert(false, "not BoolVal")
+          ),
+          .None => assert(false, "no r1")
+        );
+        match(vals.get(usize(1)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert((b == false), "G not primary"),
+            _ => assert(false, "not BoolVal")
+          ),
+          .None => assert(false, "no r2")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cx: array fold max", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(3), i32(1), i32(4), i32(1), i32(5)]; r := arr.fold(i32(0), (fn(a : i32, b : i32) -> i32)(cond((b > a) => b, true => a))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .IntLit(n) => assert((n.as_str() == "5"), "max=5"),
+            _ => assert(false, "not IntLit")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5cx: boolean demorgan", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := true; b := false; lhs := !(a && b); rhs := (!(a) || !(b)); r := (lhs == rhs); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .BoolVal(b) => assert((b == true), "demorgan holds"),
+            _ => assert(false, "not BoolVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
