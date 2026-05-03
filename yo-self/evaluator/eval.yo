@@ -1863,6 +1863,124 @@ handle_method_dispatch :: (fn(
             },
             _ => { return Option(EvalResult).None; }
           ),
+        // ---------------------------------------------------------------
+        // Phase 5am: ArrayVal.enumerate() — returns array of (index, value) tuples
+        // ---------------------------------------------------------------
+        ((mname == "enumerate") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_en) => {
+              result_en := ArrayList(EvalValue).new();
+              n_en := av_items_en.len();
+              (eni : usize) = usize(0);
+              while runtime((eni < n_en)), {
+                match(av_items_en.get(eni),
+                  .Some(elem_en) => {
+                    tup_fnames_en := ArrayList(String).new();
+                    tup_fvals_en := ArrayList(EvalValue).new();
+                    tup_fnames_en.push(String.from("0"));
+                    tup_fnames_en.push(String.from("1"));
+                    tup_fvals_en.push(.IntLit(i64(eni).to_string()));
+                    tup_fvals_en.push(elem_en);
+                    result_en.push(.StructVal(String.from(""), tup_fnames_en, tup_fvals_en));
+                  },
+                  .None => ()
+                );
+                eni = (eni + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.ArrayVal(result_en), t_unit()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5am: ArrayVal.zip(other) — zip two arrays into array of tuples
+        // ---------------------------------------------------------------
+        ((mname == "zip") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_z) => {
+              other_expr_z := match(method_call_args.get(usize(0)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              other_res_z := match(match(g_eval_fn, .Some(ef_z) => ef_z(other_expr_z, env), .None => Option(EvalResult).None),
+                .Some(r) => r,
+                .None => { return Option(EvalResult).None; }
+              );
+              match(other_res_z.value,
+                .ArrayVal(av_other_z) => {
+                  result_z := ArrayList(EvalValue).new();
+                  n_z := av_items_z.len();
+                  n_oz := av_other_z.len();
+                  min_z := cond((n_z < n_oz) => n_z, true => n_oz);
+                  (zi : usize) = usize(0);
+                  while runtime((zi < min_z)), {
+                    match(av_items_z.get(zi),
+                      .Some(lv_z) =>
+                        match(av_other_z.get(zi),
+                          .Some(rv_z) => {
+                            tup_fnames_z := ArrayList(String).new();
+                            tup_fvals_z := ArrayList(EvalValue).new();
+                            tup_fnames_z.push(String.from("0"));
+                            tup_fnames_z.push(String.from("1"));
+                            tup_fvals_z.push(lv_z);
+                            tup_fvals_z.push(rv_z);
+                            result_z.push(.StructVal(String.from(""), tup_fnames_z, tup_fvals_z));
+                          },
+                          .None => ()
+                        ),
+                      .None => ()
+                    );
+                    zi = (zi + usize(1));
+                  };
+                  return Option(EvalResult).Some(eval_result(.ArrayVal(result_z), t_unit()));
+                },
+                _ => { return Option(EvalResult).None; }
+              )
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5am: ArrayVal.slice(start, end) — returns sub-array [start..end)
+        // ---------------------------------------------------------------
+        ((mname == "slice") && (match(recv_val, .ArrayVal(_) => true, _ => false) && (method_call_args.len() == usize(2)))) =>
+          match(recv_val,
+            .ArrayVal(av_items_sl) => {
+              start_expr_sl := match(method_call_args.get(usize(0)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              end_expr_sl := match(method_call_args.get(usize(1)),
+                .Some(e) => e,
+                .None => { return Option(EvalResult).None; }
+              );
+              start_res_sl := match(match(g_eval_fn, .Some(ef_s) => ef_s(start_expr_sl, env), .None => Option(EvalResult).None),
+                .Some(r) => r,
+                .None => { return Option(EvalResult).None; }
+              );
+              end_res_sl := match(match(g_eval_fn, .Some(ef_e) => ef_e(end_expr_sl, env), .None => Option(EvalResult).None),
+                .Some(r) => r,
+                .None => { return Option(EvalResult).None; }
+              );
+              s_raw_sl := match(start_res_sl.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+              e_raw_sl := match(end_res_sl.value, .IntLit(raw) => raw, _ => { return Option(EvalResult).None; });
+              s_i64_sl := match(parse_raw_int(s_raw_sl), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              e_i64_sl := match(parse_raw_int(e_raw_sl), .Some(x) => x, .None => { return Option(EvalResult).None; });
+              start_sl := usize(s_i64_sl);
+              end_sl := usize(e_i64_sl);
+              n_sl := av_items_sl.len();
+              actual_end_sl := cond((end_sl > n_sl) => n_sl, true => end_sl);
+              result_sl := ArrayList(EvalValue).new();
+              (sli : usize) = start_sl;
+              while runtime((sli < actual_end_sl)), {
+                match(av_items_sl.get(sli),
+                  .Some(elem_sl) => { result_sl.push(elem_sl); },
+                  .None => ()
+                );
+                sli = (sli + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.ArrayVal(result_sl), t_unit()));
+            },
+            _ => { return Option(EvalResult).None; }
+          ),
         ((mname == "is_empty") && (match(recv_val, .StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .StrLit(raw_ie) => {

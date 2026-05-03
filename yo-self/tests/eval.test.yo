@@ -7743,3 +7743,185 @@ test "Phase 5al: ArrayVal.find(fn) returns first match", {
     )
   );
 };
+
+// ===================================================================
+// Phase 5am: ArrayVal.enumerate(), ArrayVal.zip(), ArrayVal.slice()
+// ===================================================================
+
+test "Phase 5am: ArrayVal.enumerate() returns index-value tuples", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  // arr.enumerate()
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "enumerate");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "enumerate returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(3)), "enumerate should return 3 tuples");
+        // Check first tuple: (0, 10)
+        match(items.get(usize(0)),
+          .Some(t0) => match(t0,
+            .StructVal(_, fnames, fvals) => {
+              match(fvals.get(usize(0)),
+                .Some(idx_v) => match(idx_v, .IntLit(iv) => assert((iv.as_str() == "0"), "idx 0"), _ => assert(false, "idx not IntLit")),
+                .None => assert(false, "no idx")
+              );
+              match(fvals.get(usize(1)),
+                .Some(val_v) => match(val_v, .IntLit(vv) => assert((vv.as_str() == "10"), "val 10"), _ => assert(false, "val not IntLit")),
+                .None => assert(false, "no val")
+              );
+            },
+            _ => assert(false, "expected StructVal tuple")
+          ),
+          .None => assert(false, "no first tuple")
+        );
+        // Check third tuple: (2, 30)
+        match(items.get(usize(2)),
+          .Some(t2) => match(t2,
+            .StructVal(_, fnames2, fvals2) => {
+              match(fvals2.get(usize(0)),
+                .Some(idx_v2) => match(idx_v2, .IntLit(iv2) => assert((iv2.as_str() == "2"), "idx 2"), _ => assert(false, "idx not IntLit")),
+                .None => assert(false, "no idx2")
+              );
+              match(fvals2.get(usize(1)),
+                .Some(val_v2) => match(val_v2, .IntLit(vv2) => assert((vv2.as_str() == "30"), "val 30"), _ => assert(false, "val not IntLit")),
+                .None => assert(false, "no val2")
+              );
+            },
+            _ => assert(false, "expected StructVal tuple 2")
+          ),
+          .None => assert(false, "no third tuple")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.zip combines two arrays", {
+  env := empty_env();
+  arr1_items := ArrayList(EvalValue).new();
+  arr1_items.push(.IntLit(String.from("1")));
+  arr1_items.push(.IntLit(String.from("2")));
+  arr1_items.push(.IntLit(String.from("3")));
+  _ := env.define_val(String.from("a1"), t_unit(), true, .Some(EvalValue.ArrayVal(arr1_items)));
+  arr2_items := ArrayList(EvalValue).new();
+  arr2_items.push(.StrLit(String.from("\"x\"")));
+  arr2_items.push(.StrLit(String.from("\"y\"")));
+  _ := env.define_val(String.from("a2"), t_unit(), true, .Some(EvalValue.ArrayVal(arr2_items)));
+  // a1.zip(a2)
+  recv_ast := make_atom(TokenKind.Identifier, "a1");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "zip");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "a2"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "zip returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        // min(3, 2) = 2 tuples
+        assert((items.len() == usize(2)), "zip should return 2 tuples");
+        // Check first tuple: (1, "x")
+        match(items.get(usize(0)),
+          .Some(t0) => match(t0,
+            .StructVal(_, _, fvals) => {
+              match(fvals.get(usize(0)),
+                .Some(lv) => match(lv, .IntLit(li) => assert((li.as_str() == "1"), "left 1"), _ => assert(false, "left not IntLit")),
+                .None => assert(false, "no left")
+              );
+              match(fvals.get(usize(1)),
+                .Some(rv) => match(rv, .StrLit(rs) => assert((rs.as_str() == "\"x\""), "right x"), _ => assert(false, "right not StrLit")),
+                .None => assert(false, "no right")
+              );
+            },
+            _ => assert(false, "expected StructVal")
+          ),
+          .None => assert(false, "no first tuple")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.slice(1, 3) extracts sub-array", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  arr_items.push(.IntLit(String.from("40")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  // arr.slice(1, 3)
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "slice");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "slice returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(2)), "slice(1,3) should return 2 elements");
+        match(items.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(s0) => assert((s0.as_str() == "20"), "first is 20"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no first")
+        );
+        match(items.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(s1) => assert((s1.as_str() == "30"), "second is 30"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no second")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.enumerate() on empty array", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  _ := env.define_val(String.from("empty"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "empty");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "enumerate");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "enumerate empty returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => assert((items.len() == usize(0)), "enumerate empty should return 0 tuples"),
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
