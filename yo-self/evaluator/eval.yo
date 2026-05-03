@@ -4198,6 +4198,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     // (TypeVal for static methods, StrLit/IntLit/etc. for instance shims).
                     // Dispatch to handle_method_dispatch which has shims for these types.
                     // Phase 3am: also handle val.* (PtrVal dereference) here.
+                    // Phase 5ap: TypeVal.VariantName — construct fieldless enum variant.
                     _ =>
                       match(rhs,
                         // val.* — dereference a PtrVal (Phase 3am)
@@ -4209,7 +4210,16 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                   .Some(eval_result(inner_box.*, type_of_eval_value(inner_box.*))),
                                 _ => Option(EvalResult).None
                               ),
-                            true => Option(EvalResult).None
+                            true =>
+                              // Phase 5ap: TypeVal.VariantName — fieldless enum variant construction
+                              match(recv_res.value,
+                                .TypeVal(_) => {
+                                  variant_str_tv := `.${deref_tok.value}`;
+                                  ev_fields_tv := ArrayList(EvalValue).new();
+                                  .Some(eval_result(.EnumVal(variant_str_tv, ev_fields_tv), t_unit()))
+                                },
+                                _ => Option(EvalResult).None
+                              )
                           ),
                         .FnCall(_, method_func_box2, method_call_args2, _, _) =>
                           handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env),
