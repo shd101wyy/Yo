@@ -876,6 +876,30 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .BoolVal(ba) => match(b, .BoolVal(bb) => (ba == bb), _ => false),
     .StrLit(sa) => match(b, .StrLit(sb) => (sa.as_str() == sb.as_str()), _ => false),
     .UnitVal => match(b, .UnitVal => true, _ => false),
+    .EnumVal(tag_a, fields_a) => match(b,
+      .EnumVal(tag_b, fields_b) =>
+        cond(
+          (!(tag_a.as_str() == tag_b.as_str())) => false,
+          (!(fields_a.len() == fields_b.len())) => false,
+          true => {
+            n_ef := fields_a.len();
+            (ei : usize) = usize(0);
+            (all_eq : bool) = true;
+            while runtime(((ei < n_ef) && all_eq)), {
+              match(fields_a.get(ei),
+                .Some(fa) => match(fields_b.get(ei),
+                  .Some(fb) => { all_eq = recur(fa, fb); },
+                  .None => { all_eq = false; }
+                ),
+                .None => { all_eq = false; }
+              );
+              ei = (ei + usize(1));
+            };
+            all_eq
+          }
+        ),
+      _ => false
+    ),
     _ => false
   )
 );
@@ -4071,6 +4095,12 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 // float × float
                 (is_eval_float_type(lv.ty) && is_eval_float_type(rv.ty)) =>
                   eval_float_cmp(fval, lv, rv),
+                // enum × enum (== and != by tag + fields)
+                (((is_enum_val(lv.value) || is_struct_val(lv.value)) && (is_enum_val(rv.value) || is_struct_val(rv.value))) && ((fval == "==") || (fval == "!="))) => {
+                  eq := eval_values_equal(lv.value, rv.value);
+                  res := cond((fval == "==") => eq, true => (!eq));
+                  .Some(eval_result(.BoolVal(res), t_bool()))
+                },
                 true => Option(EvalResult).None
               )
             },
