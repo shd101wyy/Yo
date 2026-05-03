@@ -9795,3 +9795,265 @@ test "Phase 5bc: string split and element access", {
     )
   );
 };
+
+// Phase 5bd: modulo operator
+test "Phase 5bd: modulo operator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := (i32(17) % i32(5)); b := (i32(10) % i32(3)); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "modulo returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(raw) => assert((raw.as_str() == "2"), "17%5=2"), _ => assert(false, "not IntLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(raw) => assert((raw.as_str() == "1"), "10%3=1"), _ => assert(false, "not IntLit 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bd: negation with unary minus
+test "Phase 5bd: unary negation", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "x := i32(5); y := -(x); z := (x + y); export z;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "negation returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "0"), "5+(-5)=0"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bd: array.first and array.last
+test "Phase 5bd: array first and last", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := [i32(10), i32(20), i32(30)]; f := arr.first(); l := arr.last(); export f; export l;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "first/last returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0,
+            .EnumVal(tag0, fields0) => {
+              assert((tag0.as_str() == ".Some"), "first=.Some");
+              match(fields0.get(usize(0)),
+                .Some(fv) => match(fv, .IntLit(raw) => assert((raw.as_str() == "10"), "first=10"), _ => assert(false, "not IntLit")),
+                .None => assert(false, "no inner val")
+              );
+            },
+            _ => assert(false, "not EnumVal 0")
+          ),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1,
+            .EnumVal(tag1, fields1) => {
+              assert((tag1.as_str() == ".Some"), "last=.Some");
+              match(fields1.get(usize(0)),
+                .Some(fv) => match(fv, .IntLit(raw) => assert((raw.as_str() == "30"), "last=30"), _ => assert(false, "not IntLit")),
+                .None => assert(false, "no inner val")
+              );
+            },
+            _ => assert(false, "not EnumVal 1")
+          ),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bd: Integer division
+test "Phase 5bd: integer division", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := (i32(17) / i32(5)); b := (i32(100) / i32(10)); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "division returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(raw) => assert((raw.as_str() == "3"), "17/5=3"), _ => assert(false, "not IntLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(raw) => assert((raw.as_str() == "10"), "100/10=10"), _ => assert(false, "not IntLit 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bd: String.contains
+test "Phase 5bd: String.contains", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; a := s.contains(\"world\"); b := s.contains(\"xyz\"); export a; export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "contains returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .BoolVal(b0) => assert(b0, "has world"), _ => assert(false, "not BoolVal 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .BoolVal(b1) => assert((!b1), "no xyz"), _ => assert(false, "not BoolVal 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5be: complex conditional with multiple comparisons
+test "Phase 5be: chained comparison in cond", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "clamp := (fn(x : i32, lo : i32, hi : i32) -> i32)(cond((x < lo) => lo, (x > hi) => hi, true => x)); a := clamp(i32(5), i32(0), i32(10)); b := clamp(i32(-3), i32(0), i32(10)); c := clamp(i32(15), i32(0), i32(10)); export a; export b; export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "clamp returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(3)), "3 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(raw) => assert((raw.as_str() == "5"), "clamp(5)=5"), _ => assert(false, "not IntLit 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(raw) => assert((raw.as_str() == "0"), "clamp(-3)=0"), _ => assert(false, "not IntLit 1")),
+          .None => assert(false, "no val 1")
+        );
+        match(vals.get(usize(2)),
+          .Some(v2) => match(v2, .IntLit(raw) => assert((raw.as_str() == "10"), "clamp(15)=10"), _ => assert(false, "not IntLit 2")),
+          .None => assert(false, "no val 2")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5be: array.concat
+test "Phase 5be: array concat", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := [i32(1), i32(2)]; b := [i32(3), i32(4)]; c := a.concat(b); n := c.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "concat returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "4"), "concat len=4"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5be: nested function calls with multiple args
+test "Phase 5be: nested multi-arg function calls", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "add := (fn(a : i32, b : i32) -> i32)((a + b)); mul := (fn(a : i32, b : i32) -> i32)((a * b)); r := add(mul(i32(2), i32(3)), mul(i32(4), i32(5))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested calls returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "26"), "6+20=26"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5be: string replace simple
+test "Phase 5be: string replace and check length", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"abcabc\"; t := s.replace(\"a\", \"x\"); n := t.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "replace returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "6"), "xbcxbc len=6"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5be: for loop building array with push
+test "Phase 5be: for loop with ArrayList push", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3)]; result := ArrayList(i32).new(); for(x, nums, { result.push((x * i32(10))); }); n := result.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for+push returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3"), "3 pushed"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
