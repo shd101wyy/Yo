@@ -10429,3 +10429,121 @@ test "Phase 5bh: map+filter+fold pipeline", {
     )
   );
 };
+
+// Phase 5bi: string + concatenation
+test "Phase 5bi: string + operator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := \"hello\"; b := \" \"; c := \"world\"; result := ((a + b) + c); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "str+ returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello world\""), "hello world"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bi: .to_string() on integers
+test "Phase 5bi: integer .to_string()", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "n := i32(42); s := n.to_string(); export s;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "to_string returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"42\""), "42 as str"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bi: .to_string() + string concat (template string equivalent)
+test "Phase 5bi: to_string + concat pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "x := i32(5); msg := ((\"x = \" + x.to_string()) + \" done\"); export msg;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "concat pattern returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"x = 5 done\""), "x = 5 done"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bi: ArrayList.get returns Option
+test "Phase 5bi: ArrayList.get", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := ArrayList(i32).new(); arr.push(i32(42)); arr.push(i32(99)); v := arr.get(usize(1)); export v;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "ArrayList.get returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .EnumVal(tag, fields) => {
+              assert((tag.as_str() == ".Some"), "got .Some");
+              match(fields.get(usize(0)),
+                .Some(inner) => match(inner, .IntLit(raw) => assert((raw.as_str() == "99"), "v=99"), _ => assert(false, "inner not IntLit")),
+                .None => assert(false, "no inner")
+              );
+            },
+            _ => assert(false, "not EnumVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+// Phase 5bi: not operator
+test "Phase 5bi: not operator on bool", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := !(true); b := !(false); c := !(!(true)); export a; export b; export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "not op returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(3)), "3 exports");
+        match(vals.get(usize(0)), .Some(v) => match(v, .BoolVal(b) => assert((!b), "!true=false"), _ => assert(false, "a")), .None => assert(false, "a"));
+        match(vals.get(usize(1)), .Some(v) => match(v, .BoolVal(b) => assert(b, "!false=true"), _ => assert(false, "b")), .None => assert(false, "b"));
+        match(vals.get(usize(2)), .Some(v) => match(v, .BoolVal(b) => assert(b, "!!true=true"), _ => assert(false, "c")), .None => assert(false, "c"));
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
