@@ -69,13 +69,27 @@ There are **two function-pointer slots**, but `Evaluator.new` only wires one:
 
 This explains why `quote(42)` silently produces no module value: proto-eval's default function-call fallback fails to resolve `quote` as a variable, returns `None` → `ok = false` in `evaluate_module_body` → `module_value = None`.
 
-### Recommended fix path (revised)
+### Architectural mismatch (why bridging is non-trivial)
 
-1. **Phase 6.1 — Bridge proto-eval to the modular dispatcher.** In proto-eval's default function-call fallback (just before its "unknown function" error), delegate to `g_evaluate_expression` for known modular built-ins (initially: `BK_QUOTE`, `BK_GENSYM`, `BK_UNQUOTE`, `BK_HASH`, `BF_MACRO_EXPAND`). This minimal bridge unblocks quote/macro support without rewriting either pipeline.
-2. **Phase 6.2** — Verify `phase6_verify.test.yo` passes; add a tiny user-defined macro test.
-3. **Phase 6.3** — Wire prelude loading from a real filesystem so `std/prelude.yo`'s `for` macro becomes available.
-4. **Phase 6.4** — Migrate `eval.test.yo`'s ~197 affected tests from `for(x, arr, body)` to `for(arr.iter(), x => body)`.
-5. **Phase 6.5** — Remove the divergent `(fval == "for")` handler from `eval.yo`; audit other proto-eval built-ins for similar TS divergences.
+- Proto-eval signature: `(AstExpr, *Environment) -> Option(EvalResult)`. Values are returned inline via `EvalResult.value`. **No EvalContext.**
+- Modular signature: `(AstExpr, *Environment, *EvalContext) -> AstExpr`. Values are stored in `ctx.expr_info_table[ast_expr_id(returned)]` and looked up by id. **EvalContext is required throughout `evaluator/builtins/quote.yo`.**
+
+A "minimal" bridge would need to:
+
+1. Have `Evaluator.new` create an `EvalContext` and store it in a stable, globally-accessible slot for the duration of `evaluate_module_body`.
+2. In proto-eval's function-call fallback, recognize `BK_QUOTE`/`BK_GENSYM`/`BK_UNQUOTE`/`BK_HASH`/`BF_MACRO_EXPAND` and forward to `g_evaluate_expression` with the global ctx.
+3. After modular returns an `AstExpr`, look up the value in the global `ctx.expr_info_table` and translate back to `EvalResult`.
+
+Each step has Yo-semantics subtleties (object lifetime via `Option(EvalContext)` globals; whether `&` of an Option content is stable; how to thread ctx through proto-eval without changing every recursive call). This is significant plumbing — not an afternoon task.
+
+### Recommended fix path (revised, scope-honest)
+
+1. **Phase 6.1a — Add EvalContext lifecycle to Evaluator.new.** Create ctx in `Evaluator.new`, store it in a module-level global, set/clear it around `evaluate_module_body`. Verify trivial test still passes.
+2. **Phase 6.1b — Bridge proto-eval to the modular dispatcher** via the global ctx. Initially only for `BK_QUOTE`/`BK_GENSYM`/`BK_UNQUOTE`/`BK_HASH`/`BF_MACRO_EXPAND`.
+3. **Phase 6.2** — Verify `phase6_verify.test.yo` passes; add a tiny user-defined macro test.
+4. **Phase 6.3** — Wire prelude loading from a real filesystem so `std/prelude.yo`'s `for` macro becomes available.
+5. **Phase 6.4** — Migrate `eval.test.yo`'s ~197 affected tests from `for(x, arr, body)` to `for(arr.iter(), x => body)`.
+6. **Phase 6.5** — Remove the divergent `(fval == "for")` handler from `eval.yo`; audit other proto-eval built-ins for similar TS divergences.
 
 Long-term: retire the proto-evaluator entirely by fleshing out the modular dispatcher to cover all proto-eval constructs, then switch `evaluate_module_body` to call `g_evaluate_expression` directly. That is the eventual end-state matching the TypeScript reference architecture.
 
