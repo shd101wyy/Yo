@@ -19,13 +19,20 @@ Atom-token equality on `ExprVal`).
 
 ## Root cause
 
-`yo-self/evaluator/builtins/expr_fns.yo:451` only fires when the AST already
-contains a literal call to the builtin `__yo_expr_eq`. When the user writes
-`expr1 == expr2`, the parser emits `==(expr1, expr2)`, and the proper
-Evaluator's call dispatcher in `yo-self/evaluator/exprs/_expr.yo` does not
-recognize this as an Expr equality. The TS reference handles this through
-operator/trait dispatch in `src/value.ts:areValuesEqual` (lines 948-951)
-which delegates to `exprsAreEqual`.
+The `==` operator for `Expr` is defined in `std/prelude.yo` (lines 4004-4008)
+via `impl(Expr, ComptimeEq(Expr)(...))` which delegates to `__yo_expr_eq`.
+When tests use `// @skip_prelude`, this impl is NOT loaded, so `==` between
+two `Expr` values falls back to something that does not perform structural
+comparison.
+
+The fix is therefore **not** a new dispatch arm — the routing already exists
+via trait resolution. It requires either:
+(a) Wiring the proper Evaluator to load the real `std/prelude.yo` (Phase 6e
+prelude auto-loading), OR
+(b) Loading a minimal stub prelude that defines just the `Expr` Eq impl.
+
+The `__yo_expr_eq` builtin path itself works correctly (and now uses the new
+Atom equality in `eval_value_eq` for `value.yo`).
 
 ## Files involved
 
@@ -40,10 +47,12 @@ which delegates to `exprsAreEqual`.
 
 ## Fix sketch
 
-Add an arm in the call dispatcher (or in the binop evaluation path) that,
-for `==` with both operands typed as `Expr`, rewrites or directly invokes
-`evaluate_yo_expr_eq`. Alternatively, route all `==` calls through
-`are_values_equal` when both operand types are comptime/Expr.
+Implement Phase 6e: prelude auto-loading. The Evaluator already supports it
+(see `yo-self/evaluator/index.yo:128-161`); we just need a `load_module_fn`
+that returns the parsed/evaluated `std/prelude.yo` (or a minimal subset
+defining `Expr` and its `Eq` impl).
+
+Short-term workaround for tests: skip the test or use `__yo_expr_eq` directly.
 
 ## Status
 

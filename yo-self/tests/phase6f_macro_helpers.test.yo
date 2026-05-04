@@ -13,11 +13,14 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
 );
 
 test "Phase6f: ExprVal Atom equality (callee == quote(=>))", {
-  // SKIPPED: User-written `==` on Expr values does not yet route through
-  // `are_values_equal` / `eval_value_eq` in the proper Evaluator. The
-  // `__yo_expr_eq` builtin path works (and uses the new Atom equality in
-  // value.yo), but the operator dispatch from a parsed `==` to that builtin
-  // is not implemented. See: issues/proper-eval-expr-eq-dispatch.md
+  // SKIPPED: requires either:
+  //   (a) loading std/prelude.yo so `impl(Expr, ComptimeEq(Expr)(...))` is in
+  //       scope to route `==` to `__yo_expr_eq`, OR
+  //   (b) deeper investigation of why even direct `__yo_expr_eq(...)` calls
+  //       inside a macro body return false in the proper Evaluator.
+  // The underlying `eval_value_eq` ExprVal Atom equality (Phase 6f) is
+  // correct; the trap is in higher-level dispatch.
+  // See: issues/proper-eval-expr-eq-dispatch.md
   ();
 };
 
