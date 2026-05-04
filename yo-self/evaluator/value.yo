@@ -518,8 +518,17 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    // ExprVal: no structural AST equality yet; always unequal.
-    .ExprVal(_) => false,
+    // ExprVal: structural equality on Atom token values; FnCall not yet supported.
+    .ExprVal(a_ex) => match(b,
+      .ExprVal(b_ex) => match(a_ex.*,
+        .Atom(_, atok) => match(b_ex.*,
+          .Atom(_, btok) => (atok.value.as_str() == btok.value.as_str()),
+          _ => false
+        ),
+        _ => false
+      ),
+      _ => false
+    ),
     // UnknownVal: two unknowns are equal if they represent the same type.
     .UnknownVal(aty) => match(b, .UnknownVal(bty) => are_types_compatible(aty.*, bty.*), _ => false)
   )

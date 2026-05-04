@@ -1063,6 +1063,31 @@ handle_method_dispatch :: (fn(
             },
             _ => ()
           ),
+        ((mname == "car") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ComptimeListVal(elems_c) => match(elems_c.get(usize(0)),
+              .Some(first) => { return Option(EvalResult).Some(eval_result(first, type_of_eval_value(first))); },
+              .None => { return Option(EvalResult).None; }
+            ),
+            _ => ()
+          ),
+        ((mname == "cdr") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ComptimeListVal(elems_d) => {
+              (rest : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+              (kk : usize) = usize(1);
+              mm := elems_d.len();
+              while runtime((kk < mm)), {
+                match(elems_d.get(kk),
+                  .Some(ev) => { rest.push(ev); },
+                  .None => ()
+                );
+                kk = (kk + usize(1));
+              };
+              return Option(EvalResult).Some(eval_result(.ComptimeListVal(rest), t_comptime_list(t_expr_t())));
+            },
+            _ => ()
+          ),
         ((mname == "to_string") && (method_call_args.len() == usize(0))) =>
           match(recv_val,
             .IntLit(raw)   => { return Option(EvalResult).Some(eval_result(.StrLit((String.from("\"") + raw) + String.from("\"")),  t_comptime_string())); },
@@ -4901,6 +4926,48 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // the call appeared at top level; emit None to signal an error.
             // -----------------------------------------------------------------
             (fval == "unquote") => Option(EvalResult).None
+            ,
+
+            // -----------------------------------------------------------------
+            // gensym(prefix : str) -> Expr  (atom with unique identifier)
+            // Used by macros like the prelude `for` to mint fresh variable
+            // names. Mirrors `src/evaluator/builtins/gensym.ts`.
+            // -----------------------------------------------------------------
+            (fval == "gensym") =>
+              cond(
+                (args.len() != usize(1)) => Option(EvalResult).None,
+                true =>
+                  match(args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(prefix_expr) =>
+                      match(recur(prefix_expr, env),
+                        .None => Option(EvalResult).None,
+                        .Some(prefix_res) => match(prefix_res.value,
+                          .StrLit(raw_pref) => {
+                            n_pref := raw_pref.len();
+                            inner_pref := cond(
+                              (n_pref >= usize(2)) => raw_pref.substring(usize(1), (n_pref - usize(1))),
+                              true => raw_pref
+                            );
+                            uniq := random_id(String.from(""));
+                            sym_name := ((inner_pref + String.from("_")) + uniq);
+                            sym_tok := Token(
+                              kind: TokenKind.Identifier,
+                              value: sym_name,
+                              row: usize(0),
+                              column: usize(0),
+                              character: usize(0),
+                              module_path: String.from(""),
+                              input: String.from("")
+                            );
+                            sym_expr := AstExpr.Atom(usize(0), sym_tok);
+                            .Some(eval_result(.ExprVal(box(sym_expr)), t_expr_t()))
+                          },
+                          _ => Option(EvalResult).None
+                        )
+                      )
+                  )
+              )
             ,
 
             // -----------------------------------------------------------------
