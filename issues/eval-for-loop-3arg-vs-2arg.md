@@ -55,18 +55,29 @@ The yo-self bootstrap actually has TWO evaluator pipelines (discovered during Ph
 Tested the proper Evaluator path with `@skip_prelude` sources:
 
 - ✅ trivial `x := 1; export x;` works end-to-end (proper Evaluator's basic eval pipeline runs)
-- ✗ `q := quote(42); export q;` — wasm `unreachable` panic (quote builtin path has bugs)
-- ✗ `y := quote(7); z := quote(unquote(y)); export z;` — `no module value produced` (no ModuleVal returned)
+- ✗ `q := quote(42); export q;` — `no module value produced` (proto-eval doesn't know `quote`)
+- ✗ `y := quote(7); z := quote(unquote(y)); export z;` — same root cause
 
-So even the "proper" Evaluator's quote/unquote machinery is incomplete or buggy. The `evaluate_quote` function exists but the surrounding wiring (callee evaluation, builtin keyword resolution under skip-prelude) doesn't reach it correctly yet.
+### THE smoking gun (root cause)
 
-### Recommended fix path
+There are **two function-pointer slots**, but `Evaluator.new` only wires one:
 
-1. **Triage the proper Evaluator's quote bug** — add error-message printing, find why `quote(42)` traps. Likely a missing dispatch arm somewhere upstream of `evaluate_quote`, or an unreachable in `process_unquotes_in_expr`.
-2. **Make `evaluator_index.test.yo` style tests pass for `quote(...)` and a tiny user-defined macro** without prelude — proves macro infrastructure end-to-end.
-3. **Then** wire prelude loading from a real file system (so Evaluator can load the actual `std/prelude.yo` and the `for` macro becomes available).
-4. **Then** migrate `yo-self/tests/eval.test.yo`'s 2010 tests from the proto-evaluator to the proper Evaluator. ~197 tests use the divergent `for(x, arr, body)` 3-arg form and will need rewriting to `for(arr.iter(), x => body)`.
-5. Once the proto-evaluator has no callers among the test corpus, remove `(fval == "for")` (and audit other proto-eval built-ins — `if`, `comptime_assert`, etc. — for similar TS divergences).
+- `g_eval_fn` in `evaluator/eval.yo` — set by `_eval_fn_init()` (eval.yo:5714) to the **proto-evaluator's** `evaluate` function. **Used by `evaluate_module_body`** (eval.yo:2657, called from `Evaluator.new` at index.yo:173).
+- `g_evaluate_expression` in `evaluator/exprs/expr.yo` — set by `register_evaluate_expression()` to the modular `_evaluate_expression_wrapper`. Read only by external callers of `evaluate_expression(...)`.
+
+`Evaluator.new` calls `register_evaluate_expression()` which fills the modular slot — but `evaluate_module_body` doesn't consult that slot. It calls `g_eval_fn` (proto-eval), which has no quote handler. So the modular `evaluate_quote` dispatch in `_expr.yo:479` is **unreachable** through `Evaluator.new`.
+
+This explains why `quote(42)` silently produces no module value: proto-eval's default function-call fallback fails to resolve `quote` as a variable, returns `None` → `ok = false` in `evaluate_module_body` → `module_value = None`.
+
+### Recommended fix path (revised)
+
+1. **Phase 6.1 — Bridge proto-eval to the modular dispatcher.** In proto-eval's default function-call fallback (just before its "unknown function" error), delegate to `g_evaluate_expression` for known modular built-ins (initially: `BK_QUOTE`, `BK_GENSYM`, `BK_UNQUOTE`, `BK_HASH`, `BF_MACRO_EXPAND`). This minimal bridge unblocks quote/macro support without rewriting either pipeline.
+2. **Phase 6.2** — Verify `phase6_verify.test.yo` passes; add a tiny user-defined macro test.
+3. **Phase 6.3** — Wire prelude loading from a real filesystem so `std/prelude.yo`'s `for` macro becomes available.
+4. **Phase 6.4** — Migrate `eval.test.yo`'s ~197 affected tests from `for(x, arr, body)` to `for(arr.iter(), x => body)`.
+5. **Phase 6.5** — Remove the divergent `(fval == "for")` handler from `eval.yo`; audit other proto-eval built-ins for similar TS divergences.
+
+Long-term: retire the proto-evaluator entirely by fleshing out the modular dispatcher to cover all proto-eval constructs, then switch `evaluate_module_body` to call `g_evaluate_expression` directly. That is the eventual end-state matching the TypeScript reference architecture.
 
 ## Workaround (current)
 
