@@ -125,3 +125,40 @@ the handler is deferred until either:
 The handler is still **wrong** in the same way it was before. It is now clearly marked
 as wrong, and the issue file documents the migration attempt so future sessions don't
 repeat the same compile-time blowup.
+
+## Update (Phase 6c done): macro infra exists but real `for` macro still unrunnable
+
+After Phase 6b/6c (commits `5056b313`, `b1908da3`, `15069ed7`), proto-eval supports
+user-defined macros end-to-end:
+
+- `quote(name) : Expr` parameters are detected and registered.
+- `unquote(...)` return type triggers macro expansion.
+- `splice_unquote` resolves `unquote(name)` in the body using ExprVal bindings.
+- The expanded AST is re-evaluated in the caller's env.
+
+Verified by `yo-self/tests/phase6c_macro.test.yo`:
+
+- Identity macro `id_macro(42)` → `IntLit("42")`.
+- 2-arg macro `add_macro(3, 4)` → `IntLit("7")` via `quote((unquote(a) + unquote(b)))`.
+
+**However, the real `std/prelude.yo` `for` macro still cannot run on proto-eval** because
+it requires AST reflection methods that proto-eval doesn't implement:
+
+- `expr.is_fn_call()`, `expr.is_atom()`
+- `expr.get_callee()`, `expr.get_args()`
+- `(callee == quote(=>))` — equality on quoted atoms
+- `gensym(name)` — fresh symbol generation
+- `args.car()`, `args.cdr()` — list head/tail on quoted args
+- `cond` returning a value (used as expression, not statement)
+- Nested `quote { ... }` with `unquote` inside match patterns
+
+Removing the built-in `for` handler therefore needs **either**:
+
+1. Implementing the AST reflection method shims + `gensym` + value-returning `cond` in
+   proto-eval (substantial work — likely 200+ lines), OR
+2. Switching `evaluate_module_body` to route through `Evaluator.new` (the proper TS-style
+   port in `evaluator/index.yo`), which has the modular dispatch infra. Then prelude
+   auto-loading brings in the real `for` macro naturally. This is the architecturally
+   right fix.
+
+Phase 6e remains blocked on one of the above.
