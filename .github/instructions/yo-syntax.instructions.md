@@ -422,6 +422,21 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
+## `for` loop macro — correct form
+
+The `for` macro is a 2-argument prelude macro. The **first argument must be an iterator** (an expression with a `.next()` method):
+
+```rust
+for(list.iter(), x => { process(x); });          // ArrayList/array — call .iter() first
+for(map.into_iter(), bucket => { ... });          // consuming iterator
+for(list.iter(), (ptr) => { ptr.* = transform(ptr.*); });  // borrowing iterator
+```
+
+- First argument: an **iterator** expression — call `.iter()` or `.into_iter()` on collections first
+- Second argument: an anonymous closure `item => { body }` (the `=>` form, no type annotation needed)
+- **Do NOT pass a raw array/ArrayList as first arg without `.iter()`** — they don't have `.next()`
+- **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
+
 ## Function call syntax — no space before `(`
 
 In Yo, function calls are parsed differently depending on spacing:

@@ -325,12 +325,27 @@ while true, {
 while comptime(i < 10), {
   // body evaluated/unrolled at compile time
 };
+
+// for loop — 2-arg prelude macro; first arg MUST be an iterator (has .next()):
+for(list.iter(), x => {    // ArrayList, array → call .iter() first
+  process(x);
+});
+
+for(map.into_iter(), bucket => {
+  println(bucket.key);
+});
+
+for(list.iter(), (ptr) => { // ptr is a mutable reference to each element
+  ptr.* = transform(ptr.*);
+});
 ```
 
 - Use `recur(...)` for self-recursion
 - `while cond` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while comptime(cond)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
+- **`for(arr, item => { body })`** — correct 2-arg prelude macro form. The `item => { body }` is an anonymous closure.
+- **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
 
