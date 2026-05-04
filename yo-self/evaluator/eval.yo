@@ -72,7 +72,7 @@ open import "std/fmt";
   t_f32, t_f64,
   t_usize, t_isize,
   t_comptime_int, t_comptime_float, t_comptime_string,
-  t_type, t_expr_t }
+  t_type, t_expr_t, t_comptime_list }
   :: import "../types/type.yo";
 { TypeTag } :: import "../types/tags.yo";
 { Environment } :: import "../env/env.yo";
@@ -1006,6 +1006,63 @@ handle_method_dispatch :: (fn(
       // +    (rhs)  — StrLit + StrLit → StrLit (concat, strip re-quote).
       // -----------------------------------------------------------------
       cond(
+        // ---------------------------------------------------------------
+        // Phase 6d: AST reflection methods on ExprVal.
+        // Needed for std/prelude.yo `for` macro and other macros that
+        // inspect quoted AST.
+        // ---------------------------------------------------------------
+        ((mname == "is_atom") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ExprVal(e_box) => {
+              is_a := match(e_box.*, .Atom(_, _) => true, .FnCall(_, _, _, _, _) => false);
+              return Option(EvalResult).Some(eval_result(.BoolVal(is_a), t_bool()));
+            },
+            _ => ()
+          ),
+        ((mname == "is_fn_call") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ExprVal(e_box2) => {
+              is_f := match(e_box2.*, .Atom(_, _) => false, .FnCall(_, _, _, _, _) => true);
+              return Option(EvalResult).Some(eval_result(.BoolVal(is_f), t_bool()));
+            },
+            _ => ()
+          ),
+        ((mname == "get_callee") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ExprVal(e_box3) => match(e_box3.*,
+              .FnCall(_, fbox, _, _, _) =>
+                { return Option(EvalResult).Some(eval_result(.ExprVal(fbox), t_expr_t())); },
+              .Atom(_, _) => { return Option(EvalResult).None; }
+            ),
+            _ => ()
+          ),
+        ((mname == "get_args") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ExprVal(e_box4) => match(e_box4.*,
+              .FnCall(_, _, fargs, _, _) => {
+                (out : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+                (k : usize) = usize(0);
+                m := fargs.len();
+                while runtime((k < m)), {
+                  match(fargs.get(k),
+                    .Some(ae) => { out.push(.ExprVal(box(ae))); },
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                };
+                return Option(EvalResult).Some(eval_result(.ComptimeListVal(out), t_comptime_list(t_expr_t())));
+              },
+              .Atom(_, _) => { return Option(EvalResult).None; }
+            ),
+            _ => ()
+          ),
+        ((mname == "len") && (method_call_args.len() == usize(0))) =>
+          match(recv_val,
+            .ComptimeListVal(elems_l) => {
+              return Option(EvalResult).Some(eval_result(.IntLit(elems_l.len().to_string()), t_comptime_int()));
+            },
+            _ => ()
+          ),
         ((mname == "to_string") && (method_call_args.len() == usize(0))) =>
           match(recv_val,
             .IntLit(raw)   => { return Option(EvalResult).Some(eval_result(.StrLit((String.from("\"") + raw) + String.from("\"")),  t_comptime_string())); },
