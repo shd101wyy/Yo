@@ -3372,6 +3372,65 @@ handle_trait_def :: (fn(
   })
 );
 
+/// Recursively rewrite `unquote(name)` sub-expressions inside a quoted
+/// AST.  For each `unquote(name)` call where `name` is bound to an
+/// `ExprVal(inner_ast)` in `env`, the entire `unquote(...)` node is
+/// replaced by `inner_ast`.  Other expressions are returned unchanged
+/// (with their children spliced).
+///
+/// Mirrors the AST-walk in `src/evaluator/builtins/quote.ts` (the
+/// `spliceUnquotes` helper).  Implemented as a `recur`-style function
+/// because Yo functions are first-class but not directly self-recursive
+/// without `recur(...)`.
+splice_unquote :: (fn(e : AstExpr, env : *(Environment)) -> AstExpr)(
+  match(e,
+    .Atom(_, _) => e,
+    .FnCall(fid, func_box, args, is_infix, ftok) => {
+      // Detect `unquote(name)` shape: head is Atom("unquote"), exactly 1 arg,
+      // and the arg is an Atom identifier whose name is bound in env to ExprVal.
+      is_unquote := match(func_box.*,
+        .Atom(_, htok) => (htok.value.as_str() == "unquote"),
+        .FnCall(_, _, _, _, _) => false
+      );
+      cond(
+        (is_unquote && (args.len() == usize(1))) =>
+          match(args.get(usize(0)),
+            .None => e,
+            .Some(arg0) =>
+              // Evaluate the unquote argument: if it's an ExprVal, splice
+              // in its wrapped AST; otherwise leave the original expr.
+              match(match(g_eval_fn,
+                  .Some(efn) => efn(arg0, env),
+                  .None      => Option(EvalResult).None
+                ),
+                .None => e,
+                .Some(rv) =>
+                  match(rv.value,
+                    .ExprVal(inner_box) => inner_box.*,
+                    _ => e
+                  )
+              )
+          ),
+        true => {
+          // Generic walk: splice into func_box and each arg.
+          new_func   := recur(func_box.*, env);
+          new_args   := ArrayList(AstExpr).new();
+          n_su       := args.len();
+          (i_su : usize) = usize(0);
+          while runtime((i_su < n_su)), {
+            match(args.get(i_su),
+              .Some(child) => { new_args.push(recur(child, env)); },
+              .None        => ()
+            );
+            i_su = (i_su + usize(1));
+          };
+          .FnCall(fid, box(new_func), new_args, is_infix, ftok)
+        }
+      )
+    }
+  )
+);
+
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
@@ -4674,6 +4733,48 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             (fval == "continue") =>
               .Some(eval_result(.ContinueVal, t_unit()))
+            ,
+
+            // -----------------------------------------------------------------
+            // quote(expr) — wrap the argument AST in an ExprVal without
+            // evaluating it.  This is the proto-evaluator's port of the
+            // modular `evaluate_quote` builtin (src/evaluator/builtins/quote.ts).
+            //
+            // Splicing: any `unquote(name)` sub-expression inside the quoted
+            // body is replaced at quote time by the AST stored in the
+            // `ExprVal` value bound to `name` in the current environment.
+            // (Splicing is implemented in `splice_unquote` below.)
+            //
+            // ⚠️ DIVERGENCE FROM TS REFERENCE COMPILER:
+            // In TS, `quote` is dispatched through `evaluator/exprs/_expr.ts`
+            // (the modular dispatcher).  yo-self has a modular dispatcher
+            // (`evaluator/exprs/_expr.yo`) but `Evaluator.new` does not route
+            // `evaluate_module_body` through it, so we implement `quote`
+            // here in the proto-evaluator as a transitional bridge.  When
+            // Phase 6.1a/b lands and the modular path becomes reachable,
+            // this handler should be deleted in favor of the modular
+            // `evaluate_quote`.  See issues/eval-for-loop-3arg-vs-2arg.md.
+            // -----------------------------------------------------------------
+            (fval == "quote") =>
+              cond(
+                (args.len() != usize(1)) => Option(EvalResult).None,
+                true =>
+                  match(args.get(usize(0)),
+                    .None => Option(EvalResult).None,
+                    .Some(quoted_expr) => {
+                      spliced := splice_unquote(quoted_expr, env);
+                      .Some(eval_result(.ExprVal(box(spliced)), t_expr_t()))
+                    }
+                  )
+              )
+            ,
+
+            // -----------------------------------------------------------------
+            // unquote(expr) — only valid inside a `quote(...)` body where it
+            // is rewritten by `splice_unquote`.  If we reach here it means
+            // the call appeared at top level; emit None to signal an error.
+            // -----------------------------------------------------------------
+            (fval == "unquote") => Option(EvalResult).None
             ,
 
             // -----------------------------------------------------------------
