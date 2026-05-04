@@ -98,3 +98,30 @@ Long-term: retire the proto-evaluator entirely by fleshing out the modular dispa
 Until fixed, evaluator test source strings continue using the 3-arg form `for(x, arr, body)`
 to match the buggy built-in handler in the proto-evaluator. New tests should also use this
 form, with a comment referencing this issue.
+
+## Migration attempt log (this session)
+
+Tried to mechanically migrate all 199 occurrences of `for(x, arr, { body })` in
+`yo-self/tests/eval.test.yo` to an explicit `while` + `arr.get(i)` rewrite, with the goal of
+then deleting the built-in `for` handler from the proto-evaluator.
+
+Result: the migration ran cleanly (a Python brace-balanced rewrite — 199 replacements,
+including 4 nested `for` cases). However, compiling the migrated `eval.test.yo` (now ~2 MB
+of source after string expansion) made the TypeScript `yo-cli` consume **~30 GB RSS over
+30+ minutes with no progress output**, even when restricted to a single test. The compiler
+is hitting a pathological case on the larger generated test source — likely related to
+literal-string handling or function-body size. This is independent of the migration's
+correctness; it's a TS compiler scaling issue.
+
+Decision: **revert the migration and keep the 3-arg `for` handler** with a prominent
+"DIVERGENCE FROM TS REFERENCE" warning comment in `yo-self/evaluator/eval.yo`. Removing
+the handler is deferred until either:
+
+- the proper Evaluator (`evaluator/index.yo` `Evaluator.new`) is wired into
+  `evaluate_module_body` so `eval.test.yo` can switch to using it (and prelude loading
+  brings in the real `for` macro), OR
+- the TS yo-cli's compile-time scaling on large test files is improved.
+
+The handler is still **wrong** in the same way it was before. It is now clearly marked
+as wrong, and the issue file documents the migration attempt so future sessions don't
+repeat the same compile-time blowup.

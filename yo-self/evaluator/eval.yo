@@ -4678,6 +4678,21 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
 
             // -----------------------------------------------------------------
             // for(item_pat, collection_expr, body_expr) — iterate over ArrayVal
+            //
+            // ⚠️ DIVERGENCE FROM TS REFERENCE COMPILER:
+            // In real Yo, `for` is NOT a built-in. It is a 2-arg macro defined
+            // in std/prelude.yo:    for(iter, x => body)
+            // The proto-evaluator does not yet support macro expansion, so
+            // this handler implements the 3-arg lowered form `for(x, arr, {body})`
+            // directly as a built-in. Tests that exercise iteration via this
+            // form rely on this handler. Once the proper Evaluator
+            // (yo-self/evaluator/index.yo Evaluator.new) is wired into
+            // `evaluate_module_body` and prelude loading is enabled, this
+            // handler MUST be deleted and the corresponding tests migrated to
+            // either the proper Evaluator path or to an explicit
+            // `while` + `arr.get(i)` rewrite.
+            //
+            // See: issues/eval-for-loop-3arg-vs-2arg.md
             // -----------------------------------------------------------------
             (fval == "for") =>
               match(args.get(usize(0)),
