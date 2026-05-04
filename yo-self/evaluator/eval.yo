@@ -83,6 +83,8 @@ open import "std/fmt";
   is_comptime_list_val, is_expr_val,
   value_to_string } :: import "./value.yo";
 { random_id } :: import "./utils.yo";
+{ register_macro_quoted_params, register_macro_return_is_unquote,
+  is_macro_fn, is_param_quoted, macro_return_is_unquote } :: import "./types/macro_registry.yo";
 
 // ---------------------------------------------------------------------------
 // Module-level function pointer slot for evaluate (Phase 3j)
@@ -2939,6 +2941,34 @@ extract_comptime_param_name :: (fn(
   )
 );
 
+/// Extract the parameter name from a `quote(name)` quoted parameter.
+/// Returns the name if `ct_box` is `Atom("quote")` and `ct_args[0]` is an
+/// `Atom(name)`; otherwise returns `None`.
+///
+/// Mirrors TS `parameter.isQuote` detection in
+/// `src/evaluator/types/function.ts` (the `quote(name) : T` syntax).
+extract_quote_param_name :: (fn(
+  ct_box  : Box(AstExpr),
+  ct_args : ArrayList(AstExpr)
+) -> Option(String))(
+  match(ct_box.*,
+    .Atom(_, ct_tok) =>
+      cond(
+        (ct_tok.value.as_str() == "quote") =>
+          match(ct_args.get(usize(0)),
+            .Some(qn_e) =>
+              match(qn_e,
+                .Atom(_, qn_tok) => .Some(qn_tok.value),
+                .FnCall(_, _, _, _, _) => Option(String).None
+              ),
+            .None => Option(String).None
+          ),
+        true => Option(String).None
+      ),
+    .FnCall(_, _, _, _, _) => Option(String).None
+  )
+);
+
 /// Extract the evidence parameter name from the inner expression of a
 /// `using(...)` parameter declaration.
 ///
@@ -3618,6 +3648,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                               params_f          := ArrayList(String).new();
                               param_type_names_f := ArrayList(String).new();
                               evidence_params_f := ArrayList(String).new();
+                              quoted_param_indices_f := ArrayList(usize).new();
                               (pi : usize) = usize(0);
                               n_p := fn_params_list.len();
                               (param_ok : bool) = true;
@@ -3648,12 +3679,23 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                         param_type_names_f.push(String.from(ptn_s));
                                                       },
                                                       .FnCall(_, ct_box, ct_args, _, _) =>
+                                                        // Try comptime(name) first, then quote(name).
                                                         match(extract_comptime_param_name(ct_box, ct_args),
                                                           .Some(ct_name) => {
                                                             params_f.push(ct_name);
                                                             param_type_names_f.push(String.from(""));
                                                           },
-                                                          .None => { param_ok = false; }
+                                                          .None =>
+                                                            match(extract_quote_param_name(ct_box, ct_args),
+                                                              .Some(qname) => {
+                                                                // Quoted parameter — record index
+                                                                // for the macro registry, push name/type.
+                                                                quoted_param_indices_f.push(params_f.len());
+                                                                params_f.push(qname);
+                                                                param_type_names_f.push(String.from(""));
+                                                              },
+                                                              .None => { param_ok = false; }
+                                                            )
                                                         )
                                                     ),
                                                   .None => { param_ok = false; }
@@ -3761,6 +3803,33 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                         );
                                         cfi = (cfi + usize(1));
                                       };
+                                      // Compute a stable func_id and register
+                                      // macro metadata before constructing FuncVal.
+                                      func_id_f := random_id(String.from(""));
+                                      // Register quoted parameter indices
+                                      // (no-op if list is empty).
+                                      register_macro_quoted_params((&func_id_f).clone(), quoted_param_indices_f);
+                                      // Detect `unquote(...)` return type
+                                      // and register if so.  inner_args[1] is
+                                      // the RetType expression of `->`.
+                                      match(inner_args.get(usize(1)),
+                                        .Some(ret_te) =>
+                                          match(ret_te,
+                                            .FnCall(_, ret_box, _ret_args, _, _) =>
+                                              match(ret_box.*,
+                                                .Atom(_, ret_tok) =>
+                                                  cond(
+                                                    (ret_tok.value.as_str() == "unquote") => {
+                                                      register_macro_return_is_unquote((&func_id_f).clone());
+                                                    },
+                                                    true => ()
+                                                  ),
+                                                .FnCall(_, _, _, _, _) => ()
+                                              ),
+                                            .Atom(_, _) => ()
+                                          ),
+                                        .None => ()
+                                      );
                                       .Some(eval_result(
                                         .FuncVal(
                                           forall_names_f,
@@ -3771,7 +3840,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                           cap_names_f,
                                           cap_tys_f,
                                           cap_vals_f,
-                                          random_id(String.from(""))
+                                          func_id_f
                                         ),
                                         t_unit()
                                       ))
@@ -5790,7 +5859,15 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(func_val) =>
                       match(func_val,
-                        .FuncVal(_, _, _, _, _, _, _, _, _) => {
+                        .FuncVal(_, _, _, _, _, _, _, _, fv_id) => {
+                          // Phase 6c: macro-aware call dispatch.
+                          // For quoted params, bind the raw arg AST as
+                          // ExprVal instead of evaluating; if the function
+                          // returns `unquote(...)`, re-evaluate the returned
+                          // ExprVal in the caller's env to get the
+                          // expanded expression's value.
+                          fv_id_s := fv_id.as_str();
+                          fv_is_macro := is_macro_fn(fv_id_s);
                           evaled_g := ArrayList(EvalResult).new();
                           n_gargs := args.len();
                           (gi : usize) = usize(0);
@@ -5798,9 +5875,15 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           while runtime(((gi < n_gargs) && gok)), {
                             match(args.get(gi),
                               .Some(arg_expr) =>
-                                match(recur(arg_expr, env),
-                                  .Some(r) => { evaled_g.push(r); },
-                                  .None    => { gok = false; }
+                                cond(
+                                  (fv_is_macro && is_param_quoted(fv_id_s, gi)) => {
+                                    evaled_g.push(eval_result(.ExprVal(box((&arg_expr).clone())), t_expr_t()));
+                                  },
+                                  true =>
+                                    match(recur(arg_expr, env),
+                                      .Some(r) => { evaled_g.push(r); },
+                                      .None    => { gok = false; }
+                                    )
                                 ),
                               .None => { gok = false; }
                             );
@@ -5808,7 +5891,21 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                           };
                           cond(
                             (!(gok)) => Option(EvalResult).None,
-                            true => call_funcval_with_args(func_val, evaled_g)
+                            true => {
+                              call_res := call_funcval_with_args(func_val, evaled_g);
+                              cond(
+                                macro_return_is_unquote(fv_id_s) =>
+                                  match(call_res,
+                                    .None => Option(EvalResult).None,
+                                    .Some(cr) =>
+                                      match(cr.value,
+                                        .ExprVal(expanded_box) => recur(expanded_box.*, env),
+                                        _ => call_res
+                                      )
+                                  ),
+                                true => call_res
+                              )
+                            }
                           )
                         },
                         _ => Option(EvalResult).None
