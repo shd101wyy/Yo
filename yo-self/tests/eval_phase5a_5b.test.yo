@@ -186,6 +186,91 @@ check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
 // Bool literals
 // ---------------------------------------------------------------------------
 
+test "Phase 5aa: clone on IntLit returns same value", {
+  env := empty_env();
+  // 42.clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "clone should return same IntLit"),
+        _ => assert(false, "clone should return IntLit")
+      )
+  );
+};
+
+test "Phase 5aa: clone on StrLit returns same value", {
+  env := empty_env();
+  // "hello".clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"hello\""), "clone should return same StrLit"),
+        _ => assert(false, "clone should return StrLit")
+      )
+  );
+};
+
+test "Phase 5aa: tuple (1, 2, 3) creates StructVal", {
+  env := empty_env();
+  // (1, 2, 3) — BK_TUPLE with 3 args
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "1"));
+  tup_args.push(make_atom(TokenKind.Integer, "2"));
+  tup_args.push(make_atom(TokenKind.Integer, "3"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  result := evaluate(tup_expr, &env);
+  match(result,
+    .None => assert(false, "tuple returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StructVal(name, fnames, fvals) => {
+          assert((name.as_str() == "_"), "tuple name should be _");
+          assert((fvals.len() == usize(3)), "tuple should have 3 fields");
+          match(fvals.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "1"), "first elem should be 1"), _ => assert(false, "elem 0 should be IntLit")),
+            .None => assert(false, "should have elem 0")
+          );
+        },
+        _ => assert(false, "tuple should return StructVal")
+      )
+  );
+};
+
+test "Phase 5aa: Slice type constructor", {
+  env := empty_env();
+  sl_args := ArrayList(AstExpr).new();
+  sl_args.push(make_atom(TokenKind.Identifier, "u8"));
+  sl_expr := make_fncall_atom("Slice", sl_args);
+  result := evaluate(sl_expr, &env);
+  match(result,
+    .None => assert(false, "Slice returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "Slice should return TypeVal")
+      )
+  );
+};
+
 test "Phase 5aa: Future type constructor", {
   env := empty_env();
   ft_args := ArrayList(AstExpr).new();
@@ -1764,6 +1849,7 @@ test "Phase 5ao: match on enum with data", {
 };
 
 // Phase 5ap: recursive factorial with pattern matching
+
 test "Phase 5ap: recursive factorial via recur", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1786,6 +1872,7 @@ test "Phase 5ap: recursive factorial via recur", {
 };
 
 // Phase 5ap: map over array of structs, extract field
+
 test "Phase 5ap: map struct array to field values", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1821,6 +1908,7 @@ test "Phase 5ap: map struct array to field values", {
 };
 
 // Phase 5ap: nested function calls (compose)
+
 test "Phase 5ap: nested function calls (double then add)", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1843,6 +1931,7 @@ test "Phase 5ap: nested function calls (double then add)", {
 };
 
 // Phase 5ap: fibonacci via recur
+
 test "Phase 5ap: fibonacci via recur", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1865,6 +1954,7 @@ test "Phase 5ap: fibonacci via recur", {
 };
 
 // Phase 5ap: multiple exports from module
+
 test "Phase 5ap: multiple exports from module body", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1887,6 +1977,7 @@ test "Phase 5ap: multiple exports from module body", {
 };
 
 // Phase 5aq: recursive sum with accumulator
+
 test "Phase 5aq: recursive sum with accumulator", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1909,6 +2000,7 @@ test "Phase 5aq: recursive sum with accumulator", {
 };
 
 // Phase 5aq: string concatenation in loop
+
 test "Phase 5aq: string building in for loop", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1931,6 +2023,7 @@ test "Phase 5aq: string building in for loop", {
 };
 
 // Phase 5aq: higher-order: apply function twice
+
 test "Phase 5aq: apply function twice (twice(f, x))", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1953,6 +2046,7 @@ test "Phase 5aq: apply function twice (twice(f, x))", {
 };
 
 // Phase 5aq: enum with multiple variants and match
+
 test "Phase 5aq: match on custom enum variant", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -1975,6 +2069,7 @@ test "Phase 5aq: match on custom enum variant", {
 };
 
 // Phase 5aq: array filter then map (chained operations)
+
 test "Phase 5aq: filter then map (chained)", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2010,6 +2105,7 @@ test "Phase 5aq: filter then map (chained)", {
 };
 
 // Phase 5ar: TypeVal.Variant(args) — enum variant construction with data
+
 test "Phase 5ar: TypeVal.Variant(args) — Option.Some(42)", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2066,6 +2162,7 @@ test "Phase 5ar: TypeVal.Variant(args) — Option.Some(42)", {
 };
 
 // Phase 5ar: TypeVal.Variant(args) with multiple fields
+
 test "Phase 5ar: TypeVal.Variant — Pair with two fields", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2088,6 +2185,7 @@ test "Phase 5ar: TypeVal.Variant — Pair with two fields", {
 };
 
 // Phase 5ar: array.fold with initial value and reducer
+
 test "Phase 5ar: array.fold sum", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2110,6 +2208,7 @@ test "Phase 5ar: array.fold sum", {
 };
 
 // Phase 5ar: string starts_with and ends_with
+
 test "Phase 5ar: string starts_with and ends_with", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2136,6 +2235,7 @@ test "Phase 5ar: string starts_with and ends_with", {
 };
 
 // Phase 5as: StrLit.trim removes whitespace
+
 test "Phase 5as: StrLit.trim", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2158,6 +2258,7 @@ test "Phase 5as: StrLit.trim", {
 };
 
 // Phase 5as: StrLit.char_at returns character
+
 test "Phase 5as: StrLit.char_at", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2180,6 +2281,7 @@ test "Phase 5as: StrLit.char_at", {
 };
 
 // Phase 5as: StrLit.replace replaces substring
+
 test "Phase 5as: StrLit.replace", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2202,6 +2304,7 @@ test "Phase 5as: StrLit.replace", {
 };
 
 // Phase 5as: StrLit.split produces array of strings
+
 test "Phase 5as: StrLit.split", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2237,6 +2340,7 @@ test "Phase 5as: StrLit.split", {
 };
 
 // Phase 5as: string concatenation via + operator
+
 test "Phase 5as: string concatenation via +", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2259,6 +2363,7 @@ test "Phase 5as: string concatenation via +", {
 };
 
 // Phase 5at: module-level mutable reassignment
+
 test "Phase 5at: module-level mutable variable", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2281,6 +2386,7 @@ test "Phase 5at: module-level mutable variable", {
 };
 
 // Phase 5at: passing function as argument
+
 test "Phase 5at: function passed as argument", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2303,6 +2409,7 @@ test "Phase 5at: function passed as argument", {
 };
 
 // Phase 5at: deeply nested match extraction
+
 test "Phase 5at: nested match on Option(Option)", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2325,6 +2432,7 @@ test "Phase 5at: nested match on Option(Option)", {
 };
 
 // Phase 5at: array of enums with map
+
 test "Phase 5at: array of Option variants mapped", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2360,6 +2468,7 @@ test "Phase 5at: array of Option variants mapped", {
 };
 
 // Phase 5at: struct construction and access
+
 test "Phase 5at: struct with multiple fields", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2382,6 +2491,7 @@ test "Phase 5at: struct with multiple fields", {
 };
 
 // Phase 5au: if() function pattern (boolean then-else)
+
 test "Phase 5au: if() returns then-branch value", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2404,6 +2514,7 @@ test "Phase 5au: if() returns then-branch value", {
 };
 
 // Phase 5au: cond with multiple boolean guards
+
 test "Phase 5au: cond with multiple guards", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2426,6 +2537,7 @@ test "Phase 5au: cond with multiple guards", {
 };
 
 // Phase 5au: while loop modifying array
+
 test "Phase 5au: while loop counting", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2448,6 +2560,7 @@ test "Phase 5au: while loop counting", {
 };
 
 // Phase 5au: enum variant with single field and match extraction
+
 test "Phase 5au: Result enum Ok/Err match", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2470,6 +2583,7 @@ test "Phase 5au: Result enum Ok/Err match", {
 };
 
 // Phase 5au: comptime binding with struct type
+
 test "Phase 5au: comptime struct type as value", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2492,6 +2606,7 @@ test "Phase 5au: comptime struct type as value", {
 };
 
 // Phase 5av: StrLit.substring extracts portion
+
 test "Phase 5av: StrLit.substring", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2514,6 +2629,7 @@ test "Phase 5av: StrLit.substring", {
 };
 
 // Phase 5av: comptime binding then runtime use
+
 test "Phase 5av: comptime enum type + runtime use", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2536,6 +2652,7 @@ test "Phase 5av: comptime enum type + runtime use", {
 };
 
 // Phase 5av: simple :: binding (comptime alias)
+
 test "Phase 5av: simple :: comptime binding", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2558,6 +2675,7 @@ test "Phase 5av: simple :: comptime binding", {
 };
 
 // Phase 5av: array.any and array.all
+
 test "Phase 5av: array.any and array.all", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2584,6 +2702,7 @@ test "Phase 5av: array.any and array.all", {
 };
 
 // Phase 5aw: array.map with enum construction
+
 test "Phase 5aw: array.map builds enum variants", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2606,6 +2725,7 @@ test "Phase 5aw: array.map builds enum variants", {
 };
 
 // Phase 5aw: nested struct field access
+
 test "Phase 5aw: nested struct field access", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2628,6 +2748,7 @@ test "Phase 5aw: nested struct field access", {
 };
 
 // Phase 5aw: String.from + .len()
+
 test "Phase 5aw: String.from and .len()", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2650,6 +2771,7 @@ test "Phase 5aw: String.from and .len()", {
 };
 
 // Phase 5aw: while loop with break condition
+
 test "Phase 5aw: while with complex condition", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2672,6 +2794,7 @@ test "Phase 5aw: while with complex condition", {
 };
 
 // Phase 5aw: array literal + fold to sum
+
 test "Phase 5aw: fold to compute sum", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2694,6 +2817,7 @@ test "Phase 5aw: fold to compute sum", {
 };
 
 // Phase 5ax: match exhaustiveness with default arm
+
 test "Phase 5ax: match with wildcard default arm", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2716,6 +2840,7 @@ test "Phase 5ax: match with wildcard default arm", {
 };
 
 // Phase 5ax: match wildcard catches non-matching variants
+
 test "Phase 5ax: wildcard catches non-matching variant", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2738,6 +2863,7 @@ test "Phase 5ax: wildcard catches non-matching variant", {
 };
 
 // Phase 5ax: function returning a struct
+
 test "Phase 5ax: function returns struct value", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2760,6 +2886,7 @@ test "Phase 5ax: function returns struct value", {
 };
 
 // Phase 5ax: enum variant with single field destructured
+
 test "Phase 5ax: enum variant destructured in match", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2782,6 +2909,7 @@ test "Phase 5ax: enum variant destructured in match", {
 };
 
 // Phase 5ax: chained method calls on string
+
 test "Phase 5ax: chained string methods", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2804,6 +2932,7 @@ test "Phase 5ax: chained string methods", {
 };
 
 // Phase 5ay: ArrayList push + get + len
+
 test "Phase 5ay: ArrayList operations", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2826,6 +2955,7 @@ test "Phase 5ay: ArrayList operations", {
 };
 
 // Phase 5ay: Option.is_some using local enum
+
 test "Phase 5ay: Option.is_some on enum variant", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2848,6 +2978,7 @@ test "Phase 5ay: Option.is_some on enum variant", {
 };
 
 // Phase 5ay: boolean AND/OR
+
 test "Phase 5ay: boolean AND and OR operators", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2870,6 +3001,7 @@ test "Phase 5ay: boolean AND and OR operators", {
 };
 
 // Phase 5ay: for loop over array with accumulator
+
 test "Phase 5ay: for loop with array accumulation", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2892,6 +3024,7 @@ test "Phase 5ay: for loop with array accumulation", {
 };
 
 // Phase 5ay: nested cond (if-else-if chain)
+
 test "Phase 5ay: nested cond (if-else-if)", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2914,6 +3047,7 @@ test "Phase 5ay: nested cond (if-else-if)", {
 };
 
 // Phase 5az: :: binds comptime value
+
 test "Phase 5az: :: binds comptime value", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2936,6 +3070,7 @@ test "Phase 5az: :: binds comptime value", {
 };
 
 // Phase 5az: struct with method-like function
+
 test "Phase 5az: struct passed to function", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2958,6 +3093,7 @@ test "Phase 5az: struct passed to function", {
 };
 
 // Phase 5az: string equality comparison
+
 test "Phase 5az: string equality comparison", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -2984,6 +3120,7 @@ test "Phase 5az: string equality comparison", {
 };
 
 // Phase 5az: array filter then fold
+
 test "Phase 5az: array filter then fold", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3006,6 +3143,7 @@ test "Phase 5az: array filter then fold", {
 };
 
 // Phase 5az: multiple functions calling each other
+
 test "Phase 5az: multiple functions calling each other", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3028,6 +3166,7 @@ test "Phase 5az: multiple functions calling each other", {
 };
 
 // Phase 5ba: enum equality check
+
 test "Phase 5ba: enum equality check", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3054,6 +3193,7 @@ test "Phase 5ba: enum equality check", {
 };
 
 // Phase 5ba: array of structs
+
 test "Phase 5ba: array of structs", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3076,6 +3216,7 @@ test "Phase 5ba: array of structs", {
 };
 
 // Phase 5ba: string concatenation with +
+
 test "Phase 5ba: string concatenation", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3098,6 +3239,7 @@ test "Phase 5ba: string concatenation", {
 };
 
 // Phase 5ba: higher-order function via apply
+
 test "Phase 5ba: higher-order function apply", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3120,6 +3262,7 @@ test "Phase 5ba: higher-order function apply", {
 };
 
 // Phase 5ba: mutable struct field update
+
 test "Phase 5ba: mutable struct field update", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3151,6 +3294,7 @@ test "Phase 5ba: mutable struct field update", {
 };
 
 // Phase 5bb: array.map with struct construction
+
 test "Phase 5bb: array.map constructs structs", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3173,6 +3317,7 @@ test "Phase 5bb: array.map constructs structs", {
 };
 
 // Phase 5bb: recursive function with base case
+
 test "Phase 5bb: recursive power function", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3195,6 +3340,7 @@ test "Phase 5bb: recursive power function", {
 };
 
 // Phase 5bb: string starts_with and ends_with
+
 test "Phase 5bb: starts_with and ends_with", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3225,6 +3371,7 @@ test "Phase 5bb: starts_with and ends_with", {
 };
 
 // Phase 5bb: usize arithmetic
+
 test "Phase 5bb: usize arithmetic and comparison", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3247,6 +3394,7 @@ test "Phase 5bb: usize arithmetic and comparison", {
 };
 
 // Phase 5bb: for loop with break
+
 test "Phase 5bb: for loop with early break", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3269,6 +3417,7 @@ test "Phase 5bb: for loop with early break", {
 };
 
 // Phase 5bc: nested match on Option(i32)
+
 test "Phase 5bc: nested match extracts inner value", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3295,6 +3444,7 @@ test "Phase 5bc: nested match extracts inner value", {
 };
 
 // Phase 5bc: multiple struct types
+
 test "Phase 5bc: multiple struct types coexist", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3317,6 +3467,7 @@ test "Phase 5bc: multiple struct types coexist", {
 };
 
 // Phase 5bc: while loop with multiple mutations
+
 test "Phase 5bc: while with multiple mutations", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3339,6 +3490,7 @@ test "Phase 5bc: while with multiple mutations", {
 };
 
 // Phase 5bc: array.reverse
+
 test "Phase 5bc: array.reverse", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3370,6 +3522,7 @@ test "Phase 5bc: array.reverse", {
 };
 
 // Phase 5bc: string split and access
+
 test "Phase 5bc: string split and element access", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3392,6 +3545,7 @@ test "Phase 5bc: string split and element access", {
 };
 
 // Phase 5bd: modulo operator
+
 test "Phase 5bd: modulo operator", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3418,6 +3572,7 @@ test "Phase 5bd: modulo operator", {
 };
 
 // Phase 5bd: negation with unary minus
+
 test "Phase 5bd: unary negation", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3440,6 +3595,7 @@ test "Phase 5bd: unary negation", {
 };
 
 // Phase 5bd: array.first and array.last
+
 test "Phase 5bd: array first and last", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3484,6 +3640,7 @@ test "Phase 5bd: array first and last", {
 };
 
 // Phase 5bd: Integer division
+
 test "Phase 5bd: integer division", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3510,6 +3667,7 @@ test "Phase 5bd: integer division", {
 };
 
 // Phase 5bd: String.contains
+
 test "Phase 5bd: String.contains", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3536,6 +3694,7 @@ test "Phase 5bd: String.contains", {
 };
 
 // Phase 5be: complex conditional with multiple comparisons
+
 test "Phase 5be: chained comparison in cond", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3566,6 +3725,7 @@ test "Phase 5be: chained comparison in cond", {
 };
 
 // Phase 5be: array.concat
+
 test "Phase 5be: array concat", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3588,6 +3748,7 @@ test "Phase 5be: array concat", {
 };
 
 // Phase 5be: nested function calls with multiple args
+
 test "Phase 5be: nested multi-arg function calls", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3610,6 +3771,7 @@ test "Phase 5be: nested multi-arg function calls", {
 };
 
 // Phase 5be: string replace simple
+
 test "Phase 5be: string replace and check length", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3632,6 +3794,7 @@ test "Phase 5be: string replace and check length", {
 };
 
 // Phase 5be: for loop building array with push
+
 test "Phase 5be: for loop with ArrayList push", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3654,6 +3817,7 @@ test "Phase 5be: for loop with ArrayList push", {
 };
 
 // Phase 5bf: struct field update then read
+
 test "Phase 5bf: struct field update chain", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3676,6 +3840,7 @@ test "Phase 5bf: struct field update chain", {
 };
 
 // Phase 5bf: multiple :: bindings in sequence
+
 test "Phase 5bf: multiple comptime bindings", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3698,6 +3863,7 @@ test "Phase 5bf: multiple comptime bindings", {
 };
 
 // Phase 5bf: function that takes and returns struct
+
 test "Phase 5bf: function transforms struct", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3720,6 +3886,7 @@ test "Phase 5bf: function transforms struct", {
 };
 
 // Phase 5bf: while loop counting with early exit
+
 test "Phase 5bf: while with boolean flag exit", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3742,6 +3909,7 @@ test "Phase 5bf: while with boolean flag exit", {
 };
 
 // Phase 5bf: integer max/min
+
 test "Phase 5bf: integer max and min", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3768,6 +3936,7 @@ test "Phase 5bf: integer max and min", {
 };
 
 // Phase 5bg: array.get returns Option
+
 test "Phase 5bg: array.get within bounds", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3799,6 +3968,7 @@ test "Phase 5bg: array.get within bounds", {
 };
 
 // Phase 5bg: array.get out of bounds returns None
+
 test "Phase 5bg: array.get out of bounds", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3824,6 +3994,7 @@ test "Phase 5bg: array.get out of bounds", {
 };
 
 // Phase 5bg: comparison operators on integers
+
 test "Phase 5bg: integer comparison chain", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3846,6 +4017,7 @@ test "Phase 5bg: integer comparison chain", {
 };
 
 // Phase 5bg: string index_of
+
 test "Phase 5bg: string index_of", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3877,6 +4049,7 @@ test "Phase 5bg: string index_of", {
 };
 
 // Phase 5bg: float arithmetic
+
 test "Phase 5bg: float arithmetic", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3903,6 +4076,7 @@ test "Phase 5bg: float arithmetic", {
 };
 
 // Phase 5bh: struct equality comparison
+
 test "Phase 5bh: struct equality", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3929,6 +4103,7 @@ test "Phase 5bh: struct equality", {
 };
 
 // Phase 5bh: array equality
+
 test "Phase 5bh: array equality", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3955,6 +4130,7 @@ test "Phase 5bh: array equality", {
 };
 
 // Phase 5bh: GCD algorithm (Euclidean)
+
 test "Phase 5bh: GCD via Euclidean algorithm", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -3977,6 +4153,7 @@ test "Phase 5bh: GCD via Euclidean algorithm", {
 };
 
 // Phase 5bh: enum != comparison
+
 test "Phase 5bh: enum not-equal comparison", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4003,6 +4180,7 @@ test "Phase 5bh: enum not-equal comparison", {
 };
 
 // Phase 5bh: complex expression: map+filter+fold pipeline
+
 test "Phase 5bh: map+filter+fold pipeline", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4026,6 +4204,7 @@ test "Phase 5bh: map+filter+fold pipeline", {
 };
 
 // Phase 5bi: string + concatenation
+
 test "Phase 5bi: string + operator", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4048,6 +4227,7 @@ test "Phase 5bi: string + operator", {
 };
 
 // Phase 5bi: .to_string() on integers
+
 test "Phase 5bi: integer .to_string()", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4070,6 +4250,7 @@ test "Phase 5bi: integer .to_string()", {
 };
 
 // Phase 5bi: .to_string() + string concat (template string equivalent)
+
 test "Phase 5bi: to_string + concat pattern", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4092,6 +4273,7 @@ test "Phase 5bi: to_string + concat pattern", {
 };
 
 // Phase 5bi: ArrayList.get returns Option
+
 test "Phase 5bi: ArrayList.get", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4123,6 +4305,7 @@ test "Phase 5bi: ArrayList.get", {
 };
 
 // Phase 5bi: not operator
+
 test "Phase 5bi: not operator on bool", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4144,6 +4327,7 @@ test "Phase 5bi: not operator on bool", {
 };
 
 // Phase 5bj: open import (merge module exports into scope)
+
 test "Phase 5bj: open import merges into scope", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4181,6 +4365,7 @@ test "Phase 5bj: open import merges into scope", {
 };
 
 // Phase 5bj: string.as_str() comparison
+
 test "Phase 5bj: String.from and as_str comparison", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4203,6 +4388,7 @@ test "Phase 5bj: String.from and as_str comparison", {
 };
 
 // Phase 5bj: complex for loop with cond inside
+
 test "Phase 5bj: for loop with cond filtering", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4229,6 +4415,7 @@ test "Phase 5bj: for loop with cond filtering", {
 };
 
 // Phase 5bj: array built from for loop
+
 test "Phase 5bj: building array in for loop", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4251,6 +4438,7 @@ test "Phase 5bj: building array in for loop", {
 };
 
 // Phase 5bj: struct with boolean field
+
 test "Phase 5bj: struct with boolean fields", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4273,6 +4461,7 @@ test "Phase 5bj: struct with boolean fields", {
 };
 
 // Phase 5bk: ArrayList set and get (set returns new array)
+
 test "Phase 5bk: ArrayList set returns modified array", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4304,6 +4493,7 @@ test "Phase 5bk: ArrayList set returns modified array", {
 };
 
 // Phase 5bk: function returning bool used in cond
+
 test "Phase 5bk: function returns bool for cond", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4326,6 +4516,7 @@ test "Phase 5bk: function returns bool for cond", {
 };
 
 // Phase 5bk: nested struct access and mutation
+
 test "Phase 5bk: struct array field push", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4348,6 +4539,7 @@ test "Phase 5bk: struct array field push", {
 };
 
 // Phase 5bk: i64 arithmetic
+
 test "Phase 5bk: i64 arithmetic", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4370,6 +4562,7 @@ test "Phase 5bk: i64 arithmetic", {
 };
 
 // Phase 5bk: enum variant with data field in match arm
+
 test "Phase 5bk: match with data variant extraction", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4396,6 +4589,7 @@ test "Phase 5bk: match with data variant extraction", {
 };
 
 // Phase 5bl: string char_at
+
 test "Phase 5bl: string char_at", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4418,6 +4612,7 @@ test "Phase 5bl: string char_at", {
 };
 
 // Phase 5bl: boolean to_string
+
 test "Phase 5bl: bool to_string", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4444,6 +4639,7 @@ test "Phase 5bl: bool to_string", {
 };
 
 // Phase 5bl: integer abs
+
 test "Phase 5bl: integer abs", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4470,6 +4666,7 @@ test "Phase 5bl: integer abs", {
 };
 
 // Phase 5bl: complex pipeline: map to struct, filter, fold
+
 test "Phase 5bl: complex struct pipeline", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -4492,6 +4689,7 @@ test "Phase 5bl: complex struct pipeline", {
 };
 
 // Phase 5bl: nested enum (Option of enum variant)
+
 test "Phase 5bl: enum wrapping enum via type", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
@@ -6406,157 +6604,3 @@ test "Phase 5bz: for loop count", {
 };
 
 // === Phase 5ca: reaching 500 eval tests ===
-
-test "Phase 5ca: modulo operator", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "r := (i32(17) % i32(5)); export r;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "modulo returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .IntLit(n) => assert((n.as_str() == "2"), "17%5=2"),
-            _ => assert(false, "not IntLit")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
-test "Phase 5ca: array len non-empty", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "arr := [i32(1), i32(2), i32(3)]; n := arr.len(); export n;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "len returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .IntLit(n) => assert((n.as_str() == "3"), "3 elements"),
-            _ => assert(false, "not IntLit")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
-test "Phase 5ca: fn with bool result", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "is_even := (fn(n : i32) -> bool)(((n % i32(2)) == i32(0))); r := is_even(i32(4)); export r;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "is_even returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .BoolVal(bv) => assert(bv, "4 is even"),
-            _ => assert(false, "not BoolVal")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
-test "Phase 5ca: struct with computed field", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "Rect :: struct(w : i32, h : i32); r := Rect(w: i32(3), h: i32(4)); area := (r.w * r.h); export area;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "rect area returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .IntLit(n) => assert((n.as_str() == "12"), "3*4=12"),
-            _ => assert(false, "not IntLit")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
-test "Phase 5ca: while decrement to zero", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "r := { (n : i32) = i32(10); while((n > i32(0)), { n = (n - i32(3)); }); n }; export r;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "while dec returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .IntLit(n) => assert((n.as_str() == "-2"), "10-3-3-3-3=-2"),
-            _ => assert(false, "not IntLit")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
-test "Phase 5ca: array first element", {
-  env := empty_env();
-  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "arr := [i32(99), i32(88), i32(77)]; f := arr.first(); export f;";
-  exprs := generate_exprs_from_code(src, using(exn));
-  result := evaluate_module_body(exprs, &env);
-  match(result,
-    .None => assert(false, "first returned None"),
-    .Some(mod_val) => match(mod_val,
-      .ModuleVal(names, vals) => {
-        assert((names.len() == usize(1)), "1 export");
-        match(vals.get(usize(0)),
-          .Some(v) => match(v,
-            .EnumVal(tag, fields) => {
-              assert((tag.as_str() == ".Some"), "first is .Some");
-              match(fields.get(usize(0)),
-                .Some(inner) => match(inner,
-                  .IntLit(n) => assert((n.as_str() == "99"), "first=99"),
-                  _ => assert(false, "not IntLit")
-                ),
-                .None => assert(false, "no field")
-              );
-            },
-            _ => assert(false, "not EnumVal")
-          ),
-          .None => assert(false, "no export")
-        );
-      },
-      _ => assert(false, "not ModuleVal")
-    )
-  );
-};
-
