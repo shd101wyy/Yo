@@ -62,7 +62,7 @@ import {
   isUnionType,
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import { typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
@@ -2026,24 +2026,19 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         expr.$.controlFlow = controlFlowOf("escape");
       }
 
-      // For runtime unknown function values (e.g. `exn` received as a runtime
-      // implicit parameter), detect "universally quantified never-returns" calls:
-      // a function fn(forall(T), ...) -> T where T does NOT appear in any regular
-      // or implicit parameter type.  By parametricity, such a function can only
-      // terminate by escaping.  Without this check, the begin-block evaluator
-      // continues past the call and tries to evaluate dead code (like t_i32()),
-      // which then fails at codegen time ("Unhandled function call: t_i32()").
-      if (
-        !isFunctionValue(functionToCall.value) &&
-        functionType.forallParameters.length > 0 &&
-        isSomeType(returnType) &&
-        functionType.parameters.every((p) => !typeContainsSomeType(p.type)) &&
-        functionType.implicitParameters.every(
-          (p) => !typeContainsSomeType(p.type)
-        )
-      ) {
-        expr.$.controlFlow = controlFlowOf("escape");
-      }
+      // NOTE: A previous version (commit f51ad0d3) added a "parametricity"
+      // detection here that marked calls like `exn.throw(...)` as
+      // controlFlow="escape" so the begin-block evaluator would skip
+      // subsequent dead code (like `t_i32()` constructor calls).
+      // That detection was reverted because it also fired on calls inside
+      // async closures whose closure parameters wrap forall-T inside
+      // Impl(Fn(...) -> T) (which `typeContainsSomeType` does not look
+      // through), and on user code with explicit `return` statements after
+      // a `raise(...)`-style escape — breaking closure return-type
+      // inference for tests like `tests/async_await.test.yo`'s
+      // "Test escape in async closure".
+      // See `issues/codegen-dead-code-after-exn-throw.md` for the original
+      // problem this was trying to solve.
 
       // For io.async calls, propagate awaitAnalysis and captureType from the closure
       // argument to the call expression. This enables codegen to generate a state machine
