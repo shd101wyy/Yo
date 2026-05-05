@@ -1,5 +1,6 @@
 open import "std/string"; // Let's use `String` instead of `str`
 open import "std/fmt";
+{ Exception } :: import "std/error";
 
 test "Test fn escape and return via using parameter", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
@@ -1783,4 +1784,12 @@ test "Test transitive SM with module effect in while loop", {
 
   result := loop_with_effect(i32(4));
   assert((result == i32(10)), "transitive SM module: 1+2+3+4 = 10");
+};
+// Regression: regular -> functions cannot capture outer runtime variables.
+// The evaluator must emit a clear error instead of producing broken C code.
+test "regular fn handler cannot capture outer runtime variable", {
+  outer_val := i32(42);
+  comptime_expect_error(
+    given(exn) := Exception(throw: ((err) -> begin(assert((outer_val == i32(0)), "bad"), panic("error"))))
+  );
 };
