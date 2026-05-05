@@ -482,6 +482,10 @@ function compileBatchedBinary(
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           "-fno-strict-aliasing",
+          // Increase bracket nesting limit (default 256 is too low for large
+          // batch test binaries that include the full yo-self evaluator).
+          // Not supported by MSVC, so guard on !isMSVC is applied below.
+          ...(!isMSVC ? ["-fbracket-depth=1024"] : []),
           ...(isEmcc
             ? ["-w"]
             : [
@@ -518,6 +522,18 @@ function compileBatchedBinary(
         // x86_64 Windows.  16 MB provides sufficient headroom for all tests.
         compileArgs.splice(-2, 0, "-Wl,/STACK:16777216");
       }
+    }
+
+    if (!isWindows && !isEmcc && process.platform === "darwin") {
+      // Increase the stack reserve to 32 MB on macOS.  The default 8 MB is
+      // insufficient for large yo-self tests: the `evaluate` function in
+      // yo-self/evaluator/eval.yo has ~2482 local variables that consume
+      // ~1.5 MB of stack space per frame (at -O0, no stack-frame reuse).
+      // The recursive call chain for count(1) stacks 5 evaluate frames
+      // (5 × 1.5 MB = 7.5 MB), which hits the 8 MB limit.  32 MB provides
+      // headroom for deeper recursion and future growth.
+      // macOS linker flag: -Wl,-stack_size,<hex-bytes> (0x2000000 = 32 MB).
+      compileArgs.splice(-2, 0, "-Wl,-stack_size,0x2000000");
     }
 
     if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
@@ -741,7 +757,7 @@ function runTestFromBatchedBinary(
         const leakInfo = leakMatch ? leakMatch[1] : combinedOutput;
         errorMessage = `Memory leak detected:\n${leakInfo}`;
       } else {
-        errorMessage = `Test failed with exit code ${runResult.status}\n${runResult.stdout}\n${runResult.stderr}`;
+        errorMessage = `Test failed with exit code ${runResult.status} signal=${runResult.signal}\n${runResult.stdout}\n${runResult.stderr}`;
       }
     }
 

@@ -2020,10 +2020,9 @@ test "evaluate: fn call arity mismatch returns None", {
 
 test "evaluate: recur simple countdown", {
   // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(1) → 0
-  // NOTE: ASAN-instrumented stack limits restrict recursion depth.
-  //       After adding ExprId field to AstExpr, frame size grew enough that
-  //       count(2) (≥7 frames) exceeds the 8MB stack on ARM64 macOS.
-  //       count(1) uses only ~5 frames and stays within the limit.
+  // NOTE: macOS native binary has a 32 MB stack reserve (set via -Wl,-stack_size,0x2000000
+  //       in src/test-runner.ts). The evaluate() function uses ~1.5 MB per frame at -O0;
+  //       count(1) needs ~5 simultaneous frames (~7.5 MB), which exceeded the 8 MB default.
   //       See issues/asan-eval-frame-size-after-expr-id.md.
   env := empty_env();
   params := ArrayList(String).new();
@@ -3511,6 +3510,48 @@ test "Phase 3am: box and deref round-trip", {
             .None => assert(false, "no b")
           );
         },
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 3am: ArrayList store and export", {
+  src := "arr :: ArrayList(String).new(); export arr;";
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error"); escape (); }));
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "evaluate_module_body returned None for simple store+export"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(names, vals) => {
+          assert((names.len() == usize(1)), "1 export");
+          match(vals.get(usize(0)),
+            .Some(v1) =>
+              match(v1,
+                .ArrayVal(_) => assert(true, "arr is ArrayVal"),
+                _ => assert(false, "arr not ArrayVal")
+              ),
+            .None => assert(false, "no arr")
+          );
+        },
+        _ => assert(false, "not ModuleVal")
+      )
+  );
+};
+
+test "Phase 3am: ArrayList const binding len", {
+  src := "arr :: ArrayList(String).new(); n :: arr.len(); export arr;";
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { _ := err; assert(false, "parse error"); escape (); }));
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "arr.len() evaluation failed"),
+    .Some(mod_val) =>
+      match(mod_val,
+        .ModuleVal(names, vals) => assert((names.len() == usize(1)), "1 export"),
         _ => assert(false, "not ModuleVal")
       )
   );

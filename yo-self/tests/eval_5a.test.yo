@@ -1,0 +1,4152 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator core — Phase 3a/3b/3c/3d (literals + identifier lookup +
+/// begin/cond/define/assign + arithmetic/comparison/boolean operators +
+/// enum variant construction + match + while loops) through Phase 3ah
+/// (integer div/mod + function composition + string equality + impl method call).
+
+open import "std/fmt";
+open import "std/string";
+open import "std/error";
+{ ArrayList } :: import "std/collections/array_list";
+
+{ TokenKind, Token } :: import "../lexer/token.yo";
+{ AstExpr, BK_BEGIN, BK_TUPLE, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN, BK_IMPORT,
+  BK_ENUM, BK_STRUCT, BK_OBJECT, BK_NEWTYPE, BK_UNION, BK_TRAIT, BK_ARRAY_VAL } :: import "../expr/expr.yo";
+{ TypeValue, type_value_tag,
+  t_i32, t_bool, t_u32, t_f32, t_type, t_unit,
+  t_comptime_int, t_comptime_float, t_comptime_string } :: import "../types/type.yo";
+{ TypeTag } :: import "../types/tags.yo";
+{ Environment } :: import "../env/env.yo";
+{ EvalValue, EvalResult } :: import "../evaluator/value.yo";
+{ evaluate, parse_raw_int, evaluate_module_body, set_module_loader } :: import "../evaluator/eval.yo";
+{ generate_exprs_from_code } :: import "../parser/parser.yo";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+make_token :: (fn(kind : TokenKind, value : str) -> Token)(
+  Token(
+    kind:        kind,
+    value:       String.from(value),
+    row:         usize(0),
+    column:      usize(0),
+    character:   usize(0),
+    module_path: String.from(""),
+    input:       String.from("")
+  )
+);
+
+make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
+  .Atom(usize(0), make_token(kind, value))
+);
+
+make_ident :: (fn(name : str) -> AstExpr)(
+  make_atom(TokenKind.Identifier, name)
+);
+
+make_infix :: (fn(op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, op))),
+    {
+      args := ArrayList(AstExpr).new();
+      args.push(lhs);
+      args.push(rhs);
+      args
+    },
+    true,
+    make_token(TokenKind.Operator, op)
+  )
+);
+
+/// Build a begin-block `{ stmts… }` from an ArrayList of statements.
+make_begin :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, BK_BEGIN))),
+    stmts,
+    false,
+    make_token(TokenKind.Identifier, BK_BEGIN)
+  )
+);
+
+/// Build the unit expression `()`.
+make_unit :: (fn() -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, BK_TUPLE))),
+    ArrayList(AstExpr).new(),
+    false,
+    make_token(TokenKind.Identifier, BK_TUPLE)
+  )
+);
+
+/// Build a cond arm `condition => body` (infix =>).
+make_arm :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "=>"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(cond_expr);
+      a.push(body_expr);
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, "=>")
+  )
+);
+
+/// Build `cond(arm1, arm2, …)`.
+make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "cond"))),
+    arms,
+    false,
+    make_token(TokenKind.Identifier, "cond")
+  )
+);
+
+/// Build `keyword(arg1, arg2, …)` — used for enum/struct/union/trait/object/newtype.
+make_typedef_call :: (fn(keyword : str, type_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, keyword))),
+    type_args,
+    false,
+    make_token(TokenKind.Identifier, keyword)
+  )
+);
+
+/// Build `func_name(arg1, arg2, …)` — a non-infix function call.
+make_fncall_atom :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build a `label : type_expr` labeled field expression (infix colon).
+make_labeled_field :: (fn(label : str, type_expr : AstExpr) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_ident(label));
+      a.push(type_expr);
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, ":")
+  )
+);
+
+/// Build `VariantName(field1, field2, …)` — enum variant with fields.
+make_variant :: (fn(name : str, field_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    field_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+check_some :: (fn(result : Option(EvalResult), label : str) -> unit)(
+  match(result,
+    .Some(_) => (),
+    .None => {
+      println(`FAIL [${label}]: expected Some, got None`);
+      assert(false, label);
+    }
+  )
+);
+
+check_none :: (fn(result : Option(EvalResult), label : str) -> unit)(
+  match(result,
+    .Some(_) => {
+      println(`FAIL [${label}]: expected None, got Some`);
+      assert(false, label);
+    },
+    .None => ()
+  )
+);
+
+check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
+  match(result,
+    .Some(_) => (),
+    .None => {
+      println(`FAIL [${label}]: expected Some(EvalValue), got None`);
+      assert(false, label);
+    }
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Bool literals
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Integer literals
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Float literals
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// String literals
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Char literals
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Identifier lookup
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Non-literal / unsupported atoms → None
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Unit expression
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Begin blocks
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// cond expression
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Variable define (:=)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Variable assign (=)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3d helpers: build enum-variant AST nodes
+// ---------------------------------------------------------------------------
+
+/// Build the dot-token and dot-atom.
+make_dot_tok :: (fn() -> Token)(make_token(TokenKind.Dot, "."));
+make_dot_atom :: (fn() -> AstExpr)(make_atom(TokenKind.Dot, "."));
+
+/// Build a fieldless enum variant: `.None`
+/// Parsed representation: FnCall(Atom(Dot), [Atom(Identifier, "None")], is_infix=true)
+make_fieldless_variant :: (fn(name : str) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(make_dot_atom()),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_ident(name));
+      a
+    },
+    true,
+    make_dot_tok()
+  )
+);
+
+/// Build a variant-with-args call: `.Some(arg)`
+/// Representation: FnCall(FnCall(Atom(Dot), [Atom("Some")], true), [arg], false)
+make_variant_call :: (fn(name : str, args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(make_fieldless_variant(name)),
+    args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build a `match(scrutinee, arm1, …)` call.
+make_match :: (fn(scrutinee : AstExpr, arms : ArrayList(AstExpr)) -> AstExpr)({
+  all := ArrayList(AstExpr).new();
+  all.push(scrutinee);
+  (i : usize) = usize(0);
+  while runtime((i < arms.len())), {
+    match(arms.get(i),
+      .Some(arm) => { all.push(arm); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "match"))),
+    all,
+    false,
+    make_token(TokenKind.Identifier, "match")
+  )
+});
+
+/// Build `while condition, body`.
+make_while :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(cond_expr);
+  args.push(body_expr);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "while"))),
+    args,
+    false,
+    make_token(TokenKind.Identifier, "while")
+  )
+});
+
+/// Build `runtime(expr)`.
+make_runtime :: (fn(inner : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(inner);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "runtime"))),
+    args,
+    false,
+    make_token(TokenKind.Identifier, "runtime")
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3d — enum variant construction
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3d — match expressions
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3d — while loops
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3e helpers — function definitions and calls
+// ---------------------------------------------------------------------------
+
+/// Build the param-list part of a fn expression: FnCall(Atom("fn"), [p1, p2, …], false).
+/// Params are bare atoms (no type annotation) for test simplicity.
+make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
+  param_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while runtime((i < param_names.len())), {
+    match(param_names.get(i),
+      .Some(n) => {
+        param_exprs.push(.Atom(usize(0), make_token(TokenKind.Identifier, n.as_str())));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  )
+});
+
+/// Build `(fn(params) -> unit)(body)`.
+make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)({
+  fn_expr := make_fn_params(param_names);
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+/// Build a function call `name(args…)`.
+make_call :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build `return expr`.
+make_return :: (fn(expr : AstExpr) -> AstExpr)({
+  ret_args := ArrayList(AstExpr).new();
+  ret_args.push(expr);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "return"))),
+    ret_args,
+    false,
+    make_token(TokenKind.Identifier, "return")
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3e — function definitions and calls
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3f — recur (recursive calls) and :: (constant declarations)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3f — type casts: i32(x), u64(x), usize(n), etc.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3g helpers — typed declarations and string literals
+// ---------------------------------------------------------------------------
+
+/// Build a string-literal atom with the given raw value.
+make_str :: (fn(s : str) -> AstExpr)(
+  make_atom(TokenKind.StringLit, s)
+);
+
+/// Build `(name : type_name) = rhs` — typed variable declaration.
+/// e.g. `(x : i32) = i32(5)` → declares x of type i32 with value 5.
+make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
+  colon_args := ArrayList(AstExpr).new();
+  colon_args.push(make_ident(name));
+  colon_args.push(make_ident(type_name));
+  (lhs : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    colon_args,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_infix("=", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3g — typed variable declarations
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3g — string comparison
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3h — struct value construction and field access
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3i — closure capture / lexical scoping
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3j — method dispatch on StructVal and impl block registration
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3k — TypeVal: type names as first-class compile-time values
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3l helpers — build fn defs with typed / forall params
+// ---------------------------------------------------------------------------
+
+/// Build a typed param `name : type_name` as an infix `:` FnCall.
+make_typed_param :: (fn(name : str, type_name : str) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a.push(make_atom(TokenKind.Identifier, type_name));
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, ":")
+  )
+);
+
+/// Build a forall param `forall(name)` as a non-infix FnCall.
+make_forall_param :: (fn(name : str) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "forall"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a
+    },
+    false,
+    make_token(TokenKind.Identifier, "forall")
+  )
+);
+
+/// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
+/// More general than `make_fn_def` which only accepts bare atom param names.
+make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
+  (fn_expr : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3l — Generic specialization / forall param binding
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3m helpers — build export, open, and import AST nodes
+// ---------------------------------------------------------------------------
+
+/// Build `export(names…)` as a non-infix FnCall.
+make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
+  export_tok := make_token(TokenKind.Identifier, BK_EXPORT);
+  args := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(name) => { args.push(make_ident(name)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(usize(0), box(.Atom(usize(0), export_tok)), args, false, export_tok)
+});
+
+/// Build `open(expr)` as a non-infix FnCall.
+make_open :: (fn(expr : AstExpr) -> AstExpr)({
+  open_tok := make_token(TokenKind.Identifier, BK_OPEN);
+  args := ArrayList(AstExpr).new();
+  args.push(expr);
+  .FnCall(usize(0), box(.Atom(usize(0), open_tok)), args, false, open_tok)
+});
+
+/// Build `import("path")` as a non-infix FnCall (path is a string literal).
+make_import_expr :: (fn(path : str) -> AstExpr)({
+  import_tok := make_token(TokenKind.Identifier, BK_IMPORT);
+  path_lit   := `"${String.from(path)}"`;
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.StringLit, path_lit.as_str()));
+  .FnCall(usize(0), box(.Atom(usize(0), import_tok)), args, false, import_tok)
+});
+
+/// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
+make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
+  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+  name_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(nm) => { name_exprs.push(make_ident(nm)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), name_exprs, false, anon_tok);
+  rhs := make_import_expr(path);
+  make_infix("::", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3m — Module system
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3n — if expressions, float arithmetic, comptime param names
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3o — evidence params / using(name : Type) / evidence passing
+// ---------------------------------------------------------------------------
+
+/// Build `using(inner_expr)` call — used both for param declarations and
+/// call-site evidence passing.
+make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
+  ua := ArrayList(AstExpr).new();
+  ua.push(inner);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "using"))),
+    ua,
+    false,
+    make_token(TokenKind.Identifier, "using")
+  )
+});
+
+/// Build `using(name : Type)` param for a function definition.
+make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
+  ca := ArrayList(AstExpr).new();
+  ca.push(make_ident(name));
+  ca.push(make_ident(type_name));
+  colon_expr := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    ca,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_using_call(colon_expr)
+});
+
+/// Build `(fn(params…) -> ret_type)(body)` function definition expression.
+make_typed_fn_def :: (fn(
+  fn_params : ArrayList(AstExpr),
+  ret_type  : AstExpr,
+  body      : AstExpr
+) -> AstExpr)({
+  fn_head := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    fn_params,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arr_a := ArrayList(AstExpr).new();
+  arr_a.push(fn_head);
+  arr_a.push(ret_type);
+  fn_sig := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arr_a,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, "->"))
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 Validation Milestone — evaluate a simple hello_world-style module
+//
+// Constructs the AST for:
+//   main :: (fn(using(io : IO)) -> unit)({ io; });
+//   export main;
+// and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
+// with evidence_params=["io"] and no regular params.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 2bk — anonymous struct literal evaluation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3z — Type definition keyword handlers
+// (enum, struct, object, newtype, union, trait)
+// ---------------------------------------------------------------------------
+
+/// Helper: build a fresh env with `T` bound to `TypeVal(i32)`.
+make_env_with_T :: (fn() -> Environment)({
+  env := Environment.new(`T_env`);
+  (ti32 : TypeValue) = t_i32();
+  _ := (&env).define_val(
+    String.from("T"),
+    t_type(),
+    true,
+    .Some(.TypeVal(box(ti32)))
+  );
+  env
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3z integration — CTFE with type definitions via source parsing
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3aa — Instance method dispatch via _try_find_receiver_method
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ac: closure capture and higher-order function tests
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ae — while loop accumulator, match .Some(x) binding, nested calls
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3af — recur (recursive self-call), ||, multi-capture closures
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ag — return keyword early exit, struct field access, float arithmetic
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ah — integer div/mod, function composition, string equality, impl method call
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ai — fieldless enum match, bool negation, to_string, template string
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3aj: String.from(), String.new(), StrLit+StrLit infix, higher-order fn
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ak: StrLit.as_str() passthrough, StrLit.len() length
+// ---------------------------------------------------------------------------
+
+// Phase 3al — StrLit.starts_with / ends_with / contains shims
+
+// =========================================================================
+// Phase 3am: box/deref, ArrayList, StrLit.substring, ArrayVal.len/get
+// =========================================================================
+
+// =========================================================================
+// Phase 3an: StrLit.replace_all, .trim, .to_uppercase, .to_lowercase
+// =========================================================================
+
+// =========================================================================
+// Phase 3ao: StrLit.parse_i64()
+// =========================================================================
+
+// =============================================================================
+// Phase 3ap: break/for loop support
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Phase 3aq: Struct field mutation — `s.field = rhs`
+// ---------------------------------------------------------------------------
+
+// =============================================================================
+// Phase 5m: given(name) := expr binding support
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Phase 5q: more eval tests — nested blocks, function call, unary ops
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 5r — More evaluator integration tests
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// Phase 5s — Integration tests: for loop, array literal, given, string concat
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5t — Closure (=>) evaluation tests using raw AST construction
+// (The self-hosted parser currently crashes on `=>` — see issues/parser-lambda-crash.md)
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5u — continue keyword, assert, and comptime_assert
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5v — FnMut closure (=>>), logical NOT (!), unary negation (-)
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5w — runtime(), dyn(), comptime(), type constructors
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5x — Bitwise operators, println no-op
+// ===========================================================================
+
+// Phase 5y — extern, c_include, where, forall, type_of, size_of, align_of,
+// HashMap, unreachable, panic, todo, array .set(), .is_empty()
+
+// Phase 5z — Impl/Fn/FnMut/FnOnce type constructors, derive, export, comptime_expect_error,
+// StrLit.is_empty(), StrLit.char_at(i)
+
+// Phase 5aa — clone passthrough, tuple construction, Slice/Future/Array type ctors
+
+// Phase 5ab — string replace, index_of, string ordering comparisons
+
+// Phase 5ac — split, contains, eval_values_equal
+
+// Phase 5ad — ArrayVal.join, integer conversions
+
+// Phase 5ae — ArrayVal.first/last, IntLit.abs
+
+// Phase 5af — IntLit.min/max, StrLit.repeat
+
+// Phase 5ag — ArrayVal.map/filter with FuncVal
+
+// Phase 5ah — ArrayVal.fold/any/all
+
+// Phase 5ai — ArrayVal.concat/reverse
+
+// Phase 5aj — tuple destructuring
+
+// Phase 5ak — escape keyword + additional operations
+
+// Phase 5al — StrLit.as_bytes()
+
+// ===================================================================
+// Phase 5am: ArrayVal.enumerate(), ArrayVal.zip(), ArrayVal.slice()
+// ===================================================================
+
+// ===================================================================
+// Phase 5an: ArrayVal.index_of(), ArrayVal.flat_map()
+// ===================================================================
+
+// ===================================================================
+// Phase 5ao: Complex module-body evaluation tests
+// ===================================================================
+
+// Phase 5ap: recursive factorial with pattern matching
+
+// Phase 5ap: map over array of structs, extract field
+
+// Phase 5ap: nested function calls (compose)
+
+// Phase 5ap: fibonacci via recur
+
+// Phase 5ap: multiple exports from module
+
+// Phase 5aq: recursive sum with accumulator
+
+// Phase 5aq: string concatenation in loop
+
+// Phase 5aq: higher-order: apply function twice
+
+// Phase 5aq: enum with multiple variants and match
+
+// Phase 5aq: array filter then map (chained operations)
+
+// Phase 5ar: TypeVal.Variant(args) — enum variant construction with data
+
+// Phase 5ar: TypeVal.Variant(args) with multiple fields
+
+// Phase 5ar: array.fold with initial value and reducer
+
+// Phase 5ar: string starts_with and ends_with
+
+// Phase 5as: StrLit.trim removes whitespace
+
+// Phase 5as: StrLit.char_at returns character
+
+// Phase 5as: StrLit.replace replaces substring
+
+// Phase 5as: StrLit.split produces array of strings
+
+// Phase 5as: string concatenation via + operator
+
+// Phase 5at: module-level mutable reassignment
+
+// Phase 5at: passing function as argument
+
+// Phase 5at: deeply nested match extraction
+
+// Phase 5at: array of enums with map
+
+// Phase 5at: struct construction and access
+
+// Phase 5au: if() function pattern (boolean then-else)
+
+// Phase 5au: cond with multiple boolean guards
+
+// Phase 5au: while loop modifying array
+
+// Phase 5au: enum variant with single field and match extraction
+
+// Phase 5au: comptime binding with struct type
+
+// Phase 5av: StrLit.substring extracts portion
+
+// Phase 5av: comptime binding then runtime use
+
+// Phase 5av: simple :: binding (comptime alias)
+
+// Phase 5av: array.any and array.all
+
+// Phase 5aw: array.map with enum construction
+
+// Phase 5aw: nested struct field access
+
+// Phase 5aw: String.from + .len()
+
+// Phase 5aw: while loop with break condition
+
+// Phase 5aw: array literal + fold to sum
+
+// Phase 5ax: match exhaustiveness with default arm
+
+// Phase 5ax: match wildcard catches non-matching variants
+
+// Phase 5ax: function returning a struct
+
+// Phase 5ax: enum variant with single field destructured
+
+// Phase 5ax: chained method calls on string
+
+// Phase 5ay: ArrayList push + get + len
+
+// Phase 5ay: Option.is_some using local enum
+
+// Phase 5ay: boolean AND/OR
+
+// Phase 5ay: for loop over array with accumulator
+
+// Phase 5ay: nested cond (if-else-if chain)
+
+// Phase 5az: :: binds comptime value
+
+// Phase 5az: struct with method-like function
+
+// Phase 5az: string equality comparison
+
+// Phase 5az: array filter then fold
+
+// Phase 5az: multiple functions calling each other
+
+// Phase 5ba: enum equality check
+
+// Phase 5ba: array of structs
+
+// Phase 5ba: string concatenation with +
+
+// Phase 5ba: higher-order function via apply
+
+// Phase 5ba: mutable struct field update
+
+// Phase 5bb: array.map with struct construction
+
+// Phase 5bb: recursive function with base case
+
+// Phase 5bb: string starts_with and ends_with
+
+// Phase 5bb: usize arithmetic
+
+// Phase 5bb: for loop with break
+
+// Phase 5bc: nested match on Option(i32)
+
+// Phase 5bc: multiple struct types
+
+// Phase 5bc: while loop with multiple mutations
+
+// Phase 5bc: array.reverse
+
+// Phase 5bc: string split and access
+
+// Phase 5bd: modulo operator
+
+// Phase 5bd: negation with unary minus
+
+// Phase 5bd: array.first and array.last
+
+// Phase 5bd: Integer division
+
+// Phase 5bd: String.contains
+
+// Phase 5be: complex conditional with multiple comparisons
+
+// Phase 5be: array.concat
+
+// Phase 5be: nested function calls with multiple args
+
+// Phase 5be: string replace simple
+
+// Phase 5be: for loop building array with push
+
+// Phase 5bf: struct field update then read
+
+// Phase 5bf: multiple :: bindings in sequence
+
+// Phase 5bf: function that takes and returns struct
+
+// Phase 5bf: while loop counting with early exit
+
+// Phase 5bf: integer max/min
+
+// Phase 5bg: array.get returns Option
+
+// Phase 5bg: array.get out of bounds returns None
+
+// Phase 5bg: comparison operators on integers
+
+// Phase 5bg: string index_of
+
+// Phase 5bg: float arithmetic
+
+// Phase 5bh: struct equality comparison
+
+// Phase 5bh: array equality
+
+// Phase 5bh: GCD algorithm (Euclidean)
+
+// Phase 5bh: enum != comparison
+
+// Phase 5bh: complex expression: map+filter+fold pipeline
+
+// Phase 5bi: string + concatenation
+
+// Phase 5bi: .to_string() on integers
+
+// Phase 5bi: .to_string() + string concat (template string equivalent)
+
+// Phase 5bi: ArrayList.get returns Option
+
+// Phase 5bi: not operator
+
+// Phase 5bj: open import (merge module exports into scope)
+
+// Phase 5bj: string.as_str() comparison
+
+// Phase 5bj: complex for loop with cond inside
+
+// Phase 5bj: array built from for loop
+
+// Phase 5bj: struct with boolean field
+
+// Phase 5bk: ArrayList set and get (set returns new array)
+
+// Phase 5bk: function returning bool used in cond
+
+// Phase 5bk: nested struct access and mutation
+
+// Phase 5bk: i64 arithmetic
+
+// Phase 5bk: enum variant with data field in match arm
+
+// Phase 5bl: string char_at
+
+// Phase 5bl: boolean to_string
+
+// Phase 5bl: integer abs
+
+// Phase 5bl: complex pipeline: map to struct, filter, fold
+
+// Phase 5bl: nested enum (Option of enum variant)
+
+// === Phase 5bm: recursive data structures, higher-order fns, mutual definitions ===
+
+// === Phase 5bn: closures, higher-order, pattern matching depth ===
+
+// === Phase 5bo: for-loop patterns, filter, nested function calls ===
+
+// === Phase 5bp: begin blocks, shadowing, reassignment ===
+
+// === Phase 5bq: type definitions, fn composition, array operations ===
+
+// === Phase 5br: more complex patterns ===
+
+// === Phase 5bs: more patterns used by evaluator itself ===
+
+// === Phase 5bt: fn as first-class value, composition patterns ===
+
+// === Phase 5bu: patterns the evaluator uses internally ===
+
+// === Phase 5bv: edge cases and negative tests ===
+
+// === Phase 5bw: more evaluator-like patterns ===
+
+// === Phase 5bx: type-level patterns and comptime ===
+
+// === Phase 5by: more complex evaluation patterns ===
+
+// === Phase 5bz: reaching 500 eval tests — comprehensive coverage ===
+
+// === Phase 5ca: reaching 500 eval tests ===
+
+// === Phase 5cb: evaluator stress - programs with multiple interacting definitions ===
+
+// Phase 5da: arithmetic chains, nested struct, array ops
+
+// Phase 5db: recursive patterns, while loops, boolean logic
+
+// Phase 5dc: struct operations, array indexing, string comparisons
+
+// Phase 5dd: function composition, array contains, string len
+
+// Phase 5de: complex patterns, enum matching, array operations
+
+// Phase 5df: higher-order functions, closures, array chaining
+
+// Phase 5dg: more enum patterns, negation, comparison chains
+
+// Phase 5dh: more struct/enum patterns, multi-step computation
+
+// Phase 5di: complex while loops, chained operations
+
+// Phase 5dj: more arithmetic, recursion depth, struct patterns
+
+// Phase 5dk: complex while patterns, nested functions
+
+// Phase 5dl: array operations, boolean patterns
+
+// Phase 5dm: more complex patterns
+
+// Phase 5dn: more complex recursion and computation
+
+// Phase 5do: edge cases and advanced patterns
+
+// Phase 5dp: advanced recursion and data structures
+
+// Phase 5dq: more boolean operations, enum chaining
+
+// Phase 5dr: more struct/array patterns
+
+// Phase 5ds: complex computations and edge cases
+
+// Phase 5dt: final batch - mixed operations
+
+// Phase 5du: more function patterns, closures with capture
+
+// Phase 5dv: struct mutation, while patterns
+
+// Phase 5dw: more complex computation
+
+// Phase 5dx: advanced patterns
+
+// Phase 5dy: final tests for this batch
+
+// Phase 5dz: edge cases and diverse patterns
+
+// Phase 5ea: more diverse patterns
+
+// Phase 5eb: more patterns
+
+// Phase 5ec: last batch
+
+// Phase 5ed: string and function composition
+
+// Phase 5ee: enum and struct patterns
+
+// Phase 5ef: complex while and array
+
+// Phase 5eg: closures and higher order functions
+
+// Phase 5eh: multi-export and complex arithmetic
+
+// Phase 5ei: combined patterns
+
+// Phase 5ej: more while loop and array patterns
+
+// Phase 5ek: more complex patterns
+
+// Phase 5el: more recursion and struct patterns
+
+// Phase 5em: more patterns
+
+// Phase 5en: advanced patterns
+
+// Phase 5eo: more complex computations
+
+// Phase 5ep: while loops and arithmetic
+
+// Phase 5eq: advanced algorithms
+
+// Phase 5er: more varied tests
+
+// Phase 5es: final batch to 850
+
+// Phase 5et: more patterns pushing to 875
+
+// Phase 5eu: more patterns
+
+// Phase 5ev: final 5 to reach 875
+
+// Phase 5ew: pushing to 880
+
+// Phase 5ex: more algorithm tests
+
+// Phase 5ey: more tests to reach 885
+
+// =============================================================================
+// Phase 5ez: Regression tests — export expr, single-field struct, Box ctor
+// =============================================================================
+
+// =========================================================================
+// Phase 5fa: Integration tests — struct ops, enum match, functions, closures,
+//   array pipelines, string methods, loops, begin blocks, tuples, cond chains
+// =========================================================================
+
+// =============================================================================
+// Phase 5fb: module loading, higher-order functions, string methods, return, continue
+// =============================================================================
+
+// =============================================================================
+// Phase 5fc: advanced patterns — recursion, closures, composition, strings, arrays
+// =============================================================================
+
+// =============================================================================
+// Phase 5fd: power, string ops, arrays, nested loops, fibonacci, for loops, modules
+// =============================================================================
+
+// =============================================================================
+// Phase 5fe: recursion, struct update, flat_map, replace_all, modules, GCD, fold
+// =============================================================================
+
+// =============================================================================
+// Phase 5ff: recursion, string trim, structs, booleans, break, nested functions, Ackermann
+// =============================================================================
+
+// =============================================================================
+// Phase 5fg: collatz, palindrome, primes, binary search, slice, clamp, struct equality
+// =============================================================================
+
+// =============================================================================
+// Phase 5fh: sum of squares, abs, digits, enum match, HOF, fib array, LCM, power
+// =============================================================================
+
+// =============================================================================
+// Phase 5fi: nested structs, string ops, fold, reverse, power of 2, fibonacci array
+// =============================================================================
+
+// =============================================================================
+// Phase 5fj: triangle numbers, any/all, fizzbuzz, recursive len, join, enum eq
+// =============================================================================
+
+// =============================================================================
+// Phase 5fk: sorting, matrix diagonal, string repeat, struct update, distance, map chain
+// =============================================================================
+
+// =============================================================================
+// Phase 5fl: char_at, to_lowercase, concat arrays, string equality, HOF filter sum
+// =============================================================================
+
+// =============================================================================
+// Phase 5fm: ROT13, isqrt, running total, for loop, unique array, nested struct chain
+// =============================================================================
+
+// =============================================================================
+// Phase 5fn: Hanoi, Catalan, perfect numbers, functional pipeline, tribonacci, closures
+// =============================================================================
+
+// =============================================================================
+// Phase 5fo: Collatz longest chain, happy numbers, two-sum, cubes, Roman numerals
+// =============================================================================
+
+// =============================================================================
+// Phase 5fp: insertion search, Ackermann, range product, is_sorted, leap year, RLE
+// =============================================================================
+
+// =============================================================================
+// Phase 5fq: Dutch flag, Kadane max subarray, majority element, bit count, factorials
+// =============================================================================
+
+// Phase 5gd: absolute value, linear search, divisors, digits, second largest, trailing zeros, parity, repeated squaring, fizzbuzz filter, struct distance
+
+// Phase 5ge: square numbers, rotation, exponent, alternating sum, char count, weighted avg, digit product, array equality, countdown step, de morgan
+
+// Phase 5gf: fibonacci array, inversions, palindrome check, GCD3, running average, nested struct, filter evens/odds, matrix mult, digit count, cycle detection
+
+// Phase 5gg: merge sorted, word count, power set, prefix sum, recursive reverse, string repeat, binary search, std dev, linked list, map reduce
+
+// Phase 5gh: stack ops, digit sum, prime factorization, two sum, subarray sum, char frequency, all same, nested struct, common elements, pentagonal
+
+// Phase 5gi: caesar cipher, intersection, binomial, rotate left, recursive sum, trailing zeros, split rejoin, kadane, struct stats, classify
+
+// Phase 5gj: hanoi count, array diff, word length max, sieve primes, fast power, zip pairs, majority element, recursive char count, mean+above, multiple exits
+
+// Phase 5gk: modular inverse, cumulative product, common prefix, pair sum count, struct builder, stable partition, hexagonal, recursive min, sum squares, xor truth table
+
+// Phase 5gl: josephus, dutch flag, tower height, digit count in string, geometric sum, max consecutive ones, number words, manhattan distance, fold min/max, enum state machine
+
+// Phase 5gm: matrix sum, harmonic number, window min, ackermann, group by modulo, string patterns, collatz path, struct array, diagonal sum, recursive multiply
+
+// Phase 5gn: catalan iterative, remove duplicates, lucas numbers, string occurrences, chunk sum, enum option chaining, perfect numbers, scan product, fizzbuzz sum, recursive hanoi
+
+// Phase 5go: counting sort, matrix trace, string reverse, arithmetic series, interleave arrays, recursive even/odd, struct select, max product pair, uppercase words, nested for product
+
+// Phase 5gp: floyd triangle, zigzag, modular pow, word reverse, running min/max, enum visitor, grade cond, polynomial, kth smallest, mutual recursion
+
+// Phase 5gq: triangular numbers, array reverse set, power of 2, vowel consonant, sliding window avg, factorion, struct inheritance, early flag, harmonic series, element frequency
+
+// Phase 5gr: quickselect partition, RLE runs, recursive depth, map+any+all, tetrahedral, pos/neg split, is numeric, fibonacci under limit, struct method chain, enum+struct match
+
+// Phase 5gs: array chunks, odd positions, binary string, struct point, traffic light, digits, padding, power3, spread, contains char
+
+// Phase 5gt: digit sum, filter fold, break loop, repeat, struct dot, state machine, power, map squares, nested struct, for cond
+
+// Phase 5gu: collatz, reverse first/last, GCD, starts/ends_with, fib iter, enum data, count while, any/all, split count, enum values
+
+// Phase 5gv: concat, LCM, replace_all, factorial, struct equality, for push, boolean logic, index_of, palindrome, set/get
+
+// Phase 5gw: push+fold, count occurrences, mod pow, struct array, squares, enum equality, contains, upper/lower, sum_to, classify
+
+// Phase 5gx: join, binary search, fib array, string reverse, early break, HOF compose, cond score, struct pair, prime, multi export
+
+// Phase 5gy: contains substring, countdown, filter odds, rect struct, divisibility, enum wildcard, nested for, string length, for max, fizzbuzz
+
+// Phase 5gz: map double filter, power2 table, enum option, split+join, tribonacci, struct update, multiple mutations, map to struct, boolean, sum via index
+
+// Phase 5ha: cubed sum, sum even, vowel count, enum leaf, geometric series, filter-map, classify quadrant, product fold, string builder, struct stats
+
+// Phase 5hb: double reverse, binary to decimal, struct select, fib pair, enum Result, string trim+upper, push filter primes, starts_with count, recursive x's, nested struct line
+
+// Phase 5hc: zip sum, hanoi count, word count, enum FSM, partition, complex while, struct array max, sum multiples, char extract, numeric bucket
+
+// Phase 5hd: intersection, ackermann, prefix count, config struct, newton sqrt, color enum, sliding window, first odd, perfect number, multi struct
+
+// Phase 5he: duplicate detection, catalan, binary search, struct swap, digit extract, enum priority, sorted check, occurrence count, tail recursion sum, filter-map-fold pipeline
+
+// Phase 5hf: selection sort min, fast power, rectangle ops, factorial countdown, enum message data, chunk sums, word reverse, range sum, weighted index, struct interaction
+
+// Phase 5hg: windowed diffs, recursive string, computed stats struct, enum direction count, fib tail, split filter, modular pow, break first odd, digit count, cubed sum
+
+// Phase 5hh: partition evens/odds, GCD+LCM, struct transform chain, collatz(27)=111 steps, enum Expr eval, running max, palindrome check, digit sum recursive, for products, function composition
+
+// Phase 5hi: deduplicate, hanoi moves, struct volume+surface, geometric seq, enum Result chain, replace_all multi, filter-fold odds/evens, count ones binary, dot product, state machine
+
+// Phase 5hj: prefix sums, pascal triangle, manhattan distance, prime sieve count, enum command dispatch, string repeat, any/all predicates, power of two, matrix trace, struct with enum field
+
+// Phase 5hk: interleave arrays, recursive string reverse, struct item pricing, binary digits, enum suit counting, squares>10 filter, triangular nums, path reverse join, conditional div3/div5, nested cond classify
+
+// Phase 5hl: rotate left, ackermann(2,3)=9, triangle validity, newton isqrt, enum Op AST, word count filter, perfect squares filter, sum-of-squares recursive, string for-loop build, struct equality ==
+
+// Phase 5hm: zip weighted sum, harmonic numbers, nested struct 3 levels, fib count<1000, enum token classify, csv split join, ArrayList fib gen, int-to-string recursive, break on threshold, struct best student
+
+// Phase 5hn: running average, recursive pad left, vec2 operations dot product, digit reversal, enum Shape area visitor, char frequency count, Kadane max subarray, count divisors, dual pos/neg counters, Range overlap check
+
+// Phase 5ho: two-pointer pair sum, recursive power series sum, struct linked list traversal, exponential growth 2^20, enum Action accumulator, endsWith filter .yo files, find last even, sum cubes tail, filter+map pipeline, task priority max
+
+// Phase 5hp: sliding window max sum, double factorial, circle contains point, halving convergence, enum BinOp eval, word length filter, score histogram, falling factorial, zigzag sum, struct immutable state update
+
+test "Phase 5aa: clone on IntLit returns same value", {
+  env := empty_env();
+  // 42.clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "clone should return same IntLit"),
+        _ => assert(false, "clone should return IntLit")
+      )
+  );
+};
+
+test "Phase 5aa: clone on StrLit returns same value", {
+  env := empty_env();
+  // "hello".clone()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "clone"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "clone returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"hello\""), "clone should return same StrLit"),
+        _ => assert(false, "clone should return StrLit")
+      )
+  );
+};
+
+test "Phase 5aa: tuple (1, 2, 3) creates StructVal", {
+  env := empty_env();
+  // (1, 2, 3) — BK_TUPLE with 3 args
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "1"));
+  tup_args.push(make_atom(TokenKind.Integer, "2"));
+  tup_args.push(make_atom(TokenKind.Integer, "3"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  result := evaluate(tup_expr, &env);
+  match(result,
+    .None => assert(false, "tuple returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StructVal(name, fnames, fvals) => {
+          assert((name.as_str() == "_"), "tuple name should be _");
+          assert((fvals.len() == usize(3)), "tuple should have 3 fields");
+          match(fvals.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "1"), "first elem should be 1"), _ => assert(false, "elem 0 should be IntLit")),
+            .None => assert(false, "should have elem 0")
+          );
+        },
+        _ => assert(false, "tuple should return StructVal")
+      )
+  );
+};
+
+test "Phase 5aa: Slice type constructor", {
+  env := empty_env();
+  sl_args := ArrayList(AstExpr).new();
+  sl_args.push(make_atom(TokenKind.Identifier, "u8"));
+  sl_expr := make_fncall_atom("Slice", sl_args);
+  result := evaluate(sl_expr, &env);
+  match(result,
+    .None => assert(false, "Slice returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "Slice should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5aa: Future type constructor", {
+  env := empty_env();
+  ft_args := ArrayList(AstExpr).new();
+  ft_args.push(make_atom(TokenKind.Identifier, "i32"));
+  ft_args.push(make_atom(TokenKind.Identifier, "IO"));
+  ft_expr := make_fncall_atom("Future", ft_args);
+  result := evaluate(ft_expr, &env);
+  match(result,
+    .None => assert(false, "Future returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "Future should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5aa: IO type constructor", {
+  env := empty_env();
+  io_args := ArrayList(AstExpr).new();
+  io_expr := make_fncall_atom("IO", io_args);
+  result := evaluate(io_expr, &env);
+  match(result,
+    .None => assert(false, "IO returned None"),
+    .Some(r) =>
+      match(r.value,
+        .TypeVal(_) => (),
+        _ => assert(false, "IO should return TypeVal")
+      )
+  );
+};
+
+test "Phase 5ab: StrLit.replace replaces substring", {
+  env := empty_env();
+  // "hello world".replace("world", "yo")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello world\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "replace"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\"world\""));
+  call_args.push(make_atom(TokenKind.StringLit, "\"yo\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "replace returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"hello yo\""), "replace should produce hello yo"),
+        _ => assert(false, "replace should return StrLit")
+      )
+  );
+};
+
+test "Phase 5ab: StrLit.index_of finds substring position", {
+  env := empty_env();
+  // "hello".index_of("ll")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "index_of"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\"ll\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "index_of returned None"),
+    .Some(r) =>
+      match(r.value,
+        .EnumVal(tag, fields) => {
+          assert((tag.as_str() == ".Some"), "should be .Some");
+          match(fields.get(usize(0)),
+            .Some(fv) => match(fv, .IntLit(n) => assert((n.as_str() == "2"), "position should be 2"), _ => assert(false, "field should be IntLit")),
+            .None => assert(false, "should have field 0")
+          );
+        },
+        _ => assert(false, "index_of should return EnumVal")
+      )
+  );
+};
+
+test "Phase 5ab: StrLit.index_of returns None when not found", {
+  env := empty_env();
+  // "hello".index_of("xyz")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"hello\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "index_of"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\"xyz\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "index_of returned None (error)"),
+    .Some(r) =>
+      match(r.value,
+        .EnumVal(tag, _) => assert((tag.as_str() == ".None"), "should be .None when not found"),
+        _ => assert(false, "index_of should return EnumVal")
+      )
+  );
+};
+
+test "Phase 5ab: string less-than comparison", {
+  env := empty_env();
+  // "abc" < "abd"
+  cmp_expr := make_infix("<", make_atom(TokenKind.StringLit, "\"abc\""), make_atom(TokenKind.StringLit, "\"abd\""));
+  result := evaluate(cmp_expr, &env);
+  match(result,
+    .None => assert(false, "string < returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "abc should be < abd"),
+        _ => assert(false, "should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ab: string greater-than comparison", {
+  env := empty_env();
+  // "z" > "a"
+  cmp_expr := make_infix(">", make_atom(TokenKind.StringLit, "\"z\""), make_atom(TokenKind.StringLit, "\"a\""));
+  result := evaluate(cmp_expr, &env);
+  match(result,
+    .None => assert(false, "string > returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "z should be > a"),
+        _ => assert(false, "should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ab: string <= comparison equal case", {
+  env := empty_env();
+  // "abc" <= "abc"
+  cmp_expr := make_infix("<=", make_atom(TokenKind.StringLit, "\"abc\""), make_atom(TokenKind.StringLit, "\"abc\""));
+  result := evaluate(cmp_expr, &env);
+  match(result,
+    .None => assert(false, "string <= returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "abc should be <= abc"),
+        _ => assert(false, "should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ac: StrLit.split splits by delimiter", {
+  env := empty_env();
+  // "a,b,c".split(",")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"a,b,c\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "split"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\",\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "split returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(3)), "split should produce 3 parts");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .StrLit(s) => assert((s.as_str() == "\"a\""), "first part should be a"), _ => assert(false, "should be StrLit")),
+            .None => assert(false, "should have part 0")
+          );
+          match(items.get(usize(2)),
+            .Some(v2) => match(v2, .StrLit(s) => assert((s.as_str() == "\"c\""), "third part should be c"), _ => assert(false, "should be StrLit")),
+            .None => assert(false, "should have part 2")
+          );
+        },
+        _ => assert(false, "split should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ac: ArrayVal.contains finds existing element", {
+  env := empty_env();
+  // Build array [1, 2, 3], then call .contains(2)
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  // define arr_c
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_c"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_c.contains(2)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_c"));
+  dot_args.push(make_atom(TokenKind.Identifier, "contains"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "2"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "contains returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "array should contain 2"),
+        _ => assert(false, "contains should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ac: ArrayVal.contains returns false for missing element", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_d"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_d.contains(99)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_d"));
+  dot_args.push(make_atom(TokenKind.Identifier, "contains"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "contains returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((!(b)), "array should not contain 99"),
+        _ => assert(false, "contains should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ad: ArrayVal.join with comma separator", {
+  env := empty_env();
+  // Define arr := ["a", "b", "c"]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.StringLit, "\"a\""));
+  arr_items.push(make_atom(TokenKind.StringLit, "\"b\""));
+  arr_items.push(make_atom(TokenKind.StringLit, "\"c\""));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_j"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // arr_j.join(",")
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_j"));
+  dot_args.push(make_atom(TokenKind.Identifier, "join"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.StringLit, "\",\""));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "join returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"a,b,c\""), "join should produce a,b,c"),
+        _ => assert(false, "join should return StrLit")
+      )
+  );
+};
+
+test "Phase 5ad: IntLit.to_usize passthrough", {
+  env := empty_env();
+  // 42.to_usize()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "to_usize"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "to_usize returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "to_usize should return same value"),
+        _ => assert(false, "to_usize should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ad: IntLit.to_i32 passthrough", {
+  env := empty_env();
+  // 7.to_i32()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "7"));
+  dot_args.push(make_atom(TokenKind.Identifier, "to_i32"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "to_i32 returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "7"), "to_i32 should return same value"),
+        _ => assert(false, "to_i32 should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ae: ArrayVal.first returns Some on non-empty", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "10"));
+  arr_items.push(make_atom(TokenKind.Integer, "20"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "af"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // af.first()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "af"));
+  dot_args.push(make_atom(TokenKind.Identifier, "first"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "first returned None"),
+    .Some(r) =>
+      match(r.value,
+        .EnumVal(tag, fields) => {
+          assert((tag.as_str() == ".Some"), "should be .Some");
+          match(fields.get(usize(0)),
+            .Some(fv) => match(fv, .IntLit(n) => assert((n.as_str() == "10"), "first should be 10"), _ => assert(false, "field should be IntLit")),
+            .None => assert(false, "should have field 0")
+          );
+        },
+        _ => assert(false, "first should return EnumVal")
+      )
+  );
+};
+
+test "Phase 5ae: ArrayVal.last returns last element", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "5"));
+  arr_items.push(make_atom(TokenKind.Integer, "6"));
+  arr_items.push(make_atom(TokenKind.Integer, "7"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "al"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  // al.last()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "al"));
+  dot_args.push(make_atom(TokenKind.Identifier, "last"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "last returned None"),
+    .Some(r) =>
+      match(r.value,
+        .EnumVal(tag, fields) => {
+          assert((tag.as_str() == ".Some"), "should be .Some");
+          match(fields.get(usize(0)),
+            .Some(fv) => match(fv, .IntLit(n) => assert((n.as_str() == "7"), "last should be 7"), _ => assert(false, "field should be IntLit")),
+            .None => assert(false, "should have field 0")
+          );
+        },
+        _ => assert(false, "last should return EnumVal")
+      )
+  );
+};
+
+test "Phase 5ae: ArrayVal.first on empty returns None", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_expr := make_infix(":=", make_atom(TokenKind.Identifier, "ae"), arr_expr);
+  _ := evaluate(def_expr, &env);
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "ae"));
+  dot_args.push(make_atom(TokenKind.Identifier, "first"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "first returned None error"),
+    .Some(r) =>
+      match(r.value,
+        .EnumVal(tag, _) => assert((tag.as_str() == ".None"), "empty first should be .None"),
+        _ => assert(false, "first should return EnumVal")
+      )
+  );
+};
+
+test "Phase 5ae: IntLit.abs on negative number", {
+  env := empty_env();
+  // (-5).abs()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "-5"));
+  dot_args.push(make_atom(TokenKind.Identifier, "abs"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "abs returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "5"), "abs(-5) should be 5"),
+        _ => assert(false, "abs should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ae: IntLit.abs on positive number unchanged", {
+  env := empty_env();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "42"));
+  dot_args.push(make_atom(TokenKind.Identifier, "abs"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "abs returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "42"), "abs(42) should be 42"),
+        _ => assert(false, "abs should return IntLit")
+      )
+  );
+};
+
+test "Phase 5af: IntLit.min returns smaller", {
+  env := empty_env();
+  // 10.min(3)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "10"));
+  dot_args.push(make_atom(TokenKind.Identifier, "min"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "min returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "3"), "min(10,3) should be 3"),
+        _ => assert(false, "min should return IntLit")
+      )
+  );
+};
+
+test "Phase 5af: IntLit.max returns larger", {
+  env := empty_env();
+  // 5.max(12)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Integer, "5"));
+  dot_args.push(make_atom(TokenKind.Identifier, "max"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "12"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "max returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "12"), "max(5,12) should be 12"),
+        _ => assert(false, "max should return IntLit")
+      )
+  );
+};
+
+test "Phase 5af: StrLit.repeat 3 times", {
+  env := empty_env();
+  // "ab".repeat(3)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"ab\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "repeat"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "repeat returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"ababab\""), "repeat 3 should produce ababab"),
+        _ => assert(false, "repeat should return StrLit")
+      )
+  );
+};
+
+test "Phase 5af: StrLit.repeat 0 times gives empty", {
+  env := empty_env();
+  // "x".repeat(0)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.StringLit, "\"x\""));
+  dot_args.push(make_atom(TokenKind.Identifier, "repeat"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "0"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "repeat returned None"),
+    .Some(r) =>
+      match(r.value,
+        .StrLit(v) => assert((v.as_str() == "\"\""), "repeat 0 should produce empty"),
+        _ => assert(false, "repeat should return StrLit")
+      )
+  );
+};
+
+test "Phase 5ag: ArrayVal.map doubles each element", {
+  env := empty_env();
+  // Define double := (x) => x * 2
+  // x * 2 as infix AST:
+  double_body := make_infix("*", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "2"));
+  // (x) => double_body
+  double_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), double_body);
+  def_double := make_infix(":=", make_atom(TokenKind.Identifier, "double"), double_lam);
+  _ := evaluate(def_double, &env);
+  // Define arr := [1, 2, 3]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_m"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_m.map(double)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_m"));
+  dot_args.push(make_atom(TokenKind.Identifier, "map"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "double"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "map returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(3)), "map should produce 3 elements");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "2"), "first should be 2"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 0")
+          );
+          match(items.get(usize(2)),
+            .Some(v2) => match(v2, .IntLit(s) => assert((s.as_str() == "6"), "third should be 6"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 2")
+          );
+        },
+        _ => assert(false, "map should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ag: ArrayVal.filter keeps evens", {
+  env := empty_env();
+  // Define is_even := (x) => (x % 2) == 0
+  mod_expr := make_infix("%", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "2"));
+  eq_expr := make_infix("==", mod_expr, make_atom(TokenKind.Integer, "0"));
+  even_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), eq_expr);
+  def_even := make_infix(":=", make_atom(TokenKind.Identifier, "is_even"), even_lam);
+  _ := evaluate(def_even, &env);
+  // Define arr := [1, 2, 3, 4, 5]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_items.push(make_atom(TokenKind.Integer, "4"));
+  arr_items.push(make_atom(TokenKind.Integer, "5"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_f"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_f.filter(is_even)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_f"));
+  dot_args.push(make_atom(TokenKind.Identifier, "filter"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "is_even"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "filter returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(2)), "filter should keep 2 evens");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "2"), "first even should be 2"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 0")
+          );
+          match(items.get(usize(1)),
+            .Some(v1) => match(v1, .IntLit(s) => assert((s.as_str() == "4"), "second even should be 4"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 1")
+          );
+        },
+        _ => assert(false, "filter should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ah: ArrayVal.fold sum", {
+  env := empty_env();
+  // add := (acc, x) => acc + x
+  add_body := make_infix("+", make_atom(TokenKind.Identifier, "acc"), make_atom(TokenKind.Identifier, "x"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  param_args := ArrayList(AstExpr).new();
+  param_args.push(make_atom(TokenKind.Identifier, "acc"));
+  param_args.push(make_atom(TokenKind.Identifier, "x"));
+  params := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), param_args, false, tup_tok);
+  add_lam := make_infix("=>", params, add_body);
+  def_add := make_infix(":=", make_atom(TokenKind.Identifier, "add_fn"), add_lam);
+  _ := evaluate(def_add, &env);
+  // arr := [1, 2, 3, 4]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_items.push(make_atom(TokenKind.Integer, "4"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_fo"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_fo.fold(0, add_fn)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_fo"));
+  dot_args.push(make_atom(TokenKind.Identifier, "fold"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "0"));
+  call_args.push(make_atom(TokenKind.Identifier, "add_fn"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "fold returned None"),
+    .Some(r) =>
+      match(r.value,
+        .IntLit(v) => assert((v.as_str() == "10"), "sum of 1+2+3+4 should be 10"),
+        _ => assert(false, "fold should return IntLit")
+      )
+  );
+};
+
+test "Phase 5ah: ArrayVal.any returns true when match found", {
+  env := empty_env();
+  // gt3 := (x) => x > 3
+  gt_body := make_infix(">", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "3"));
+  gt_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), gt_body);
+  def_gt := make_infix(":=", make_atom(TokenKind.Identifier, "gt3"), gt_lam);
+  _ := evaluate(def_gt, &env);
+  // arr := [1, 2, 5]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "5"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_an"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_an.any(gt3)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_an"));
+  dot_args.push(make_atom(TokenKind.Identifier, "any"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "gt3"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "any returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert(b, "any should be true since 5 > 3"),
+        _ => assert(false, "any should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ah: ArrayVal.all returns false when not all match", {
+  env := empty_env();
+  // pos := (x) => x > 0
+  pos_body := make_infix(">", make_atom(TokenKind.Identifier, "x"), make_atom(TokenKind.Integer, "0"));
+  pos_lam := make_infix("=>", make_atom(TokenKind.Identifier, "x"), pos_body);
+  def_pos := make_infix(":=", make_atom(TokenKind.Identifier, "pos"), pos_lam);
+  _ := evaluate(def_pos, &env);
+  // arr := [1, -2, 3]
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "-2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_al"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_al.all(pos)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_al"));
+  dot_args.push(make_atom(TokenKind.Identifier, "all"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "pos"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "all returned None"),
+    .Some(r) =>
+      match(r.value,
+        .BoolVal(b) => assert((!(b)), "all should be false since -2 < 0"),
+        _ => assert(false, "all should return BoolVal")
+      )
+  );
+};
+
+test "Phase 5ai: ArrayVal.concat merges two arrays", {
+  env := empty_env();
+  // arr1 := [1, 2]
+  arr1_items := ArrayList(AstExpr).new();
+  arr1_items.push(make_atom(TokenKind.Integer, "1"));
+  arr1_items.push(make_atom(TokenKind.Integer, "2"));
+  arr1_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr1_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr1_tok)), arr1_items, false, arr1_tok);
+  def_arr1 := make_infix(":=", make_atom(TokenKind.Identifier, "arr1"), arr1_expr);
+  _ := evaluate(def_arr1, &env);
+  // arr2 := [3, 4]
+  arr2_items := ArrayList(AstExpr).new();
+  arr2_items.push(make_atom(TokenKind.Integer, "3"));
+  arr2_items.push(make_atom(TokenKind.Integer, "4"));
+  arr2_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr1_tok)), arr2_items, false, arr1_tok);
+  def_arr2 := make_infix(":=", make_atom(TokenKind.Identifier, "arr2"), arr2_expr);
+  _ := evaluate(def_arr2, &env);
+  // arr1.concat(arr2)
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr1"));
+  dot_args.push(make_atom(TokenKind.Identifier, "concat"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "arr2"));
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "concat returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(4)), "concat should produce 4 elements");
+          match(items.get(usize(3)),
+            .Some(v3) => match(v3, .IntLit(s) => assert((s.as_str() == "4"), "last should be 4"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 3")
+          );
+        },
+        _ => assert(false, "concat should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5ai: ArrayVal.reverse reverses order", {
+  env := empty_env();
+  arr_items := ArrayList(AstExpr).new();
+  arr_items.push(make_atom(TokenKind.Integer, "1"));
+  arr_items.push(make_atom(TokenKind.Integer, "2"));
+  arr_items.push(make_atom(TokenKind.Integer, "3"));
+  arr_tok := make_token(TokenKind.Identifier, BK_ARRAY_VAL);
+  arr_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arr_tok)), arr_items, false, arr_tok);
+  def_arr := make_infix(":=", make_atom(TokenKind.Identifier, "arr_rv"), arr_expr);
+  _ := evaluate(def_arr, &env);
+  // arr_rv.reverse()
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_atom(TokenKind.Identifier, "arr_rv"));
+  dot_args.push(make_atom(TokenKind.Identifier, "reverse"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_expr := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(call_expr, &env);
+  match(result,
+    .None => assert(false, "reverse returned None"),
+    .Some(r) =>
+      match(r.value,
+        .ArrayVal(items) => {
+          assert((items.len() == usize(3)), "reverse should have 3 elements");
+          match(items.get(usize(0)),
+            .Some(v0) => match(v0, .IntLit(s) => assert((s.as_str() == "3"), "first should be 3 (reversed)"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 0")
+          );
+          match(items.get(usize(2)),
+            .Some(v2) => match(v2, .IntLit(s) => assert((s.as_str() == "1"), "last should be 1 (reversed)"), _ => assert(false, "should be IntLit")),
+            .None => assert(false, "missing elem 2")
+          );
+        },
+        _ => assert(false, "reverse should return ArrayVal")
+      )
+  );
+};
+
+test "Phase 5aj: tuple destructuring (a, b) := (1, 2)", {
+  env := empty_env();
+  // First create the tuple (1, 2)
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "1"));
+  tup_args.push(make_atom(TokenKind.Integer, "2"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  // LHS: (a, b)
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Identifier, "a"));
+  lhs_args.push(make_atom(TokenKind.Identifier, "b"));
+  lhs_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), lhs_args, false, tup_tok);
+  // (a, b) := (1, 2)
+  def_expr := make_infix(":=", lhs_expr, tup_expr);
+  _ := evaluate(def_expr, &env);
+  // Check a == 1
+  result_a := evaluate(make_atom(TokenKind.Identifier, "a"), &env);
+  match(result_a,
+    .None => assert(false, "a not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "1"), "a should be 1"), _ => assert(false, "a should be IntLit"))
+  );
+  // Check b == 2
+  result_b := evaluate(make_atom(TokenKind.Identifier, "b"), &env);
+  match(result_b,
+    .None => assert(false, "b not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "2"), "b should be 2"), _ => assert(false, "b should be IntLit"))
+  );
+};
+
+test "Phase 5aj: tuple destructuring with wildcard (_, b) := (1, 2)", {
+  env := empty_env();
+  tup_args := ArrayList(AstExpr).new();
+  tup_args.push(make_atom(TokenKind.Integer, "10"));
+  tup_args.push(make_atom(TokenKind.Integer, "20"));
+  tup_tok := make_token(TokenKind.Identifier, BK_TUPLE);
+  tup_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), tup_args, false, tup_tok);
+  lhs_args := ArrayList(AstExpr).new();
+  lhs_args.push(make_atom(TokenKind.Identifier, "_"));
+  lhs_args.push(make_atom(TokenKind.Identifier, "b2"));
+  lhs_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tup_tok)), lhs_args, false, tup_tok);
+  def_expr := make_infix(":=", lhs_expr, tup_expr);
+  _ := evaluate(def_expr, &env);
+  // b2 should be 20, _ should not be defined (wildcard)
+  result_b := evaluate(make_atom(TokenKind.Identifier, "b2"), &env);
+  match(result_b,
+    .None => assert(false, "b2 not found"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "20"), "b2 should be 20"), _ => assert(false, "b2 should be IntLit"))
+  );
+};
+
+test "Phase 5aj: EnumVal.is_some() true", {
+  env := empty_env();
+  // Create .Some(42) as an EnumVal in the env
+  some_fields := ArrayList(EvalValue).new();
+  some_fields.push(.IntLit(String.from("42")));
+  _ := env.define_val(String.from("opt"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".Some"), some_fields)));
+  // opt.is_some()
+  recv_ast := make_atom(TokenKind.Identifier, "opt");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "is_some");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "is_some returned None"),
+    .Some(r) => match(r.value, .BoolVal(v) => assert(v, "is_some should be true"), _ => assert(false, "expected BoolVal"))
+  );
+};
+
+test "Phase 5aj: EnumVal.is_none() true", {
+  env := empty_env();
+  none_fields := ArrayList(EvalValue).new();
+  _ := env.define_val(String.from("opt2"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".None"), none_fields)));
+  recv_ast := make_atom(TokenKind.Identifier, "opt2");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "is_none");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "is_none returned None"),
+    .Some(r) => match(r.value, .BoolVal(v) => assert(v, "is_none should be true"), _ => assert(false, "expected BoolVal"))
+  );
+};
+
+test "Phase 5aj: EnumVal.unwrap() extracts inner value", {
+  env := empty_env();
+  some_fields := ArrayList(EvalValue).new();
+  some_fields.push(.IntLit(String.from("99")));
+  _ := env.define_val(String.from("opt3"), t_unit(), true, .Some(EvalValue.EnumVal(String.from(".Some"), some_fields)));
+  recv_ast := make_atom(TokenKind.Identifier, "opt3");
+  call_args := ArrayList(AstExpr).new();
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "unwrap");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "unwrap returned None"),
+    .Some(r) => match(r.value, .IntLit(v) => assert((v.as_str() == "99"), "unwrap should return 99"), _ => assert(false, "expected IntLit"))
+  );
+};
+
+test "Phase 5aj: ArrayVal.remove(1) from [10,20,30]", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "remove");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "remove returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(2)), "should have 2 elements");
+        match(items.get(usize(0)), .Some(ev0) => match(ev0, .IntLit(v) => assert((v.as_str() == "10"), "first should be 10"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 0"));
+        match(items.get(usize(1)), .Some(ev1) => match(ev1, .IntLit(v) => assert((v.as_str() == "30"), "second should be 30"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 1"));
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5aj: ArrayVal.set(1, 99) in [10,20,30]", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr2"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "arr2");
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, "99"));
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "set");
+  method_call := AstExpr.FnCall(usize(0), box(AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), { (dargs := ArrayList(AstExpr).new()); dargs.push(recv_ast); dargs.push(AstExpr.Atom(usize(0), method_tok)); dargs }, true, dot_tok)), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "set returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(3)), "should have 3 elements");
+        match(items.get(usize(0)), .Some(ev0) => match(ev0, .IntLit(v) => assert((v.as_str() == "10"), "first should be 10"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 0"));
+        match(items.get(usize(1)), .Some(ev1) => match(ev1, .IntLit(v) => assert((v.as_str() == "99"), "second should be 99"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 1"));
+        match(items.get(usize(2)), .Some(ev2) => match(ev2, .IntLit(v) => assert((v.as_str() == "30"), "third should be 30"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 2"));
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5ak: escape acts like return", {
+  env := empty_env();
+  // escape 42 → ReturnVal wrapping IntLit("42")
+  esc_expr := AstExpr.FnCall(usize(0), box(make_atom(TokenKind.Identifier, "escape")), {
+    (a := ArrayList(AstExpr).new());
+    a.push(make_atom(TokenKind.Integer, "42"));
+    a
+  }, false, make_token(TokenKind.Identifier, "escape"));
+  result := evaluate(esc_expr, &env);
+  match(result,
+    .None => assert(false, "escape returned None"),
+    .Some(r) => match(r.value,
+      .ReturnVal(inner, _) => match(inner.*,
+        .IntLit(v) => assert((v.as_str() == "42"), "escape should wrap 42"),
+        _ => assert(false, "expected IntLit inside ReturnVal")
+      ),
+      _ => assert(false, "expected ReturnVal")
+    )
+  );
+};
+
+test "Phase 5ak: escape without args", {
+  env := empty_env();
+  esc_expr := AstExpr.FnCall(usize(0), box(make_atom(TokenKind.Identifier, "escape")), ArrayList(AstExpr).new(), false, make_token(TokenKind.Identifier, "escape"));
+  result := evaluate(esc_expr, &env);
+  match(result,
+    .None => assert(false, "escape returned None"),
+    .Some(r) => match(r.value,
+      .ReturnVal(inner, _) => match(inner.*, .UnitVal => assert(true, "ok"), _ => assert(false, "expected UnitVal")),
+      _ => assert(false, "expected ReturnVal")
+    )
+  );
+};
+
+test "Phase 5al: StrLit.as_bytes() returns byte array", {
+  env := empty_env();
+  // "AB".as_bytes() should return [65, 66]
+  recv := make_atom(TokenKind.StringLit, "\"AB\"");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(make_atom(TokenKind.Identifier, "as_bytes"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "as_bytes returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(2)), "AB has 2 bytes");
+        match(items.get(usize(0)), .Some(ev0) => match(ev0, .IntLit(v) => assert((v.as_str() == "65"), "A is 65"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 0"));
+        match(items.get(usize(1)), .Some(ev1) => match(ev1, .IntLit(v) => assert((v.as_str() == "66"), "B is 66"), _ => assert(false, "expected IntLit")), .None => assert(false, "missing 1"));
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5al: StrLit.as_bytes() empty string", {
+  env := empty_env();
+  recv := make_atom(TokenKind.StringLit, "\"\"");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(make_atom(TokenKind.Identifier, "as_bytes"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "as_bytes returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => assert((items.len() == usize(0)), "empty string has 0 bytes"),
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5al: StrLit.to_cstr() passthrough", {
+  env := empty_env();
+  recv := make_atom(TokenKind.StringLit, "\"test\"");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(make_atom(TokenKind.Identifier, "to_cstr"));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, dot_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "to_cstr returned None"),
+    .Some(r) => match(r.value,
+      .StrLit(v) => assert((v.as_str() == "\"test\""), "to_cstr should return same string"),
+      _ => assert(false, "expected StrLit")
+    )
+  );
+};
+
+test "Phase 5al: ArrayVal.find(fn) returns first match", {
+  env := empty_env();
+  // Build arr = [1, 2, 3, 4]
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("1")));
+  arr_items.push(.IntLit(String.from("2")));
+  arr_items.push(.IntLit(String.from("3")));
+  arr_items.push(.IntLit(String.from("4")));
+  _ := env.define_val(String.from("arr3"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  // Build lambda: (x) => (x > 2) — returns true for 3,4
+  gt_body := make_infix(">", make_ident("x"), make_atom(TokenKind.Integer, "2"));
+  lambda := make_infix("=>", make_ident("x"), gt_body);
+
+  // arr3.find(lambda)
+  recv_ast := make_atom(TokenKind.Identifier, "arr3");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "find");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(lambda);
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "find returned None"),
+    .Some(r) => match(r.value,
+      .EnumVal(tag, fields) => {
+        assert((tag.as_str() == ".Some"), "find should return .Some");
+        match(fields.get(usize(0)),
+          .Some(ev) => match(ev, .IntLit(v) => assert((v.as_str() == "3"), "first > 2 is 3"), _ => assert(false, "expected IntLit")),
+          .None => assert(false, "missing inner value")
+        );
+      },
+      _ => assert(false, "expected EnumVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.enumerate() returns index-value tuples", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  // arr.enumerate()
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "enumerate");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "enumerate returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(3)), "enumerate should return 3 tuples");
+        // Check first tuple: (0, 10)
+        match(items.get(usize(0)),
+          .Some(t0) => match(t0,
+            .StructVal(_, fnames, fvals) => {
+              match(fvals.get(usize(0)),
+                .Some(idx_v) => match(idx_v, .IntLit(iv) => assert((iv.as_str() == "0"), "idx 0"), _ => assert(false, "idx not IntLit")),
+                .None => assert(false, "no idx")
+              );
+              match(fvals.get(usize(1)),
+                .Some(val_v) => match(val_v, .IntLit(vv) => assert((vv.as_str() == "10"), "val 10"), _ => assert(false, "val not IntLit")),
+                .None => assert(false, "no val")
+              );
+            },
+            _ => assert(false, "expected StructVal tuple")
+          ),
+          .None => assert(false, "no first tuple")
+        );
+        // Check third tuple: (2, 30)
+        match(items.get(usize(2)),
+          .Some(t2) => match(t2,
+            .StructVal(_, fnames2, fvals2) => {
+              match(fvals2.get(usize(0)),
+                .Some(idx_v2) => match(idx_v2, .IntLit(iv2) => assert((iv2.as_str() == "2"), "idx 2"), _ => assert(false, "idx not IntLit")),
+                .None => assert(false, "no idx2")
+              );
+              match(fvals2.get(usize(1)),
+                .Some(val_v2) => match(val_v2, .IntLit(vv2) => assert((vv2.as_str() == "30"), "val 30"), _ => assert(false, "val not IntLit")),
+                .None => assert(false, "no val2")
+              );
+            },
+            _ => assert(false, "expected StructVal tuple 2")
+          ),
+          .None => assert(false, "no third tuple")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.zip combines two arrays", {
+  env := empty_env();
+  arr1_items := ArrayList(EvalValue).new();
+  arr1_items.push(.IntLit(String.from("1")));
+  arr1_items.push(.IntLit(String.from("2")));
+  arr1_items.push(.IntLit(String.from("3")));
+  _ := env.define_val(String.from("a1"), t_unit(), true, .Some(EvalValue.ArrayVal(arr1_items)));
+  arr2_items := ArrayList(EvalValue).new();
+  arr2_items.push(.StrLit(String.from("\"x\"")));
+  arr2_items.push(.StrLit(String.from("\"y\"")));
+  _ := env.define_val(String.from("a2"), t_unit(), true, .Some(EvalValue.ArrayVal(arr2_items)));
+  // a1.zip(a2)
+  recv_ast := make_atom(TokenKind.Identifier, "a1");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "zip");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "a2"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "zip returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        // min(3, 2) = 2 tuples
+        assert((items.len() == usize(2)), "zip should return 2 tuples");
+        // Check first tuple: (1, "x")
+        match(items.get(usize(0)),
+          .Some(t0) => match(t0,
+            .StructVal(_, _, fvals) => {
+              match(fvals.get(usize(0)),
+                .Some(lv) => match(lv, .IntLit(li) => assert((li.as_str() == "1"), "left 1"), _ => assert(false, "left not IntLit")),
+                .None => assert(false, "no left")
+              );
+              match(fvals.get(usize(1)),
+                .Some(rv) => match(rv, .StrLit(rs) => assert((rs.as_str() == "\"x\""), "right x"), _ => assert(false, "right not StrLit")),
+                .None => assert(false, "no right")
+              );
+            },
+            _ => assert(false, "expected StructVal")
+          ),
+          .None => assert(false, "no first tuple")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.slice(1, 3) extracts sub-array", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  arr_items.push(.IntLit(String.from("40")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  // arr.slice(1, 3)
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "slice");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, "3"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "slice returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(2)), "slice(1,3) should return 2 elements");
+        match(items.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(s0) => assert((s0.as_str() == "20"), "first is 20"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no first")
+        );
+        match(items.get(usize(1)),
+          .Some(v1) => match(v1, .IntLit(s1) => assert((s1.as_str() == "30"), "second is 30"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no second")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5am: ArrayVal.enumerate() on empty array", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  _ := env.define_val(String.from("empty"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  recv_ast := make_atom(TokenKind.Identifier, "empty");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "enumerate");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "enumerate empty returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => assert((items.len() == usize(0)), "enumerate empty should return 0 tuples"),
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5an: ArrayVal.index_of finds element", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("10")));
+  arr_items.push(.IntLit(String.from("20")));
+  arr_items.push(.IntLit(String.from("30")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  _ := env.define_val(String.from("needle"), t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("20"))));
+  // arr.index_of(needle)
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "index_of");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "needle"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "index_of returned None"),
+    .Some(r) => match(r.value,
+      .EnumVal(tag, fields) => {
+        assert((tag.as_str() == ".Some"), "should find element");
+        match(fields.get(usize(0)),
+          .Some(iv) => match(iv, .IntLit(idx) => assert((idx.as_str() == "1"), "index is 1"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no inner value")
+        );
+      },
+      _ => assert(false, "expected EnumVal")
+    )
+  );
+};
+
+test "Phase 5an: ArrayVal.index_of returns None when not found", {
+  env := empty_env();
+  arr_items := ArrayList(EvalValue).new();
+  arr_items.push(.IntLit(String.from("1")));
+  arr_items.push(.IntLit(String.from("2")));
+  _ := env.define_val(String.from("arr"), t_unit(), true, .Some(EvalValue.ArrayVal(arr_items)));
+  _ := env.define_val(String.from("needle"), t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("99"))));
+  recv_ast := make_atom(TokenKind.Identifier, "arr");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "index_of");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(make_atom(TokenKind.Identifier, "needle"));
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "index_of returned None result"),
+    .Some(r) => match(r.value,
+      .EnumVal(tag, _) => assert((tag.as_str() == ".None"), "should return .None"),
+      _ => assert(false, "expected EnumVal")
+    )
+  );
+};
+
+test "Phase 5an: ArrayVal.flat_map flattens mapped arrays", {
+  env := empty_env();
+  // Define arr2 = [[1,2], [3,4]] and flat_map with identity (x) => x
+  inner1 := ArrayList(EvalValue).new();
+  inner1.push(.IntLit(String.from("1")));
+  inner1.push(.IntLit(String.from("2")));
+  inner2 := ArrayList(EvalValue).new();
+  inner2.push(.IntLit(String.from("3")));
+  inner2.push(.IntLit(String.from("4")));
+  arr2_items := ArrayList(EvalValue).new();
+  arr2_items.push(.ArrayVal(inner1));
+  arr2_items.push(.ArrayVal(inner2));
+  _ := env.define_val(String.from("arr2"), t_unit(), true, .Some(EvalValue.ArrayVal(arr2_items)));
+  // lambda: identity (x) => x
+  lambda := make_infix("=>", make_ident("x"), make_ident("x"));
+  // arr2.flat_map(lambda)
+  recv_ast := make_atom(TokenKind.Identifier, "arr2");
+  dot_tok := make_token(TokenKind.Dot, ".");
+  method_tok := make_token(TokenKind.Identifier, "flat_map");
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv_ast);
+  dot_args.push(AstExpr.Atom(usize(0), method_tok));
+  dot_call := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), dot_tok)), dot_args, true, dot_tok);
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(lambda);
+  method_call := AstExpr.FnCall(usize(0), box(dot_call), call_args, false, method_tok);
+  result := evaluate(method_call, &env);
+  match(result,
+    .None => assert(false, "flat_map returned None"),
+    .Some(r) => match(r.value,
+      .ArrayVal(items) => {
+        assert((items.len() == usize(4)), "flat_map should flatten to 4 elements");
+        match(items.get(usize(0)),
+          .Some(v0) => match(v0, .IntLit(s0) => assert((s0.as_str() == "1"), "elem 0 is 1"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no elem 0")
+        );
+        match(items.get(usize(3)),
+          .Some(v3) => match(v3, .IntLit(s3) => assert((s3.as_str() == "4"), "elem 3 is 4"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no elem 3")
+        );
+      },
+      _ => assert(false, "expected ArrayVal")
+    )
+  );
+};
+
+test "Phase 5ao: for loop over array with accumulator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr :: [i64(1), i64(2), i64(3), i64(4), i64(5)]; (sum : i64) = i64(0); for(x, arr, { sum = (sum + x); }); export sum;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for loop returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "15"), "sum is 15"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ao: for loop with break", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr :: [i64(1), i64(2), i64(3), i64(4)]; (found : i64) = i64(0); for(x, arr, { cond((x > i64(2)) => { found = x; break(); }, true => ()); }); export found;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for+break returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3"), "found is 3"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ao: nested function returning closure result", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "make_adder := (fn(n : i32) -> i32)((fn(x : i32) -> i32)((x + n))); add5 := make_adder(i32(5)); result := add5(i32(10)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "closure returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "15"), "result is 15"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ao: while loop countdown", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(n : i64) = i64(10); while runtime((n > i64(0))), { n = (n - i64(1)); }; export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "while returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "0"), "n is 0"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ao: struct field access after construction", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Point :: struct(x: i64, y: i64); p :: Point(x: i64(3), y: i64(7)); result :: (p.x + p.y); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct field returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "x+y is 10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ao: match on enum with data", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "opt := .Some(i32(42)); result := match(opt, .Some(x) => x, .None => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "match enum returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "extracted 42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ap: recursive factorial via recur", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "fact := (fn(n : i32) -> i32)(cond((n == i32(0)) => i32(1), true => (n * recur((n - i32(1)))))); result := fact(i32(5)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "factorial returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "120"), "5! = 120"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ap: map struct array to field values", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Point :: struct(x: i32, y: i32); pts := [Point(x: i32(1), y: i32(2)), Point(x: i32(3), y: i32(4))]; xs := pts.map((fn(p : Point) -> i32)(p.x)); export xs;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "map struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(2)), "2 elements");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .IntLit(r0) => assert((r0.as_str() == "1"), "x=1"), _ => assert(false, "e0 not IntLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(1)),
+                .Some(e1) => match(e1, .IntLit(r1) => assert((r1.as_str() == "3"), "x=3"), _ => assert(false, "e1 not IntLit")),
+                .None => assert(false, "no e1")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ap: nested function calls (double then add)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "double := (fn(x : i32) -> i32)((x * i32(2))); add1 := (fn(x : i32) -> i32)((x + i32(1))); result := add1(double(i32(5))); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "compose returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "11"), "double(5)+1=11"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ap: fibonacci via recur", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "fib := (fn(n : i32) -> i32)(cond((n <= i32(1)) => n, true => (recur((n - i32(1))) + recur((n - i32(2)))))); result := fib(i32(7)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fib returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "13"), "fib(7)=13"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ap: multiple exports from module body", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := i32(10); b := i32(20); c := (a + b); export a; export b; export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "multi-export returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(3)), "3 exports");
+        match(vals.get(usize(2)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "30"), "c=30"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no val 2")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aq: recursive sum with accumulator", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "sum := (fn(n : i32, acc : i32) -> i32)(cond((n == i32(0)) => acc, true => recur((n - i32(1)), (acc + n)))); result := sum(i32(5), i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "sum returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "15"), "sum(5)=15"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aq: string building in for loop", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "words := [\"hello\", \"world\", \"yo\"]; result := words.join(\"-\"); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "join returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello-world-yo\""), "joined"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aq: apply function twice (twice(f, x))", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "inc := (fn(x : i32) -> i32)((x + i32(1))); twice := (fn(x : i32) -> i32)(inc(inc(x))); result := twice(i32(3)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "twice returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "5"), "twice(inc,3)=5"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aq: match on custom enum variant", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Color :: enum(Red, Green, Blue); to_num := (fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3))); result := to_num(Color.Green); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "enum returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "2"), "Green=2"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aq: filter then map (chained)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5)]; evens := nums.filter((fn(x : i32) -> bool)((x % i32(2)) == i32(0))); doubled := evens.map((fn(x : i32) -> i32)((x * i32(2)))); export doubled;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "filter-map returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(2)), "2 evens doubled");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .IntLit(r0) => assert((r0.as_str() == "4"), "2*2=4"), _ => assert(false, "e0 not IntLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(1)),
+                .Some(e1) => match(e1, .IntLit(r1) => assert((r1.as_str() == "8"), "4*2=8"), _ => assert(false, "e1 not IntLit")),
+                .None => assert(false, "no e1")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ar: TypeVal.Variant(args) — Option.Some(42)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  // Step 1: just test enum def + export the TypeVal
+  src1 := "MyOpt :: enum(None, Some(i32)); export MyOpt;";
+  exprs1 := generate_exprs_from_code(src1, using(exn));
+  result1 := evaluate_module_body(exprs1, &env);
+  match(result1,
+    .None => assert(false, "enum def returned None"),
+    .Some(mod1) => match(mod1,
+      .ModuleVal(_, vals1) =>
+        match(vals1.get(usize(0)),
+          .Some(v1) => match(v1, .TypeVal(_) => assert(true, "got TypeVal"), _ => assert(false, "not TypeVal")),
+          .None => assert(false, "no export")
+        ),
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+  // Step 2: test TypeVal.Variant fieldless
+  env2 := empty_env();
+  src2 := "MyOpt :: enum(None, Some(i32)); val := MyOpt.None; export val;";
+  exprs2 := generate_exprs_from_code(src2, using(exn));
+  result2 := evaluate_module_body(exprs2, &env2);
+  match(result2,
+    .None => assert(false, "TypeVal.None returned None"),
+    .Some(mod2) => match(mod2,
+      .ModuleVal(_, vals2) =>
+        match(vals2.get(usize(0)),
+          .Some(v2) => match(v2, .EnumVal(tag, _) => assert((tag.as_str() == ".None"), "got .None"), _ => assert(false, "not EnumVal")),
+          .None => assert(false, "no export")
+        ),
+      _ => assert(false, "not ModuleVal 2")
+    )
+  );
+  // Step 3: test TypeVal.Variant(args)
+  env3 := empty_env();
+  src3 := "MyOpt :: enum(None, Some(i32)); val := MyOpt.Some(i32(42)); export val;";
+  exprs3 := generate_exprs_from_code(src3, using(exn));
+  result3 := evaluate_module_body(exprs3, &env3);
+  match(result3,
+    .None => assert(false, "TypeVal.Some returned None"),
+    .Some(mod3) => match(mod3,
+      .ModuleVal(_, vals3) =>
+        match(vals3.get(usize(0)),
+          .Some(v3) => match(v3, .EnumVal(tag3, fields3) => {
+            assert((tag3.as_str() == ".Some"), "got .Some");
+            assert((fields3.len() == usize(1)), "1 field");
+          }, _ => assert(false, "not EnumVal 3")),
+          .None => assert(false, "no export 3")
+        ),
+      _ => assert(false, "not ModuleVal 3")
+    )
+  );
+};
+
+test "Phase 5ar: TypeVal.Variant — Pair with two fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Pair :: enum(Empty, Both(a: i32, b: i32)); p := Pair.Both(i32(3), i32(7)); result := match(p, .Both(a, b) => (a + b), .Empty => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "Pair returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "3+7=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ar: array.fold sum", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4)]; total := nums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x))); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fold returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "sum=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ar: string starts_with and ends_with", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; r1 := s.starts_with(\"hello\"); r2 := s.ends_with(\"world\"); export r1; export r2;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "string ops returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .BoolVal(b0) => assert(b0, "starts_with hello"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .BoolVal(b1) => assert(b1, "ends_with world"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5as: StrLit.trim", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"  hello  \"; result := s.trim(); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "trim returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello\""), "trimmed"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5as: StrLit.char_at", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello\"; result := s.char_at(i32(1)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "char_at returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"e\""), "char_at(1)=e"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5as: StrLit.replace", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; result := s.replace(\"world\", \"yo\"); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "replace returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello yo\""), "replaced"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5as: StrLit.split", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"a-b-c\"; result := s.split(\"-\"); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "split returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(3)), "3 parts");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .StrLit(s0) => assert((s0.as_str() == "\"a\""), "part0=a"), _ => assert(false, "e0 not StrLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(2)),
+                .Some(e2) => match(e2, .StrLit(s2) => assert((s2.as_str() == "\"c\""), "part2=c"), _ => assert(false, "e2 not StrLit")),
+                .None => assert(false, "no e2")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5as: string concatenation via +", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := \"hello\"; b := \" world\"; result := (a + b); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "concat returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello world\""), "concat"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5at: module-level mutable variable", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(counter : i32) = i32(0); counter = (counter + i32(1)); counter = (counter + i32(1)); export counter;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "mut var returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "2"), "counter=2"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5at: function passed as argument", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "apply := (fn(f : i32, x : i32) -> i32)(f); double := (fn(x : i32) -> i32)((x * i32(2))); result := apply(double(i32(5)), i32(99)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "apply returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "apply(double(5))=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5at: nested match on Option(Option)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "inner := .Some(i32(42)); outer := .Some(inner); result := match(outer, .Some(x) => match(x, .Some(y) => y, .None => i32(0)), .None => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested match returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "nested=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5at: array of Option variants mapped", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "opts := [.Some(i32(1)), .None, .Some(i32(3))]; unwrapped := opts.map((fn(o : i32) -> i32)(match(o, .Some(x) => x, .None => i32(0)))); export unwrapped;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "map opts returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v,
+            .ArrayVal(elems) => {
+              assert((elems.len() == usize(3)), "3 results");
+              match(elems.get(usize(0)),
+                .Some(e0) => match(e0, .IntLit(r0) => assert((r0.as_str() == "1"), "first=1"), _ => assert(false, "e0 not IntLit")),
+                .None => assert(false, "no e0")
+              );
+              match(elems.get(usize(1)),
+                .Some(e1) => match(e1, .IntLit(r1) => assert((r1.as_str() == "0"), "none=0"), _ => assert(false, "e1 not IntLit")),
+                .None => assert(false, "no e1")
+              );
+            },
+            _ => assert(false, "not ArrayVal")
+          ),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5at: struct with multiple fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Token :: struct(kind: i32, value: i32); t := Token(kind: i32(1), value: i32(42)); result := t.value; export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "value=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5au: if() returns then-branch value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "x := i32(5); result := if((x > i32(3)), i32(10), i32(20)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "if returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "then=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5au: cond with multiple guards", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "classify := (fn(n : i32) -> i32)(cond((n < i32(0)) => i32(0), (n == i32(0)) => i32(1), true => i32(2))); result := classify(i32(5)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "cond returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "2"), "positive=2"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5au: while loop counting", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(count : i32) = i32(0); (i : i32) = i32(0); while runtime((i < i32(5))), { count = (count + i32(1)); i = (i + i32(1)); }; export count;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "while returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "5"), "count=5"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5au: Result enum Ok/Err match", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "val := .Ok(i32(42)); result := match(val, .Ok(x) => x, .Err(e) => i32(0)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "result returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "ok=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5au: comptime struct type as value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Point :: struct(x: i32, y: i32); p := Point(x: i32(3), y: i32(4)); dist_sq := ((p.x * p.x) + (p.y * p.y)); export dist_sq;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "25"), "3^2+4^2=25"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5av: StrLit.substring", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"hello world\"; result := s.substring(i32(0), i32(5)); export result;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "substring returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"hello\""), "sub=hello"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5av: comptime enum type + runtime use", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Dir :: enum(Up, Down, Left, Right); move := (fn(d : Dir) -> i32)(match(d, .Up => i32(1), .Down => i32(2), .Left => i32(3), .Right => i32(4))); r := move(Dir.Left); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "enum use returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3"), "Left=3"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5av: simple :: comptime binding", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "PI :: i32(314); r := PI; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, ":: binding returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "314"), "PI=314"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5av: array.any and array.all", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3)]; has_big := nums.any((fn(x : i32) -> bool)((x > i32(2)))); all_pos := nums.all((fn(x : i32) -> bool)((x > i32(0)))); export has_big; export all_pos;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "any/all returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .BoolVal(b0) => assert(b0, "any big"), _ => assert(false, "not BoolVal 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .BoolVal(b1) => assert(b1, "all pos"), _ => assert(false, "not BoolVal 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aw: array.map builds enum variants", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3)]; wrapped := nums.map((fn(x : i32) -> Option(i32))(.Some(x))); export wrapped;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "map enum returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .ArrayVal(arr) => assert((arr.len() == usize(3)), "3 wrapped"), _ => assert(false, "not ArrayVal")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aw: nested struct field access", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Point :: struct(x : i32, y : i32); Line :: struct(start : Point, finish : Point); line := Line(start: Point(x: i32(1), y: i32(2)), finish: Point(x: i32(3), y: i32(4))); r := line.start.x; export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "1"), "start.x=1"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aw: String.from and .len()", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := String.from(\"hello\"); n := s.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "String.from+len returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "5"), "len=5"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aw: while with complex condition", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(sum : i32) = i32(0); (i : i32) = i32(1); while runtime(((i <= i32(10)) && (sum < i32(20)))), { sum = (sum + i); i = (i + i32(1)); }; export sum;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "while complex returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "21"), "sum=21"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5aw: fold to compute sum", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(10), i32(20), i32(30)]; total := nums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x))); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fold returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "60"), "10+20+30=60"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ax: match with wildcard default arm", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Color :: enum(Red, Green, Blue); val := (fn(c : Color) -> i32)(match(c, .Red => i32(1), _ => i32(99))); r := val(Color.Green); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "match default returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "99"), "Green=>99"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ax: wildcard catches non-matching variant", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Color :: enum(Red, Green, Blue); val := (fn(c : Color) -> i32)(match(c, .Red => i32(1), _ => i32(99))); r := val(Color.Blue); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "wildcard catch returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "99"), "Blue=>99"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ax: function returns struct value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Vec2 :: struct(x : i32, y : i32); make_vec := (fn(a : i32, b : i32) -> Vec2)(Vec2(x: a, y: b)); v := make_vec(i32(3), i32(7)); r := (v.x + v.y); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "fn returns struct returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "10"), "3+7=10"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ax: enum variant destructured in match", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "MyOpt :: enum(Some(val : i32), None); get_val := (fn(o : MyOpt) -> i32)(match(o, .Some(val) => val, .None => i32(0))); x := get_val(MyOpt.Some(i32(42))); export x;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "enum destr returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "42"), "Some.val=42"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ax: chained string methods", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "s := \"  hello  \"; t := s.trim(); r := t.len(); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "chained string returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "5"), "trim hello len=5"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ay: ArrayList operations", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "arr := ArrayList(i32).new(); arr.push(i32(10)); arr.push(i32(20)); arr.push(i32(30)); n := arr.len(); export n;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "ArrayList ops returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "3"), "len=3"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ay: Option.is_some on enum variant", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "MyOpt :: enum(Some(v : i32), None); x := MyOpt.Some(i32(7)); b := x.is_some(); export b;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "is_some returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .BoolVal(b) => assert(b, "Some is_some=true"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ay: boolean AND and OR operators", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := (true && false); b := (true || false); c := (a || b); export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "bool ops returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .BoolVal(b) => assert(b, "F||T=true"), _ => assert(false, "not BoolVal")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ay: for loop with array accumulation", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "(total : i32) = i32(0); for(item, [i32(5), i32(10), i32(15)], { total = (total + item); }); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "for loop returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "30"), "5+10+15=30"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5ay: nested cond (if-else-if)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "classify := (fn(n : i32) -> str)(cond((n < i32(0)) => \"negative\", (n == i32(0)) => \"zero\", true => \"positive\")); r := classify(i32(5)); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "nested cond returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .StrLit(s) => assert((s.as_str() == "\"positive\""), "5=positive"), _ => assert(false, "not StrLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5az: :: binds comptime value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "PI :: i32(314); TAU :: (PI * i32(2)); export TAU;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, ":: comptime returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "628"), "314*2=628"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5az: struct passed to function", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "Pt :: struct(x : i32, y : i32); dist := (fn(p : Pt) -> i32)((p.x + p.y)); r := dist(Pt(x: i32(3), y: i32(4))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "struct fn returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "7"), "3+4=7"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5az: string equality comparison", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "a := \"hello\"; b := \"hello\"; c := \"world\"; eq := (a == b); neq := (a == c); export eq; export neq;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "string eq returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(2)), "2 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .BoolVal(b0) => assert(b0, "hello==hello"), _ => assert(false, "not BoolVal 0")),
+          .None => assert(false, "no val 0")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .BoolVal(b1) => assert((!b1), "hello!=world"), _ => assert(false, "not BoolVal 1")),
+          .None => assert(false, "no val 1")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5az: array filter then fold", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5)]; evens := nums.filter((fn(x : i32) -> bool)((x % i32(2)) == i32(0))); total := evens.fold(i32(0), (fn(a : i32, b : i32) -> i32)((a + b))); export total;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "filter+fold returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "6"), "2+4=6"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
+test "Phase 5az: multiple functions calling each other", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "double := (fn(x : i32) -> i32)((x * i32(2))); inc := (fn(x : i32) -> i32)((x + i32(1))); r := inc(double(i32(5))); export r;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "multi fn returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(1)), "1 export");
+        match(vals.get(usize(0)),
+          .Some(v) => match(v, .IntLit(raw) => assert((raw.as_str() == "11"), "inc(double(5))=11"), _ => assert(false, "not IntLit")),
+          .None => assert(false, "no export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};

@@ -1056,14 +1056,14 @@ handle_method_dispatch :: (fn(
             ),
             _ => ()
           ),
-        ((mname == "len") && (method_call_args.len() == usize(0))) =>
+        ((mname == "len") && (match(recv_val, .ComptimeListVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .ComptimeListVal(elems_l) => {
               return Option(EvalResult).Some(eval_result(.IntLit(elems_l.len().to_string()), t_comptime_int()));
             },
             _ => ()
           ),
-        ((mname == "car") && (method_call_args.len() == usize(0))) =>
+        ((mname == "car") && (match(recv_val, .ComptimeListVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .ComptimeListVal(elems_c) => match(elems_c.get(usize(0)),
               .Some(first) => { return Option(EvalResult).Some(eval_result(first, type_of_eval_value(first))); },
@@ -1071,7 +1071,7 @@ handle_method_dispatch :: (fn(
             ),
             _ => ()
           ),
-        ((mname == "cdr") && (method_call_args.len() == usize(0))) =>
+        ((mname == "cdr") && (match(recv_val, .ComptimeListVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(recv_val,
             .ComptimeListVal(elems_d) => {
               (rest : ArrayList(EvalValue)) = ArrayList(EvalValue).new();

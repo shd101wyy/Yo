@@ -74,26 +74,34 @@ have sufficient memory.
 Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
 skipped via `// @skip_wasm32-wasi` and are not required for CI on affected systems.
 
-### ASAN stack depth limit for yo-self evaluator tests
+### Stack depth limit for yo-self evaluator tests
 
-The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~693 local variables.
-ASAN disables stack frame reuse and adds redzones around every variable, inflating
-each `evaluate()` call significantly.
+The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~2482 local variables
+(grown from ~693 in early phases) and occupies **~1.5 MB of stack space per frame**
+at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
+directly on the stack. ASAN inflates this further by disabling stack frame reuse
+and adding redzones around every variable.
 
 **Per-frame overhead by platform:**
 
-- macOS ARM64: ~566KB per `evaluate()` frame
-- Windows x86_64: ~1.1MB per `evaluate()` frame (larger redzones + x86_64 ABI spills)
+- macOS ARM64 native (no ASAN): ~1.5MB per `evaluate()` frame
+- macOS ARM64 with ASAN: ~566KB per `evaluate()` frame (ASAN "fake stack" uses
+  separate heap allocation, reducing the real C-stack portion)
+- Windows x86_64: ~1.1MB per `evaluate()` frame with ASAN
 
-**macOS ARM64 (8MB default stack):**
+**macOS ARM64 native (32MB reserve set via `-Wl,-stack_size,33554432` in
+`src/test-runner.ts`):**
+
+- Safe: countdown(1) needs ~5 frames × 1.5MB ≈ 7.5MB (was SIGSEGV at 8MB default)
+- Safe: countdown(2) needs ~7 frames × 1.5MB ≈ 10.5MB → ✓ with 32MB reserve
+- Unsafe: countdown(10+) would eventually exhaust 32MB
+
+**macOS ARM64 with ASAN (8MB default before fix; --disable-sanitize recommended):**
 
 - Safe: countdown(1) needs ~5 frames × 566KB ≈ 2.8MB → ✓
 - Safe: fib(1) needs ~4 frames × 566KB ≈ 2.3MB → ✓
 - Unsafe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → **STACK OVERFLOW** (after Phase 3a ExprId growth)
-- Unsafe: fact(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW** (after Phase 2az TraitT growth)
-- Unsafe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW** (after Phase 3a)
-- Unsafe: countdown(3) needs ~9 frames × 566KB > 8MB → **STACK OVERFLOW**
-- Unsafe: fact(3) needs ~9+ frames × 566KB > 8MB → **STACK OVERFLOW**
+- Unsafe: fact(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW**
 - Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
 
 Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
