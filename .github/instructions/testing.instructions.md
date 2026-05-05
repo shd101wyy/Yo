@@ -32,8 +32,8 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run all: `./yo-cli test ./yo-self/tests/`
 - Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
 - Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
-- Run evaluator only: `./yo-cli test ./yo-self/tests/eval.test.yo`
-- Currently 939 tests, ~10 minutes native, ~10 minutes WASM (see WASM workaround below).
+- Run evaluator only: `./yo-cli test ./yo-self/tests/eval_part1.test.yo` (split into parts 1-4)
+- Currently ~2010 evaluator tests across `eval_part{1..4}.test.yo`. Each split takes ~5 min Yo→C compile + several min C compile on native. WASM targets are too slow (>10 min Yo compile each, ~6 MB C output) and are skipped via `// @skip_wasm32-*` directives.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
@@ -49,13 +49,16 @@ state and never start executing (kernel security validation blocks them). This a
 
 ```bash
 ./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
-./yo-cli test ./yo-self/tests/eval.test.yo --target wasm-wasi --parallel 1
+./yo-cli test ./yo-self/tests/parser.test.yo --target wasm-wasi --parallel 1
 ```
+
+> Note: `eval_part{1..4}.test.yo` carry `// @skip_wasm32-*` directives because each
+> split would take >15 min on WASM (5 min Yo compile + ~10 min emcc on a 6 MB C file).
+> Run them natively only.
 
 The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
 `-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries
-(like eval.test.yo which imports the 693-local evaluate() function) have
-sufficient memory.
+have sufficient memory.
 
 Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
 skipped via `// @skip_wasm32-wasi` and are not required for CI on affected systems.

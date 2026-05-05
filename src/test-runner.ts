@@ -872,7 +872,7 @@ async function runSingleFileInIsolatedProcess({
     let stderr = "";
     let timedOut = false;
 
-    const PER_FILE_TIMEOUT_MS = 900_000;
+    const PER_FILE_TIMEOUT_MS = 1_800_000;
     const watchdog = setTimeout(() => {
       timedOut = true;
       try {
