@@ -2,7 +2,8 @@
 
 ## Status
 
-Open (workaround applied)
+**FIXED** in commits below. Tests in `yo-self/tests/evaluator_index.test.yo`
+updated to assert the new (correct) behavior.
 
 ## Summary
 
@@ -76,7 +77,8 @@ The `@skip_prelude` directive was intended for `//` plain single-line comments o
 
 ## Workaround Applied
 
-Changed the offending line in `yo-self/evaluator/index.yo` from:
+Changed the offending line in `yo-self/evaluator/index.yo` (later reverted
+once the proper fix landed) from:
 
 ```
 //!   - Checking for `@skip_prelude` in the token stream
@@ -90,7 +92,23 @@ to:
 
 This avoids the literal `@skip_prelude` string in a doc comment token.
 
-## Proper Fix
+## Fix Applied
+
+`hasCommentAttribute` now excludes doc comment token kinds
+(`InnerDocLineComment`, `DocLineComment`, `DocBlockComment`,
+`InnerDocBlockComment`) when searching for control attributes like
+`@skip_prelude`. Only plain `//` single-line and `/* */` block comments
+are considered.
+
+- TS: `src/evaluator/index.ts` `hasCommentAttribute`
+- yo-self: `yo-self/evaluator/index.yo` `has_comment_attribute`
+
+The yo-self workaround comment was reverted to the original wording, and
+the four `evaluator_index.test.yo` cases that asserted the old (buggy)
+"return true for doc comment" behavior were flipped to assert the new
+correct "return false" behavior.
+
+## Original Proper-Fix Notes
 
 `hasCommentAttribute` should **exclude** doc comment token kinds
 (`InnerDocLineComment`, `DocLineComment`, `DocBlockComment`,

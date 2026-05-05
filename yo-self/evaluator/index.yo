@@ -3,7 +3,7 @@
 //! Mirrors `src/evaluator/index.ts` — the `Evaluator` class wraps
 //! the proto-evaluator and handles:
 //!   - Parsing the input source
-//!   - Checking for the skip-prelude directive in the token stream
+//!   - Checking for `@skip_prelude` in the token stream
 //!   - Injecting prelude exports into a dedicated env frame
 //!   - Wiring up the module loader via `set_module_loader`
 //!   - Calling `evaluate_module_body`
@@ -58,6 +58,11 @@ is_comment_token_kind :: (fn(k : TokenKind) -> bool)(
   )
 );
 
+/// Returns `true` if any plain comment (`//` or `/* */`) in `tokens` contains
+/// `attribute`. Doc comment tokens (`///`, `//!`, `/** */`, `/*! */`) are
+/// deliberately excluded so that documentation that merely mentions an
+/// attribute does not trigger it.
+/// Mirrors `hasCommentAttribute` in `src/evaluator/index.ts`.
 has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
@@ -65,7 +70,12 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
   while runtime(((i < n) && (!(found)))), {
     match(tokens.get(i),
       .Some(tok) => {
-        if((is_comment_token_kind(tok.kind) && tok.value.contains(attribute)), {
+        is_plain_comment := cond(
+          (tok.kind == TokenKind.SingleLineComment) => true,
+          (tok.kind == TokenKind.MultiLineComment)  => true,
+          true => false
+        );
+        if((is_plain_comment && tok.value.contains(attribute)), {
           found = true;
         });
       },
@@ -100,7 +110,7 @@ impl(Evaluator,
   /// A `new_from_file` helper with `using(io : IO)` will be added later.
   ///
   /// `load_module_fn` is called for every `import "..."` encountered during
-  /// evaluation, AND for loading the prelude (unless the skip-prelude directive
+  /// evaluation, AND for loading the prelude (unless the `@skip_prelude` directive
   /// is present in the source).  Return `None` from the callback to signal
   /// that a module could not be found.
   new : (fn(

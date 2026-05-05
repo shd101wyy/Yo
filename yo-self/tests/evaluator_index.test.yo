@@ -79,32 +79,32 @@ test "has_comment_attribute: returns true for MultiLineComment with attribute", 
   assert(result, "expected true for MultiLineComment containing @skip_prelude");
 };
 
-test "has_comment_attribute: returns true for DocLineComment with attribute", {
+test "has_comment_attribute: returns false for DocLineComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.DocLineComment, "/// @skip_prelude"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(result, "expected true for DocLineComment containing @skip_prelude");
+  assert((!(result)), "expected false: doc comments are excluded from attribute scan");
 };
 
-test "has_comment_attribute: returns true for InnerDocLineComment with attribute", {
+test "has_comment_attribute: returns false for InnerDocLineComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.InnerDocLineComment, "//! @skip_prelude"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(result, "expected true for InnerDocLineComment containing @skip_prelude");
+  assert((!(result)), "expected false: doc comments are excluded from attribute scan");
 };
 
-test "has_comment_attribute: returns true for DocBlockComment with attribute", {
+test "has_comment_attribute: returns false for DocBlockComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.DocBlockComment, "/** @skip_prelude */"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(result, "expected true for DocBlockComment containing @skip_prelude");
+  assert((!(result)), "expected false: doc comments are excluded from attribute scan");
 };
 
-test "has_comment_attribute: returns true for InnerDocBlockComment with attribute", {
+test "has_comment_attribute: returns false for InnerDocBlockComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.InnerDocBlockComment, "/*! @skip_prelude */"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(result, "expected true for InnerDocBlockComment containing @skip_prelude");
+  assert((!(result)), "expected false: doc comments are excluded from attribute scan");
 };
 
 test "has_comment_attribute: finds attribute in later token", {
