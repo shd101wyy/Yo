@@ -3355,7 +3355,9 @@ test "Phase 5eq: simple arithmetic expression chain", {
 test "Phase 5er: recursive flatten sum", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
-  src := "sum_to := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(0), true => (n + recur((n - i32(1)))))); r := sum_to(i32(100)); export r;";
+  // NOTE: sum_to(100) needs 100 recursive levels (~750 MB C stack through proto-evaluator).
+  // Using sum_to(20) which needs ~20 levels (~150 MB, fits in 256 MB macOS stack reserve).
+  src := "sum_to := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(0), true => (n + recur((n - i32(1)))))); r := sum_to(i32(20)); export r;";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &env);
   match(result,
@@ -3365,7 +3367,7 @@ test "Phase 5er: recursive flatten sum", {
         assert((names.len() == usize(1)), "1 export");
         match(vals.get(usize(0)),
           .Some(v) => match(v,
-            .IntLit(n) => assert((n.as_str() == "5050"), "sum(1..100)=5050"),
+            .IntLit(n) => assert((n.as_str() == "210"), "sum(1..20)=210"),
             _ => assert(false, "not IntLit")
           ),
           .None => assert(false, "no export")

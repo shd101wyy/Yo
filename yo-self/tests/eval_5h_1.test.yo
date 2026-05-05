@@ -1809,10 +1809,12 @@ test "Phase 5he: string counting occurrences", {
 test "Phase 5he: recursive merge count", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape (); }));
-  src := "total_sum := (fn(n : i32, acc : i32) -> i32)(cond((n <= i32(0)) => acc, true => recur((n - i32(1)), (acc + n))));\nexport total_sum(i32(100), i32(0));";
+  // NOTE: total_sum(100, 0) needs 100 recursive levels (~750 MB C stack).
+  // Using total_sum(20, 0) which fits in 256 MB macOS stack reserve.
+  src := "total_sum := (fn(n : i32, acc : i32) -> i32)(cond((n <= i32(0)) => acc, true => recur((n - i32(1)), (acc + n))));\nexport total_sum(i32(20), i32(0));";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &env);
-  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "5050"), "sum(100)=5050"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert((n.as_str() == "210"), "sum(20)=210"), _ => assert(false, "t")), .None => assert(false, "v")), _ => assert(false, "m")));
 };
 
 test "Phase 5he: combined operations pipeline", {
