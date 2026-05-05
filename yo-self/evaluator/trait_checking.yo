@@ -855,10 +855,16 @@ find_some_type_missing_comptime_constraint :: (fn(
   env : Environment
 ) -> Option(TypeValue))({
   // Fast path: builtin comptime check.
+  // NOTE: Yo enum patterns do not support literal matching — `.Some(true)` and
+  // `.Some(false)` would each bind the inner bool to a variable named `true`
+  // or `false`. We collapse to `.Some(_)` because the TS reference
+  // (findSomeTypeMissingComptimeConstraint in src/evaluator/trait-checking.ts)
+  // returns `undefined` for both true and false alike — only the `None`
+  // (unknown) result needs further checking. See
+  // issues/pattern-match-literal-in-enum-destructure.md.
   match(type_implements_comptime_builtin(ty),
-    .Some(true)  => { return Option(TypeValue).None; },
-    .Some(false) => { return Option(TypeValue).None; },
-    .None        => ()
+    .Some(_) => { return Option(TypeValue).None; },
+    .None    => ()
   );
 
   // SomeType: check if it has a Comptime constraint.

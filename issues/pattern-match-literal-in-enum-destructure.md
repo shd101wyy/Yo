@@ -36,6 +36,13 @@ Always use a variable binding and then check the value with `cond`:
 
 This is by design — Yo match patterns only support variable binding in enum variant destructuring, not literal matching. This should be documented as a common pitfall.
 
+Cleanup of misleading uses:
+
+- `yo-self/evaluator/trait_checking.yo` (commit pending) — collapsed
+  `.Some(true) => ... .Some(false) => ...` (both arms identical, second
+  was unreachable due to this language behavior) into `.Some(_) => ...`
+  with a clarifying comment pointing back to this issue.
+
 ## Related
 
 - Same issue would apply to `.IntLit(42)` — it would bind to variable named `42`, not match the literal
