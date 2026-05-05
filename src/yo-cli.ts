@@ -494,6 +494,12 @@ yo --version                     Show version number
             type: "boolean",
             default: false,
           })
+          .option("disable-sanitize", {
+            describe:
+              "Disable AddressSanitizer for test binaries (workaround for macOS 26 AMFI blocking the Nix-store ASAN dylib)",
+            type: "boolean",
+            default: false,
+          })
           .option("json-summary", {
             describe:
               "Internal: print machine-readable summary line for isolated parallel test execution",
@@ -555,6 +561,7 @@ yo --version                     Show version number
           testNamePattern: argv.testNamePattern as string | undefined,
           parallel,
           keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
+          noSanitize: argv.disableSanitize as boolean,
           profile: argv.profile as boolean,
         });
 

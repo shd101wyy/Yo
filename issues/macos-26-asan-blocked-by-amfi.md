@@ -63,9 +63,12 @@ clang -std=c11 -O0 tests/.yo_test_batch_*.c -o /tmp/x  # add -k to keep the .c
 2. Re-codesign the ASAN dylib with a developer ID (not done in the Nix shell).
 3. Manually rebuild C with no sanitizer (see reproducer above).
 
-## Suggested fix
+## Fix (implemented)
 
-Add a `--no-sanitize` (or `--sanitize=<addr|none>`) flag to `yo test` so the
-suite can be exercised natively on macOS 26 / wherever AMFI blocks the
-sanitizer dylib. Long-term, prefer a sanitizer dylib distributed via a path
-AMFI/XProtect will accept (e.g. ship it with the Yo binary).
+Added `--disable-sanitize` flag to `yo test` (commit pending) so the suite can
+be exercised natively on macOS 26. Note: the name is `--disable-sanitize` rather
+than `--no-sanitize` because yargs treats `--no-X` as the negation of `--X` and
+would refuse the flag.
+
+Long-term, prefer a sanitizer dylib distributed via a path AMFI/XProtect will
+accept (e.g. ship it with the Yo binary).

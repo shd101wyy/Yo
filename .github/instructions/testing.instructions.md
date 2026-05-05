@@ -38,23 +38,34 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
 
-### macOS AMFI / "launched-suspended" workaround
+### macOS 26 AMFI / ASAN dylib workaround
 
-On macOS 26+ (beta builds), locally-compiled C binaries may enter a "launched-suspended"
-state and never start executing (kernel security validation blocks them). This affects
-`./yo-cli test` for all test files, not just yo-self tests.
+On macOS 26+ (current release), locally-compiled C binaries linked against the
+Nix-store ASAN dylib (`libclang_rt.asan_osx_dynamic.dylib`) are rejected by
+AMFI/XProtect with "Unrecoverable CT signature issue". The process starts but
+never executes; the test runner's 60s watchdog eventually kills it. This
+affects ALL branches and ALL test files, including a trivial `assert(true)`.
 
-**Workaround**: use `--target wasm-wasi` to compile tests to WASM and run them with
-`wasmtime` (available via the Nix shell):
+**Workaround**: pass `--disable-sanitize` to skip AddressSanitizer linkage:
+
+```bash
+./yo-cli test ./tests/basic.test.yo --disable-sanitize --parallel 1
+./yo-cli test ./yo-self/tests/ --disable-sanitize --parallel 1
+```
+
+This disables leak detection on macOS, but tests still validate logic.
+See `issues/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
+
+**Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
+`--target wasm-wasi` to run via `wasmtime`:
 
 ```bash
 ./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
-./yo-cli test ./yo-self/tests/parser.test.yo --target wasm-wasi --parallel 1
 ```
 
 > Note: `eval_part{1..4}.test.yo` carry `// @skip_wasm32-*` directives because each
 > split would take >15 min on WASM (5 min Yo compile + ~10 min emcc on a 6 MB C file).
-> Run them natively only.
+> Run them natively (with `--disable-sanitize` on macOS) only.
 
 The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
 `-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries

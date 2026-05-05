@@ -369,7 +369,8 @@ function compileBatchedBinary(
   filePath: string,
   cCompiler: string,
   wasmTarget?: TargetInfo,
-  keepGeneratedFiles?: boolean
+  keepGeneratedFiles?: boolean,
+  noSanitize?: boolean
 ): BatchCompileResult {
   const program = generateBatchedTestProgram(tests, nonTestContent);
   const originalDir = path.dirname(filePath);
@@ -462,7 +463,7 @@ function compileBatchedBinary(
 
     // Build C compile args
     const asanFlags =
-      !isMSVC && !isEmcc
+      !isMSVC && !isEmcc && !noSanitize
         ? getSanitizerFlags({ sanitize: "address", compilerInfo })
         : { flags: [] };
 
@@ -613,13 +614,14 @@ function runTestFromBatchedBinary(
   binaryPath: string,
   cCompiler: string,
   wasmTarget?: TargetInfo,
-  profile?: boolean
+  profile?: boolean,
+  noSanitize?: boolean
 ): TestResult {
   const startTime = Date.now();
   const compilerInfo = getCompilerInfo(cCompiler);
   const { isMSVC, isWindows, isEmcc } = compilerInfo;
   const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
-  const useAsan = !isMSVC && !isEmcc;
+  const useAsan = !isMSVC && !isEmcc && !noSanitize;
 
   try {
     let runResult;
@@ -818,6 +820,7 @@ async function runSingleFileInIsolatedProcess({
   testNamePattern,
   keepGeneratedFiles,
   profile,
+  noSanitize,
 }: {
   filePath: string;
   cCompiler: string;
@@ -827,6 +830,7 @@ async function runSingleFileInIsolatedProcess({
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
   profile?: boolean;
+  noSanitize?: boolean;
 }): Promise<IsolatedFileRunResult> {
   return await new Promise((resolve) => {
     const bunExecutable = process.env.BUN || "bun";
@@ -857,6 +861,9 @@ async function runSingleFileInIsolatedProcess({
     }
     if (keepGeneratedFiles) {
       args.push("--keep-generated-files");
+    }
+    if (noSanitize) {
+      args.push("--disable-sanitize");
     }
     if (profile) {
       args.push("--profile");
@@ -940,6 +947,7 @@ async function runTestsInIsolatedProcesses({
   testNamePattern,
   keepGeneratedFiles,
   profile,
+  noSanitize,
   startTime,
 }: {
   testFiles: string[];
@@ -951,6 +959,7 @@ async function runTestsInIsolatedProcesses({
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
   profile?: boolean;
+  noSanitize?: boolean;
   startTime: number;
 }): Promise<TestRunSummary> {
   const allResults: TestResult[] = [];
@@ -976,6 +985,7 @@ async function runTestsInIsolatedProcesses({
         testNamePattern,
         keepGeneratedFiles,
         profile,
+        noSanitize,
       });
 
       const relativePath = path.relative(process.cwd(), filePath);
@@ -1101,6 +1111,7 @@ async function runTestsSequentially(
     keepGeneratedFiles?: boolean;
     profile?: boolean;
     wasmTarget?: TargetInfo;
+    noSanitize?: boolean;
   }
 ): Promise<{
   results: TestResult[];
@@ -1156,7 +1167,8 @@ async function runTestsSequentially(
       firstTest.test.filePath,
       cCompiler,
       options.wasmTarget,
-      options.keepGeneratedFiles
+      options.keepGeneratedFiles,
+      options.noSanitize
     );
   } catch (compileError) {
     // Batch compilation failed — report as failure for all tests
@@ -1193,7 +1205,8 @@ async function runTestsSequentially(
       batchResult.binaryPath,
       cCompiler,
       options.wasmTarget,
-      options.profile
+      options.profile,
+      options.noSanitize
     );
     reportResult(test, result);
   }
@@ -1216,6 +1229,7 @@ export async function runTests(
     parallel?: number;
     keepGeneratedFiles?: boolean;
     profile?: boolean;
+    noSanitize?: boolean;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
@@ -1308,6 +1322,7 @@ export async function runTests(
       testNamePattern: options.testNamePattern,
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
+      noSanitize: options.noSanitize,
       startTime,
     });
     parallelResult.skipped += skippedTests;
@@ -1394,6 +1409,7 @@ export async function runTests(
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
       wasmTarget,
+      noSanitize: options.noSanitize,
     });
 
     allResults.push(...result.results);
