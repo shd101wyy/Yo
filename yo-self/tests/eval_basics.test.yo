@@ -186,416 +186,49 @@ check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
 // Bool literals
 // ---------------------------------------------------------------------------
 
-test "evaluate: bool literal true", {
-  e := make_atom(TokenKind.Bool, "true");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "bool true");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.BoolVal(true)), "expected BoolVal(true)");
-      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: bool literal false", {
-  e := make_atom(TokenKind.Bool, "false");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "bool false");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.BoolVal(false)), "expected BoolVal(false)");
-      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
-    },
-    .None => ()
-  );
-};
-
 // ---------------------------------------------------------------------------
 // Integer literals
 // ---------------------------------------------------------------------------
-
-test "evaluate: integer literal", {
-  e := make_atom(TokenKind.Integer, "42");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "integer 42");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: integer zero", {
-  e := make_atom(TokenKind.Integer, "0");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "integer 0");
-  match(result,
-    .Some(r) => {
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
-    },
-    .None => ()
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Float literals
 // ---------------------------------------------------------------------------
 
-test "evaluate: float literal", {
-  e := make_atom(TokenKind.Float, "3.14");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "float 3.14");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.FloatLit(String.from("3.14"))), "expected FloatLit(3.14)");
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeFloat), "expected TComptimeFloat");
-    },
-    .None => ()
-  );
-};
-
 // ---------------------------------------------------------------------------
 // String literals
 // ---------------------------------------------------------------------------
-
-test "evaluate: string literal type", {
-  e := make_atom(TokenKind.StringLit, "hello");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "string lit");
-  match(result,
-    .Some(r) => {
-      match(r.value,
-        .StrLit(_) => (),
-        _ => {
-          println(`FAIL: expected StrLit variant`);
-          assert(false, "expected StrLit");
-        }
-      );
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: template string type", {
-  e := make_atom(TokenKind.TemplateString, "hello");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "template str");
-  match(result,
-    .Some(r) => {
-      match(r.value,
-        .StrLit(_) => (),
-        _ => {
-          println(`FAIL: expected StrLit variant for template string`);
-          assert(false, "expected StrLit");
-        }
-      );
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
-    },
-    .None => ()
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Char literals
 // ---------------------------------------------------------------------------
 
-test "evaluate: char literal type", {
-  e := make_atom(TokenKind.CharLit, "a");
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "char lit");
-  match(result,
-    .Some(r) => {
-      match(r.value,
-        .IntLit(_) => (),
-        _ => {
-          println(`FAIL: expected IntLit for char literal`);
-          assert(false, "expected IntLit");
-        }
-      );
-      assert((type_value_tag(r.ty) == TypeTag.TU32), "expected TU32 (rune)");
-    },
-    .None => ()
-  );
-};
-
 // ---------------------------------------------------------------------------
 // Identifier lookup
 // ---------------------------------------------------------------------------
-
-test "evaluate: identifier found — returns VarRef when no value stored", {
-  env := Environment.new(`test`);
-  _d := env.define(`x`, t_i32(), false);
-  e := make_atom(TokenKind.Identifier, "x");
-  result := evaluate(e, &env);
-  check_some(result, "identifier x");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.VarRef(String.from("x"))), "expected VarRef(x)");
-      assert((type_value_tag(r.ty) == TypeTag.TI32), "expected TI32");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: identifier found — returns stored comptime value", {
-  env := Environment.new(`test`);
-  _d := env.define_val(`n`, t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("7"))));
-  e := make_atom(TokenKind.Identifier, "n");
-  result := evaluate(e, &env);
-  check_some(result, "identifier n with value");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.IntLit(String.from("7"))), "expected IntLit(7)");
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: identifier not found → None", {
-  env := empty_env();
-  e := make_atom(TokenKind.Identifier, "unknown");
-  check_none(evaluate(e, &env), "unknown identifier");
-};
-
-test "evaluate: identifier in nested frame", {
-  env := Environment.new(`test`);
-  _d0 := env.define(`outer`, t_bool(), false);
-  _pushed := env.push_frame(true);
-  _d1 := env.define(`inner`, t_f32(), false);
-  e_outer := make_atom(TokenKind.Identifier, "outer");
-  e_inner := make_atom(TokenKind.Identifier, "inner");
-  match(evaluate(e_outer, &env),
-    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TBool), "outer type"),
-    .None => assert(false, "outer must be found")
-  );
-  match(evaluate(e_inner, &env),
-    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TF32), "inner type"),
-    .None => assert(false, "inner must be found")
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Non-literal / unsupported atoms → None
 // ---------------------------------------------------------------------------
 
-test "evaluate: operator atom → None", {
-  e := make_atom(TokenKind.Operator, "+");
-  env := empty_env();
-  check_none(evaluate(e, &env), "operator atom");
-};
-
-test "evaluate: fn call (unknown fn) → None", {
-  (e : AstExpr) = .FnCall(usize(0), 
-    box(make_ident("foo")),
-    ArrayList(AstExpr).new(),
-    false,
-    make_token(TokenKind.Identifier, "foo")
-  );
-  env := empty_env();
-  check_none(evaluate(e, &env), "fn call");
-};
-
 // ---------------------------------------------------------------------------
 // Unit expression
 // ---------------------------------------------------------------------------
-
-test "evaluate: unit expression ()", {
-  e := make_unit();
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "unit expr");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
-      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
-    },
-    .None => ()
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Begin blocks
 // ---------------------------------------------------------------------------
 
-test "evaluate: empty begin block → unit", {
-  e := make_begin(ArrayList(AstExpr).new());
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "empty begin");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
-      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: begin block returns last stmt value", {
-  stmts := ArrayList(AstExpr).new();
-  stmts.push(make_atom(TokenKind.Integer, "1"));
-  stmts.push(make_atom(TokenKind.Integer, "2"));
-  stmts.push(make_atom(TokenKind.Integer, "42"));
-  e := make_begin(stmts);
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "begin last value");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: begin block with define then lookup", {
-  // { x := 99; x }
-  define_stmt := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "99"));
-  stmts := ArrayList(AstExpr).new();
-  stmts.push(define_stmt);
-  stmts.push(make_ident("x"));
-  e := make_begin(stmts);
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "begin define+lookup");
-  match(result,
-    .Some(r) => {
-      assert((r.value == EvalValue.IntLit(String.from("99"))), "expected IntLit(99)");
-      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: begin block scope is isolated from outer env", {
-  env := Environment.new(`test`);
-  define_stmt := make_infix(":=", make_ident("tmp"), make_atom(TokenKind.Integer, "5"));
-  stmts := ArrayList(AstExpr).new();
-  stmts.push(define_stmt);
-  e := make_begin(stmts);
-  _r := evaluate(e, &env);
-  // after the begin block, 'tmp' should NOT be visible in the outer env
-  lookup_result := evaluate(make_ident("tmp"), &env);
-  check_none(lookup_result, "tmp not visible outside begin");
-};
-
 // ---------------------------------------------------------------------------
 // cond expression
 // ---------------------------------------------------------------------------
-
-test "evaluate: cond — first true arm wins", {
-  // cond(true => 1, true => 2)  →  1
-  arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "1")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
-  e := make_cond(arms);
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "cond first true");
-  match(result,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("1"))), "expected 1"),
-    .None => ()
-  );
-};
-
-test "evaluate: cond — false arm skipped", {
-  // cond(false => 1, true => 2)  →  2
-  arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
-  e := make_cond(arms);
-  env := empty_env();
-  result := evaluate(e, &env);
-  check_some(result, "cond skip false");
-  match(result,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "expected 2"),
-    .None => ()
-  );
-};
-
-test "evaluate: cond — no arm matches → None", {
-  // cond(false => 1)  →  None (no default arm)
-  arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
-  e := make_cond(arms);
-  env := empty_env();
-  check_none(evaluate(e, &env), "cond no match");
-};
 
 // ---------------------------------------------------------------------------
 // Variable define (:=)
 // ---------------------------------------------------------------------------
 
-test "evaluate: define stores value in env", {
-  env := Environment.new(`test`);
-  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
-  result := evaluate(define_e, &env);
-  check_some(result, "define result");
-  match(result,
-    .Some(r) => assert((r.value == EvalValue.UnitVal), "define returns unit"),
-    .None => ()
-  );
-  // now lookup x
-  lookup := evaluate(make_ident("x"), &env);
-  check_some(lookup, "lookup after define");
-  match(lookup,
-    .Some(r) => {
-      assert((r.value == EvalValue.IntLit(String.from("10"))), "x should be 10");
-    },
-    .None => ()
-  );
-};
-
-test "evaluate: define bool variable", {
-  env := Environment.new(`test`);
-  define_e := make_infix(":=", make_ident("flag"), make_atom(TokenKind.Bool, "true"));
-  _r := evaluate(define_e, &env);
-  lookup := evaluate(make_ident("flag"), &env);
-  check_some(lookup, "flag lookup");
-  match(lookup,
-    .Some(r) => {
-      assert((r.value == EvalValue.BoolVal(true)), "flag should be true");
-      assert((type_value_tag(r.ty) == TypeTag.TBool), "flag type TBool");
-    },
-    .None => ()
-  );
-};
-
 // ---------------------------------------------------------------------------
 // Variable assign (=)
 // ---------------------------------------------------------------------------
-
-test "evaluate: assign updates stored value", {
-  env := Environment.new(`test`);
-  // x := 1
-  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "1"));
-  _d := evaluate(define_e, &env);
-  // x = 2
-  assign_e := make_infix("=", make_ident("x"), make_atom(TokenKind.Integer, "2"));
-  result := evaluate(assign_e, &env);
-  check_some(result, "assign result");
-  // check x is now 2
-  lookup := evaluate(make_ident("x"), &env);
-  check_some(lookup, "lookup after assign");
-  match(lookup,
-    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "x should be 2"),
-    .None => ()
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Phase 3d helpers: build enum-variant AST nodes
@@ -680,6 +313,1372 @@ make_runtime :: (fn(inner : AstExpr) -> AstExpr)({
 // Phase 3d — enum variant construction
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 3d — match expressions
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3d — while loops
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3e helpers — function definitions and calls
+// ---------------------------------------------------------------------------
+
+/// Build the param-list part of a fn expression: FnCall(Atom("fn"), [p1, p2, …], false).
+/// Params are bare atoms (no type annotation) for test simplicity.
+make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
+  param_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while runtime((i < param_names.len())), {
+    match(param_names.get(i),
+      .Some(n) => {
+        param_exprs.push(.Atom(usize(0), make_token(TokenKind.Identifier, n.as_str())));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  )
+});
+
+/// Build `(fn(params) -> unit)(body)`.
+make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)({
+  fn_expr := make_fn_params(param_names);
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+/// Build a function call `name(args…)`.
+make_call :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    call_args,
+    false,
+    make_token(TokenKind.Identifier, name)
+  )
+);
+
+/// Build `return expr`.
+make_return :: (fn(expr : AstExpr) -> AstExpr)({
+  ret_args := ArrayList(AstExpr).new();
+  ret_args.push(expr);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "return"))),
+    ret_args,
+    false,
+    make_token(TokenKind.Identifier, "return")
+  )
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3e — function definitions and calls
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3f — recur (recursive calls) and :: (constant declarations)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3f — type casts: i32(x), u64(x), usize(n), etc.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3g helpers — typed declarations and string literals
+// ---------------------------------------------------------------------------
+
+/// Build a string-literal atom with the given raw value.
+make_str :: (fn(s : str) -> AstExpr)(
+  make_atom(TokenKind.StringLit, s)
+);
+
+/// Build `(name : type_name) = rhs` — typed variable declaration.
+/// e.g. `(x : i32) = i32(5)` → declares x of type i32 with value 5.
+make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
+  colon_args := ArrayList(AstExpr).new();
+  colon_args.push(make_ident(name));
+  colon_args.push(make_ident(type_name));
+  (lhs : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    colon_args,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_infix("=", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3g — typed variable declarations
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3g — string comparison
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3h — struct value construction and field access
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3i — closure capture / lexical scoping
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3j — method dispatch on StructVal and impl block registration
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3k — TypeVal: type names as first-class compile-time values
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3l helpers — build fn defs with typed / forall params
+// ---------------------------------------------------------------------------
+
+/// Build a typed param `name : type_name` as an infix `:` FnCall.
+make_typed_param :: (fn(name : str, type_name : str) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a.push(make_atom(TokenKind.Identifier, type_name));
+      a
+    },
+    true,
+    make_token(TokenKind.Operator, ":")
+  )
+);
+
+/// Build a forall param `forall(name)` as a non-infix FnCall.
+make_forall_param :: (fn(name : str) -> AstExpr)(
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "forall"))),
+    {
+      a := ArrayList(AstExpr).new();
+      a.push(make_atom(TokenKind.Identifier, name));
+      a
+    },
+    false,
+    make_token(TokenKind.Identifier, "forall")
+  )
+);
+
+/// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
+/// More general than `make_fn_def` which only accepts bare atom param names.
+make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
+  (fn_expr : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    param_exprs,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arrow_args := ArrayList(AstExpr).new();
+  arrow_args.push(fn_expr);
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  (fn_sig : AstExpr) = .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arrow_args,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(body);
+  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  result
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3l — Generic specialization / forall param binding
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3m helpers — build export, open, and import AST nodes
+// ---------------------------------------------------------------------------
+
+/// Build `export(names…)` as a non-infix FnCall.
+make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
+  export_tok := make_token(TokenKind.Identifier, BK_EXPORT);
+  args := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(name) => { args.push(make_ident(name)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  .FnCall(usize(0), box(.Atom(usize(0), export_tok)), args, false, export_tok)
+});
+
+/// Build `open(expr)` as a non-infix FnCall.
+make_open :: (fn(expr : AstExpr) -> AstExpr)({
+  open_tok := make_token(TokenKind.Identifier, BK_OPEN);
+  args := ArrayList(AstExpr).new();
+  args.push(expr);
+  .FnCall(usize(0), box(.Atom(usize(0), open_tok)), args, false, open_tok)
+});
+
+/// Build `import("path")` as a non-infix FnCall (path is a string literal).
+make_import_expr :: (fn(path : str) -> AstExpr)({
+  import_tok := make_token(TokenKind.Identifier, BK_IMPORT);
+  path_lit   := `"${String.from(path)}"`;
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom(TokenKind.StringLit, path_lit.as_str()));
+  .FnCall(usize(0), box(.Atom(usize(0), import_tok)), args, false, import_tok)
+});
+
+/// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
+make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
+  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+  name_exprs := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while runtime((i < n)), {
+    match(names.get(i),
+      .Some(nm) => { name_exprs.push(make_ident(nm)); },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), name_exprs, false, anon_tok);
+  rhs := make_import_expr(path);
+  make_infix("::", lhs, rhs)
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3m — Module system
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3n — if expressions, float arithmetic, comptime param names
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3o — evidence params / using(name : Type) / evidence passing
+// ---------------------------------------------------------------------------
+
+/// Build `using(inner_expr)` call — used both for param declarations and
+/// call-site evidence passing.
+make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
+  ua := ArrayList(AstExpr).new();
+  ua.push(inner);
+  .FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "using"))),
+    ua,
+    false,
+    make_token(TokenKind.Identifier, "using")
+  )
+});
+
+/// Build `using(name : Type)` param for a function definition.
+make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
+  ca := ArrayList(AstExpr).new();
+  ca.push(make_ident(name));
+  ca.push(make_ident(type_name));
+  colon_expr := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    ca,
+    true,
+    make_token(TokenKind.Operator, ":")
+  );
+  make_using_call(colon_expr)
+});
+
+/// Build `(fn(params…) -> ret_type)(body)` function definition expression.
+make_typed_fn_def :: (fn(
+  fn_params : ArrayList(AstExpr),
+  ret_type  : AstExpr,
+  body      : AstExpr
+) -> AstExpr)({
+  fn_head := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    fn_params,
+    false,
+    make_token(TokenKind.Identifier, "fn")
+  );
+  arr_a := ArrayList(AstExpr).new();
+  arr_a.push(fn_head);
+  arr_a.push(ret_type);
+  fn_sig := (AstExpr).FnCall(usize(0), 
+    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    arr_a,
+    true,
+    make_token(TokenKind.Operator, "->")
+  );
+  body_args := ArrayList(AstExpr).new();
+  body_args.push(body);
+  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, "->"))
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 Validation Milestone — evaluate a simple hello_world-style module
+//
+// Constructs the AST for:
+//   main :: (fn(using(io : IO)) -> unit)({ io; });
+//   export main;
+// and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
+// with evidence_params=["io"] and no regular params.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 2bk — anonymous struct literal evaluation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3z — Type definition keyword handlers
+// (enum, struct, object, newtype, union, trait)
+// ---------------------------------------------------------------------------
+
+/// Helper: build a fresh env with `T` bound to `TypeVal(i32)`.
+make_env_with_T :: (fn() -> Environment)({
+  env := Environment.new(`T_env`);
+  (ti32 : TypeValue) = t_i32();
+  _ := (&env).define_val(
+    String.from("T"),
+    t_type(),
+    true,
+    .Some(.TypeVal(box(ti32)))
+  );
+  env
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3z integration — CTFE with type definitions via source parsing
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3aa — Instance method dispatch via _try_find_receiver_method
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ac: closure capture and higher-order function tests
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ae — while loop accumulator, match .Some(x) binding, nested calls
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3af — recur (recursive self-call), ||, multi-capture closures
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ag — return keyword early exit, struct field access, float arithmetic
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ah — integer div/mod, function composition, string equality, impl method call
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ai — fieldless enum match, bool negation, to_string, template string
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3aj: String.from(), String.new(), StrLit+StrLit infix, higher-order fn
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 3ak: StrLit.as_str() passthrough, StrLit.len() length
+// ---------------------------------------------------------------------------
+
+// Phase 3al — StrLit.starts_with / ends_with / contains shims
+
+// =========================================================================
+// Phase 3am: box/deref, ArrayList, StrLit.substring, ArrayVal.len/get
+// =========================================================================
+
+// =========================================================================
+// Phase 3an: StrLit.replace_all, .trim, .to_uppercase, .to_lowercase
+// =========================================================================
+
+// =========================================================================
+// Phase 3ao: StrLit.parse_i64()
+// =========================================================================
+
+// =============================================================================
+// Phase 3ap: break/for loop support
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Phase 3aq: Struct field mutation — `s.field = rhs`
+// ---------------------------------------------------------------------------
+
+// =============================================================================
+// Phase 5m: given(name) := expr binding support
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Phase 5q: more eval tests — nested blocks, function call, unary ops
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 5r — More evaluator integration tests
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// Phase 5s — Integration tests: for loop, array literal, given, string concat
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5t — Closure (=>) evaluation tests using raw AST construction
+// (The self-hosted parser currently crashes on `=>` — see issues/parser-lambda-crash.md)
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5u — continue keyword, assert, and comptime_assert
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5v — FnMut closure (=>>), logical NOT (!), unary negation (-)
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5w — runtime(), dyn(), comptime(), type constructors
+// ===========================================================================
+
+// ===========================================================================
+// Phase 5x — Bitwise operators, println no-op
+// ===========================================================================
+
+// Phase 5y — extern, c_include, where, forall, type_of, size_of, align_of,
+// HashMap, unreachable, panic, todo, array .set(), .is_empty()
+
+// Phase 5z — Impl/Fn/FnMut/FnOnce type constructors, derive, export, comptime_expect_error,
+// StrLit.is_empty(), StrLit.char_at(i)
+
+// Phase 5aa — clone passthrough, tuple construction, Slice/Future/Array type ctors
+
+// Phase 5ab — string replace, index_of, string ordering comparisons
+
+// Phase 5ac — split, contains, eval_values_equal
+
+// Phase 5ad — ArrayVal.join, integer conversions
+
+// Phase 5ae — ArrayVal.first/last, IntLit.abs
+
+// Phase 5af — IntLit.min/max, StrLit.repeat
+
+// Phase 5ag — ArrayVal.map/filter with FuncVal
+
+// Phase 5ah — ArrayVal.fold/any/all
+
+// Phase 5ai — ArrayVal.concat/reverse
+
+// Phase 5aj — tuple destructuring
+
+// Phase 5ak — escape keyword + additional operations
+
+// Phase 5al — StrLit.as_bytes()
+
+// ===================================================================
+// Phase 5am: ArrayVal.enumerate(), ArrayVal.zip(), ArrayVal.slice()
+// ===================================================================
+
+// ===================================================================
+// Phase 5an: ArrayVal.index_of(), ArrayVal.flat_map()
+// ===================================================================
+
+// ===================================================================
+// Phase 5ao: Complex module-body evaluation tests
+// ===================================================================
+
+// Phase 5ap: recursive factorial with pattern matching
+
+// Phase 5ap: map over array of structs, extract field
+
+// Phase 5ap: nested function calls (compose)
+
+// Phase 5ap: fibonacci via recur
+
+// Phase 5ap: multiple exports from module
+
+// Phase 5aq: recursive sum with accumulator
+
+// Phase 5aq: string concatenation in loop
+
+// Phase 5aq: higher-order: apply function twice
+
+// Phase 5aq: enum with multiple variants and match
+
+// Phase 5aq: array filter then map (chained operations)
+
+// Phase 5ar: TypeVal.Variant(args) — enum variant construction with data
+
+// Phase 5ar: TypeVal.Variant(args) with multiple fields
+
+// Phase 5ar: array.fold with initial value and reducer
+
+// Phase 5ar: string starts_with and ends_with
+
+// Phase 5as: StrLit.trim removes whitespace
+
+// Phase 5as: StrLit.char_at returns character
+
+// Phase 5as: StrLit.replace replaces substring
+
+// Phase 5as: StrLit.split produces array of strings
+
+// Phase 5as: string concatenation via + operator
+
+// Phase 5at: module-level mutable reassignment
+
+// Phase 5at: passing function as argument
+
+// Phase 5at: deeply nested match extraction
+
+// Phase 5at: array of enums with map
+
+// Phase 5at: struct construction and access
+
+// Phase 5au: if() function pattern (boolean then-else)
+
+// Phase 5au: cond with multiple boolean guards
+
+// Phase 5au: while loop modifying array
+
+// Phase 5au: enum variant with single field and match extraction
+
+// Phase 5au: comptime binding with struct type
+
+// Phase 5av: StrLit.substring extracts portion
+
+// Phase 5av: comptime binding then runtime use
+
+// Phase 5av: simple :: binding (comptime alias)
+
+// Phase 5av: array.any and array.all
+
+// Phase 5aw: array.map with enum construction
+
+// Phase 5aw: nested struct field access
+
+// Phase 5aw: String.from + .len()
+
+// Phase 5aw: while loop with break condition
+
+// Phase 5aw: array literal + fold to sum
+
+// Phase 5ax: match exhaustiveness with default arm
+
+// Phase 5ax: match wildcard catches non-matching variants
+
+// Phase 5ax: function returning a struct
+
+// Phase 5ax: enum variant with single field destructured
+
+// Phase 5ax: chained method calls on string
+
+// Phase 5ay: ArrayList push + get + len
+
+// Phase 5ay: Option.is_some using local enum
+
+// Phase 5ay: boolean AND/OR
+
+// Phase 5ay: for loop over array with accumulator
+
+// Phase 5ay: nested cond (if-else-if chain)
+
+// Phase 5az: :: binds comptime value
+
+// Phase 5az: struct with method-like function
+
+// Phase 5az: string equality comparison
+
+// Phase 5az: array filter then fold
+
+// Phase 5az: multiple functions calling each other
+
+// Phase 5ba: enum equality check
+
+// Phase 5ba: array of structs
+
+// Phase 5ba: string concatenation with +
+
+// Phase 5ba: higher-order function via apply
+
+// Phase 5ba: mutable struct field update
+
+// Phase 5bb: array.map with struct construction
+
+// Phase 5bb: recursive function with base case
+
+// Phase 5bb: string starts_with and ends_with
+
+// Phase 5bb: usize arithmetic
+
+// Phase 5bb: for loop with break
+
+// Phase 5bc: nested match on Option(i32)
+
+// Phase 5bc: multiple struct types
+
+// Phase 5bc: while loop with multiple mutations
+
+// Phase 5bc: array.reverse
+
+// Phase 5bc: string split and access
+
+// Phase 5bd: modulo operator
+
+// Phase 5bd: negation with unary minus
+
+// Phase 5bd: array.first and array.last
+
+// Phase 5bd: Integer division
+
+// Phase 5bd: String.contains
+
+// Phase 5be: complex conditional with multiple comparisons
+
+// Phase 5be: array.concat
+
+// Phase 5be: nested function calls with multiple args
+
+// Phase 5be: string replace simple
+
+// Phase 5be: for loop building array with push
+
+// Phase 5bf: struct field update then read
+
+// Phase 5bf: multiple :: bindings in sequence
+
+// Phase 5bf: function that takes and returns struct
+
+// Phase 5bf: while loop counting with early exit
+
+// Phase 5bf: integer max/min
+
+// Phase 5bg: array.get returns Option
+
+// Phase 5bg: array.get out of bounds returns None
+
+// Phase 5bg: comparison operators on integers
+
+// Phase 5bg: string index_of
+
+// Phase 5bg: float arithmetic
+
+// Phase 5bh: struct equality comparison
+
+// Phase 5bh: array equality
+
+// Phase 5bh: GCD algorithm (Euclidean)
+
+// Phase 5bh: enum != comparison
+
+// Phase 5bh: complex expression: map+filter+fold pipeline
+
+// Phase 5bi: string + concatenation
+
+// Phase 5bi: .to_string() on integers
+
+// Phase 5bi: .to_string() + string concat (template string equivalent)
+
+// Phase 5bi: ArrayList.get returns Option
+
+// Phase 5bi: not operator
+
+// Phase 5bj: open import (merge module exports into scope)
+
+// Phase 5bj: string.as_str() comparison
+
+// Phase 5bj: complex for loop with cond inside
+
+// Phase 5bj: array built from for loop
+
+// Phase 5bj: struct with boolean field
+
+// Phase 5bk: ArrayList set and get (set returns new array)
+
+// Phase 5bk: function returning bool used in cond
+
+// Phase 5bk: nested struct access and mutation
+
+// Phase 5bk: i64 arithmetic
+
+// Phase 5bk: enum variant with data field in match arm
+
+// Phase 5bl: string char_at
+
+// Phase 5bl: boolean to_string
+
+// Phase 5bl: integer abs
+
+// Phase 5bl: complex pipeline: map to struct, filter, fold
+
+// Phase 5bl: nested enum (Option of enum variant)
+
+// === Phase 5bm: recursive data structures, higher-order fns, mutual definitions ===
+
+// === Phase 5bn: closures, higher-order, pattern matching depth ===
+
+// === Phase 5bo: for-loop patterns, filter, nested function calls ===
+
+// === Phase 5bp: begin blocks, shadowing, reassignment ===
+
+// === Phase 5bq: type definitions, fn composition, array operations ===
+
+// === Phase 5br: more complex patterns ===
+
+// === Phase 5bs: more patterns used by evaluator itself ===
+
+// === Phase 5bt: fn as first-class value, composition patterns ===
+
+// === Phase 5bu: patterns the evaluator uses internally ===
+
+// === Phase 5bv: edge cases and negative tests ===
+
+// === Phase 5bw: more evaluator-like patterns ===
+
+// === Phase 5bx: type-level patterns and comptime ===
+
+// === Phase 5by: more complex evaluation patterns ===
+
+// === Phase 5bz: reaching 500 eval tests — comprehensive coverage ===
+
+// === Phase 5ca: reaching 500 eval tests ===
+
+// === Phase 5cb: evaluator stress - programs with multiple interacting definitions ===
+
+// Phase 5da: arithmetic chains, nested struct, array ops
+
+// Phase 5db: recursive patterns, while loops, boolean logic
+
+// Phase 5dc: struct operations, array indexing, string comparisons
+
+// Phase 5dd: function composition, array contains, string len
+
+// Phase 5de: complex patterns, enum matching, array operations
+
+// Phase 5df: higher-order functions, closures, array chaining
+
+// Phase 5dg: more enum patterns, negation, comparison chains
+
+// Phase 5dh: more struct/enum patterns, multi-step computation
+
+// Phase 5di: complex while loops, chained operations
+
+// Phase 5dj: more arithmetic, recursion depth, struct patterns
+
+// Phase 5dk: complex while patterns, nested functions
+
+// Phase 5dl: array operations, boolean patterns
+
+// Phase 5dm: more complex patterns
+
+// Phase 5dn: more complex recursion and computation
+
+// Phase 5do: edge cases and advanced patterns
+
+// Phase 5dp: advanced recursion and data structures
+
+// Phase 5dq: more boolean operations, enum chaining
+
+// Phase 5dr: more struct/array patterns
+
+// Phase 5ds: complex computations and edge cases
+
+// Phase 5dt: final batch - mixed operations
+
+// Phase 5du: more function patterns, closures with capture
+
+// Phase 5dv: struct mutation, while patterns
+
+// Phase 5dw: more complex computation
+
+// Phase 5dx: advanced patterns
+
+// Phase 5dy: final tests for this batch
+
+// Phase 5dz: edge cases and diverse patterns
+
+// Phase 5ea: more diverse patterns
+
+// Phase 5eb: more patterns
+
+// Phase 5ec: last batch
+
+// Phase 5ed: string and function composition
+
+// Phase 5ee: enum and struct patterns
+
+// Phase 5ef: complex while and array
+
+// Phase 5eg: closures and higher order functions
+
+// Phase 5eh: multi-export and complex arithmetic
+
+// Phase 5ei: combined patterns
+
+// Phase 5ej: more while loop and array patterns
+
+// Phase 5ek: more complex patterns
+
+// Phase 5el: more recursion and struct patterns
+
+// Phase 5em: more patterns
+
+// Phase 5en: advanced patterns
+
+// Phase 5eo: more complex computations
+
+// Phase 5ep: while loops and arithmetic
+
+// Phase 5eq: advanced algorithms
+
+// Phase 5er: more varied tests
+
+// Phase 5es: final batch to 850
+
+// Phase 5et: more patterns pushing to 875
+
+// Phase 5eu: more patterns
+
+// Phase 5ev: final 5 to reach 875
+
+// Phase 5ew: pushing to 880
+
+// Phase 5ex: more algorithm tests
+
+// Phase 5ey: more tests to reach 885
+
+// =============================================================================
+// Phase 5ez: Regression tests — export expr, single-field struct, Box ctor
+// =============================================================================
+
+// =========================================================================
+// Phase 5fa: Integration tests — struct ops, enum match, functions, closures,
+//   array pipelines, string methods, loops, begin blocks, tuples, cond chains
+// =========================================================================
+
+// =============================================================================
+// Phase 5fb: module loading, higher-order functions, string methods, return, continue
+// =============================================================================
+
+// =============================================================================
+// Phase 5fc: advanced patterns — recursion, closures, composition, strings, arrays
+// =============================================================================
+
+// =============================================================================
+// Phase 5fd: power, string ops, arrays, nested loops, fibonacci, for loops, modules
+// =============================================================================
+
+// =============================================================================
+// Phase 5fe: recursion, struct update, flat_map, replace_all, modules, GCD, fold
+// =============================================================================
+
+// =============================================================================
+// Phase 5ff: recursion, string trim, structs, booleans, break, nested functions, Ackermann
+// =============================================================================
+
+// =============================================================================
+// Phase 5fg: collatz, palindrome, primes, binary search, slice, clamp, struct equality
+// =============================================================================
+
+// =============================================================================
+// Phase 5fh: sum of squares, abs, digits, enum match, HOF, fib array, LCM, power
+// =============================================================================
+
+// =============================================================================
+// Phase 5fi: nested structs, string ops, fold, reverse, power of 2, fibonacci array
+// =============================================================================
+
+// =============================================================================
+// Phase 5fj: triangle numbers, any/all, fizzbuzz, recursive len, join, enum eq
+// =============================================================================
+
+// =============================================================================
+// Phase 5fk: sorting, matrix diagonal, string repeat, struct update, distance, map chain
+// =============================================================================
+
+// =============================================================================
+// Phase 5fl: char_at, to_lowercase, concat arrays, string equality, HOF filter sum
+// =============================================================================
+
+// =============================================================================
+// Phase 5fm: ROT13, isqrt, running total, for loop, unique array, nested struct chain
+// =============================================================================
+
+// =============================================================================
+// Phase 5fn: Hanoi, Catalan, perfect numbers, functional pipeline, tribonacci, closures
+// =============================================================================
+
+// =============================================================================
+// Phase 5fo: Collatz longest chain, happy numbers, two-sum, cubes, Roman numerals
+// =============================================================================
+
+// =============================================================================
+// Phase 5fp: insertion search, Ackermann, range product, is_sorted, leap year, RLE
+// =============================================================================
+
+// =============================================================================
+// Phase 5fq: Dutch flag, Kadane max subarray, majority element, bit count, factorials
+// =============================================================================
+
+// Phase 5gd: absolute value, linear search, divisors, digits, second largest, trailing zeros, parity, repeated squaring, fizzbuzz filter, struct distance
+
+// Phase 5ge: square numbers, rotation, exponent, alternating sum, char count, weighted avg, digit product, array equality, countdown step, de morgan
+
+// Phase 5gf: fibonacci array, inversions, palindrome check, GCD3, running average, nested struct, filter evens/odds, matrix mult, digit count, cycle detection
+
+// Phase 5gg: merge sorted, word count, power set, prefix sum, recursive reverse, string repeat, binary search, std dev, linked list, map reduce
+
+// Phase 5gh: stack ops, digit sum, prime factorization, two sum, subarray sum, char frequency, all same, nested struct, common elements, pentagonal
+
+// Phase 5gi: caesar cipher, intersection, binomial, rotate left, recursive sum, trailing zeros, split rejoin, kadane, struct stats, classify
+
+// Phase 5gj: hanoi count, array diff, word length max, sieve primes, fast power, zip pairs, majority element, recursive char count, mean+above, multiple exits
+
+// Phase 5gk: modular inverse, cumulative product, common prefix, pair sum count, struct builder, stable partition, hexagonal, recursive min, sum squares, xor truth table
+
+// Phase 5gl: josephus, dutch flag, tower height, digit count in string, geometric sum, max consecutive ones, number words, manhattan distance, fold min/max, enum state machine
+
+// Phase 5gm: matrix sum, harmonic number, window min, ackermann, group by modulo, string patterns, collatz path, struct array, diagonal sum, recursive multiply
+
+// Phase 5gn: catalan iterative, remove duplicates, lucas numbers, string occurrences, chunk sum, enum option chaining, perfect numbers, scan product, fizzbuzz sum, recursive hanoi
+
+// Phase 5go: counting sort, matrix trace, string reverse, arithmetic series, interleave arrays, recursive even/odd, struct select, max product pair, uppercase words, nested for product
+
+// Phase 5gp: floyd triangle, zigzag, modular pow, word reverse, running min/max, enum visitor, grade cond, polynomial, kth smallest, mutual recursion
+
+// Phase 5gq: triangular numbers, array reverse set, power of 2, vowel consonant, sliding window avg, factorion, struct inheritance, early flag, harmonic series, element frequency
+
+// Phase 5gr: quickselect partition, RLE runs, recursive depth, map+any+all, tetrahedral, pos/neg split, is numeric, fibonacci under limit, struct method chain, enum+struct match
+
+// Phase 5gs: array chunks, odd positions, binary string, struct point, traffic light, digits, padding, power3, spread, contains char
+
+// Phase 5gt: digit sum, filter fold, break loop, repeat, struct dot, state machine, power, map squares, nested struct, for cond
+
+// Phase 5gu: collatz, reverse first/last, GCD, starts/ends_with, fib iter, enum data, count while, any/all, split count, enum values
+
+// Phase 5gv: concat, LCM, replace_all, factorial, struct equality, for push, boolean logic, index_of, palindrome, set/get
+
+// Phase 5gw: push+fold, count occurrences, mod pow, struct array, squares, enum equality, contains, upper/lower, sum_to, classify
+
+// Phase 5gx: join, binary search, fib array, string reverse, early break, HOF compose, cond score, struct pair, prime, multi export
+
+// Phase 5gy: contains substring, countdown, filter odds, rect struct, divisibility, enum wildcard, nested for, string length, for max, fizzbuzz
+
+// Phase 5gz: map double filter, power2 table, enum option, split+join, tribonacci, struct update, multiple mutations, map to struct, boolean, sum via index
+
+// Phase 5ha: cubed sum, sum even, vowel count, enum leaf, geometric series, filter-map, classify quadrant, product fold, string builder, struct stats
+
+// Phase 5hb: double reverse, binary to decimal, struct select, fib pair, enum Result, string trim+upper, push filter primes, starts_with count, recursive x's, nested struct line
+
+// Phase 5hc: zip sum, hanoi count, word count, enum FSM, partition, complex while, struct array max, sum multiples, char extract, numeric bucket
+
+// Phase 5hd: intersection, ackermann, prefix count, config struct, newton sqrt, color enum, sliding window, first odd, perfect number, multi struct
+
+// Phase 5he: duplicate detection, catalan, binary search, struct swap, digit extract, enum priority, sorted check, occurrence count, tail recursion sum, filter-map-fold pipeline
+
+// Phase 5hf: selection sort min, fast power, rectangle ops, factorial countdown, enum message data, chunk sums, word reverse, range sum, weighted index, struct interaction
+
+// Phase 5hg: windowed diffs, recursive string, computed stats struct, enum direction count, fib tail, split filter, modular pow, break first odd, digit count, cubed sum
+
+// Phase 5hh: partition evens/odds, GCD+LCM, struct transform chain, collatz(27)=111 steps, enum Expr eval, running max, palindrome check, digit sum recursive, for products, function composition
+
+// Phase 5hi: deduplicate, hanoi moves, struct volume+surface, geometric seq, enum Result chain, replace_all multi, filter-fold odds/evens, count ones binary, dot product, state machine
+
+// Phase 5hj: prefix sums, pascal triangle, manhattan distance, prime sieve count, enum command dispatch, string repeat, any/all predicates, power of two, matrix trace, struct with enum field
+
+// Phase 5hk: interleave arrays, recursive string reverse, struct item pricing, binary digits, enum suit counting, squares>10 filter, triangular nums, path reverse join, conditional div3/div5, nested cond classify
+
+// Phase 5hl: rotate left, ackermann(2,3)=9, triangle validity, newton isqrt, enum Op AST, word count filter, perfect squares filter, sum-of-squares recursive, string for-loop build, struct equality ==
+
+// Phase 5hm: zip weighted sum, harmonic numbers, nested struct 3 levels, fib count<1000, enum token classify, csv split join, ArrayList fib gen, int-to-string recursive, break on threshold, struct best student
+
+// Phase 5hn: running average, recursive pad left, vec2 operations dot product, digit reversal, enum Shape area visitor, char frequency count, Kadane max subarray, count divisors, dual pos/neg counters, Range overlap check
+
+// Phase 5ho: two-pointer pair sum, recursive power series sum, struct linked list traversal, exponential growth 2^20, enum Action accumulator, endsWith filter .yo files, find last even, sum cubes tail, filter+map pipeline, task priority max
+
+// Phase 5hp: sliding window max sum, double factorial, circle contains point, halving convergence, enum BinOp eval, word length filter, score histogram, falling factorial, zigzag sum, struct immutable state update
+
+test "evaluate: bool literal true", {
+  e := make_atom(TokenKind.Bool, "true");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "bool true");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(true)), "expected BoolVal(true)");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: bool literal false", {
+  e := make_atom(TokenKind.Bool, "false");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "bool false");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(false)), "expected BoolVal(false)");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "expected TBool");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: integer literal", {
+  e := make_atom(TokenKind.Integer, "42");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "integer 42");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: integer zero", {
+  e := make_atom(TokenKind.Integer, "0");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "integer 0");
+  match(result,
+    .Some(r) => {
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: float literal", {
+  e := make_atom(TokenKind.Float, "3.14");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "float 3.14");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.FloatLit(String.from("3.14"))), "expected FloatLit(3.14)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeFloat), "expected TComptimeFloat");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: string literal type", {
+  e := make_atom(TokenKind.StringLit, "hello");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "string lit");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .StrLit(_) => (),
+        _ => {
+          println(`FAIL: expected StrLit variant`);
+          assert(false, "expected StrLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: template string type", {
+  e := make_atom(TokenKind.TemplateString, "hello");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "template str");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .StrLit(_) => (),
+        _ => {
+          println(`FAIL: expected StrLit variant for template string`);
+          assert(false, "expected StrLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeString), "expected TComptimeString");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: char literal type", {
+  e := make_atom(TokenKind.CharLit, "a");
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "char lit");
+  match(result,
+    .Some(r) => {
+      match(r.value,
+        .IntLit(_) => (),
+        _ => {
+          println(`FAIL: expected IntLit for char literal`);
+          assert(false, "expected IntLit");
+        }
+      );
+      assert((type_value_tag(r.ty) == TypeTag.TU32), "expected TU32 (rune)");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: identifier found — returns VarRef when no value stored", {
+  env := Environment.new(`test`);
+  _d := env.define(`x`, t_i32(), false);
+  e := make_atom(TokenKind.Identifier, "x");
+  result := evaluate(e, &env);
+  check_some(result, "identifier x");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.VarRef(String.from("x"))), "expected VarRef(x)");
+      assert((type_value_tag(r.ty) == TypeTag.TI32), "expected TI32");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: identifier found — returns stored comptime value", {
+  env := Environment.new(`test`);
+  _d := env.define_val(`n`, t_comptime_int(), true, .Some(EvalValue.IntLit(String.from("7"))));
+  e := make_atom(TokenKind.Identifier, "n");
+  result := evaluate(e, &env);
+  check_some(result, "identifier n with value");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("7"))), "expected IntLit(7)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: identifier not found → None", {
+  env := empty_env();
+  e := make_atom(TokenKind.Identifier, "unknown");
+  check_none(evaluate(e, &env), "unknown identifier");
+};
+
+test "evaluate: identifier in nested frame", {
+  env := Environment.new(`test`);
+  _d0 := env.define(`outer`, t_bool(), false);
+  _pushed := env.push_frame(true);
+  _d1 := env.define(`inner`, t_f32(), false);
+  e_outer := make_atom(TokenKind.Identifier, "outer");
+  e_inner := make_atom(TokenKind.Identifier, "inner");
+  match(evaluate(e_outer, &env),
+    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TBool), "outer type"),
+    .None => assert(false, "outer must be found")
+  );
+  match(evaluate(e_inner, &env),
+    .Some(r) => assert((type_value_tag(r.ty) == TypeTag.TF32), "inner type"),
+    .None => assert(false, "inner must be found")
+  );
+};
+
+test "evaluate: operator atom → None", {
+  e := make_atom(TokenKind.Operator, "+");
+  env := empty_env();
+  check_none(evaluate(e, &env), "operator atom");
+};
+
+test "evaluate: fn call (unknown fn) → None", {
+  (e : AstExpr) = .FnCall(usize(0), 
+    box(make_ident("foo")),
+    ArrayList(AstExpr).new(),
+    false,
+    make_token(TokenKind.Identifier, "foo")
+  );
+  env := empty_env();
+  check_none(evaluate(e, &env), "fn call");
+};
+
+test "evaluate: unit expression ()", {
+  e := make_unit();
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "unit expr");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
+      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: empty begin block → unit", {
+  e := make_begin(ArrayList(AstExpr).new());
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "empty begin");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.UnitVal), "expected UnitVal");
+      assert((type_value_tag(r.ty) == TypeTag.TUnit), "expected TUnit");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block returns last stmt value", {
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(make_atom(TokenKind.Integer, "1"));
+  stmts.push(make_atom(TokenKind.Integer, "2"));
+  stmts.push(make_atom(TokenKind.Integer, "42"));
+  e := make_begin(stmts);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "begin last value");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("42"))), "expected IntLit(42)");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block with define then lookup", {
+  // { x := 99; x }
+  define_stmt := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "99"));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(define_stmt);
+  stmts.push(make_ident("x"));
+  e := make_begin(stmts);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "begin define+lookup");
+  match(result,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("99"))), "expected IntLit(99)");
+      assert((type_value_tag(r.ty) == TypeTag.TComptimeInt), "expected TComptimeInt");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: begin block scope is isolated from outer env", {
+  env := Environment.new(`test`);
+  define_stmt := make_infix(":=", make_ident("tmp"), make_atom(TokenKind.Integer, "5"));
+  stmts := ArrayList(AstExpr).new();
+  stmts.push(define_stmt);
+  e := make_begin(stmts);
+  _r := evaluate(e, &env);
+  // after the begin block, 'tmp' should NOT be visible in the outer env
+  lookup_result := evaluate(make_ident("tmp"), &env);
+  check_none(lookup_result, "tmp not visible outside begin");
+};
+
+test "evaluate: cond — first true arm wins", {
+  // cond(true => 1, true => 2)  →  1
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  e := make_cond(arms);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "cond first true");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("1"))), "expected 1"),
+    .None => ()
+  );
+};
+
+test "evaluate: cond — false arm skipped", {
+  // cond(false => 1, true => 2)  →  2
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  e := make_cond(arms);
+  env := empty_env();
+  result := evaluate(e, &env);
+  check_some(result, "cond skip false");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "expected 2"),
+    .None => ()
+  );
+};
+
+test "evaluate: cond — no arm matches → None", {
+  // cond(false => 1)  →  None (no default arm)
+  arms := ArrayList(AstExpr).new();
+  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
+  e := make_cond(arms);
+  env := empty_env();
+  check_none(evaluate(e, &env), "cond no match");
+};
+
+test "evaluate: define stores value in env", {
+  env := Environment.new(`test`);
+  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
+  result := evaluate(define_e, &env);
+  check_some(result, "define result");
+  match(result,
+    .Some(r) => assert((r.value == EvalValue.UnitVal), "define returns unit"),
+    .None => ()
+  );
+  // now lookup x
+  lookup := evaluate(make_ident("x"), &env);
+  check_some(lookup, "lookup after define");
+  match(lookup,
+    .Some(r) => {
+      assert((r.value == EvalValue.IntLit(String.from("10"))), "x should be 10");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: define bool variable", {
+  env := Environment.new(`test`);
+  define_e := make_infix(":=", make_ident("flag"), make_atom(TokenKind.Bool, "true"));
+  _r := evaluate(define_e, &env);
+  lookup := evaluate(make_ident("flag"), &env);
+  check_some(lookup, "flag lookup");
+  match(lookup,
+    .Some(r) => {
+      assert((r.value == EvalValue.BoolVal(true)), "flag should be true");
+      assert((type_value_tag(r.ty) == TypeTag.TBool), "flag type TBool");
+    },
+    .None => ()
+  );
+};
+
+test "evaluate: assign updates stored value", {
+  env := Environment.new(`test`);
+  // x := 1
+  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "1"));
+  _d := evaluate(define_e, &env);
+  // x = 2
+  assign_e := make_infix("=", make_ident("x"), make_atom(TokenKind.Integer, "2"));
+  result := evaluate(assign_e, &env);
+  check_some(result, "assign result");
+  // check x is now 2
+  lookup := evaluate(make_ident("x"), &env);
+  check_some(lookup, "lookup after assign");
+  match(lookup,
+    .Some(r) => assert((r.value == EvalValue.IntLit(String.from("2"))), "x should be 2"),
+    .None => ()
+  );
+};
+
 test "evaluate: fieldless variant .None", {
   env := empty_env();
   expr := make_fieldless_variant("None");
@@ -749,10 +1748,6 @@ test "evaluate: nested variant .Some(.None)", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3d — match expressions
-// ---------------------------------------------------------------------------
 
 test "evaluate: match fieldless variant", {
   env := empty_env();
@@ -853,10 +1848,6 @@ test "evaluate: match arm scope isolated", {
   check_none(x_lookup, "x should not leak out of match arm scope");
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3d — while loops
-// ---------------------------------------------------------------------------
-
 test "evaluate: while false never executes", {
   env := empty_env();
   // while false, 42  → unit (condition false on first check)
@@ -909,76 +1900,6 @@ test "evaluate: while with runtime(...) wrapper", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3e helpers — function definitions and calls
-// ---------------------------------------------------------------------------
-
-/// Build the param-list part of a fn expression: FnCall(Atom("fn"), [p1, p2, …], false).
-/// Params are bare atoms (no type annotation) for test simplicity.
-make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
-  param_exprs := ArrayList(AstExpr).new();
-  (i : usize) = usize(0);
-  while runtime((i < param_names.len())), {
-    match(param_names.get(i),
-      .Some(n) => {
-        param_exprs.push(.Atom(usize(0), make_token(TokenKind.Identifier, n.as_str())));
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  };
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
-    param_exprs,
-    false,
-    make_token(TokenKind.Identifier, "fn")
-  )
-});
-
-/// Build `(fn(params) -> unit)(body)`.
-make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)({
-  fn_expr := make_fn_params(param_names);
-  arrow_args := ArrayList(AstExpr).new();
-  arrow_args.push(fn_expr);
-  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
-  (fn_sig : AstExpr) = .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
-    arrow_args,
-    true,
-    make_token(TokenKind.Operator, "->")
-  );
-  outer_args := ArrayList(AstExpr).new();
-  outer_args.push(body);
-  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
-  result
-});
-
-/// Build a function call `name(args…)`.
-make_call :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
-    call_args,
-    false,
-    make_token(TokenKind.Identifier, name)
-  )
-);
-
-/// Build `return expr`.
-make_return :: (fn(expr : AstExpr) -> AstExpr)({
-  ret_args := ArrayList(AstExpr).new();
-  ret_args.push(expr);
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "return"))),
-    ret_args,
-    false,
-    make_token(TokenKind.Identifier, "return")
-  )
-});
-
-// ---------------------------------------------------------------------------
-// Phase 3e — function definitions and calls
-// ---------------------------------------------------------------------------
 
 test "evaluate: fn def stores FuncVal", {
   // f := (fn(x) -> unit)(x) — defines identity function
@@ -1097,10 +2018,6 @@ test "evaluate: fn call arity mismatch returns None", {
   check_none(result, "arity mismatch");
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3f — recur (recursive calls) and :: (constant declarations)
-// ---------------------------------------------------------------------------
-
 test "evaluate: recur simple countdown", {
   // count := (fn(n) -> unit)(cond(n > 0 => recur(n - 1), true => n)); count(1) → 0
   // NOTE: ASAN-instrumented stack limits restrict recursion depth.
@@ -1194,10 +2111,6 @@ test "evaluate: :: fn constant", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3f — type casts: i32(x), u64(x), usize(n), etc.
-// ---------------------------------------------------------------------------
 
 test "evaluate: i32 cast integer literal", {
   // i32(42) → IntLit("42") with type t_i32()
@@ -1296,34 +2209,6 @@ test "evaluate: typed fibonacci fib(1)=1", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3g helpers — typed declarations and string literals
-// ---------------------------------------------------------------------------
-
-/// Build a string-literal atom with the given raw value.
-make_str :: (fn(s : str) -> AstExpr)(
-  make_atom(TokenKind.StringLit, s)
-);
-
-/// Build `(name : type_name) = rhs` — typed variable declaration.
-/// e.g. `(x : i32) = i32(5)` → declares x of type i32 with value 5.
-make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
-  colon_args := ArrayList(AstExpr).new();
-  colon_args.push(make_ident(name));
-  colon_args.push(make_ident(type_name));
-  (lhs : AstExpr) = .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
-    colon_args,
-    true,
-    make_token(TokenKind.Operator, ":")
-  );
-  make_infix("=", lhs, rhs)
-});
-
-// ---------------------------------------------------------------------------
-// Phase 3g — typed variable declarations
-// ---------------------------------------------------------------------------
-
 test "evaluate: (x : bool) = false declares typed bool", {
   env := empty_env();
   expr := make_typed_decl("found", "bool", make_atom(TokenKind.Bool, "false"));
@@ -1403,10 +2288,6 @@ test "evaluate: typed decl counter with while loop", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3g — string comparison
-// ---------------------------------------------------------------------------
-
 test "evaluate: string == equal returns true", {
   env := empty_env();
   expr := make_infix("==", make_str("hello"), make_str("hello"));
@@ -1439,10 +2320,6 @@ test "evaluate: string != different returns true", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3h — struct value construction and field access
-// ---------------------------------------------------------------------------
 
 test "evaluate: struct construction Point(x: i32(1), y: i32(2))", {
   env := empty_env();
@@ -1516,10 +2393,6 @@ test "evaluate: field access point.y returns IntLit(2)", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3i — closure capture / lexical scoping
-// ---------------------------------------------------------------------------
-
 test "evaluate: closure captures outer variable (make_adder)", {
   // Verify lexical scoping: inner_fn captures x from the call frame of make_adder.
   // make_adder := (fn(x)(fn(y)(x + y)))
@@ -1563,10 +2436,6 @@ test "evaluate: closure captures outer variable (make_adder)", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3j — method dispatch on StructVal and impl block registration
-// ---------------------------------------------------------------------------
 
 test "evaluate: method dispatch on StructVal (manual registration)", {
   // Manually register Point.get_x := (fn(self) -> i32)(self.x) in env,
@@ -1657,10 +2526,6 @@ test "evaluate: impl block registers methods", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3k — TypeVal: type names as first-class compile-time values
-// ---------------------------------------------------------------------------
 
 test "evaluate: type identifier i32 resolves to TypeVal", {
   env := empty_env();
@@ -1754,67 +2619,6 @@ test "evaluate: unknown identifier not a type name still returns None", {
     .Some(_) => { assert(false, "unknown ident must return None"); }
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3l helpers — build fn defs with typed / forall params
-// ---------------------------------------------------------------------------
-
-/// Build a typed param `name : type_name` as an infix `:` FnCall.
-make_typed_param :: (fn(name : str, type_name : str) -> AstExpr)(
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
-    {
-      a := ArrayList(AstExpr).new();
-      a.push(make_atom(TokenKind.Identifier, name));
-      a.push(make_atom(TokenKind.Identifier, type_name));
-      a
-    },
-    true,
-    make_token(TokenKind.Operator, ":")
-  )
-);
-
-/// Build a forall param `forall(name)` as a non-infix FnCall.
-make_forall_param :: (fn(name : str) -> AstExpr)(
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "forall"))),
-    {
-      a := ArrayList(AstExpr).new();
-      a.push(make_atom(TokenKind.Identifier, name));
-      a
-    },
-    false,
-    make_token(TokenKind.Identifier, "forall")
-  )
-);
-
-/// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
-/// More general than `make_fn_def` which only accepts bare atom param names.
-make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
-  (fn_expr : AstExpr) = .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
-    param_exprs,
-    false,
-    make_token(TokenKind.Identifier, "fn")
-  );
-  arrow_args := ArrayList(AstExpr).new();
-  arrow_args.push(fn_expr);
-  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
-  (fn_sig : AstExpr) = .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
-    arrow_args,
-    true,
-    make_token(TokenKind.Operator, "->")
-  );
-  outer_args := ArrayList(AstExpr).new();
-  outer_args.push(body);
-  (result : AstExpr) = .FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
-  result
-});
-
-// ---------------------------------------------------------------------------
-// Phase 3l — Generic specialization / forall param binding
-// ---------------------------------------------------------------------------
 
 test "evaluate: forall param name is extracted into FuncVal.forall_names", {
   env := empty_env();
@@ -1964,65 +2768,6 @@ test "evaluate: bare (untyped) params still work after Phase 3l", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3m helpers — build export, open, and import AST nodes
-// ---------------------------------------------------------------------------
-
-/// Build `export(names…)` as a non-infix FnCall.
-make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
-  export_tok := make_token(TokenKind.Identifier, BK_EXPORT);
-  args := ArrayList(AstExpr).new();
-  (i : usize) = usize(0);
-  n := names.len();
-  while runtime((i < n)), {
-    match(names.get(i),
-      .Some(name) => { args.push(make_ident(name)); },
-      .None => ()
-    );
-    i = (i + usize(1));
-  };
-  .FnCall(usize(0), box(.Atom(usize(0), export_tok)), args, false, export_tok)
-});
-
-/// Build `open(expr)` as a non-infix FnCall.
-make_open :: (fn(expr : AstExpr) -> AstExpr)({
-  open_tok := make_token(TokenKind.Identifier, BK_OPEN);
-  args := ArrayList(AstExpr).new();
-  args.push(expr);
-  .FnCall(usize(0), box(.Atom(usize(0), open_tok)), args, false, open_tok)
-});
-
-/// Build `import("path")` as a non-infix FnCall (path is a string literal).
-make_import_expr :: (fn(path : str) -> AstExpr)({
-  import_tok := make_token(TokenKind.Identifier, BK_IMPORT);
-  path_lit   := `"${String.from(path)}"`;
-  args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.StringLit, path_lit.as_str()));
-  .FnCall(usize(0), box(.Atom(usize(0), import_tok)), args, false, import_tok)
-});
-
-/// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
-make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
-  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
-  name_exprs := ArrayList(AstExpr).new();
-  (i : usize) = usize(0);
-  n := names.len();
-  while runtime((i < n)), {
-    match(names.get(i),
-      .Some(nm) => { name_exprs.push(make_ident(nm)); },
-      .None => ()
-    );
-    i = (i + usize(1));
-  };
-  lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), name_exprs, false, anon_tok);
-  rhs := make_import_expr(path);
-  make_infix("::", lhs, rhs)
-});
-
-// ---------------------------------------------------------------------------
-// Phase 3m — Module system
-// ---------------------------------------------------------------------------
-
 test "evaluate: open(ModuleVal) brings all fields into scope", {
   env := empty_env();
   // Build a module body that exports x = 10 and y = false
@@ -2140,10 +2885,6 @@ test "evaluate: import uses module loader callback", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3n — if expressions, float arithmetic, comptime param names
-// ---------------------------------------------------------------------------
 
 test "evaluate: if true takes then branch", {
   env := empty_env();
@@ -2346,63 +3087,6 @@ test "evaluate: comptime(Name) param extracted in fn def", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3o — evidence params / using(name : Type) / evidence passing
-// ---------------------------------------------------------------------------
-
-/// Build `using(inner_expr)` call — used both for param declarations and
-/// call-site evidence passing.
-make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
-  ua := ArrayList(AstExpr).new();
-  ua.push(inner);
-  .FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "using"))),
-    ua,
-    false,
-    make_token(TokenKind.Identifier, "using")
-  )
-});
-
-/// Build `using(name : Type)` param for a function definition.
-make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
-  ca := ArrayList(AstExpr).new();
-  ca.push(make_ident(name));
-  ca.push(make_ident(type_name));
-  colon_expr := (AstExpr).FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
-    ca,
-    true,
-    make_token(TokenKind.Operator, ":")
-  );
-  make_using_call(colon_expr)
-});
-
-/// Build `(fn(params…) -> ret_type)(body)` function definition expression.
-make_typed_fn_def :: (fn(
-  fn_params : ArrayList(AstExpr),
-  ret_type  : AstExpr,
-  body      : AstExpr
-) -> AstExpr)({
-  fn_head := (AstExpr).FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
-    fn_params,
-    false,
-    make_token(TokenKind.Identifier, "fn")
-  );
-  arr_a := ArrayList(AstExpr).new();
-  arr_a.push(fn_head);
-  arr_a.push(ret_type);
-  fn_sig := (AstExpr).FnCall(usize(0), 
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
-    arr_a,
-    true,
-    make_token(TokenKind.Operator, "->")
-  );
-  body_args := ArrayList(AstExpr).new();
-  body_args.push(body);
-  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, "->"))
-});
-
 test "evaluate: using param is extracted into FuncVal.evidence_params", {
   env := empty_env();
   // Build (fn(using(ev : bool)) -> bool)(ev)
@@ -2510,20 +3194,6 @@ test "evaluate: function with only using params (no regular params)", {
     .None => ()
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3 Validation Milestone — evaluate a simple hello_world-style module
-//
-// Constructs the AST for:
-//   main :: (fn(using(io : IO)) -> unit)({ io; });
-//   export main;
-// and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
-// with evidence_params=["io"] and no regular params.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Phase 2bk — anonymous struct literal evaluation
-// ---------------------------------------------------------------------------
 
 test "evaluate: anonymous struct literal _(x: 42, y: true)", {
   env := empty_env();
@@ -2820,10 +3490,6 @@ test "evaluate: trait() stub creates TraitT TypeVal", {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Phase 3z integration — CTFE with type definitions via source parsing
-// ---------------------------------------------------------------------------
-
 test "Phase 3am: box and deref round-trip", {
   src := "a :: box(42); b :: a.*; export b;";
   env := empty_env();
@@ -2964,10 +3630,6 @@ test "Phase 3am: StrLit.substring", {
   );
 };
 
-// =========================================================================
-// Phase 3an: StrLit.replace_all, .trim, .to_uppercase, .to_lowercase
-// =========================================================================
-
 test "Phase 3an: StrLit.replace_all", {
   src := "s :: \"hello world\"; r :: s.replace_all(\"world\", \"there\"); export r;";
   env := empty_env();
@@ -3072,10 +3734,6 @@ test "Phase 3an: StrLit.to_lowercase", {
   );
 };
 
-// =========================================================================
-// Phase 3ao: StrLit.parse_i64()
-// =========================================================================
-
 test "Phase 3ao: StrLit.parse_i64 valid integer", {
   src := "s :: \"42\"; r :: s.parse_i64(); export r;";
   env := empty_env();
@@ -3137,10 +3795,6 @@ test "Phase 3ao: StrLit.parse_i64 invalid string returns None", {
       )
   );
 };
-
-// =============================================================================
-// Phase 3ap: break/for loop support
-// =============================================================================
 
 test "Phase 3ap: while loop with break exits early", {
   src := "(i : i64) = i64(0); while runtime(true), { i = (i + i64(1)); cond((i >= i64(3)) => break(), true => ()); }; r :: i; export r;";
@@ -3219,10 +3873,6 @@ test "Phase 3ap: for loop with break exits early", {
       )
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3aq: Struct field mutation — `s.field = rhs`
-// ---------------------------------------------------------------------------
 
 test "Phase 3aq: struct field mutation updates value", {
   src := "Point :: struct(x: i64, y: i64); (p : Point) = Point(x: i64(0), y: i64(0)); p.x = i64(5); r :: p.x; export r;";
@@ -3309,7 +3959,3 @@ test "Phase 3aq: struct field mutation in loop", {
       )
   );
 };
-
-// =============================================================================
-// Phase 5m: given(name) := expr binding support
-// =============================================================================
