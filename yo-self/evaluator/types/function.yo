@@ -1193,11 +1193,9 @@ parse_where_clause_constraints :: (fn(
       (trait_ty2 : TypeValue) = TypeValue.Unit;
       evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
       trait_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_trait));
+      (skip_iter : bool) = false;
       trait_info     := match(trait_info_opt, .Some(i) => i, .None => {
-        if(collect_pending, {
-          _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
-          continue;
-        }, {
+        if(!(collect_pending), {
           exn.throw(dyn format_error_message(
             ast_expr_token(unwrapped_te),
             String.from("Expected trait type for right-hand side of where clause constraint."),
@@ -1205,13 +1203,13 @@ parse_where_clause_constraints :: (fn(
             .None
           ));
         });
+        _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+        skip_iter = true;
         new_expr_info(env_mut.*, TypeValue.Unit)
       });
+      if(skip_iter, { continue; });
       if(!(is_type_value(trait_info.value)), {
-        if(collect_pending, {
-          _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
-          continue;
-        }, {
+        if(!(collect_pending), {
           exn.throw(dyn format_error_message(
             ast_expr_token(unwrapped_te),
             String.from("Expected trait type for right-hand side of where clause constraint."),
@@ -1219,7 +1217,10 @@ parse_where_clause_constraints :: (fn(
             .None
           ));
         });
+        _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+        skip_iter = true;
       });
+      if(skip_iter, { continue; });
       env_mut.* = trait_info.env;
       trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit), .None => TypeValue.Unit);
 

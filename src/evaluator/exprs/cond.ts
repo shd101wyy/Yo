@@ -515,14 +515,27 @@ export function evaluateCond({
           controlFlow: finalControlFlow,
         };
       } else if (hasControlFlow(finalControlFlow, "escape")) {
-        // All cases are escaping (returning from enclosing function)
-        if (!context.enclosingFunctionReturnType) {
+        // All cases are escaping. Determine the result type:
+        // 1. If we have an enclosing function return type, use that (true escape target)
+        // 2. Otherwise, if we're inside a function body, use the function's return type
+        //    (the escape from `exn.throw` etc. terminates this function at runtime)
+        let escapeType: Type | undefined = context.enclosingFunctionReturnType;
+        if (
+          !escapeType &&
+          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ) {
+          escapeType =
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;
+        }
+        if (!escapeType && context.expectedType?.type) {
+          escapeType = context.expectedType.type;
+        }
+        if (!escapeType) {
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `All cases in cond use "escape", but not inside a function with an enclosing function.`,
           });
         }
-        const escapeType = context.enclosingFunctionReturnType;
         expr.$ = {
           env,
           type: escapeType,

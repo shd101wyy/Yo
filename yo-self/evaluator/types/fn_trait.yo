@@ -131,7 +131,19 @@ evaluate_fn_trait_type :: (fn(
     pi = (pi + usize(1));
   };
 
-  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type);
+  implicit_labels  := ArrayList(String).new();
+  implicit_types   := ArrayList(TypeValue).new();
+  implicit_spreads := ArrayList(bool).new();
+  (ii : usize) = usize(0);
+  while runtime((ii < params_result.implicit_params.len())), {
+    ip := match(params_result.implicit_params.get(ii), .Some(x) => x, .None => { ii = params_result.implicit_params.len(); break; });
+    implicit_labels.push(ip.label);
+    implicit_types.push(ip.ty);
+    implicit_spreads.push(ip.is_effect_row_spread);
+    ii = (ii + usize(1));
+  };
+
+  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, implicit_spreads);
 
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));

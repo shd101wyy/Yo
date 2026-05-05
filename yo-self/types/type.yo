@@ -205,7 +205,10 @@ TypeValue :: enum(
     base_name         : String,
     call_param_labels : ArrayList(String),
     call_param_types  : ArrayList(Self),
-    call_result       : Box(Self)
+    call_result       : Box(Self),
+    implicit_labels   : ArrayList(String),
+    implicit_types    : ArrayList(Self),
+    implicit_spreads  : ArrayList(bool)
   ),
 
   /// Future-trait type with associated output and effects.
@@ -374,9 +377,12 @@ t_fn_trait :: (fn(
   base_name         : String,
   call_param_labels : ArrayList(String),
   call_param_types  : ArrayList(TypeValue),
-  call_result       : TypeValue
+  call_result       : TypeValue,
+  implicit_labels   : ArrayList(String),
+  implicit_types    : ArrayList(TypeValue),
+  implicit_spreads  : ArrayList(bool)
 ) -> TypeValue)(
-  .FnTraitT(base_name, call_param_labels, call_param_types, box(call_result))
+  .FnTraitT(base_name, call_param_labels, call_param_types, box(call_result), implicit_labels, implicit_types, implicit_spreads)
 );
 
 t_fn_trait_simple :: (fn(
@@ -384,7 +390,7 @@ t_fn_trait_simple :: (fn(
   call_param_types : ArrayList(TypeValue),
   call_result      : TypeValue
 ) -> TypeValue)(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, box(call_result))
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, box(call_result), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 
 t_future_trait :: (fn(

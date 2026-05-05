@@ -441,9 +441,19 @@ export function tryToImplementFunctionByFunctionType({
   // Regular function: body type must match return type exactly
   // Skip when body uses escape because the escape returns
   // from the enclosing function, not this function.
+  //
+  // Also skip when the function body's return type is a SomeType (e.g. `ResumeType`
+  // from `Exception.throw`) AND the function has implicit parameters whose type
+  // contains SomeType (e.g. `using(exn : Exception)`). In that case the body's
+  // SomeType result is a forall param of an implicit-parameter method; it will be
+  // resolved when the function is specialized at a concrete call site.
+  const hasImplicitParamWithSomeType = newFunctionType.implicitParameters.some(
+    (param) => typeContainsSomeType(param.type)
+  );
   if (
     !functionValue.isControlFunction &&
     functionBodyReturnType &&
+    !(isSomeType(functionBodyReturnType) && hasImplicitParamWithSomeType) &&
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },
       { type: functionBodyReturnType, env }

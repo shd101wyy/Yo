@@ -100,15 +100,15 @@ try_to_implement_closure_by_fn_module_type :: (fn(
 
   // Extract param names and types from the FnTraitT.
   param_labels := match(fn_module_type,
-    .FnTraitT(_, pls, _, _) => pls,
+    .FnTraitT(_, pls, _, _, _, _, _) => pls,
     _                       => ArrayList(String).new()
   );
   param_types := match(fn_module_type,
-    .FnTraitT(_, _, pts, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
     _                       => ArrayList(TypeValue).new()
   );
   result_type := match(fn_module_type,
-    .FnTraitT(_, _, _, rt_box) => rt_box.*,
+    .FnTraitT(_, _, _, rt_box, _, _, _) => rt_box.*,
     _                          => t_unit()
   );
 

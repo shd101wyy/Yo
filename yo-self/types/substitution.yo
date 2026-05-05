@@ -259,7 +259,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       };
       .DynT(new_rtt, rtl, new_ntt, ntl)
     },
-    .FnTraitT(base_name: bn, call_param_labels: cpls, call_param_types: cpts, call_result: cr) => {
+    .FnTraitT(base_name: bn, call_param_labels: cpls, call_param_types: cpts, call_result: cr, implicit_labels: ils, implicit_types: its, implicit_spreads: isps) => {
       new_cpts := ArrayList(TypeValue).new();
       i := usize(0);
       while runtime((i < cpts.len())), {
@@ -267,7 +267,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_cpts.push(recur(s, elem));
         i = (i + usize(1));
       };
-      .FnTraitT(base_name: bn, call_param_labels: cpls, call_param_types: new_cpts, call_result: box(recur(s, cr.*)))
+      new_its := ArrayList(TypeValue).new();
+      (iti : usize) = usize(0);
+      while runtime((iti < its.len())), {
+        elem := match(its.get(iti), .Some(t) => t, .None => TypeValue.Unit);
+        new_its.push(recur(s, elem));
+        iti = (iti + usize(1));
+      };
+      .FnTraitT(base_name: bn, call_param_labels: cpls, call_param_types: new_cpts, call_result: box(recur(s, cr.*)), implicit_labels: ils, implicit_types: new_its, implicit_spreads: isps)
     },
     .FutureTraitT(base_name: bn, output: out, effect_labels: els, effect_types: ets, effect_spreads: esp) => {
       new_ets := ArrayList(TypeValue).new();

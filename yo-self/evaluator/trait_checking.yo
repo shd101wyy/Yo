@@ -82,7 +82,7 @@ AssocTypeCheckResult :: struct(
 _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(ty,
     .TraitT(_, _, _, _, id, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _)    => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _)    => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
   )
@@ -93,7 +93,7 @@ _trait_type_id :: (fn(ty : TypeValue) -> String)(
 _trait_type_name :: (fn(ty : TypeValue) -> String)(
   match(ty,
     .TraitT(name, _, _, _, _, _, _, _) => name,
-    .FnTraitT(base_name, _, _, _)      => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _)      => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
   )
@@ -264,7 +264,7 @@ type_implements_trait :: (fn(
   // Phase 3 TODO: call synthesize_types for binding propagation.
   if((is_fn_trait_type(trait_type) && is_function_type(target)), {
     fn_trait_call_ty := match(trait_type,
-      .FnTraitT(_, param_labels, param_types, result) => TypeValue.Func(
+      .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
         ArrayList(String).new(),
         ArrayList(TypeValue).new(),
         param_labels,

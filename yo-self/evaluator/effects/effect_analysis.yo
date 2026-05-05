@@ -22,9 +22,8 @@
 //! * `isEffectCall` case 2 (module member) — builds access path with `push` (leaf→root
 //!   order), then compares against `effectFieldPath` from back to front.
 //!
-//! * `isTransitiveEffectCall` FnTrait path — yo-self `FnTraitT` has no implicit params.
-//!   The closure/Impl transitive path always returns None (known limitation; see
-//!   issues/fntrait-no-implicit-params.md).
+//! * `isTransitiveEffectCall` FnTrait path — yo-self `FnTraitT` now carries implicit
+//!   params; Path 2 checks `implicit_labels`/`implicit_types` from `FnTraitT` directly.
 //!
 //! * `hasEffectInSpread` — yo-self `SomeT` has no `isEffectsRow` flag; we attempt
 //!   env lookup for all `SomeT` types. The `get_value_of_some_type_from_env` fallback
@@ -43,6 +42,7 @@ open import "std/string";
 { is_function_type, is_module_type, is_some_type, is_effects_row_type
 } :: import "../../types/guards.yo";
 { Environment, Variable, get_variables_from_env } :: import "../../env/env.yo";
+{ extract_fn_trait_from_type } :: import "../trait_checking.yo";
 
 { EvalValue } :: import "../value.yo";
 { is_io_async_call } :: import "../async/await_analysis.yo";
@@ -346,10 +346,6 @@ has_effect_in_spread_ :: (fn(
 /// - `Some(true)`  — matched via `Impl(Fn)` / `Dyn(Fn)` (closure)
 /// - `None`        — no match
 ///
-/// Known limitation: yo-self `FnTraitT` has no implicit params, so the
-/// closure/Impl path (TypeScript `extractFnTraitFromType`) always returns None.
-/// See issues/fntrait-no-implicit-params.md.
-///
 /// Mirrors `isTransitiveEffectCall` in `src/evaluator/effects/effect-analysis.ts`.
 is_transitive_effect_call_ :: (fn(
   expr              : AstExpr,
@@ -414,9 +410,46 @@ is_transitive_effect_call_ :: (fn(
   });
 
   // --- Path 2: Impl(Fn) / Dyn(Fn) types via FnTraitT ---
-  // Limitation: yo-self FnTraitT has no implicit params, so this path
-  // always returns None. See issues/fntrait-no-implicit-params.md.
-  // TODO: Implement when FnTraitT is extended to include implicit parameters.
+  // Extract the FnTraitT (if any) and check its implicit params.
+  fn_trait_opt := extract_fn_trait_from_type(func_type);
+  match(fn_trait_opt,
+    .None => (),
+    .Some(ftt) => {
+      match(ftt,
+        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads) => {
+          n2 := implicit_labels.len();
+          (i2 : usize) = usize(0);
+          while runtime((i2 < n2)), {
+            label    := match(implicit_labels.get(i2),  .Some(l) => l, .None => String.from(""));
+            ty       := match(implicit_types.get(i2),   .Some(t) => t, .None => TypeValue.Unit);
+            is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
+
+            if(((label == effect_param_name) && (is_function_type((&ty).clone()) || is_module_type((&ty).clone()))), {
+              return Option(bool).Some(true);
+            });
+
+            if(is_spread, {
+              env_opt := match(get_info((&func_expr).clone()),
+                .Some(info) => Option(Environment).Some(info.env),
+                .None       => Option(Environment).None
+              );
+              match(env_opt,
+                .None    => (),
+                .Some(env) => {
+                  if(has_effect_in_spread_((&label).clone(), (&ty).clone(), (&effect_param_name).clone(), env), {
+                    return Option(bool).Some(true);
+                  });
+                }
+              )
+            });
+
+            i2 = (i2 + usize(1));
+          };
+        },
+        _ => ()
+      )
+    }
+  );
 
   Option(bool).None
 });

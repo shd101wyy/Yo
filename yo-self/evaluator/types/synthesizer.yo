@@ -357,7 +357,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
       res
     },
 
-    .FnTraitT(_, _, call_param_types, call_result) => {
+    .FnTraitT(_, _, call_param_types, call_result, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while runtime(((i < call_param_types.len()) && !(res))), {
@@ -676,10 +676,10 @@ _synthesize_fn_traits :: (fn(
   opts         : Option(SynthesizeOptions),
   using(exn : Exception)
 ) -> SynthesizeResult)({
-  exp_params := match(expected_ty, .FnTraitT(_, _, pts, _) => pts, _ => ArrayList(TypeValue).new());
-  giv_params := match(given_ty,   .FnTraitT(_, _, pts, _) => pts, _ => ArrayList(TypeValue).new());
-  exp_result := match(expected_ty, .FnTraitT(_, _, _, r) => r.*, _ => TypeValue.Unit);
-  giv_result := match(given_ty,   .FnTraitT(_, _, _, r) => r.*, _ => TypeValue.Unit);
+  exp_params := match(expected_ty, .FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
+  giv_params := match(given_ty,   .FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
+  exp_result := match(expected_ty, .FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
+  giv_result := match(given_ty,   .FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
 
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
