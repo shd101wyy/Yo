@@ -1135,15 +1135,25 @@ export function attachTraitToReceiverType(
   const traitCallCode = `${moduleName}()`;
   const traitCallExpr = generateExprFromCode(traitCallCode);
 
-  const evaluatedTraitCall = evaluateExpression({
-    expr: traitCallExpr,
-    env,
-    context: {
-      ...context,
-      expectedType: undefined,
-      ReceiverType: receiverType,
-    },
-  });
+  let evaluatedTraitCall;
+  try {
+    evaluatedTraitCall = evaluateExpression({
+      expr: traitCallExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        ReceiverType: receiverType,
+      },
+    });
+  } catch {
+    // The trait module is not in scope in this evaluation environment.
+    // This can happen when a generic struct type (e.g. ArrayList(Token)) is
+    // re-instantiated as a return type annotation inside a method body, where
+    // prelude-derived traits like Runtime/Send/Rc are not in scope.
+    // The trait was already attached during first instantiation; skip silently.
+    return env;
+  }
 
   if (!evaluatedTraitCall.$ || !isTraitValue(evaluatedTraitCall.$.value)) {
     return env;
