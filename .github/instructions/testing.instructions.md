@@ -89,14 +89,15 @@ and adding redzones around every variable.
   separate heap allocation, reducing the real C-stack portion)
 - Windows x86_64: ~1.1MB per `evaluate()` frame with ASAN
 
-**macOS ARM64 native (32MB reserve set via `-Wl,-stack_size,33554432` in
+**macOS ARM64 native (256MB reserve set via `-Wl,-stack_size,0x10000000` in
 `src/test-runner.ts`):**
 
 - Safe: countdown(1) needs ~5 frames × 1.5MB ≈ 7.5MB (was SIGSEGV at 8MB default)
-- Safe: countdown(2) needs ~7 frames × 1.5MB ≈ 10.5MB → ✓ with 32MB reserve
-- Unsafe: countdown(10+) would eventually exhaust 32MB
+- Safe: countdown(10) needs ~50 frames × 1.5MB ≈ 75MB → ✓ with 256MB reserve
+- Safe: ack(2,3) needs ~100 frames × 1.5MB ≈ 150MB → ✓ with 256MB reserve
+- Unsafe: ack(3,2) needs ~2700+ frames → **STACK OVERFLOW** (too deep for any reasonable stack)
 
-**macOS ARM64 with ASAN (8MB default before fix; --disable-sanitize recommended):**
+**macOS ARM64 with ASAN (8MB default; --disable-sanitize recommended):**
 
 - Safe: countdown(1) needs ~5 frames × 566KB ≈ 2.8MB → ✓
 - Safe: fib(1) needs ~4 frames × 566KB ≈ 2.3MB → ✓

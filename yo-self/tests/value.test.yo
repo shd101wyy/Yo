@@ -6,6 +6,7 @@ open import "std/fmt";
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { AstExpr, make_err_expr } :: import "../expr/expr.yo";
+{ TokenKind, Token } :: import "../lexer/token.yo";
 {
   EvalValue,
   value_to_string,
@@ -390,11 +391,24 @@ test "ComptimeListVal: value_to_string", {
 // ExprVal
 // ---------------------------------------------------------------------------
 
-test "ExprVal: always unequal", {
+test "ExprVal: structural equality", {
   e1 := EvalValue.ExprVal(box(make_err_expr()));
   e2 := EvalValue.ExprVal(box(make_err_expr()));
-  // No structural AST equality yet; always false.
-  assert(!(e1 == e2), "ExprVal equality always false");
+  // Phase 6f: structural Atom-token equality is now implemented.
+  // Two calls to make_err_expr() produce identical Atom nodes, so they are equal.
+  assert((e1 == e2), "ExprVal structural equality: identical atoms are equal");
+
+  // Different atoms should not be equal.
+  other := EvalValue.ExprVal(box(AstExpr.Atom(usize(0), Token(
+    kind: TokenKind.Integer,
+    value: String.from("42"),
+    row: usize(0),
+    column: usize(0),
+    character: usize(0),
+    module_path: String.from(""),
+    input: String.from("")
+  ))));
+  assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");
 };
 
 test "ExprVal: predicates", {

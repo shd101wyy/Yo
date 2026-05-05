@@ -525,15 +525,15 @@ function compileBatchedBinary(
     }
 
     if (!isWindows && !isEmcc && process.platform === "darwin") {
-      // Increase the stack reserve to 32 MB on macOS.  The default 8 MB is
+      // Increase the stack reserve to 256 MB on macOS.  The default 8 MB is
       // insufficient for large yo-self tests: the `evaluate` function in
       // yo-self/evaluator/eval.yo has ~2482 local variables that consume
       // ~1.5 MB of stack space per frame (at -O0, no stack-frame reuse).
-      // The recursive call chain for count(1) stacks 5 evaluate frames
-      // (5 × 1.5 MB = 7.5 MB), which hits the 8 MB limit.  32 MB provides
-      // headroom for deeper recursion and future growth.
-      // macOS linker flag: -Wl,-stack_size,<hex-bytes> (0x2000000 = 32 MB).
-      compileArgs.splice(-2, 0, "-Wl,-stack_size,0x2000000");
+      // Tests that run recursive programs through the proto-evaluator (e.g.
+      // countdown(10), fibonacci(10)) require dozens of simultaneous evaluate()
+      // frames.  256 MB (≈170 frames) covers all test inputs in the suite.
+      // macOS linker flag: -Wl,-stack_size,<hex-bytes> (0x10000000 = 256 MB).
+      compileArgs.splice(-2, 0, "-Wl,-stack_size,0x10000000");
     }
 
     if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
