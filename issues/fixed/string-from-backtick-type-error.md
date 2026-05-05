@@ -1,5 +1,7 @@
 # Issue: `String.from(\`backtick\`)` produces "Cannot unify String and str"
 
+## Status: BY DESIGN — backtick literals produce `String`, not `str`. Use `String.from("...")` (plain string literal) or pass `s.as_str()` to APIs that need `str`. The error message could be more specific in the future, but the behavior is correct.
+
 ## Status: Discovered (expected behavior, not a bug — use `String.from("...")` instead)
 
 ## Description

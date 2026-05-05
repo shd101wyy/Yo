@@ -1,5 +1,7 @@
 # macOS 26 AppleSystemPolicy Blocks Locally Compiled Binaries
 
+## Status: ENVIRONMENTAL — not a Yo bug. macOS 26 AppleSystemPolicy blocks ad-hoc-signed binaries. Workaround documented in `.github/instructions/testing.instructions.md`: use `--target wasm-wasi` (runs via `wasmtime`) for local testing on affected systems. CI on Linux is unaffected.
+
 ## Summary
 
 On macOS 26.x (tested: 26.3.1, Darwin 25.3.0), `AppleSystemPolicy` (ASP) blocks

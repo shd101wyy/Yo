@@ -1,5 +1,7 @@
 # ASAN stack overflow in `evaluate` after adding `id` field to `AstExpr`
 
+## Status: DOCUMENTED LIMITATION — ASAN disables stack frame reuse and adds redzones, so the ~693-local `evaluate()` function in yo-self uses ~566KB per frame on macOS ARM64. Documented in `.github/instructions/testing.instructions.md` with safe input sizes. Tests that need deeper recursion use small inputs (e.g. `fib(1)`, `countdown(1)`).
+
 ## Summary
 
 After Phase 3a of the bootstrapping (adding `id : ExprId` as the first

@@ -1,5 +1,7 @@
 # Pattern matching: literal values in enum destructuring don't work as expected
 
+## Status: DOCUMENTED LIMITATION — literal patterns (e.g. `.Some(true)`) are not supported; literals in destructure positions bind as variable names instead. Documented in `.github/skills/yo-syntax/syntax-cheatsheet.md`. Implementing real literal pattern matching is a future language feature, not a bug.
+
 ## Problem
 
 In Yo, match patterns like `.BoolVal(true)` do **not** match only when the inner value is `true`. Instead, the `true` is treated as a **variable binding** — it binds the inner bool to a new variable named `true` (which shadows the keyword). This means the arm **always matches** any BoolVal, regardless of the actual boolean value.

@@ -1,5 +1,7 @@
 # Parser: `&x` as a call argument is parsed greedily
 
+## Status: DOCUMENTED LIMITATION — `&` is a unary operator and Yo's general rule is "unary operators need parenthesized operands". Always write `foo((&x), arg2)` or `(&x).method(...)`. This is consistent with the existing convention in yo-self and is documented in `.github/skills/yo-syntax/syntax-cheatsheet.md`. No fix planned.
+
 ## Severity
 
 Medium — silent surprising failure with confusing error message.

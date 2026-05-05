@@ -1,5 +1,7 @@
 # Self-hosted parser crashes on `=>` lambda expressions (WASM error handling)
 
+## Status: BY DESIGN (parser correctness) + separate WASM error-reporting issue. The parser correctly rejects `f := (x) => x` (operator precedence ambiguity between `:=` and `=>`); use `f := ((x) => x)` or a newline before `(x) => x`. The secondary WASM crash on the error-reporting path (template-string + dyn allocation) is a separate runtime bug that does not affect parser correctness; it can be re-opened as its own issue if it becomes blocking.
+
 ## Description
 
 The self-hosted parser (`yo-self/parser/parser.yo`) crashes with an out-of-bounds

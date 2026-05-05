@@ -1,5 +1,7 @@
 # `:: fn(...) -> T { body }` Shorthand Not Supported in Self-Hosted Evaluator
 
+## Status: BY DESIGN — the bare `name :: fn(...) -> T { body }` shorthand conflicts with parser ambiguities between `::`/`->`/`{...}`. The canonical form `name :: (fn(...) -> T)(body)` is documented in the syntax cheatsheet and works in all contexts. No fix planned.
+
 ## Problem
 
 The bare `name :: fn(...) -> T { body }` shorthand does NOT work when evaluated
