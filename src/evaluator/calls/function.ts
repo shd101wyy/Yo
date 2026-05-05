@@ -62,7 +62,7 @@ import {
   isUnionType,
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
-import { typeToString } from "../../types/utils";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
@@ -2022,6 +2022,25 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         isFunctionValue(functionToCall.value) &&
         functionToCall.value.isControlFunction &&
         specializedFunctionValue !== undefined
+      ) {
+        expr.$.controlFlow = controlFlowOf("escape");
+      }
+
+      // For runtime unknown function values (e.g. `exn` received as a runtime
+      // implicit parameter), detect "universally quantified never-returns" calls:
+      // a function fn(forall(T), ...) -> T where T does NOT appear in any regular
+      // or implicit parameter type.  By parametricity, such a function can only
+      // terminate by escaping.  Without this check, the begin-block evaluator
+      // continues past the call and tries to evaluate dead code (like t_i32()),
+      // which then fails at codegen time ("Unhandled function call: t_i32()").
+      if (
+        !isFunctionValue(functionToCall.value) &&
+        functionType.forallParameters.length > 0 &&
+        isSomeType(returnType) &&
+        functionType.parameters.every((p) => !typeContainsSomeType(p.type)) &&
+        functionType.implicitParameters.every(
+          (p) => !typeContainsSomeType(p.type)
+        )
       ) {
         expr.$.controlFlow = controlFlowOf("escape");
       }
