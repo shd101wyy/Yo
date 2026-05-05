@@ -558,10 +558,22 @@ function compileBatchedBinary(
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",
       encoding: "utf-8",
+      timeout: 600_000,
       ...spawnShellOption,
     });
     const cCompileMs = Date.now() - cCompileStart;
 
+    if (
+      compileResult.error &&
+      (compileResult.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
+    ) {
+      cleanup();
+      throw new Error(
+        `C compilation timed out after 600s (compiler: ${cCompiler}). ` +
+          `This usually indicates a stuck linker or extremely large input. ` +
+          `See issues/test-runner-no-compile-timeout.md.`
+      );
+    }
     if (compileResult.status !== 0) {
       cleanup();
       throw new Error(
@@ -858,6 +870,17 @@ async function runSingleFileInIsolatedProcess({
 
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+
+    const PER_FILE_TIMEOUT_MS = 900_000;
+    const watchdog = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore — child may have already exited
+      }
+    }, PER_FILE_TIMEOUT_MS);
 
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
@@ -868,6 +891,7 @@ async function runSingleFileInIsolatedProcess({
     });
 
     child.on("error", (error) => {
+      clearTimeout(watchdog);
       resolve({
         filePath,
         errorMessage: `Failed to spawn isolated test process: ${error.message}`,
@@ -875,6 +899,17 @@ async function runSingleFileInIsolatedProcess({
     });
 
     child.on("close", (code) => {
+      clearTimeout(watchdog);
+      if (timedOut) {
+        resolve({
+          filePath,
+          errorMessage:
+            `Isolated test process timed out after ${PER_FILE_TIMEOUT_MS / 1000}s. ` +
+            `This usually means the Yo or C compilation phase is stuck. ` +
+            `See issues/test-runner-no-compile-timeout.md.`,
+        });
+        return;
+      }
       const summary = parseTestSummaryFromOutput(stdout);
       if (summary) {
         resolve({ filePath, summary });
