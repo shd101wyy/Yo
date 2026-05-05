@@ -106,7 +106,7 @@ export function generateCondExpression(
               !valueCode.startsWith("goto") &&
               valueCode !== "continue" &&
               valueCode !== "break" &&
-              !valueCode.includes("return")
+              !/\breturn\b/.test(valueCode)
             ) {
               context.emitter.emitLine(`${indent}${tempVar} = ${valueCode};`);
             }
@@ -116,7 +116,7 @@ export function generateCondExpression(
               (valueCode.startsWith("goto") ||
                 valueCode === "continue" ||
                 valueCode === "break" ||
-                valueCode.includes("return"))
+                /\breturn\b/.test(valueCode))
             ) {
               context.emitter.emitLine(`${indent}${valueCode};`);
             }
@@ -335,7 +335,10 @@ export function generateCondExpression(
                           finalExpr,
                           BuiltinKeywords.return
                         )) ||
-                      finalExprCode.includes("return")
+                      /\breturn\b/.test(finalExprCode)
+                      // Use word boundary to avoid matching identifiers like
+                      // `return_flag` inside struct-literal field names.
+                      // (issue: struct-literal-in-match-arm-not-assigned)
                     ) {
                       // For control flow statements, emit them directly without assignment
                       context.emitter.emitLine(
@@ -420,7 +423,7 @@ export function generateCondExpression(
                 valueCode.startsWith("goto") ||
                 (exprIsFunctionCall(value) &&
                   exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
-                valueCode.includes("return")
+                /\breturn\b/.test(valueCode)
               ) {
                 // For control flow statements, emit them directly without assignment
                 context.emitter.emitLine(`${valueIndent}${valueCode};`);

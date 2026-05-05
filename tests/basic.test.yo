@@ -2557,3 +2557,48 @@ test "index function call result", {
   (val : u8) = get_list()(usize(1));
   assert((val == u8(20)), "index fn call result should be 20");
 };
+
+// Regression: struct literal in match arm whose field name contains "return"
+// must be assigned to the function's return temporary, not emitted as a bare
+// expression statement. The codegen previously misclassified the arm body as
+// control-flow because `code.includes("return")` matched `return_flag`.
+// See: issues/fixed/struct-literal-in-match-arm-not-assigned.md
+test "match arm struct literal with `return` in field name", {
+  ControlFlowFlags :: struct(
+    return_flag   : bool,
+    escape_flag   : bool,
+    break_flag    : bool,
+    continue_flag : bool
+  );
+  ControlFlowKind :: enum(Return, Escape, Break, Continue);
+  control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
+    match(kind,
+      .Return   => ControlFlowFlags(return_flag: true,  escape_flag: false, break_flag: false, continue_flag: false),
+      .Escape   => ControlFlowFlags(return_flag: false, escape_flag: true,  break_flag: false, continue_flag: false),
+      .Break    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: true,  continue_flag: false),
+      .Continue => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: true)
+    )
+  );
+  cf := control_flow_of(ControlFlowKind.Return);
+  assert(cf.return_flag, "Return arm must set return_flag = true");
+  assert(!(cf.escape_flag), "Return arm must leave escape_flag = false");
+  cf2 := control_flow_of(ControlFlowKind.Escape);
+  assert(cf2.escape_flag, "Escape arm must set escape_flag = true");
+  assert(!(cf2.return_flag), "Escape arm must leave return_flag = false");
+};
+
+// Regression: cond arm struct literal with `return` in field name (mirrors
+// the match-arm fix in src/codegen/exprs/cond.ts).
+test "cond arm struct literal with `return` in field name", {
+  Flags :: struct(return_flag : bool, other_flag : bool);
+  pick :: (fn(x : i32) -> Flags)(
+    cond(
+      (x == i32(1)) => Flags(return_flag: true,  other_flag: false),
+      (x == i32(2)) => Flags(return_flag: false, other_flag: true),
+      true          => Flags(return_flag: false, other_flag: false)
+    )
+  );
+  f := pick(i32(1));
+  assert(f.return_flag, "cond arm 1 must set return_flag = true");
+  assert(!(f.other_flag), "cond arm 1 must leave other_flag = false");
+};

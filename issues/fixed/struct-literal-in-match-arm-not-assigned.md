@@ -1,6 +1,20 @@
 # Bug: Struct literal in match arm not assigned to return temporary
 
-## Status: Open
+## Status: FIXED
+
+## Fix
+
+The codegen helpers in `src/codegen/exprs/match.ts` (`isControlFlowCode`) and
+`src/codegen/exprs/cond.ts` (3 sites) used `code.includes("return")` to detect
+whether an arm body was a control-flow statement. This unintentionally matched
+struct-literal field names containing the substring "return" (e.g. `return_flag`),
+causing the entire struct construction to be emitted as a bare expression
+statement instead of being assigned to the function's return temporary.
+
+Fixed by switching all four sites to the regex `/\breturn\b/` (word boundary),
+which correctly distinguishes the C `return` keyword from identifiers like
+`return_flag`. Regression tests added to `tests/basic.test.yo` for both `match`
+and `cond` arms.
 
 ## Discovered: Phase 2k (expr_info.yo port)
 
