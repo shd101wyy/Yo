@@ -2705,6 +2705,63 @@ Phases 5aa through 5ak added comprehensive evaluator capabilities:
 
 **6j. Install command** ✅ Done — `yo-self/install-command/install_command.yo` mirrors `src/install-command.ts`. `ParsedPackage` enum (Git/Path), `SemVer` object, `InstallOptions` object; `is_local_path`/`_url_to_dep_name`/`_is_all_digits` pure string helpers; `_parse_semver_tag`/`_compare_semver`/`_parse_tags_for_latest_semver` semver helpers; `parse_package_specifier` resolves user/repo, full URLs, and local paths; `dependency_exists_in_deps_file`/`parse_dependency_names`/`_build_imports_block`/`regenerate_imports_list`/`_append_dep_to_content` for `deps.yo` text manipulation; `append_dep_to_deps_file`/`resolve_default_branch`/`resolve_latest_ref`/`run_install` async entry points. 43 tests, 512 yo-self tests pass.
 
+### Phase 6k — FnTraitT implicit params + cond-escape diagnostics ✅ Done
+
+- yo-self `FnTraitT` extended with `implicit_labels`/`implicit_types`/`implicit_spreads` to mirror TypeScript `FnTraitT.callType.implicitParameters`. Cascaded through 13 files: `types/type.yo`, `types/substitution.yo`, `evaluator/calls/closure_type.yo`, `calls/function.yo`, `evaluator/types/synthesizer.yo`, `evaluator/values/generic_impl_registry.yo`, `evaluator/values/anonymous_function.yo`, `evaluator/trait_checking.yo`, `evaluator/effects/effect_analysis.yo`, `evaluator/types/fn_trait.yo`, `evaluator/types/function.yo`, `evaluator/index.yo`.
+- TypeScript evaluator (`src/evaluator/exprs/cond.ts`): when **all** cond branches end in `escape` and no enclosing function return type is set, fall back to the current function body's return type. Fixes false "All cases use escape" errors when `exn.throw(...)` appears in `if/else` arms during definition-time analysis (before the implicit `Exception` is specialized).
+- TypeScript evaluator (`src/evaluator/calls/function-type.ts`): skip the return-type-mismatch error when the function's `SomeType` return originates from an implicit parameter with `Exception` (e.g. `exn.throw : forall(R : Type) -> R`).
+- yo-self `parse_where_clause_constraints` restructured to use a `skip_iter` flag instead of `if/else { throw }/{ throw }`, avoiding the "all-branches-escape" diagnostic until the TS fix lands.
+- Closes `issues/fntrait-no-implicit-params.md` (moved to `issues/fixed/`).
+- `yo-self/tests/evaluator_index.test.yo` now passes 18/18 — the proper TS-style evaluator port (`Evaluator.new`) loads cleanly. Lexer (33/33) + parser (43/43) sanity-checked.
+
+---
+
+## Current Bootstrap State
+
+### What works today
+
+- **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
+- **Parser port** — `yo-self/parser/` complete; 43 tests pass.
+- **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
+- **Type system core** — `TypeValue` variants `TraitT` (with `id`/`is_concrete`), `Union`, `DynT`, `ModuleT` (with `id`), `FnTraitT` (with implicit params), `FutureTraitT`, `SomeT` (with `is_effects_row`), tuples, enums, numeric, array, slice, ptr, iso. Compatibility, equality, substitution, hierarchy, type-of-type all implemented.
+- **Environment** — frame-based scoping, `Environment.new`, `define_val`, `push_frame`, lookup with shadowing.
+- **Evaluator (proper TS-style port via `Evaluator.new` → `_expr.yo` dispatcher)**:
+  - 18/18 `evaluator_index.test.yo` integration tests pass.
+  - Modular dispatch keyed by `BK_*`/`BF_*` builtin tokens for: typeof, runtime, escape, recur, the, downcast, derive, derive_rule, panic, asm, global_asm, macro_expand, escape, consume, drop, dup, RC fns, ISO fns, drop/dup array/tuple element, RC own, dyn drop/dup, sometype drop/dup, gc collect, expr is_atom/is_fn_call/get_callee/get_args/to_string/eq, gensym, comptime list car/cdr/cons/append/length/element_type/get/index, comptime numeric/boolean/string functions, comptime array/slice/string indexing, type to_comptime_string, are_types_compatible/equal, type_contains_rc_type, type_can_form_rc_cycle, type_impls, type_get_info, type_join_fields, type_map_variants, comptime_string_to_expr, var print_info/is_owning_rc/has_other_aliases, process platform/arch, pointer size_bits, build executable/static/shared library, build doc, while, va_start, define `:=`, assign `=`, init-assign, const, identifier, dot, recur, escape, return, open, import, binding, destructuring assignment, cond, match, begin, quote, gensym, unquote, hash, function calls (regular + closure + module + trait), assert, comptime_assert, comptime_print, comptime_expect_error, comptime_fn, comptime_eval.
+  - Algebraic effects analysis with `using/given` correctly threads through `FnTraitT` implicit params.
+  - Trait checking with structural matching, sub-trait edges, derive rules.
+  - Synthesizer for higher-kinded types (HKT), partial application, type variables.
+- **Codegen (proto)** — `yo-self/codegen/exprs.yo` + `driver.yo` self-hosted codegen for: `:=`, `=`, type casts, struct constructors, enum variants (registered names with `_` separator), match (ternary chain), pointer types, address-of, deref, compound LHS, if-with-block-branch (proper C `if`/`else`), assert/comptime*assert, function calls with `fn*` prefix for user defs, error formatting with source-line + caret. End-to-end integration tests parse + compile + run real Yo source.
+- **CLI** — `yo-self/main.yo` supports `compile <file.yo> -o <out>` and `test <file.test.yo>` subcommands.
+- **Build system port** — `yo-self/build/build_registry.yo` + `build_runner.yo` mirror TS implementations. DAG scheduler, cycle detection, Kahn's algorithm executor.
+- **Ancillary systems** — version mgmt, version cache, lock file, deps cache dir resolution, project init, compiler-utils (clang/gcc/zig/cl/emcc detection + sanitizer flags), pkg-config (subprocess), target system (`Arch`/`Os`/`Abi` triple parsing), install command (semver, GitHub user/repo resolution).
+
+### What still needs work — open issues (4)
+
+| Issue                                                            | Scope                                                                                                                                                                                                                                                                                                             | Phase suggestion                                              |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `issues/base-unspecialized-using-exn-call.md`                    | Codegen ABI: emit base unspecialized C function for `using(exn)` taking runtime `void*` throw fn pointer + runtime dispatch. Touches `src/codegen/exprs/other-fn-call.ts` (2839 LOC), `src/codegen/functions/generation.ts`, specialization cache.                                                                | **Phase 7-codegen-base-fn**                                   |
+| `issues/eval-for-loop-3arg-vs-2arg.md`                           | Either ~200 LoC AST-reflection shims in proto-eval, OR full migration of ~197 `eval.test.yo` tests onto proper Evaluator. Prior migration crashed yo-cli with 30GB RSS / 30+ min compile times.                                                                                                                   | **Phase 6e-prelude-load** then **Phase 6m-proto-eval-retire** |
+| `issues/proper-eval-expr-eq-dispatch.md`                         | Phase 6e prelude auto-loading — `Evaluator.new` already supports it (`index.yo:138-172`); just needs a real-filesystem `load_module_fn` callback for the test harness. Affects 1 intentionally-skipped test.                                                                                                      | **Phase 6e-prelude-load**                                     |
+| `issues/yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | Add fields to `Union` (`id`, `defined_in_module_path`, auto*derive*\*), `DynT` (negative-trait resolution), `ModuleT` (`is_implemented`, `defined_in_module_path`); cascade across ~6 type-utility files; port stubs `types/trait.yo` (1106 LOC), `types/module.yo` (647 LOC TS), `values/impl.yo` (3374 LOC TS). | **Phase 8-trait-module-infra** (multi-week)                   |
+
+### What's not yet ported
+
+- **Codegen TS → yo-self** — yo-self codegen is a proto that handles a useful subset (function defs, basic types, struct/enum, match, pointers, asserts) sufficient for the validation milestone. Full TS codegen (`src/codegen/`, ~40K LOC: async/effect state machines, parallelism, sanitizers, RC, ISO transfer, dyn vtables, cycle collector, WASM target) is **not** ported. Required for self-hosting (Phase 7).
+- **`yo doc`** — TS-only.
+- **LSP** — TS-only (per design, can stay TS).
+- **The full evaluator surface** — While the dispatcher and many handlers are ported, several deep handlers remain stubs (impl evaluation 3374 LOC, full module evaluation 647 LOC, full trait evaluation 1106 LOC). These are blocked on the TypeValue field cascade above.
+
+### Path to self-hosting (Phase 7)
+
+1. Land Phase 8 (TypeValue field cascade + trait/module/impl ports) → unblocks evaluating impl blocks and full trait resolution in yo-self.
+2. Land Phase 7-codegen base-fn fix → eliminates the panic-on-exn workaround.
+3. Port `src/codegen/` to yo-self (~40K LOC). This is the largest remaining item.
+4. Add real prelude auto-loading (Phase 6e) so user code (and `eval.test.yo`) can use the real `for`/`if`/`while` macros.
+5. Compile yo-self with itself (Stage 1 → Stage 2) → byte-identical C output.
+
+---
+
 ### Phase 7 — Self-hosting verification
 
 1. Use the TS-compiled Yo compiler (Stage 0) to compile the Yo-written compiler source → produce `yo-stage1` binary.
