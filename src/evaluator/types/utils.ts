@@ -455,43 +455,91 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 }
 
 /**
- * Generate ___dup function code for a struct type
+ * Generate ___dup function code for a struct type.
+ *
+ * For RC types (heap-allocated with ref-count header), dup just increments
+ * the ref-count and returns the same pointer.  For value types that contain
+ * RC-managed fields, dup must destructure every field, call ___dup on each
+ * RC-containing field, and construct a **new** struct with the dup'd values.
+ * The old code discarded the ___dup return values and returned the original
+ * `__yo_self`, which meant RC-managed fields inside the struct were never
+ * actually duplicated — the caller received a bitwise copy with the same
+ * reference counts as the source.
  */
 function generateDupFunctionCodeForStructType(structType: StructType): {
   signature: string;
   code: string;
 } {
   const signature = DupFnSignature;
-  const destructuringLabels = structType.fields
-    .filter((field) => typeContainsRcType(field.type))
-    .map((field) => field.label);
 
-  const incrRcFn = structType.isAtomicRc
-    ? BuiltinFunctions.__yo_incr_rc_atomic[0]!
-    : BuiltinFunctions.__yo_incr_rc[0]!;
-  const incrRcExpr = isRcType(structType)
-    ? `
-  ${incrRcFn}(${YoSelf});`
-    : "";
-
-  let dupDestructuringsExpr = "";
-  if (!isRcType(structType) && destructuringLabels.length) {
-    const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
-      destructuringLabels,
-      BuiltinFunctions.___dup[0]!
-    );
-    dupDestructuringsExpr = `
-  ${destructuringExpr}
-  ${callsExpr}
-`;
+  // RC types: just increment the ref-count and return the same pointer.
+  if (isRcType(structType)) {
+    const incrRcFn = structType.isAtomicRc
+      ? BuiltinFunctions.__yo_incr_rc_atomic[0]!
+      : BuiltinFunctions.__yo_incr_rc[0]!;
+    return {
+      signature,
+      code: `(${signature} {  // ___dup (RC type)
+  ${incrRcFn}(${YoSelf});
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+})`,
+    };
   }
+
+  const rcFieldLabels = new Set(
+    structType.fields
+      .filter((field) => typeContainsRcType(field.type))
+      .map((field) => field.label)
+  );
+
+  // No RC fields: plain value type, return a copy.
+  if (rcFieldLabels.size === 0) {
+    return {
+      signature,
+      code: `(${signature} {  // ___dup (plain value type)
+  return ${YoSelf};
+})`,
+    };
+  }
+
+  // Value type with RC fields: destructure every field, dup the RC ones,
+  // then construct a new struct with the dup'd values.
+  const allLabels = structType.fields.map((f) => f.label);
+  const aliasMap: Record<string, string> = {};
+  const destructurings: string[] = [];
+
+  for (const label of allLabels) {
+    const alias = randomId("f_" + sanitizeFieldLabel(label));
+    aliasMap[label] = alias;
+    if (isValidIdentifier(label)) {
+      destructurings.push(`${label} : ${alias}`);
+    } else {
+      destructurings.push(`(${label}) : ${alias}`);
+    }
+  }
+
+  const destructuringExpr = `{ ${destructurings.join(", ")} } := ${YoSelf};`;
+
+  // Build the field arguments for constructing the new struct.
+  // For RC fields we inline the ___dup call directly; for non-RC fields
+  // we reference the destructured alias.  This avoids intermediate
+  // let-bindings that may lack the metadata the C codegen expects.
+  const dupFn = BuiltinFunctions.___dup[0]!;
+  const fieldArgs = structType.fields
+    .map((f) => {
+      const alias = aliasMap[f.label]!;
+      return rcFieldLabels.has(f.label)
+        ? `${f.label}: ${alias}.${dupFn}()`
+        : `${f.label}: ${alias}`;
+    })
+    .join(", ");
+  const constructExpr = `Self(${fieldArgs})`;
 
   return {
     signature,
-    code: `(${signature} {  // ___dup
-  ${dupDestructuringsExpr}
-  ${incrRcExpr}
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+    code: `(${signature} {  // ___dup (value type with RC fields)
+  ${destructuringExpr}
+  return ${constructExpr};
 })`,
   };
 }
@@ -739,7 +787,15 @@ ${dropStatements}
 }
 
 /**
- * Generate ___dup function code for an enum type
+ * Generate ___dup function code for an enum type.
+ *
+ * For RC types the ref-count is simply incremented and the same pointer
+ * returned.  For value types that carry RC-managed fields, each variant
+ * arm must destructure its fields, call ___dup on every RC-containing
+ * field, and construct a **new** variant value with the dup'd fields.
+ * The old code discarded the ___dup return values and returned the
+ * original `__yo_self`, so RC-managed fields inside variants were never
+ * actually duplicated.
  */
 function generateDupFunctionCodeForEnumType(enumType: EnumType): {
   signature: string;
@@ -747,53 +803,62 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
 } {
   const signature = DupFnSignature;
 
-  const variantsWithRcTypes = enumType.variants.filter(
-    (variant) =>
-      variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
-  );
+  // RC types: just increment the ref-count and return the same pointer.
+  if (isRcType(enumType)) {
+    return {
+      signature,
+      code: `(${signature} {  // ___dup (RC type)
+  ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+})`,
+    };
+  }
 
-  const incrRcExpr = isRcType(enumType)
-    ? `
-  ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});`
-    : "";
+  const dupFn = BuiltinFunctions.___dup[0]!;
 
-  const dupVariantsExpr = isRcType(enumType)
-    ? ""
-    : variantsWithRcTypes.length
-      ? `
-  match(${YoSelf},
-    ${variantsWithRcTypes
-      .map((variant) => {
-        const destructurings = variant
-          .fields!.filter((field) => typeContainsRcType(field.type))
-          .map((field) => field.label);
+  // Build a match block where each variant with RC fields dup's them
+  // and constructs a new variant value.  Variants without RC fields
+  // are returned as-is (their fields are plain data – no RC needed).
+  const variantArms = enumType.variants.map((variant) => {
+    const fields = variant.fields ?? [];
+    const hasFields = fields.length > 0;
+    const paramList = fields.map((f) => f.label).join(", ");
+    const pat = hasFields
+      ? `.${variant.name}(${paramList})`
+      : `.${variant.name}`;
 
-        const paramList = variant
-          .fields!.map((field) => field.label)
-          .join(", ");
-        const dupStatements = destructurings
-          .map((label) => `      (${BuiltinFunctions.___dup[0]!})(${label});`)
-          .join("\n");
-
-        return `.${variant.name}(${paramList}) => {
-${dupStatements}
-    }`;
-      })
-      .join(",\n    ")}${
-      variantsWithRcTypes.length === enumType.variants.length
-        ? ""
-        : ",\n    _ => ()"
+    // No RC fields in this variant → plain copy.
+    if (!fields.some((f) => typeContainsRcType(f.type))) {
+      return `${pat} => ${pat}`;
     }
-  );`
-      : "";
+
+    // Build the constructor expression for the new variant value.
+    // For RC fields we inline the ___dup call; non-RC fields use the
+    // match-bound variable directly.
+    const fieldExprs: string[] = [];
+    for (const field of fields) {
+      if (typeContainsRcType(field.type)) {
+        fieldExprs.push(`${field.label}.${dupFn}()`);
+      } else {
+        fieldExprs.push(field.label);
+      }
+    }
+
+    const fieldsStr = fieldExprs.join(", ");
+    const ctor = hasFields
+      ? `.${variant.name}(${fieldsStr})`
+      : `.${variant.name}`;
+    return `${pat} => ${ctor}`;
+  });
+
+  const matchExpr = `match(${YoSelf},
+    ${variantArms.join(",\n    ")}
+  )`;
 
   return {
     signature,
-    code: `(${signature} {  // ___dup
-  ${dupVariantsExpr}
-  ${incrRcExpr}
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+    code: `(${signature} {  // ___dup (value type with RC fields)
+  return ${matchExpr};
 })`,
   };
 }
