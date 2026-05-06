@@ -450,10 +450,29 @@ function compileBatchedBinary(
     }
     const yoCompileMs = Date.now() - yoCompileStart;
 
-    const generatedCode = moduleManager.getGeneratedCode();
+    let generatedCode = moduleManager.getGeneratedCode();
     const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
     const usesParallelism = moduleManager.usesParallelism;
     moduleManager = null;
+
+    // On Linux, prepend a setrlimit call to increase the stack limit from the
+    // default 8 MB to 64 MB.  The ELF PT_GNU_STACK linker flag (-Wl,-z,stack-size=)
+    // is ignored by the kernel when RLIMIT_STACK (ulimit -s) is lower — the soft
+    // limit always takes precedence.  We call setrlimit in a constructor so it runs
+    // before main(), before any ASAN instrumentation touches the stack.
+    // See issues/linux-test-stack-overflow.md for the full root cause analysis.
+    if (process.platform === "linux") {
+      generatedCode =
+        `#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sys/resource.h>
+__attribute__((constructor)) static void _yo_increase_stack_limit(void) {
+  struct rlimit rl = { .rlim_cur = 64UL * 1024 * 1024, .rlim_max = RLIM_INFINITY };
+  setrlimit(RLIMIT_STACK, &rl);
+}
+` + generatedCode;
+    }
 
     fs.writeFileSync(testCPath, generatedCode);
 
