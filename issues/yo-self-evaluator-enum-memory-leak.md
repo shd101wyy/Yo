@@ -1,6 +1,6 @@
 # Self-hosted evaluator: memory leaks in enum-related tests
 
-## Status: PARTIALLY FIXED
+## Status: FIXED
 
 ## Symptom
 
@@ -75,29 +75,37 @@ For the Token type, the generated C now correctly:
 2. Calls `___dup` on String fields (value, module_path, input), storing the results
 3. Constructs and returns a new Token with the dup'd values
 
-### Root Cause 2 (INVESTIGATING): Token parameter not dropped in `eval_atom`
+### Root Cause 2 (FIXED): Later move suppressed earlier return cleanup
 
 The leak persists after the dup fix. Investigation shows the String allocation
 comes from `StringBuilder.to_string()` in the tokenizer (lexer), and the leaked
 string matches the variant name token ("Some" = 4 bytes, "TypeA" = 5 bytes).
 
-In `eval_atom` (called during evaluation of Atom AST nodes), the `tok` parameter
-is received by value. The function accesses `tok.value` and creates a dup'd copy
-for the IntLit/StrLit/etc. EvalValue. But the original `tok` parameter (and its
-String fields) are **never dropped** in the generated C code.
+The remaining leak was not in `eval_atom`. It was in the self-hosted evaluator's
+method-call path in `yo-self/evaluator/eval.yo`: `method_expr` is initialized
+from `inner_args.get(1)`, used by enum-variant early-return branches, and then
+later moved into `box(method_expr)` on the method-dispatch fallthrough path.
 
-At the call site in `evaluate`:
+The evaluator marked `method_expr` as consumed because of the later
+`box(method_expr)`. The normal scope-end drop list therefore excluded it, and
+`generatePendingDeferredDrops` also treated any `consumedAtToken` as a binary
+"already moved" flag. On enum-variant early returns before the `box` call, the
+value was still owned by `method_expr`, but no drop was emitted.
 
 ```c
-__yo_struct_yo1584f7d8_id_30 tok = e.data.Atom.token;  // bitwise copy from AST
-fn_yob146cf76_id_34_eval_atom((__yo_struct_yo1584f7d8_id_30)(tok), env);
-// tok is NOT dropped after this call
+__yo_enum_yob0b9aff6_id_2 method_expr = ...;
+...
+return Option(EvalResult).Some(...); // needed drop(method_expr) here
+...
+box(method_expr); // later fallthrough consumes it
 ```
 
-The Yo compiler should generate a drop for `tok` since its ownership was
-transferred to `eval_atom`, but the C code misses this drop. This is a codegen
-bug in how function parameters of value type (struct) are handled after being
-"moved" into a function call.
+**Fix:** the evaluator now records per-return `earlyReturnOnlyDeferredDropExpressions`
+for owning RC locals that are initialized at a return site but consumed later in
+the same source scope. Codegen emits those drops only on the annotated return
+site, while normal scope exit still skips them because ownership has moved.
+`generatePendingDeferredDrops` was also made token-position aware so a consume
+after the current return no longer suppresses that return's cleanup.
 
 ## Investigation notes
 
@@ -118,11 +126,7 @@ __yo_decr_rc(value)`. The RC mechanism should zero out and free when refcount
 - The Environment's `__dispose` chain (Environment → frames → Frame → variables →
   Variable → fields) correctly drops all Strings.
 
-## Next steps
+## Verification
 
-1. Fix the codegen for function parameter dropping after a value parameter is
-   "moved" into another function call (e.g., `eval_atom(tok, env)` should drop
-   the caller's copy of `tok`).
-2. Verify the fix eliminates the remaining leak in the minimal test and the
-   eval_5a tests.
-3. Run the full yo-self test suite with ASAN to confirm all leaks are fixed.
+1. `./yo-cli compile yo-self/tests/_leak_test.yo --release --sanitize address --allocator libc -o tmp/leak_test && ./tmp/leak_test`
+2. `./yo-cli test ./yo-self/tests/eval_5a.test.yo --parallel 1`
