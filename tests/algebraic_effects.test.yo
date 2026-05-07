@@ -1793,3 +1793,53 @@ test "regular fn handler cannot capture outer runtime variable", {
     given(exn) := Exception(throw: ((err) -> begin(assert((outer_val == i32(0)), "bad"), panic("error"))))
   );
 };
+
+test "Test struct-based effect with escape", {
+  Raise :: struct(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        escape ();
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after escape");
+};
+
+test "Test struct-based effect with resume", {
+  Raise :: struct(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "struct-based effect with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "struct-based effect with resume: should be 5");
+};
