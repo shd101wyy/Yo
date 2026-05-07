@@ -318,10 +318,10 @@ run_both :: (fn(
 };
 ```
 
-The IO module signatures use effect rows to propagate algebraic effects through async boundaries:
+The `IO` effect record uses effect rows to propagate algebraic effects through async boundaries:
 
 ```rust
-IO :: module(
+IO :: struct(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),

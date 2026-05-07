@@ -156,8 +156,10 @@ auto-derive tests, and `tests/algebraic_effects.test.yo` pass with
 
 ### Phase 3 — Migrate `module(...)` syntax to `struct(...)`
 
-**Status: PARTIAL — evaluator/codegen done, std lib migration BLOCKED on a
-separate codegen issue (NOT the forall blocker, which is now fixed).**
+**Status: DONE for production `std/` and `tests/`.** `yo-self` keeps a
+compatibility `module(...)` path for now (see Phase 5), and build-system
+APIs such as `build.module()` are project-module APIs rather than the old
+`ModuleType` surface syntax.
 
 What's done (committed `7a2e31b4`, `f13dee48`, `9c5b14a6`):
 
@@ -181,32 +183,23 @@ ModuleValue | StructValue` plus `isEffectRecordValue` /
 - `tests/algebraic_effects.test.yo`: 2 new tests prove `struct(...)`
   works for both escape and resume effect handlers (60 / 60 pass).
 
-Remaining blocker before std lib (`std/error.yo`, `std/prelude.yo`)
-migration can complete:
+The earlier async/Future codegen blocker was resolved in Phase 4c by emitting
+a generic `FutureTraitType` C interface plus concrete future effect setters.
+`std/prelude.yo` now defines `IO :: struct(...)`, and `std/error.yo` defines
+`Exception` / `ResumableException` as struct effect records.
 
-- **`async_await` codegen incompleteness.** Migrating
-  `IO :: module(...)` → `struct(...)` in `std/prelude.yo` causes the
-  "lazy async" test in `tests/async_await.test.yo` to fail with a
-  C compile error: forward-declared `__yo_future_trait_..._fn_...`
-  struct never gets a definition emitted. Likely related to how
-  Future trait/struct emission walks IO field accesses. Investigate
-  in `src/codegen/` for IO/Future emission paths that branch on
-  `isModuleType`.
+Tracked todos: `p3-forall-struct-field` — DONE (resolved by `9c5b14a6`);
+`p3-yo-files-migrate` — DONE for production `std/`, `tests/`, and docs.
 
-Tracked todos: `p3-forall-struct-field` — DONE (resolved by `9c5b14a6`).
-`p3-yo-files-migrate` — remains blocked on async_await codegen. Phase 4
-does NOT depend on this — it can be exercised on user-defined effect
-structs in tests.
-
-**Exit criteria (deferred):** no `module(` remains in `.yo` source
-under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.
+**Exit criteria:** no old `module(...)` effect-record examples remain in
+`std/`, `tests/`, or `docs/`; `yo-self` compatibility is tracked separately.
 
 ### Phase 4 — Make `given`/`using` runtime
 
 This is the payoff phase. It is itself broken into sub-steps because it
 touches the call-site lowering.
 
-**Status: Phase 4 DONE (4a + 4b end-to-end; 4c pending design call).**
+**Status: Phase 4 DONE (4a + 4b + 4c end-to-end).**
 
 #### Phase 4a — Pin current behavior, identify the precise gap (DONE)
 
@@ -354,6 +347,20 @@ Verification: `bun run build`,
 - Update `plans/ALGEBRAIC_EFFECTS.md` to describe the runtime evidence model.
 - Delete or archive `module.ts` evaluator/codegen leftovers.
 - Final `git grep -i "ModuleType\|moduleType\|module("` audit.
+
+**Status: PARTIAL.** User-facing docs and instructions now describe
+struct-based effect records and runtime evidence passing:
+
+- `docs/en-US/ALGEBRAIC_EFFECTS.md` and `docs/zh-CN/ALGEBRAIC_EFFECTS.md`
+  use `struct(...)` effect records, explain nominal struct evidence, and
+  replace module-effect terminology.
+- `docs/en-US/ASYNC_AWAIT.md` and `docs/zh-CN/ASYNC_AWAIT.md` show
+  `IO :: struct(...)`.
+- `docs/*/TYPE_REFLECTION.md` and `docs/*/DESIGN.md` no longer document a
+  distinct `Module`/`is_module()` type reflection variant.
+- `.github/instructions/c-codegen.instructions.md` describes struct-record
+  evidence; remaining `isModuleEffectMember` mentions are explicitly called
+  out as legacy flag names.
 
 ## Files Most Affected (per phase)
 

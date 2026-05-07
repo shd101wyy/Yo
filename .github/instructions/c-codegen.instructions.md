@@ -90,16 +90,16 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isF
 
 ### Evidence passing for effects
 
-**All** effects — both module-type (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A module is a compile-time construct (just a named collection of functions); at runtime, only function pointers exist. Therefore there is no distinction between module effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
+**All** effects — both struct-record (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A struct effect record is an evidence record; at runtime, its function fields are passed as function pointers. Therefore there is no distinction between struct-record effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
 
-`forall(...)`, `using(...)`, and modules are **compile-time only** constructs — they are erased at runtime. Evidence passing is how their runtime behavior is realized.
+`forall(...)` remains compile-time-only, while `using(...)`/`given(...)` resolve statically and pass runtime evidence. Evidence passing is how that runtime behavior is realized.
 
 For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 **How it works:**
 
 - A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
-- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
+- A function with `using(raise_mod : Raise)` where `Raise :: struct(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
 - Call sites pass the function pointer from their context:
   - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
@@ -117,9 +117,9 @@ See `issues/sync-effect-inlining-inside-async-context.md` for the full design ra
 
 **Forall function-type effects (e.g., `Raise :: fn(forall(T), msg: String) -> T`):**
 
-- Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
+- Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
 - The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
-- Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both module-type and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
+- Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
 **Mixed escape+return handlers:**
 
@@ -188,9 +188,9 @@ When an `io.await` detects a Future abort (state == -2), the behavior depends on
 
 The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed via `given`.
 
-### Module effect member return types
+### Effect member return types
 
-Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: fn(forall(T), ...) -> T`) use `void` as their C return type consistently in both forward declarations AND definitions:
+Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: fn(forall(T), ...) -> T`) use `void` as their C return type consistently in both forward declarations AND definitions. The flag name is legacy; read it as "effect member function":
 
 - **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
 - **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
@@ -207,7 +207,7 @@ The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: decla
 
 ### Handler functions are standalone, not closures
 
-Effect handler functions (both module-type and fn-type) are compiled as standalone C functions via evidence passing. They are **not closures** and cannot reference variables from the enclosing scope — no closure/capture struct is generated. This is **by design**.
+Effect handler functions (both struct-record and fn-type) are compiled as standalone C functions via evidence passing. They are **not closures** and cannot reference variables from the enclosing scope — no closure/capture struct is generated. This is **by design**.
 
 If a handler needs state, pass it as explicit arguments to the effect functions, or allocate a `Box` outside the handler and pass its address.
 
@@ -231,10 +231,10 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 
 `emitEffectInjection` resolves effect handler function pointers and injects them into the spawned future's capture struct. Resolution order for each effect:
 
-**Module effects (e.g., IO):** For each function field in the module:
+**Struct-record effects (e.g., IO):** For each function field in the struct evidence record:
 
 1. SM capture variables (`sm->__capture.<field>`)
-2. Module value fields (concrete `ModuleValue` from evaluator)
+2. Struct value fields (concrete `StructValue` from evaluator)
 3. Caller's evidence params (`currentEvidenceParams` map)
 4. Given bindings in the call environment
 

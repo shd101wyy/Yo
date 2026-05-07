@@ -4,7 +4,7 @@
 
 Yo 支持**代数效应**——一种隐式参数传递和一次性 delimited continuation 的机制。该系统基于两个特性：
 
-1. **隐式参数（`using` / `given`）** —— 上下文参数传递，在编译时解析
+1. **隐式参数（`using` / `given`）** —— 上下文参数传递，静态解析并在运行时传递
 2. **效应处理器（`return` / `escape`）** —— 用于控制流效应的一次性 delimited continuations
 
 代码生成策略是**证据传递（evidence passing）**——效应处理器函数指针作为额外的 C 参数传递，遵循 [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf) 中描述的方法。所有效应类型都以此方式处理，包括 forall 效应（作为 `void*` 传递，并在每个调用点转换为带类型的函数指针）。
@@ -67,11 +67,11 @@ result4 := add_numbers(7, 8, using(undefined));
 - 在调用点，调用者可以省略隐式参数。编译器通过搜索环境中类型匹配的 `given` 绑定来解析它们。
 - 调用者也可以通过 `using(...)` 显式提供隐式参数：`add_numbers(3, 4, using(my_custom_add))`。
 - 调用点的 `using(undefined)` 表示：跳过此上下文槽的显式值并回退到 `given` 查找。
-- `given` 绑定是词法作用域的：
+- `given` 绑定是词法作用域的运行时证据值：
   - 需要恰好一个兼容的 `given`，
   - 零匹配 => 编译时错误，
   - 多个匹配 => 编译时歧义错误（必须使用显式 `using(...)` 消除歧义）。
-- 解析通过**结构类型匹配**（函数签名必须匹配），而不是按名称。
+- 函数类型证据通过**结构类型匹配**解析（函数签名必须匹配），而不是按名称。结构体效应记录是名义类型：请定义一个具名 `struct(...)` 类型，并在所有使用点导入同一个类型。
 - 函数签名只允许一个 `using(...)` 子句；调用只允许一个 `using(...)` 参数表达式。
 - 内部作用域的 `given` 遮蔽外部作用域的同类型 `given`；歧义仅针对同一帧的冲突。
 
@@ -293,13 +293,13 @@ program(using(info_logger, error_logger));
 
 不需要特殊的语言支持——这来自现有的 `using`/`given` 机制。
 
-### 基于模块的效应（Module-Based Effects）
+### 基于结构体的效应记录（Struct-Based Effect Records）
 
-可以使用 Yo 的模块系统将效应组织到模块中。这对于分组相关的效应操作特别有用：
+可以使用具名 `struct(...)` 记录组织效应。这对于分组相关的效应操作特别有用：
 
 ```rust
-MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-  module(
+MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+  struct(
     throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
   )
 );
@@ -311,7 +311,7 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
   )
 );
 
-// 用 `given` 安装基于模块的处理器：
+// 用 `given` 安装基于结构体记录的处理器：
 given(exn) := MyException(i32)(
   throw : ((val, resume_val) -> {
     return resume_val;  // 用提供的恢复值 resume
@@ -321,11 +321,11 @@ given(exn) := MyException(i32)(
 result := safe_divide(10, 0);  // 处理器用 0 resume
 ```
 
-模块效应支持：
+结构体效应记录支持：
 
 - **`forall` 参数**在效应操作中（例如，`forall(ResumeType : Type)`）
-- **嵌套模块**——包含带有效应的其他模块的模块
-- **带标签的 `using(name : ModuleType)`** —— 将模块字段自动解构为隐式参数
+- **嵌套结构体**——包含其他效应结构体记录的结构体
+- **带标签的 `using(name : EffectStruct)`** —— 将结构体字段自动解构为隐式参数
 
 ### 带效应的控制流
 
@@ -429,22 +429,22 @@ result := check(i32(15), i32(10));
 | 效应传播（1 级、2 级、3 级）       | 5      |
 | 处理器遮蔽                         | 2      |
 | 效应多态性（forall spread）        | 2      |
-| Module-type 效应                   | 6      |
+| Struct 效应记录                    | 6      |
 | 多个效应行展开                     | 2      |
 | 带效应的闭包                       | 2      |
 | 效应行多态性                       | 2      |
 | 混合 escape+return 处理器          | 1      |
 | 传递 SM（break/continue/return）   | 5      |
-| Module forall 处理器               | 5      |
+| Struct 记录 forall 处理器          | 5      |
 | Option match + 效应                | 3      |
-| Module non-unit escape value       | 1      |
-| Multi-member module effects        | 1      |
-| Multiple module effects in scope   | 1      |
+| Struct 记录 non-unit escape value  | 1      |
+| Multi-member struct effect records | 1      |
+| Multiple struct records in scope   | 1      |
 | Conditional resume/escape          | 1      |
 | Recursive functions + effects      | 2      |
 | Effect with enum return type       | 1      |
-| Module effect polymorphism         | 1      |
-| Transitive SM + module effects     | 1      |
+| Struct record effect polymorphism  | 1      |
+| Transitive SM + struct records     | 1      |
 
 参见 `tests/async_await.test.yo`（9 个 async+effects 测试）了解异步集成：
 
@@ -481,7 +481,7 @@ Async/await 使用状态机基础设施（`src/codegen/shared/suspension-analysi
 
 编译器使用**证据传递**为效应处理器生成 C 代码——效应处理器函数指针作为额外的 C 参数传递。
 
-**何时**：所有效应类型——基于模块的效应、裸函数类型效应、效应行展开（`...(E)`）和 forall 效应（通过 `void*` 参数转换）。
+**何时**：所有效应类型——基于结构体的效应记录、裸函数类型效应、效应行展开（`...(E)`）和 forall 效应（通过 `void*` 参数转换）。
 
 **如何**：效应处理器函数指针作为额外的 C 参数传递。有效应的函数直接通过 fn ptr 调用处理器，并在此之后检查 `__yo_effect_escaped` 标志。基于 [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf)。
 
@@ -493,16 +493,16 @@ Async/await 使用状态机基础设施（`src/codegen/shared/suspension-analysi
 
 ### 关键原则：效应 ≡ 函数指针
 
-在运行时，所有效应都简化为函数指针。模块是编译时分组——在 C 级别，每个字段变成单独的 fn ptr 参数：
+在运行时，所有效应都简化为函数指针。结构体效应记录是证据记录——在 C 级别，每个函数字段变成单独的 fn ptr 参数：
 
-- `using(exn : Exception)` where `Exception :: module(throw : fn(...))` → 传递 `throw` 函数指针
-- `using(raise : Raise)` where `Raise :: module(raise : fn(msg : String) -> i32)` → 传递 `raise` 函数指针
+- `using(exn : Exception)` where `Exception :: struct(throw : fn(...))` → 传递 `throw` 函数指针
+- `using(raise : Raise)` where `Raise :: struct(raise : fn(msg : String) -> i32)` → 传递 `raise` 函数指针
 - `using(raise : (fn(msg : String) -> i32))` → 直接将 `raise` 作为 fn ptr 参数传递
 - `using(...(E))` effect row spread → 在特化时展开为具体的 fn ptr 参数
 
 ### 生成的 C
 
-对于带有模块效应的函数：
+对于带有结构体效应记录的函数：
 
 ```rust
 safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
@@ -534,7 +534,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 
 1. **传递转发**——如果调用者有匹配的证据参数，直接转发它们
 2. **从效应分析**——如果调用点有处理器（带有 handler info 的 `given` 绑定），使用处理器的 C 函数地址
-3. **从 `given` 绑定**——在调用环境中查找模块值，提取函数字段，并使用其 C 名称
+3. **从 `given` 绑定**——在调用环境中查找结构体证据值，提取函数字段，并使用其 C 名称
 4. **从异步 SM 捕获**——如果在异步状态机内，从 `sm->__capture.fieldName` 解析
 
 ### Escape handling
@@ -662,7 +662,7 @@ Escape 是异常路径，替换了否则会是 `longjmp`、`throw` 或等效机�
 
 - **Function-type effect**：1 个指针参数（x86-64/ARM64 上 8 字节）
 - **Module-type effect**：每个模块成员函数 1 个指针
-- **Nested module effect**：展平——每个叶函数 1 个指针
+- **Nested struct effect record**：展平——每个叶函数 1 个指针
 
 参数在寄存器中传递（x86-64 SysV 最多 6 个，ARM64 上 8 个），所以大多数单效应函数支付零栈开销。
 

@@ -318,10 +318,10 @@ run_both :: (fn(
 };
 ```
 
-IO 模块签名使用效应行来在异步边界之间传播代数效应：
+`IO` 效应记录签名使用效应行来在异步边界之间传播代数效应：
 
 ```rust
-IO :: module(
+IO :: struct(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),

@@ -411,7 +411,7 @@ case STATE_AWAIT_READ:
 - **errno 命名冲突**：枚举变体解构（`.Other(errno)`）现在会在 C 代码生成中对变量名进行清洁化处理，以避免与 C 的 `errno` 宏冲突。
 - **定时器资源泄漏（Linux）**：timerfd 和读取缓冲区现在通过扩展 future 结构上的 `dispose_fn` 被正确跟踪和清理。
 - **c_include 常量上的位或运算**：`c_include` 常量（O_WRONLY、O_CREAT 等）持有 `UnknownValue`，导致选择了 `ComptimeBitOr`。在 `identifer-and-operator.ts` 中修复，将 extern "c" unknown 视为运行时值。
-- **模块命名空间常量的 C 代码生成访问**：像 `fcntl_io.O_NONBLOCK` 这样的表达式生成了无效的 C 代码（`/* skip generating: module */.FIELD`），因为模块值没有运行时表示。在 `src/codegen/exprs/property-access.ts` 中修复。
+- **导入命名空间常量的 C 代码生成访问**：像 `fcntl_io.O_NONBLOCK` 这样的表达式生成了无效的 C 代码（`/* skip generating: namespace */.FIELD`），因为导入的编译期命名空间值不会作为运行时表达式生成。在 `src/codegen/exprs/property-access.ts` 中修复。
 - **移除了 barrel 重导出**：`std/sys/index.yo` 已移除以避免命名冲突。用户直接导入子模块。
 - **异步循环中 SSA 变量突变**：循环内的变量重赋值创建了新的 SSA 变量 ID（例如 `offset` → `offset_1`），但循环条件始终读取原始 ID，导致无限循环。通过在 await 分析中添加 `variableIdRemapping` 修复。同时修复了异步 while 循环中 `break` 跳出 C `switch` 而非循环的问题。
 - **macOS 异步 continuation 线程模型**：从 GCD 迁移到 kqueue。所有 I/O 完成事件现在都在事件循环线程上处理——不再需要跨线程 continuation 队列。
