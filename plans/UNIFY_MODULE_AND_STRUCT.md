@@ -370,6 +370,9 @@ record/impl handling:
 - The evaluator helper files have been renamed from `types/module.ts` and
   `calls/module-type.ts` to `types/record.ts` and `calls/record-type.ts`; the
   internal call-result discriminant is now `record-type`.
+- `TypeTag.Module` has been removed from the TypeScript compiler; imported
+  source modules still use `ValueTag.Module` as a namespace/loading value, but
+  there is no longer a separate module type tag.
 - `tests/algebraic_effects.test.yo` now labels the migrated effect-record
   regressions as struct-record tests instead of module-effect tests.
 

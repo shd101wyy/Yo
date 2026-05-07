@@ -541,8 +541,8 @@ export interface TraitField extends TypeField {
 /**
  * ModuleType is an alias for StructType with isModule: true.
  * Module structs are comptime-only structural types that represent modules.
- * This alias preserves backward compatibility during migration from the
- * former ModuleType interface (tag: TypeTag.Module) to unified StructType.
+ * This alias preserves backward compatibility during migration from the former
+ * ModuleType interface to unified StructType.
  */
 export type ModuleType = StructType & { isModule: true };
 
