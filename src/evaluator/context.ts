@@ -348,7 +348,7 @@ export interface TypeCallResult {
   callerEnv: Environment;
 }
 
-export interface ModuleTypeCallResult {
+export interface RecordTypeCallResult {
   moduleValue: ModuleValue;
   callerEnv: Environment;
 }
@@ -479,10 +479,10 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   tryToImplementModuleWithArguments
+         *   tryToImplementRecordWithArguments
          */
-        kind: "module-type";
-        result: ModuleTypeCallResult;
+        kind: "record-type";
+        result: RecordTypeCallResult;
       }
     | {
         /**
@@ -563,11 +563,11 @@ export function getTypeCallResult(
   return functionToCall.result.result;
 }
 
-export function getModuleTypeCallResult(
+export function getRecordTypeCallResult(
   functionToCall: FunctionToCall
-): ModuleTypeCallResult {
-  if (functionToCall.result.kind !== "module-type") {
-    throw new Error("Expected module type call result");
+): RecordTypeCallResult {
+  if (functionToCall.result.kind !== "record-type") {
+    throw new Error("Expected record type call result");
   }
   return functionToCall.result.result;
 }

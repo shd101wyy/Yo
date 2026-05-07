@@ -367,6 +367,9 @@ record/impl handling:
   (`SelfRecordType`, `evaluateRecordType`, `evaluateRecordField`,
   `evaluateImplBlock`) while preserving compatibility for the remaining
   source-module implementation.
+- The evaluator helper files have been renamed from `types/module.ts` and
+  `calls/module-type.ts` to `types/record.ts` and `calls/record-type.ts`; the
+  internal call-result discriminant is now `record-type`.
 - `tests/algebraic_effects.test.yo` now labels the migrated effect-record
   regressions as struct-record tests instead of module-effect tests.
 

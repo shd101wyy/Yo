@@ -2415,7 +2415,7 @@ Please use explicit using() to disambiguate.`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception 1: allow when only module-type implicit args (like IO) are unknown AND
+    // Exception 1: allow when only effect-record implicit args (like IO) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
     // Exception 2: allow when the only Unknown args come from effect row spread
     // parameters — those are forwarded effects that the body may not reference.

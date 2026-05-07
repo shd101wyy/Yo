@@ -176,7 +176,7 @@ Got:   ${typeToString(argType)}`,
     // Propagate ioBuiltin from extern function types to struct field types.
     // This ensures io.async/io.await/io.spawn/etc. are detected as IO builtins
     // even when accessed through a struct field (mirrors the behavior in
-    // module-type.ts for module constructors).
+    // record-type.ts for record constructors).
     if (argType.ioBuiltin && isFunctionType(memberElement.type)) {
       memberElement.type.ioBuiltin = argType.ioBuiltin;
     }

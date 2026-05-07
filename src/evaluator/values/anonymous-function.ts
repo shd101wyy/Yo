@@ -743,7 +743,7 @@ Got:      "${paramName}"`,
       });
     }
 
-    // Handle module-typed and struct-typed effects (e.g., Exception :: module(throw : fn(...))
+    // Handle record-typed effects (e.g., Exception :: struct(throw : fn(...))
     // or IO :: struct(async : fn(...))) in async closures. Effect records need
     // their function members decomposed and captured individually for runtime
     // injection at io.spawn/io.await.

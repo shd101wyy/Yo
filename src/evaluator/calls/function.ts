@@ -85,7 +85,7 @@ import {
   type FunctionCallResult,
   type FunctionToCall,
   getIndexCallResult,
-  getModuleTypeCallResult,
+  getRecordTypeCallResult,
   getTraitTypeCallResult,
   getTypeCallResult,
 } from "../context";
@@ -100,7 +100,7 @@ import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { hasIndexImpl, tryToCallWithIndexTrait } from "./index-trait";
 import { evaluateIsoValueCall } from "./iso";
-import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
+import { tryToImplementRecordWithArgumentsByRecordType } from "./record-type";
 import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
@@ -1043,7 +1043,7 @@ export function evaluateFunctionCall({
           else if (isTypeValue(value) && isModuleType(value.value)) {
             const moduleType = value.value;
             try {
-              const result = tryToImplementModuleWithArgumentsByModuleType({
+              const result = tryToImplementRecordWithArgumentsByRecordType({
                 moduleExpr: func,
                 moduleType: moduleType,
                 argExprs: argsToUse,
@@ -1053,7 +1053,7 @@ export function evaluateFunctionCall({
               return {
                 ...functionToCall,
                 result: {
-                  kind: "module-type",
+                  kind: "record-type",
                   result,
                 },
               };
@@ -2408,7 +2408,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       isModuleType(functionToCallValue.value)
     ) {
       const { moduleValue, callerEnv } =
-        getModuleTypeCallResult(functionToCall);
+        getRecordTypeCallResult(functionToCall);
       env = callerEnv;
 
       expr.$ = {

@@ -46,7 +46,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   isModuleEffectMemberFunction?: boolean;
   // Evidence parameters for the current function — maps "implicitLabel.fieldLabel"
   // (e.g., "raise_mod.raise") to the C parameter name (e.g., "raise_mod__raise").
-  // Set when generating a function body that uses module-type effects via evidence passing.
+  // Set when generating a function body that uses effect-record evidence passing.
   currentEvidenceParams?: Map<string, EvidenceParameter>;
   // Map from continuation variable names to their state machine info.
   // Used when generating handler body inline — resume calls are intercepted

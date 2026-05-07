@@ -23,7 +23,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { type EvaluatorContext } from "../context";
-import { evaluateRecordField } from "../types/module";
+import { evaluateRecordField } from "../types/record";
 import { evaluateExpression } from "./expr";
 
 export function evaluateCInclude({

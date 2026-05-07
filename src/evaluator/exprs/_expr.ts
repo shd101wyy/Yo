@@ -109,7 +109,7 @@ import { evaluateEnumType } from "../types/enum";
 import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
-import { evaluateRecordType } from "../types/module";
+import { evaluateRecordType } from "../types/record";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
 import { evaluateSliceType } from "../types/slice";

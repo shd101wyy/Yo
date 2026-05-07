@@ -296,7 +296,7 @@ export function getEvidenceParameters(
 /**
  * Recursively collect evidence parameters from a module type.
  * For function-typed fields, creates an EvidenceParameter.
- * For module-typed fields, recurses into the nested module.
+ * For record-typed fields, recurses into the nested record.
  */
 function collectEvidenceFromModule(
   implicitLabel: string,
@@ -417,13 +417,13 @@ export function generateFunctionPrototype(
 
   paramStrings.push(...regularParamStrings);
 
-  // Add evidence parameters for module-type implicit params (evidence passing).
-  // Each function-typed field of a module-type using() param becomes an extra
+  // Add evidence parameters for record-typed implicit params (evidence passing).
+  // Each function-typed field of a record-typed using() param becomes an extra
   // C function pointer parameter.
   //
   // NOTE: specializedType typically has empty implicitParameters (resolved during
   // specialization). We use originalFunctionType (the pre-specialization type)
-  // to detect module-type implicit params.
+  // to detect record-typed implicit params.
   const evidenceParams = getEvidenceParameters(
     originalFunctionType ?? functionType
   );

@@ -716,7 +716,7 @@ export function generateOtherFunctionCall(
                 .join(", ");
             }
           }
-          // Evidence passing call site: callee has module-type implicit params
+          // Evidence passing call site: callee has effect-record implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
           // otherwise fall back to original type for forall evidence params (void* cast).

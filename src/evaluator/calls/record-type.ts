@@ -19,10 +19,10 @@ import {
   type Value,
   valueToString,
 } from "../../value";
-import type { EvaluatorContext, ModuleTypeCallResult } from "../context";
+import type { EvaluatorContext, RecordTypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function tryToImplementModuleWithArgumentsByModuleType({
+export function tryToImplementRecordWithArgumentsByRecordType({
   moduleExpr,
   moduleType,
   argExprs,
@@ -34,7 +34,7 @@ export function tryToImplementModuleWithArgumentsByModuleType({
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
-}): ModuleTypeCallResult {
+}): RecordTypeCallResult {
   if (argExprs.length > moduleType.fields.length) {
     throw formatErrorMessage({
       token: moduleExpr.token,

@@ -686,7 +686,7 @@ function emitEffectInjectionForAwait(
 }
 
 /**
- * Inject module-type effect fields (e.g., Exception.throw) into a Future's capture struct.
+ * Inject struct-record effect fields (e.g., Exception.throw) into a Future's capture struct.
  * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
  */
 function emitModuleEffectInjection(

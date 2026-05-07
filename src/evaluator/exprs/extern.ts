@@ -24,7 +24,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateRecordField } from "../types/module";
+import { evaluateRecordField } from "../types/record";
 
 export function evaluateExtern({
   expr,
