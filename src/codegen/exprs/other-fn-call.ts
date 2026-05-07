@@ -2590,6 +2590,38 @@ function resolveEvidenceArgsForCallSite(
         const givenVar =
           typeVar && typeVar !== labelVar ? typeVar : (labelVar ?? typeVar);
         const givenValue = givenVar?.value?.[0];
+
+        // Phase 4b: runtime struct given binding — emit a C field access
+        // through the runtime variable (e.g. `c.next`). This applies when
+        // the given variable holds a runtime struct value (no comptime
+        // FunctionValue/ModuleValue/StructValue available).
+        if (
+          !resolved &&
+          givenVar &&
+          isStructType(givenVar.type) &&
+          (!givenValue || !isModuleValue(givenValue)) &&
+          (!givenValue || !isFunctionValue(givenValue))
+        ) {
+          const callEnvForName = expr.func.$?.env ?? expr.$?.env;
+          const cName = getVariableNameForCodegen(
+            givenVar.name,
+            callEnvForName
+          );
+          // ep.fieldPath starts with the implicit label; drop it because
+          // the implicit label maps to the C variable name itself.
+          const fieldPath = ep.fieldPath.slice(
+            ep.fieldPath[0] === ep.implicitLabel ? 1 : 0
+          );
+          if (fieldPath.length > 0) {
+            result.push(`${cName}.${fieldPath.join(".")}`);
+          } else {
+            result.push(cName);
+          }
+          resolved = true;
+          isHandlerInstallation = true;
+          continue;
+        }
+
         if (givenValue && isModuleValue(givenValue)) {
           // Navigate the field path through potentially nested modules
           let currentModule = givenValue;

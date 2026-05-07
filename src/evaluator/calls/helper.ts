@@ -2037,7 +2037,7 @@ Got:      ${typeToString(argType)}`,
           callerEnv,
           (v) =>
             v.isImplicit === true &&
-            v.isCompileTimeOnly === true &&
+            (v.isCompileTimeOnly === true || isStructType(v.type)) &&
             areTypesCompatible(
               { type: resolvedImplicitType, env: calleeEnv },
               { type: v.type, env: callerEnv }
@@ -2101,7 +2101,7 @@ Add it explicitly:
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               areTypesCompatible(
                 { type: resolvedImplicitType, env: calleeEnv },
                 { type: v.type, env: callerEnv }
@@ -2112,7 +2112,7 @@ Add it explicitly:
             const innermostMatches = frame.variables.filter(
               (v) =>
                 v.isImplicit === true &&
-                v.isCompileTimeOnly === true &&
+                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedImplicitType, env: calleeEnv },
                   { type: v.type, env: callerEnv }
@@ -2133,7 +2133,18 @@ Please use explicit using() to disambiguate.`,
         }
 
         const givenVar = candidates[candidates.length - 1]!;
-        const givenValue = givenVar.value?.[0];
+        let givenValue = givenVar.value?.[0];
+        // Phase 4b: for runtime struct evidence, the variable carries
+        // either no value (runtime binding) or an UnknownValue (comptime
+        // wrapper). Synthesize an UnknownValue so the call can proceed;
+        // codegen will read the evidence from the runtime C variable.
+        if (!givenValue && isStructType(givenVar.type)) {
+          givenValue = createUnknownValue(givenVar.type, {
+            variableName: givenVar.name,
+            env: callerEnv,
+            context,
+          });
+        }
         if (!givenValue) {
           throw formatErrorMessage({
             token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,

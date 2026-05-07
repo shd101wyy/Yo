@@ -159,3 +159,38 @@ test "Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   };
   assert((sum.* == 21), "3 iterations × 7 = 21");
 };
+
+test "Phase 4b: given(struct) bound to runtime function-returned value", {
+  Counter :: struct(
+    next : (fn() -> i32)
+  );
+
+  make_counter :: (fn(use_a : bool) -> Counter)(
+    cond(
+      use_a => Counter(next : (() -> i32(1))),
+      true => Counter(next : (() -> i32(2)))
+    )
+  );
+
+  step :: (fn(using(c : Counter)) -> i32)(
+    c.next()
+  );
+
+  flag := true;
+  if(flag, {
+    (given(c) : Counter) = make_counter(true);
+    assert((step() == 1), "use_a=true -> 1");
+  }, {
+    (given(c) : Counter) = make_counter(false);
+    assert((step() == 2), "use_a=false -> 2");
+  });
+
+  flag2 := false;
+  if(flag2, {
+    (given(c) : Counter) = make_counter(true);
+    assert((step() == 1), "unreachable");
+  }, {
+    (given(c) : Counter) = make_counter(false);
+    assert((step() == 2), "use_a=false -> 2");
+  });
+};
