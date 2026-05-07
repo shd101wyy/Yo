@@ -102,6 +102,36 @@ Blocks Phase 3e/3f of the Module/Struct unification: `std/prelude.yo`'s
 `module(...)` cannot be migrated to `struct(...)` until forall freshness
 is preserved on nominal struct field calls.
 
+## Failed fix attempts
+
+### Attempt 1: Mirror module-type.ts `specializedType` setting in struct constructor
+
+`src/evaluator/calls/module-type.ts:217-231` sets
+`argValue.specializedType = moduleFieldType` for function-typed module
+fields. Hypothesis: this preserves the field's polymorphic forall as a
+"fresh template" for instantiation per call, instead of letting forall
+bindings leak into `argValue.type` across calls.
+
+Tried adding the same logic to `src/evaluator/calls/type.ts`
+(`tryToCallTypeWithArguments`) right after the type-compatibility check.
+
+**Result: Did NOT fix the bug.** `pid := io.await(...)` still infers `T`
+instead of `i32`. The actual divergence is elsewhere — likely deeper in
+the call-specialization path, where struct field calls take a different
+code path than module field calls. Possible suspects:
+
+- `src/evaluator/calls/function.ts:520` — module values are handled as
+  callable via the `"Call"` element extraction; struct values are not.
+- `src/evaluator/calls/helper.ts:2359` (`isModuleType(param.type)`) and
+  `:3571` — implicit-parameter resolution has module-specific branches.
+- `src/evaluator/calls/comptime-fn.ts:270` —
+  `isModuleType(returnedType)` affects comptime-vs-runtime function
+  dispatch for the call itself.
+
+A correct fix likely needs to add struct-aware branches to several of
+these sites, or unify the dispatch entirely. This is non-trivial and
+warrants a focused investigation in a follow-up session.
+
 ## Related
 
 - `plans/UNIFY_MODULE_AND_STRUCT.md` — Phase 3 status notes.
