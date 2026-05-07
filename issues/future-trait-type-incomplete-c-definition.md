@@ -24,7 +24,7 @@ i.e. the C struct is forward-declared but no body is ever emitted.
 ## Root cause analysis
 
 `FutureTraitType` ids are derived from
-`future_trait_${outputType.id}_${counter++}`
+`future_trait_${outputType.id}${effectsSuffix}`
 (see `src/types/creators.ts:1135` and `src/evaluator/types/future-trait.ts:117`).
 
 When IO is a Module, the effect appears with one type id; when IO is a
@@ -33,11 +33,22 @@ fresh ids via `createStructType`). This produces _two distinct_
 FutureTraitType instances with overlapping or different ids depending
 on instantiation context.
 
-The codegen collection path at
-`src/codegen/types/collection.ts:344-365` registers `TraitType`
-instances under cName `__yo_${type.id}`. The forward declaration is
-emitted at `src/codegen/types/generation.ts:271-275`, but the body
-emitter at `src/codegen/types/generation.ts:727` is a `FIXME`:
+There are actually **two coupled problems** uncovered by deeper
+investigation on `unify-module-and-struct` (commit `b57cc74d`
+baseline):
+
+### Problem 1 — bare FutureTraitType collected via TypeValue exprs
+
+`collectTypesFromExpr`
+(`src/codegen/functions/collection.ts:610-612`) collects any
+expression that evaluates to a `TypeValue`. Function signatures like
+`task : Impl(Future(i32, IO, Raise))` therefore reach
+`collectType(futureTraitType, ...)` directly — falling into the
+`isTraitType` branch at `src/codegen/types/collection.ts:344-365`,
+which registers the trait as `__yo_${type.id}`. The forward
+declaration is emitted at `src/codegen/types/generation.ts:271-275`,
+but the body emitter at `src/codegen/types/generation.ts:727` is a
+`FIXME`:
 
 ```ts
 // FIXME: Handle FutureTraitType declarations if needed
@@ -46,33 +57,48 @@ emitter at `src/codegen/types/generation.ts:727` is a `FIXME`:
 // }
 ```
 
-The state-machine code path at `src/codegen/exprs/async.ts:102-105`
-registers the state-machine struct under `futureType.id` (the SomeType
-id), which by design is _different_ from the FutureTraitType id. So
-when a FutureTraitType is reached through some other code path (e.g.
-function parameter type `Impl(Future(i32, IO, Raise))` being
-collected) and registered with `__yo_${type.id}`, the body never
-follows.
+This can be patched cleanly by skipping `FutureTraitType` (and
+`FnTraitType`) in that branch — both are interface trait types whose
+concrete C representation always comes from a SomeType (Impl).
 
-When IO is a Module, the FutureTraitTypes appear to be reached only
-through the SomeType branch (which short-circuits via
-`type.resolvedConcreteType`), so the leak doesn't manifest.
+### Problem 2 — generic `Impl(Future(...))` consumers are not specialized
+
+Even after fixing problem 1, generic functions like
+`test_escape :: fn(task : Impl(Future(i32, IO, Raise)), using(io: IO)) -> ...`
+are emitted as `static inline`. Their body dereferences
+`task->state`, `task->__yo_resume_fn`, **and**
+`task->__capture.Raise` — the last requires per-async-block knowledge
+of the capture struct's layout. The C type for the parameter falls
+back to `extractFutureTraitFromType(someType)` →
+`context.types[fmodule.id]` (`src/codegen/utils/index.ts:686-694`).
+
+With IO=Module, that lookup coincidentally hit a registered name (a
+forward-decl-only struct from problem 1), and the function happened
+to compile because call sites were specialized in a way that didn't
+exercise the dereferences. With IO=Struct the function body **is**
+emitted and dereferences the incomplete struct.
+
+The fundamental issue is that generic functions over
+`Impl(Future(T, …))` parameters are emitted with fully concrete C
+struct accesses (`__capture.Raise`) without being specialized per
+concrete state machine. A correct fix likely requires:
+
+- Specializing `static inline` generic Future-consumer functions per
+  call site (each instantiation gets its own struct cName), **or**
+- Lowering `task->__capture.Raise` etc. to a generic interface that
+  doesn't depend on the capture layout (e.g., always go through a
+  vtable-style setter), **or**
+- Generating the trait struct as the union of all observed state
+  machines' common prefix.
+
+The codegen FIXME at `generation.ts:727` is the symptom; the root is
+in how generic Future-consumer functions are specialized.
 
 ## Why this blocks the unification plan
 
 Phase 4c of `plans/UNIFY_MODULE_AND_STRUCT.md` calls for migrating
 `std/prelude.yo` IO and other effects to nominal struct types. That
 migration cannot land while this codegen issue remains.
-
-## Fix sketch
-
-Implement `generateFutureTraitDeclaration` to emit a struct body for
-FutureTraitType — likely matching the layout used by the state-machine
-struct (state, result, continuation_fn/sm, **yo_resume_fn, **capture).
-
-Alternatively, audit collection.ts to ensure FutureTraitTypes ALWAYS
-go through the SomeType branch (and thus get the state-machine struct
-registered for their id).
 
 ## Status
 
@@ -81,3 +107,6 @@ registered for their id).
   records, restricting Phase 4b runtime branch to runtime givens)
   are landed in commit `b57cc74d` and forward-compatible.
 - Phase 4c and `p3-yo-files-migrate` remain blocked on this issue.
+- A surface-level patch (skipping FutureTraitType in trait collection)
+  was prototyped this session but exposes the deeper specialization
+  problem documented above; it was not landed.
