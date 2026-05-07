@@ -53,6 +53,7 @@ import type {
   FunctionType,
   ModuleType,
   SomeType,
+  StructType,
   Type,
   TypeHierarchyType,
 } from "../../types/definitions";
@@ -67,6 +68,7 @@ import {
   isFunctionTypeHardGeneric,
   isModuleType,
   isSomeType,
+  isStructType,
   isTypeHierarchyType,
 } from "../../types/guards";
 import {
@@ -86,9 +88,11 @@ import {
   type ExprValue,
   isFunctionValue,
   isModuleValue,
+  isStructValue,
   isTypeValue,
   isUnknownValue,
   type ModuleValue,
+  type StructValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -116,25 +120,34 @@ import {
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
-function moduleTypeContainsCtlField(
-  type: ModuleType,
-  moduleVal?: ModuleValue
+/** A value that can hold effect handler fields — either a module or struct. */
+type EffectRecordValue = ModuleValue | StructValue;
+
+function isEffectRecordValue(v: Value | undefined): v is EffectRecordValue {
+  return isModuleValue(v) || isStructValue(v);
+}
+
+function isEffectRecordType(t: Type): t is ModuleType | StructType {
+  return isModuleType(t) || isStructType(t);
+}
+
+function effectRecordTypeContainsCtlField(
+  type: ModuleType | StructType,
+  recordVal?: EffectRecordValue
 ): boolean {
   for (let fi = 0; fi < type.fields.length; fi++) {
     const field = type.fields[fi]!;
     if (isFunctionType(field.type)) {
-      const fieldVal = moduleVal?.fields[fi];
+      const fieldVal = recordVal?.fields[fi];
       if (fieldVal && isFunctionValue(fieldVal) && fieldVal.isControlFunction)
         return true;
     }
-    if (isModuleType(field.type)) {
-      const innerModuleVal = moduleVal?.fields[fi];
+    if (isEffectRecordType(field.type)) {
+      const innerVal = recordVal?.fields[fi];
       if (
-        moduleTypeContainsCtlField(
+        effectRecordTypeContainsCtlField(
           field.type,
-          innerModuleVal && isModuleValue(innerModuleVal)
-            ? innerModuleVal
-            : undefined
+          isEffectRecordValue(innerVal) ? innerVal : undefined
         )
       )
         return true;
@@ -2871,8 +2884,11 @@ function createSpecializedFunctionInline({
     argValues.implicitArgs?.some(
       (arg) =>
         (isFunctionValue(arg.value) && arg.value.isControlFunction) ||
-        (isModuleValue(arg.value) &&
-          moduleTypeContainsCtlField(arg.value.type as ModuleType, arg.value))
+        (isEffectRecordValue(arg.value) &&
+          effectRecordTypeContainsCtlField(
+            arg.value.type as ModuleType | StructType,
+            arg.value
+          ))
     ) ?? false;
 
   // Compute the specialization signature BEFORE body evaluation so that
@@ -3030,27 +3046,27 @@ function createSpecializedFunctionInline({
                 fromSpread: true,
               });
             }
-          } else if (isModuleType(innerParam.type)) {
-            // Module-based effects inside an effect row spread:
-            // recursively find ctl function fields in the module.
+          } else if (isEffectRecordType(innerParam.type)) {
+            // Effect-record-based effects inside an effect row spread:
+            // recursively find ctl function fields in the record (module or struct).
             const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
-            const innerModuleVal =
-              innerHandlerArg && isModuleValue(innerHandlerArg.value)
+            const innerRecordVal =
+              innerHandlerArg && isEffectRecordValue(innerHandlerArg.value)
                 ? innerHandlerArg.value
                 : undefined;
             const ctlFields: Array<{
               path: string[];
               type: FunctionType;
             }> = [];
-            const findCtlFieldsInModuleSpread = (
-              moduleType: ModuleType,
+            const findCtlFieldsInEffectRecordSpread = (
+              recordType: ModuleType | StructType,
               pathSoFar: string[],
-              moduleVal?: ModuleValue
+              recordVal?: EffectRecordValue
             ) => {
-              for (let fi = 0; fi < moduleType.fields.length; fi++) {
-                const field = moduleType.fields[fi]!;
+              for (let fi = 0; fi < recordType.fields.length; fi++) {
+                const field = recordType.fields[fi]!;
                 if (isFunctionType(field.type)) {
-                  const fieldVal = moduleVal?.fields[fi];
+                  const fieldVal = recordVal?.fields[fi];
                   if (
                     fieldVal &&
                     isFunctionValue(fieldVal) &&
@@ -3064,17 +3080,21 @@ function createSpecializedFunctionInline({
                       type: _resolvedType,
                     });
                   }
-                } else if (isModuleType(field.type)) {
-                  const innerMV = moduleVal?.fields[fi];
-                  findCtlFieldsInModuleSpread(
+                } else if (isEffectRecordType(field.type)) {
+                  const innerRV = recordVal?.fields[fi];
+                  findCtlFieldsInEffectRecordSpread(
                     field.type,
                     [...pathSoFar, field.label],
-                    innerMV && isModuleValue(innerMV) ? innerMV : undefined
+                    isEffectRecordValue(innerRV) ? innerRV : undefined
                   );
                 }
               }
             };
-            findCtlFieldsInModuleSpread(innerParam.type, [], innerModuleVal);
+            findCtlFieldsInEffectRecordSpread(
+              innerParam.type,
+              [],
+              innerRecordVal
+            );
             for (const ctlField of ctlFields) {
               effectCtlParams.push({
                 handlerArgIndex: argOffset + k,
@@ -3090,20 +3110,21 @@ function createSpecializedFunctionInline({
       } else {
         argOffset += 1;
       }
-    } else if (isModuleType(implicitParam.type)) {
-      // Module-based effects: recursively find effect fields in possibly nested modules.
+    } else if (isEffectRecordType(implicitParam.type)) {
+      // Effect-record-based effects: recursively find effect fields in possibly
+      // nested effect records (module or struct).
       // Check the handler VALUE's isControlFunction flag (set when a handler body uses escape).
       const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
       const handlerArg = argValues.implicitArgs?.[argOffset];
-      const findCtlFieldsInModule = (
-        moduleType: ModuleType,
+      const findCtlFieldsInEffectRecord = (
+        recordType: ModuleType | StructType,
         pathSoFar: string[],
-        moduleVal?: ModuleValue
+        recordVal?: EffectRecordValue
       ) => {
-        for (let fi = 0; fi < moduleType.fields.length; fi++) {
-          const field = moduleType.fields[fi]!;
+        for (let fi = 0; fi < recordType.fields.length; fi++) {
+          const field = recordType.fields[fi]!;
           if (isFunctionType(field.type)) {
-            const fieldVal = moduleVal?.fields[fi];
+            const fieldVal = recordVal?.fields[fi];
             if (
               fieldVal &&
               isFunctionValue(fieldVal) &&
@@ -3118,22 +3139,20 @@ function createSpecializedFunctionInline({
                 type: resolvedType,
               });
             }
-          } else if (isModuleType(field.type)) {
-            const innerModuleVal = moduleVal?.fields[fi];
-            findCtlFieldsInModule(
+          } else if (isEffectRecordType(field.type)) {
+            const innerRecordVal = recordVal?.fields[fi];
+            findCtlFieldsInEffectRecord(
               field.type,
               [...pathSoFar, field.label],
-              innerModuleVal && isModuleValue(innerModuleVal)
-                ? innerModuleVal
-                : undefined
+              isEffectRecordValue(innerRecordVal) ? innerRecordVal : undefined
             );
           }
         }
       };
-      findCtlFieldsInModule(
+      findCtlFieldsInEffectRecord(
         implicitParam.type,
         [],
-        handlerArg && isModuleValue(handlerArg.value)
+        handlerArg && isEffectRecordValue(handlerArg.value)
           ? handlerArg.value
           : undefined
       );
@@ -3171,21 +3190,21 @@ function createSpecializedFunctionInline({
       // Store the handler value on the effectAnalysis so codegen can inline it.
       // The implicit args correspond to implicit parameters by index.
       const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
-      // For module-based effects, extract the ctl function by walking the field path
+      // For effect-record-based effects, extract the ctl function by walking the field path
       let resolvedHandlerFn: FunctionValue | undefined;
       const fieldPathForHandler = ctlParam.effectFieldPath;
       if (handlerArg && isFunctionValue(handlerArg.value)) {
         resolvedHandlerFn = handlerArg.value;
       } else if (
         handlerArg &&
-        isModuleValue(handlerArg.value) &&
+        isEffectRecordValue(handlerArg.value) &&
         fieldPathForHandler &&
         fieldPathForHandler.length > 0
       ) {
-        // Walk through nested modules following the field path
+        // Walk through nested effect records following the field path
         let currentValue: Value | undefined = handlerArg.value;
         for (const fieldName of fieldPathForHandler) {
-          if (!isModuleValue(currentValue)) {
+          if (!isEffectRecordValue(currentValue)) {
             currentValue = undefined;
             break;
           }

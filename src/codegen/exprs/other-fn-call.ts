@@ -40,6 +40,7 @@ import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
   isModuleValue,
+  isStructValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
@@ -605,24 +606,27 @@ export function generateOtherFunctionCall(
             for (const ep of functionContext.currentEvidenceParams.values()) {
               const givenVars = getVariablesFromEnv(callEnv, ep.implicitLabel);
               const givenVar = givenVars[givenVars.length - 1];
-              const moduleVal = givenVar?.value?.[0];
-              if (moduleVal && isModuleValue(moduleVal)) {
-                // Navigate fieldPath through potentially nested modules
-                let currentModule = moduleVal;
+              const recordVal = givenVar?.value?.[0];
+              if (
+                recordVal &&
+                (isModuleValue(recordVal) || isStructValue(recordVal))
+              ) {
+                // Navigate fieldPath through potentially nested effect records
+                let currentRecord = recordVal;
                 let navigated = true;
                 for (let i = 0; i < ep.fieldPath.length - 1; i++) {
                   const pathSegment = ep.fieldPath[i]!;
-                  const idx = currentModule.type.fields.findIndex(
+                  const idx = currentRecord.type.fields.findIndex(
                     (f) => f.label === pathSegment
                   );
-                  if (
-                    idx >= 0 &&
-                    currentModule.fields[idx] &&
-                    isModuleValue(currentModule.fields[idx])
-                  ) {
-                    currentModule = currentModule.fields[
-                      idx
-                    ] as import("../../value").ModuleValue;
+                  if (idx >= 0 && currentRecord.fields[idx]) {
+                    const nextVal = currentRecord.fields[idx]!;
+                    if (isModuleValue(nextVal) || isStructValue(nextVal)) {
+                      currentRecord = nextVal;
+                    } else {
+                      navigated = false;
+                      break;
+                    }
                   } else {
                     navigated = false;
                     break;
@@ -630,11 +634,11 @@ export function generateOtherFunctionCall(
                 }
                 if (navigated) {
                   const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
-                  const fieldIdx = currentModule.type.fields.findIndex(
+                  const fieldIdx = currentRecord.type.fields.findIndex(
                     (f) => f.label === lastLabel
                   );
                   if (fieldIdx >= 0) {
-                    const fieldVal = currentModule.fields[fieldIdx];
+                    const fieldVal = currentRecord.fields[fieldIdx];
                     if (
                       fieldVal &&
                       isFunctionValue(fieldVal) &&

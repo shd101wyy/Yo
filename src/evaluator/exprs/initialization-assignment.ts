@@ -29,6 +29,7 @@ import {
   createUnknownValue,
   isFunctionValue,
   isModuleValue,
+  isStructValue,
   isTraitValue,
   isTypeValue,
 } from "../../value";
@@ -290,7 +291,9 @@ ${exprToString(expr)}`,
       rhsValue.funcName = actualLhs.token.value;
       rhsValue.funcId += `_${actualLhs.token.value}`;
     } else if (
-      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
+      (isModuleValue(rhsValue) ||
+        isStructValue(rhsValue) ||
+        isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName &&
       rhsValue.type !== context.SelfType
     ) {
