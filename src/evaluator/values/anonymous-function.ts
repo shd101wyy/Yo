@@ -969,7 +969,9 @@ Got:      "${paramName}"`,
   const shouldDeferBodyEvaluation =
     forallParamExprs.length > 0 ||
     functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
-    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
+    (functionType.SelfTraitType &&
+      functionType.SelfType &&
+      typeContainsSomeType(functionType.SelfType));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
