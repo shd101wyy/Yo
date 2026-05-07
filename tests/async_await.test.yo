@@ -3,6 +3,14 @@ open import "std/string";
 open import "std/fmt";
 { yield } :: import "std/async";
 
+future_with_returned_state :: (fn(value : i32, using(io : IO)) -> Impl(Future(i32, IO)))({
+  local := Box(i32)(value);
+  io.async((using(io : IO)) => {
+    io.await(yield());
+    return (local.* + i32(1));
+  })
+});
+
 // ---------------------------------------------------------------------------
 // 1. Basic lazy async – verify task doesn't run until awaited
 // ---------------------------------------------------------------------------
@@ -56,6 +64,12 @@ test "Test async function", {
   result := io.await(task);
   assert(bb.* == 1, "bb should be 1 after task completes");
   assert(result == i32(1), "result should be 1");
+};
+
+test "Test async function returns Future with captured local", {
+  task := future_with_returned_state(i32(41), using(io));
+  result := io.await(task);
+  assert(result == i32(42), "future should preserve captured local until awaited");
 };
 
 // ---------------------------------------------------------------------------

@@ -3231,6 +3231,44 @@ test "Phase 5ar: TypeVal.Variant(args) — Option.Some(42)", {
   );
 };
 
+test "Phase 5ar: repeated user enum variant construction", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));
+  src := "MyOpt :: enum(None, Some(i32)); a := MyOpt.Some(i32(1)); b := MyOpt.Some(i32(2)); c := MyOpt.Some(i32(3)); export a; export b; export c;";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &env);
+  match(result,
+    .None => assert(false, "repeated variants returned None"),
+    .Some(mod_val) => match(mod_val,
+      .ModuleVal(names, vals) => {
+        assert((names.len() == usize(3)), "3 exports");
+        match(vals.get(usize(0)),
+          .Some(v0) => match(v0, .EnumVal(tag0, fields0) => {
+            assert((tag0.as_str() == ".Some"), "first tag is .Some");
+            assert((fields0.len() == usize(1)), "first has 1 field");
+          }, _ => assert(false, "first not EnumVal")),
+          .None => assert(false, "no first export")
+        );
+        match(vals.get(usize(1)),
+          .Some(v1) => match(v1, .EnumVal(tag1, fields1) => {
+            assert((tag1.as_str() == ".Some"), "second tag is .Some");
+            assert((fields1.len() == usize(1)), "second has 1 field");
+          }, _ => assert(false, "second not EnumVal")),
+          .None => assert(false, "no second export")
+        );
+        match(vals.get(usize(2)),
+          .Some(v2) => match(v2, .EnumVal(tag2, fields2) => {
+            assert((tag2.as_str() == ".Some"), "third tag is .Some");
+            assert((fields2.len() == usize(1)), "third has 1 field");
+          }, _ => assert(false, "third not EnumVal")),
+          .None => assert(false, "no third export")
+        );
+      },
+      _ => assert(false, "not ModuleVal")
+    )
+  );
+};
+
 test "Phase 5ar: TypeVal.Variant — Pair with two fields", {
   env := empty_env();
   given(exn) := Exception(throw: ((err) -> { assert(false, "parse error"); escape (); }));

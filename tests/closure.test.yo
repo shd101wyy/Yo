@@ -164,6 +164,36 @@ test "Test closure with Impl that captures Rc object", {
   assert(x.* == result, "Expected final result to be 5");
 };
 
+test "Test closure captured Rc survives nested early return", {
+  x := MyBox(1);
+  take_return := true;
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  closure := (ClosureType {
+    cond(
+      take_return => {
+        x.* = (x.* + y);
+        return x.*;
+      },
+      true => {
+        x.* = (x.* + i32(100));
+        return x.*;
+      }
+    );
+    return i32(-1);
+  });
+
+  closure2 := closure;
+
+  result := closure(4);
+  assert(result == i32(5), "nested early return should return updated value");
+  assert(x.* == i32(5), "captured boxed variable should survive early return");
+
+  result2 := closure2(2);
+  assert(result2 == i32(7), "duplicated closure should share captured box");
+  assert(x.* == i32(7), "captured box should remain alive after duplicate call");
+};
+
 
 test "Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
