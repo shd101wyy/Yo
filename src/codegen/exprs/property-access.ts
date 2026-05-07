@@ -3,6 +3,7 @@ import type { TraitType, Type } from "../../types/definitions";
 import {
   isDynType,
   isEnumType,
+  isFunctionType,
   isSourceNamespaceType,
   isNewtypeType,
   isObjectType,
@@ -65,6 +66,33 @@ export function generateFieldAccess(
       const ep = functionContext.currentEvidenceParams.get(key);
       if (ep) {
         return ep.cParamName;
+      }
+    }
+
+    // State machine capture: when inside an async or effect state machine,
+    // evidence record member fields (e.g., exn.throw, io.await) are stored
+    // in the state machine's __capture struct rather than as flat C params.
+    // Resolve the field access through sm->__capture.<fieldName>.
+    if (
+      exprIsAtom(objectExpr) &&
+      (functionContext.inAsyncStateMachine ||
+        functionContext.inEffectStateMachine) &&
+      objectType &&
+      (isStructType(objectType) || isSourceNamespaceType(objectType))
+    ) {
+      // Check if this is a known evidence field whose value was not
+      // resolved at compile time (i.e., is a runtime using/given param).
+      const isUnresolvedEvidence =
+        !objectValue ||
+        isUnknownValue(
+          Array.isArray(objectValue) ? objectValue[0] : objectValue
+        );
+      if (isUnresolvedEvidence) {
+        const objFields = objectType.fields;
+        const matchingField = objFields.find((f) => f.label === fieldName);
+        if (matchingField && isFunctionType(matchingField.type)) {
+          return `sm->__capture.${fieldName}`;
+        }
       }
     }
 
