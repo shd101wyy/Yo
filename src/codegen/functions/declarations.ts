@@ -271,7 +271,7 @@ export function getEvidenceParameters(
   );
 
   for (const implicit of allImplicits) {
-    if (isModuleType(implicit.type)) {
+    if (isModuleType(implicit.type) || isStructType(implicit.type)) {
       collectEvidenceFromModule(
         implicit.label,
         implicit.type as ModuleType,
@@ -316,7 +316,7 @@ function collectEvidenceFromModule(
         fieldFunctionType: field.type,
         cParamName: sanitizeForCIdentifier(`${implicitLabel}__${fieldLabel}`),
       });
-    } else if (isModuleType(field.type)) {
+    } else if (isModuleType(field.type) || isStructType(field.type)) {
       collectEvidenceFromModule(
         implicitLabel,
         field.type as ModuleType,
