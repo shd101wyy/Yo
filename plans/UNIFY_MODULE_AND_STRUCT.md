@@ -363,6 +363,8 @@ record/impl handling:
 - `.github/instructions/c-codegen.instructions.md` describes struct-record
   evidence; remaining `isModuleEffectMember` mentions are explicitly called
   out as legacy flag names.
+- `.github/skills/yo-async-effects/async-effects-recipes.md` now uses
+  struct-record effect examples and terminology.
 - Internal context/evaluator helpers now use record-oriented names
   (`SelfRecordType`, `evaluateRecordType`, `evaluateRecordField`,
   `evaluateImplBlock`) while preserving compatibility for the remaining

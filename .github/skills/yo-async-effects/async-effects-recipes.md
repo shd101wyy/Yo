@@ -186,7 +186,7 @@ process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(uni
 
 ## Exception (non-resumable)
 
-`Exception` is a built-in module effect for non-resumable error handling. When the handler calls `escape`, the continuation is discarded:
+`Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `escape`, the continuation is discarded:
 
 ```rust
 open import "std/error";
@@ -251,7 +251,7 @@ Key: the `return` inside the handler resumes the _effect invocation site_ with t
 
 **`escape T_value` constraint**: `escape T_value` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape non_unit` is used in a handler declared before the final return expression. Prefer `return fallback_value` (resume) when possible.
 
-`ResumableException(ResumeType)` is a module effect for resumable error handling. The handler uses `return` to resume with a recovery value:
+`ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
 ```rust
 open import "std/error";
@@ -282,19 +282,19 @@ export main;
 - Handler uses `return value` to resume the continuation with the recovery value
 - The call site receives the returned value and continues normally
 
-## Module effects vs function-type effects
+## Struct-record effects vs function-type effects
 
-Effects in Yo can be plain function types or module types:
+Effects in Yo can be plain function types or struct-record types:
 
 ```rust
 Raise :: (fn(msg : String) -> i32);
 
-Logger :: module(
+Logger :: struct(
   log : (fn(level : i32, msg : String) -> unit)
 );
 ```
 
-Both kinds use `using(...)` / `given(...)` with the same semantics — they compile to evidence passing (function pointers as implicit C parameters). Module effects group related operations under a single name.
+Both kinds use `using(...)` / `given(...)` with the same semantics — they compile to evidence passing (function pointers as implicit C parameters). Struct-record effects group related operations under a single nominal type.
 
 ## Async with effects
 
