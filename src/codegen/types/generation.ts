@@ -26,6 +26,7 @@ import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
+  getRuntimeStructFields,
   getEnumVariantCName,
   getTypeString,
   sanitizeForCIdentifier,
@@ -1092,6 +1093,7 @@ export function generateStructDeclaration(
   }
 
   if (structType.isReferenceSemantics) {
+    const runtimeFields = getRuntimeStructFields(structType);
     // For object, generate a struct with the common reference header
     const atomicTag = structType.isAtomicRc ? " atomic" : "";
     emitter.emitDeclarationLine(
@@ -1101,7 +1103,7 @@ export function generateStructDeclaration(
       `  __yo_ref_header_t header; // ${atomicTag ? "Atomic r" : "R"}eference count header`
     );
 
-    for (const field of structType.fields) {
+    for (const field of runtimeFields) {
       const fieldTypeStr = getTypeString(field.type, context);
       const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
@@ -1109,12 +1111,13 @@ export function generateStructDeclaration(
 
     emitter.emitDeclarationLine(`};`);
   } else {
+    const runtimeFields = getRuntimeStructFields(structType);
     // For regular struct, generate as before
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`
     );
 
-    for (const field of structType.fields) {
+    for (const field of runtimeFields) {
       const fieldTypeStr = getTypeString(field.type, context);
       const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);

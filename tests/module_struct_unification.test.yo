@@ -193,3 +193,18 @@ test "Phase 4b: given(struct) bound to runtime function-returned value", {
     assert((step() == 2), "use_a=false -> 2");
   });
 };
+
+test "Phase 1: comptime-only struct fields are erased from C layout", {
+  ConfiguredCounter :: struct(
+    tag :: "configured-counter",
+    next : (fn() -> i32)
+  );
+  comptime_assert(Type.impls(ConfiguredCounter, Runtime), "mixed struct is runtime");
+
+  make_counter :: (fn() -> ConfiguredCounter)(
+    ConfiguredCounter(next : (() -> i32(42)))
+  );
+
+  counter := make_counter();
+  assert((counter.next() == 42), "runtime field remains callable");
+};

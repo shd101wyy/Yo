@@ -12,6 +12,11 @@ description: "Use when making design decisions about the Yo language, writing st
 - Use `object(...)` for reference-counted types
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 
+## Struct runtime layout
+
+- Fields written with `name :: value` or `comptime(name) : Type` are compile-time-only static fields/methods. They are available through the type metadata but are not emitted into the C runtime layout.
+- Ordinary fields with compile-time-only types (for example `x : comptime_int`) are still data fields. They make the containing struct comptime-only unless another rule changes the type; do not treat them like `::` fields.
+
 ## `Self` in type definitions
 
 Always use `Self` to refer to the type being defined inside `struct(...)`, `object(...)`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:

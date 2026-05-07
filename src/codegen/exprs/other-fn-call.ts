@@ -57,6 +57,7 @@ import {
   canOptimizeAsSimpleEnum,
   getDeferredDupTargetAtomName,
   getEnumVariantCName,
+  getRuntimeStructFields,
   getTypeString,
   getVariableNameForCodegen,
   getVariableTypeString,
@@ -1510,13 +1511,25 @@ export function generateOtherFunctionCall(
       const structType = functionValue.value;
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       const cName = context.types[structType.id]?.cName;
-      const labels = structType.fields.map((field) => field.label);
+      const runtimeFieldEntries = runtimeArgExprs
+        ? structType.fields
+            .map((field, index) => ({
+              field,
+              arg: runtimeArgExprs[index],
+            }))
+            .filter(({ field }) =>
+              getRuntimeStructFields(structType).some(
+                (runtimeField) => runtimeField === field
+              )
+            )
+        : undefined;
       const tempVar = expr.$?.variableName;
 
       if (
         runtimeArgExprs &&
         cName &&
-        labels.length === runtimeArgExprs.length
+        runtimeFieldEntries &&
+        runtimeFieldEntries.every(({ arg }) => arg !== undefined)
       ) {
         // Handle newtype as zero-cost abstraction
         if (structType.isNewtype && structType.fields.length === 1) {
@@ -1586,8 +1599,9 @@ export function generateOtherFunctionCall(
           // For object, call the constructor function
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
-            .map((arg) => {
+          const argsList = runtimeFieldEntries
+            .map(({ arg }) => {
+              arg = arg!;
               const argCode = generateExpr(arg, indent, context);
 
               // Handle deferred dup expressions for constructor arguments
@@ -1651,15 +1665,16 @@ export function generateOtherFunctionCall(
           // For regular struct, generate struct initialization as before
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
-            .map((arg, index) => {
+          const argsList = runtimeFieldEntries
+            .map(({ field, arg }, index) => {
+              arg = arg!;
               const argCode = generateExpr(arg, indent, context);
               // For tuples, always use numeric field names _0, _1, _2...
               // For regular structs, use the actual field labels
               const fieldName = isTupleType(structType)
                 ? `_${index}`
                 : sanitizeForCIdentifier(
-                    labels[index]!,
+                    field.label,
                     structType.isExtern === "c"
                   );
 

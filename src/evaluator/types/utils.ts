@@ -61,9 +61,9 @@ function typeDerivesComptime(
     if (type.isReferenceSemantics) return false;
     if (visiting.has(type.id)) return true;
     visiting.add(type.id);
-    const result = type.fields.every((field) =>
-      typeDerivesComptime(field.type, env, visiting)
-    );
+    const result = type.fields
+      .filter((field) => isRuntimeDataField(field, env))
+      .every((field) => typeDerivesComptime(field.type, env, visiting));
     visiting.delete(type.id);
     return result;
   }
@@ -106,9 +106,12 @@ function typeDerivesRuntime(
     if (type.isReferenceSemantics) return true;
     if (visiting.has(type.id)) return true;
     visiting.add(type.id);
-    const result = type.fields.every((field) =>
-      typeDerivesRuntime(field.type, env, visiting)
-    );
+    const runtimeFields = getRuntimeDataFields(type.fields, env);
+    const result =
+      (type.fields.length === 0 || runtimeFields.length > 0) &&
+      runtimeFields.every((field) =>
+        typeDerivesRuntime(field.type, env, visiting)
+      );
     visiting.delete(type.id);
     return result;
   }
@@ -140,6 +143,19 @@ function typeDerivesRuntime(
   }
 
   return typeImplementsRuntime(type, env);
+}
+
+function isRuntimeDataField(
+  field: { type: Type; isCompileTimeOnly?: boolean },
+  _env: Environment
+): boolean {
+  return field.isCompileTimeOnly !== true;
+}
+
+function getRuntimeDataFields<
+  T extends { type: Type; isCompileTimeOnly?: boolean },
+>(fields: T[], env: Environment): T[] {
+  return fields.filter((field) => isRuntimeDataField(field, env));
 }
 
 /**
@@ -380,6 +396,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   }
 
   const destructuringLabels = structType.fields
+    .filter((field) => isRuntimeDataField(field, structType.env))
     .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
@@ -419,6 +436,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DropFnSignature;
   const destructuringLabels = structType.fields
+    .filter((field) => isRuntimeDataField(field, structType.env))
     .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
@@ -488,6 +506,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 
   const rcFieldLabels = new Set(
     structType.fields
+      .filter((field) => isRuntimeDataField(field, structType.env))
       .filter((field) => typeContainsRcType(field.type))
       .map((field) => field.label)
   );
@@ -504,7 +523,10 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 
   // Value type with RC fields: destructure every field, dup the RC ones,
   // then construct a new struct with the dup'd values.
-  const allLabels = structType.fields.map((f) => f.label);
+  const runtimeFields = structType.fields.filter((field) =>
+    isRuntimeDataField(field, structType.env)
+  );
+  const allLabels = runtimeFields.map((f) => f.label);
   const aliasMap: Record<string, string> = {};
   const destructurings: string[] = [];
 
@@ -525,7 +547,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   // we reference the destructured alias.  This avoids intermediate
   // let-bindings that may lack the metadata the C codegen expects.
   const dupFn = BuiltinFunctions.___dup[0]!;
-  const fieldArgs = structType.fields
+  const fieldArgs = runtimeFields
     .map((f) => {
       const alias = aliasMap[f.label]!;
       return rcFieldLabels.has(f.label)
@@ -1481,7 +1503,10 @@ export function autoDeriveComptimeForStructType({
 
   // Check if all non-comptime-only fields implement Comptime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
-  const allFieldsImplementComptime = structType.fields.every((field) =>
+  const allFieldsImplementComptime = getRuntimeDataFields(
+    structType.fields,
+    env
+  ).every((field) =>
     typeDerivesComptime(field.type, env, new Set([structType.id]))
   );
 
@@ -1549,9 +1574,12 @@ export function autoDeriveRuntimeForStructType({
 
   // Check if all non-comptime-only fields implement Runtime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
-  const allFieldsImplementRuntime = structType.fields.every((field) =>
-    typeDerivesRuntime(field.type, env, new Set([structType.id]))
-  );
+  const runtimeFields = getRuntimeDataFields(structType.fields, env);
+  const allFieldsImplementRuntime =
+    (structType.fields.length === 0 || runtimeFields.length > 0) &&
+    runtimeFields.every((field) =>
+      typeDerivesRuntime(field.type, env, new Set([structType.id]))
+    );
 
   if (allFieldsImplementRuntime) {
     env = attachTraitToReceiverType("Runtime", structType, env, context);

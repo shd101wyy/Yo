@@ -346,6 +346,12 @@ export interface TypeField {
   type: Type;
   label: string;
 
+  /**
+   * Whether this field is compile-time only and has no runtime layout.
+   * Set by `comptime(name) : Type` and `name :: value` field syntax.
+   */
+  isCompileTimeOnly?: boolean;
+
   // The default value and assigned value are compile-time known.
   // eg:
   //   Point(x ?= 10, y = 20)

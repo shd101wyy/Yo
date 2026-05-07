@@ -48,6 +48,7 @@ import {
 } from "../functions/collection";
 import {
   type CodeGenContext,
+  getRuntimeStructFields,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
@@ -367,7 +368,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     // For struct types, collect functions from the module (___dup, ___drop, etc.)
     if (isStructType(type)) {
       // Recursively collect types from struct fields
-      for (const field of type.fields) {
+      for (const field of getRuntimeStructFields(type)) {
         collectType(field.type, context);
       }
     }

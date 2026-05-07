@@ -57,6 +57,7 @@ import {
   findReturnedAsyncBlock,
   getEnumVariantCName,
   getDeferredDropTargetAtomName,
+  getRuntimeStructFields,
   getTypeString,
   getVariableNameForCodegen,
   isComptimeFunction,
@@ -1998,7 +1999,8 @@ function generateRefStructTraversalFunctions(
       }
 
       // Skip generic structs that contain SomeType parameters
-      const hasGenericTypes = type.fields.some((field) =>
+      const runtimeFields = getRuntimeStructFields(type);
+      const hasGenericTypes = runtimeFields.some((field) =>
         typeContainsSomeType(field.type)
       );
 
@@ -2014,7 +2016,7 @@ function generateRefStructTraversalFunctions(
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
 
       // Visit each reference field in the struct
-      for (const field of type.fields) {
+      for (const field of runtimeFields) {
         const fieldName = sanitizeForCIdentifier(field.label);
         const fieldType = field.type;
 
@@ -2099,7 +2101,8 @@ export function generateRefStructConstructorFunctions(
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
-      const hasGenericTypes = type.fields.some((field) =>
+      const runtimeFields = getRuntimeStructFields(type);
+      const hasGenericTypes = runtimeFields.some((field) =>
         typeContainsSomeType(field.type)
       );
 
@@ -2109,7 +2112,7 @@ export function generateRefStructConstructorFunctions(
 
       // Generate constructor function implementation
       const constructorName = `__yo_new_${cName}`;
-      const paramTypes = type.fields
+      const paramTypes = runtimeFields
         .map((field) => {
           const fieldType = getTypeString(field.type, context);
           const fieldName = sanitizeForCIdentifier(field.label);
@@ -2188,7 +2191,7 @@ export function generateRefStructConstructorFunctions(
       }
 
       // Initialize fields
-      type.fields.forEach((field) => {
+      runtimeFields.forEach((field) => {
         const fieldName = sanitizeForCIdentifier(field.label);
         emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
       });

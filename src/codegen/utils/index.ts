@@ -28,6 +28,7 @@ import type {
   SomeType,
   StructType,
   Type,
+  TypeField,
   TypeId,
 } from "../../types/definitions";
 import {
@@ -292,6 +293,19 @@ export interface CodeGenContext {
    * Used in library mode to give exported functions stable, non-mangled C names.
    */
   exportedFunctionLabels?: Map<FuncValueId, string>;
+}
+
+export function isComptimeOnlyStructField(
+  field: TypeField,
+  _ownerType: StructType
+): boolean {
+  return field.isCompileTimeOnly === true;
+}
+
+export function getRuntimeStructFields(structType: StructType): TypeField[] {
+  return structType.fields.filter(
+    (field) => !isComptimeOnlyStructField(field, structType)
+  );
 }
 
 /**

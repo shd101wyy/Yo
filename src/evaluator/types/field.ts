@@ -438,6 +438,7 @@ Given type: ${typeToString(defaultValueType)}`,
   const field: TypeField = {
     label: label ?? `${tupleFieldIndex}`,
     type: fieldType,
+    isCompileTimeOnly,
     exprs: {
       expr,
       labelExpr,

@@ -112,8 +112,30 @@ Each phase is independently shippable and leaves the test suite green.
 - Update `TypeTag` so `Module` is removed (or aliased to `Struct`). Keep one
   pass of TS errors and fix call sites mechanically — they all funnel through
   `isModuleType` / `isStructType`.
-- Codegen: in `generateStructDeclaration`, skip fields whose type is
-  comptime-only. Add a unit test.
+- Codegen: in `generateStructDeclaration`, skip fields explicitly marked
+  compile-time-only by field syntax (`name :: value` or
+  `comptime(name) : Type`). Add a unit test.
+
+**Status: DONE.** Runtime C layouts now ignore explicit comptime-only struct
+fields consistently across:
+
+- struct/object declaration emission,
+- object constructor signatures and field initialization,
+- regular struct/object constructor call lowering,
+- compile-time value lowering, and
+- recursive type collection.
+
+The evaluator now stores `TypeField.isCompileTimeOnly` so codegen can make this
+layout decision from syntax instead of unstable trait availability. This
+preserves the existing rule that an ordinary field typed as `comptime_int` is a
+comptime-only data field, while a static/method-like `::` field has no runtime
+layout. Regression coverage lives in
+`tests/module_struct_unification.test.yo`.
+
+Verification: `bun run build`, `bun run lint`, `git diff --check`,
+`tests/module_struct_unification.test.yo`, `tests/basic.test.yo` type
+auto-derive tests, and `tests/algebraic_effects.test.yo` pass with
+`--disable-sanitize`.
 
 **Exit criteria:** all existing tests pass; no surface-language change.
 
