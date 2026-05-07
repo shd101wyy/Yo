@@ -1742,8 +1742,8 @@ Got:   ${typeToString(typeValue.type)}`,
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
-              (isFunctionType(v.type) || isModuleType(v.type))
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
+              (isFunctionType(v.type) || isEffectRecordType(v.type))
           );
           // Filter out given variables that already match a concrete (non-spread)
           // implicit parameter in the function type. These are handled by their
@@ -1837,7 +1837,7 @@ Got:   ${typeToString(typeValue.type)}`,
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               v.name === concreteParam.label &&
               areTypesCompatible(
                 { type: resolvedConcreteType, env: calleeEnv },
@@ -1852,14 +1852,22 @@ Got:   ${typeToString(typeValue.type)}`,
               callerEnv,
               (v) =>
                 v.isImplicit === true &&
-                v.isCompileTimeOnly === true &&
+                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedConcreteType, env: calleeEnv },
                   { type: v.type, env: callerEnv }
                 )
             );
             const byTypeVar = givenByType.at(-1);
-            if (!byTypeVar?.value?.[0]) {
+            let givenValue = byTypeVar?.value?.[0];
+            if (!givenValue && byTypeVar && isStructType(byTypeVar.type)) {
+              givenValue = createUnknownValue(byTypeVar.type, {
+                variableName: byTypeVar.name,
+                env: callerEnv,
+                context,
+              });
+            }
+            if (!givenValue || !byTypeVar) {
               throw formatErrorMessage({
                 token:
                   functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
@@ -1867,7 +1875,6 @@ Got:   ${typeToString(typeValue.type)}`,
 Please ensure a given variable of matching type is in scope.`,
               });
             }
-            const givenValue = byTypeVar.value[0];
             implicitArgValues.push({
               value: givenValue,
               parameterType: resolvedConcreteType,
@@ -1891,7 +1898,22 @@ Please ensure a given variable of matching type is in scope.`,
             });
             calleeEnv = nextEnv;
           } else {
-            const givenValue = givenVar.value[0];
+            let givenValue = givenVar.value?.[0];
+            if (!givenValue && isStructType(givenVar.type)) {
+              givenValue = createUnknownValue(givenVar.type, {
+                variableName: givenVar.name,
+                env: callerEnv,
+                context,
+              });
+            }
+            if (!givenValue) {
+              throw formatErrorMessage({
+                token:
+                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
+Please ensure a given variable of matching type is in scope.`,
+              });
+            }
             implicitArgValues.push({
               value: givenValue,
               parameterType: resolvedConcreteType,
@@ -2307,7 +2329,7 @@ Please use explicit using() to disambiguate.`,
   const hasUnknownImplicitArgs = argValues_.implicitArgs?.some((arg) =>
     isUnknownValue(arg.value)
   );
-  // Allow specialization when the only unknown implicit args are module types (like IO)
+  // Allow specialization when the only unknown implicit args are record effects (like IO)
   // AND the call has runtime parameters with SomeType (e.g., Impl(Future(...)))
   // that need concrete type resolution from the call site.
   // This avoids unnecessary re-evaluation for functions where specialization
@@ -2315,7 +2337,8 @@ Please use explicit using() to disambiguate.`,
   const hasOnlyModuleTypeUnknowns =
     hasUnknownImplicitArgs &&
     !argValues_.implicitArgs?.some(
-      (arg) => isUnknownValue(arg.value) && !isModuleType(arg.parameterType)
+      (arg) =>
+        isUnknownValue(arg.value) && !isEffectRecordType(arg.parameterType)
     );
   const hasRuntimeSomeTypeParams = argValues_.args.some(
     (arg) => arg.argType && isSomeType(arg.argType)
@@ -2367,8 +2390,8 @@ Please use explicit using() to disambiguate.`,
   const hasEvidencePassingCapableImplicits =
     isGenericOnlyBecauseOfImplicits &&
     functionType.implicitParameters.some((param) => {
-      if (isModuleType(param.type)) {
-        return (param.type as ModuleType).fields.some(
+      if (isEffectRecordType(param.type)) {
+        return param.type.fields.some(
           (m) =>
             isFunctionType(m.type) &&
             (m.type as FunctionType).forallParameters.length === 0
@@ -2447,7 +2470,7 @@ Please use explicit using() to disambiguate.`,
             argVal &&
             isFunctionValue(argVal) &&
             argVal.type.implicitParameters.some(
-              (p) => isFunctionType(p.type) || isModuleType(p.type)
+              (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
             )
           ) {
             indicesToRemove.add(runtimeArgIdx);
@@ -2734,7 +2757,7 @@ function createSpecializedFunctionInline({
         arg.value &&
         isFunctionValue(arg.value) &&
         arg.value.type.implicitParameters.some(
-          (p) => isFunctionType(p.type) || isModuleType(p.type)
+          (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
         );
 
       if (isEffectfulFuncParam) {
@@ -3579,8 +3602,8 @@ function createSpecializedFunctionInline({
       if (isEffectsRowType(effectsRow)) {
         resolvedImplicitParams.push(...effectsRow.implicitParameters);
       }
-    } else if (isModuleType(implicitParam.type)) {
-      // Preserve module-typed implicits — they become evidence fn ptr params
+    } else if (isEffectRecordType(implicitParam.type)) {
+      // Preserve record-typed implicits — they become evidence fn ptr params
       resolvedImplicitParams.push(implicitParam);
     }
     // Skip standalone function-typed implicits — they are already resolved

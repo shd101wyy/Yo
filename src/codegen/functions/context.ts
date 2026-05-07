@@ -81,6 +81,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     resumeFunctionName: string;
     constructorName: string;
     disposeFunctionName: string;
+    setEffectFunctionName: string;
     futureType: SomeType | DynType;
     futureModuleType: FutureTraitType;
     resultType: Type;

@@ -104,6 +104,10 @@ export function checkDeferredGenericReturnType({
 
   if (
     trialBodyReturnType &&
+    !(
+      functionType.forallParameters.length > 0 &&
+      isSomeType(functionType.return.type)
+    ) &&
     !areTypesCompatible(
       { type: functionType.return.type, env },
       { type: trialBodyReturnType, env },

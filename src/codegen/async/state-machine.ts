@@ -15,7 +15,10 @@ import {
   isIoAsyncCall,
   isIoAwaitCall,
 } from "../../evaluator/async/await-analysis";
-import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import { TokenType } from "../../token";
 import {
   BuiltinKeywords,
@@ -30,6 +33,7 @@ import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
   FunctionImplicitParameter,
+  ModuleType,
   SomeType,
   StructType,
   Type,
@@ -41,6 +45,7 @@ import {
   isFunctionType,
   isModuleType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
@@ -2382,6 +2387,60 @@ function expandFutureEffects(
   return result;
 }
 
+function usesGenericFutureInterface(
+  futureType: Type,
+  context: FunctionGenerationContext
+): boolean {
+  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
+    return false;
+  }
+  if (context.types[futureType.id]) {
+    return false;
+  }
+  if (futureType.resolvedConcreteType) {
+    if (
+      isSomeType(futureType.resolvedConcreteType) &&
+      context.types[futureType.resolvedConcreteType.id]
+    ) {
+      return false;
+    }
+    if (isStructType(futureType.resolvedConcreteType)) {
+      const captureStructId = futureType.resolvedConcreteType.id;
+      for (const entry of Object.values(context.types)) {
+        if (
+          isSomeType(entry.type) &&
+          typeImplementsFuture(entry.type) &&
+          entry.type.resolvedConcreteType &&
+          isStructType(entry.type.resolvedConcreteType) &&
+          entry.type.resolvedConcreteType.id === captureStructId
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return !!extractFutureTraitFromType(futureType);
+}
+
+function emitFutureEffectInjectionLine(
+  futureType: Type,
+  futureAccess: string,
+  fieldLabel: string,
+  memberCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  if (usesGenericFutureInterface(futureType, context)) {
+    context.emitter.emitLine(
+      `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+    );
+    return;
+  }
+  context.emitter.emitLine(
+    `${indent}${futureAccess}->__capture.${fieldLabel} = (void*)${memberCode};`
+  );
+}
+
 /**
  * Generate effect injection code for io.await inside state machines.
  */
@@ -2398,7 +2457,6 @@ function emitEffectInjectionForSM(
   if (!futureTraitType?.isFuture.effects?.length) return;
 
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-  const emitter = context.emitter;
 
   const usingExpr = awaitExpr.args?.find(
     (arg): arg is FnCallExpr =>
@@ -2417,12 +2475,18 @@ function emitEffectInjectionForSM(
         if (effect.type.forallParameters.length > 0) continue;
         const handlerCode = generateExpr(usingArg, indent, context);
         const fieldName = effect.label;
-        emitter.emitLine(
-          `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
+        emitFutureEffectInjectionLine(
+          futureArg.$.type,
+          futureAccess,
+          fieldName,
+          handlerCode,
+          indent,
+          context
         );
-      } else if (isModuleType(effect.type)) {
+      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
         emitModuleEffectInjectionForSM(
           effect.type,
+          futureArg.$.type,
           futureAccess,
           indent,
           usingArg.$?.value,
@@ -2442,13 +2506,19 @@ function emitEffectInjectionForSM(
           awaitExpr
         );
         if (handlerCode) {
-          emitter.emitLine(
-            `${indent}${futureAccess}->__capture.${effect.label} = (void*)${handlerCode};`
+          emitFutureEffectInjectionLine(
+            futureArg.$.type,
+            futureAccess,
+            effect.label,
+            handlerCode,
+            indent,
+            context
           );
         }
-      } else if (isModuleType(effect.type)) {
+      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
         emitModuleEffectInjectionForSM(
           effect.type,
+          futureArg.$.type,
           futureAccess,
           indent,
           undefined,
@@ -2461,14 +2531,14 @@ function emitEffectInjectionForSM(
 }
 
 function emitModuleEffectInjectionForSM(
-  moduleType: import("../../types/definitions").ModuleType,
+  moduleType: ModuleType | StructType,
+  futureType: Type,
   futureAccess: string,
   indent: string,
   usingArgValue: import("../../value").Value | undefined,
   context: FunctionGenerationContext,
   expr: FnCallExpr
 ): void {
-  const emitter = context.emitter;
   for (const field of moduleType.fields) {
     if (!isFunctionType(field.type)) continue;
     let memberCode: string | undefined;
@@ -2538,8 +2608,13 @@ function emitModuleEffectInjectionForSM(
     }
 
     if (memberCode) {
-      emitter.emitLine(
-        `${indent}${futureAccess}->__capture.${field.label} = (void*)${memberCode};`
+      emitFutureEffectInjectionLine(
+        futureType,
+        futureAccess,
+        field.label,
+        memberCode,
+        indent,
+        context
       );
     }
   }

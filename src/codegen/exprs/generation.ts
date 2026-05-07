@@ -24,6 +24,8 @@ import {
 import type {
   FunctionImplicitParameter,
   ModuleType,
+  StructType,
+  Type,
 } from "../../types/definitions";
 import {
   isEffectsRowType,
@@ -31,6 +33,7 @@ import {
   isModuleType,
   isPtrType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
 import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
@@ -135,6 +138,60 @@ function expandFutureEffects(
     }
   }
   return result;
+}
+
+function usesGenericFutureInterface(
+  futureType: Type,
+  context: FunctionGenerationContext
+): boolean {
+  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
+    return false;
+  }
+  if (context.types[futureType.id]) {
+    return false;
+  }
+  if (futureType.resolvedConcreteType) {
+    if (
+      isSomeType(futureType.resolvedConcreteType) &&
+      context.types[futureType.resolvedConcreteType.id]
+    ) {
+      return false;
+    }
+    if (isStructType(futureType.resolvedConcreteType)) {
+      const captureStructId = futureType.resolvedConcreteType.id;
+      for (const entry of Object.values(context.types)) {
+        if (
+          isSomeType(entry.type) &&
+          typeImplementsFuture(entry.type) &&
+          entry.type.resolvedConcreteType &&
+          isStructType(entry.type.resolvedConcreteType) &&
+          entry.type.resolvedConcreteType.id === captureStructId
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return !!extractFutureTraitFromType(futureType);
+}
+
+function emitFutureEffectInjectionLine(
+  futureType: Type,
+  futureVar: string,
+  fieldLabel: string,
+  memberCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  if (usesGenericFutureInterface(futureType, context)) {
+    context.emitter.emitLine(
+      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+    );
+    return;
+  }
+  context.emitter.emitLine(
+    `${indent}  ${futureVar}->__capture.${fieldLabel} = (void*)${memberCode};`
+  );
 }
 
 /**
@@ -286,7 +343,6 @@ function emitEffectInjection(
 
   const usingArgs = usingExpr.args;
   const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
 
   for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
     const effect = expandedEffects[i]!;
@@ -334,12 +390,17 @@ function emitEffectInjection(
       }
 
       if (handlerCode) {
-        emitter.emitLine(
-          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        emitFutureEffectInjectionLine(
+          futureArg.$.type,
+          futureVar,
+          fieldName,
+          handlerCode,
+          indent,
+          functionContext
         );
       }
-    } else if (isModuleType(effect.type)) {
-      // Module-typed effect (e.g., IO). Inject each function member individually.
+    } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+      // Record-typed effect (e.g., IO). Inject each function member individually.
       const moduleType = effect.type;
       for (const field of moduleType.fields) {
         if (!isFunctionType(field.type)) continue;
@@ -394,8 +455,13 @@ function emitEffectInjection(
         }
 
         if (memberCode) {
-          emitter.emitLine(
-            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+          emitFutureEffectInjectionLine(
+            futureArg.$.type,
+            futureVar,
+            field.label,
+            memberCode,
+            indent,
+            functionContext
           );
         }
       }
@@ -409,7 +475,7 @@ function emitEffectInjection(
  */
 function resolveModuleFieldFromGivenBindingsForSpawn(
   fieldLabel: string,
-  moduleType: ModuleType,
+  moduleType: ModuleType | StructType,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): string | undefined {

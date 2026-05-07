@@ -259,14 +259,27 @@ Once 4b lands and is green:
 - Add an evaluator error pointing users at named-struct migration when
   they try to pass an anonymous module-typed value to `using(...)`.
 
-**Status: BLOCKED on FutureTraitType codegen issue.** Migrating
-`std/prelude.yo` IO from `module(...)` to `struct(...)` exposes a
-pre-existing FIXME in C codegen (`generation.ts:727`): FutureTraitType
-gets a forward declaration but no body when reached via the trait
-collection path. See
-`issues/future-trait-type-incomplete-c-definition.md` for analysis and
-fix sketch. Phase 4 prep changes (`b57cc74d`) are forward-compatible;
-Phase 4c will resume after that codegen fix.
+**Status: DONE.** Phase 4c migrated standard effect records to nominal
+struct types and removed the FutureTraitType blocker:
+
+- `IO :: struct(...)` in `std/prelude.yo`.
+- `Exception :: struct(...)` and `ResumableException(...) -> comptime(Type)`
+  in `std/error.yo`.
+- FutureTraitType now has a generic C interface layout and concrete futures
+  carry a `__yo_set_effect_fn` setter so generic `Impl(Future(...))`
+  consumers can inject effect evidence without knowing the concrete capture
+  struct layout.
+- Evaluator/codegen effect-record paths accept struct evidence in effect-row
+  resolution, `StructValue` evidence extraction, async await/spawn injection,
+  and forall-return handler prechecking.
+
+Verification: `bun run build`, `tests/module_struct_unification.test.yo`,
+`tests/async_await.test.yo`, `tests/algebraic_effects.test.yo`, and
+`yo-self/tests/install_command.test.yo` pass with `--disable-sanitize`.
+The full `./yo-cli test --bail --disable-sanitize` run reached 487 passing
+tests before several long-running yo-self files hit the isolated runner's
+1800s timeout; no Phase 4c compile/runtime assertion failure remained in the
+log.
 
 **Exit criteria (full Phase 4):**
 

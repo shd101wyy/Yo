@@ -10,13 +10,19 @@ import {
   exprIsFunctionCallOf,
   type FnCallExpr,
 } from "../../expr";
-import type { FunctionImplicitParameter } from "../../types/definitions";
+import type {
+  FunctionImplicitParameter,
+  ModuleType,
+  StructType,
+  Type,
+} from "../../types/definitions";
 import {
   isEffectsRowType,
   isEnumType,
   isFunctionType,
   isModuleType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
@@ -157,7 +163,10 @@ export function generateAwait(
     const hasAlgebraicEffects =
       futureModuleForCheck?.isFuture.effects?.some(
         (e) =>
-          isFunctionType(e.type) || isModuleType(e.type) || e.isEffectRowSpread
+          isFunctionType(e.type) ||
+          isModuleType(e.type) ||
+          isStructType(e.type) ||
+          e.isEffectRowSpread
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
@@ -491,8 +500,8 @@ function isAwaitEscapeHandlerInstallation(
       if (!evidenceParams?.has(key)) {
         return true; // Not forwarded → locally installed
       }
-    } else if (isModuleType(effect.type)) {
-      // Module-type effect (e.g., Exception): check if any member is in evidence
+    } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+      // Record-type effect (e.g., Exception/IO): check if any member is in evidence
       let isForwarded = false;
       if (evidenceParams) {
         for (const [key] of evidenceParams) {
@@ -534,6 +543,60 @@ function expandFutureEffects(
   return result;
 }
 
+function usesGenericFutureInterface(
+  futureType: Type,
+  context: CodeGenContext
+): boolean {
+  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
+    return false;
+  }
+  if (context.types[futureType.id]) {
+    return false;
+  }
+  if (futureType.resolvedConcreteType) {
+    if (
+      isSomeType(futureType.resolvedConcreteType) &&
+      context.types[futureType.resolvedConcreteType.id]
+    ) {
+      return false;
+    }
+    if (isStructType(futureType.resolvedConcreteType)) {
+      const captureStructId = futureType.resolvedConcreteType.id;
+      for (const entry of Object.values(context.types)) {
+        if (
+          isSomeType(entry.type) &&
+          typeImplementsFuture(entry.type) &&
+          entry.type.resolvedConcreteType &&
+          isStructType(entry.type.resolvedConcreteType) &&
+          entry.type.resolvedConcreteType.id === captureStructId
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return !!extractFutureTraitFromType(futureType);
+}
+
+function emitFutureEffectInjectionLine(
+  futureType: Type,
+  futureVar: string,
+  fieldLabel: string,
+  memberCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  if (usesGenericFutureInterface(futureType, context)) {
+    context.emitter.emitLine(
+      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+    );
+    return;
+  }
+  context.emitter.emitLine(
+    `${indent}  ${futureVar}->__capture.${fieldLabel} = (void*)${memberCode};`
+  );
+}
+
 /**
  * Generate effect injection code for io.await call sites.
  */
@@ -551,7 +614,6 @@ function emitEffectInjectionForAwait(
 
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
   const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
 
   const usingExpr = expr.args.find(
     (arg): arg is FnCallExpr =>
@@ -569,12 +631,18 @@ function emitEffectInjectionForAwait(
       if (isFunctionType(effect.type)) {
         const handlerCode = generateExpr(usingArg, indent, context);
         const fieldName = effect.label;
-        emitter.emitLine(
-          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        emitFutureEffectInjectionLine(
+          futureArg.$.type,
+          futureVar,
+          fieldName,
+          handlerCode,
+          indent,
+          functionContext
         );
-      } else if (isModuleType(effect.type)) {
+      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
         emitModuleEffectInjection(
           effect.type,
+          futureArg.$.type,
           futureVar,
           indent,
           usingArg.$?.value,
@@ -593,13 +661,19 @@ function emitEffectInjectionForAwait(
           expr
         );
         if (handlerCode) {
-          emitter.emitLine(
-            `${indent}  ${futureVar}->__capture.${effect.label} = (void*)${handlerCode};`
+          emitFutureEffectInjectionLine(
+            futureArg.$.type,
+            futureVar,
+            effect.label,
+            handlerCode,
+            indent,
+            functionContext
           );
         }
-      } else if (isModuleType(effect.type)) {
+      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
         emitModuleEffectInjection(
           effect.type,
+          futureArg.$.type,
           futureVar,
           indent,
           undefined,
@@ -616,14 +690,14 @@ function emitEffectInjectionForAwait(
  * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
  */
 function emitModuleEffectInjection(
-  moduleType: import("../../types/definitions").ModuleType,
+  moduleType: ModuleType | StructType,
+  futureType: Type,
   futureVar: string,
   indent: string,
   usingArgValue: import("../../value").Value | undefined,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): void {
-  const emitter = functionContext.emitter;
   for (const field of moduleType.fields) {
     if (!isFunctionType(field.type)) continue;
     let memberCode: string | undefined;
@@ -671,8 +745,13 @@ function emitModuleEffectInjection(
     }
 
     if (memberCode) {
-      emitter.emitLine(
-        `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+      emitFutureEffectInjectionLine(
+        futureType,
+        futureVar,
+        field.label,
+        memberCode,
+        indent,
+        functionContext
       );
     }
   }
@@ -683,7 +762,7 @@ function emitModuleEffectInjection(
  */
 function resolveModuleFieldFromGivenBindings(
   fieldLabel: string,
-  moduleType: import("../../types/definitions").ModuleType,
+  moduleType: ModuleType | StructType,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): string | undefined {

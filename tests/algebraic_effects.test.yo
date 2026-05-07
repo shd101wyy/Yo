@@ -523,7 +523,7 @@ test "Test effect polymorphism with using spread and escape", {
 };
 
 test "Test module-based effect with escape", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -547,7 +547,7 @@ test "Test module-based effect with escape", {
 };
 
 test "Test module-based effect with resume", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -573,11 +573,11 @@ test "Test module-based effect with resume", {
 };
 
 test "Test nested module-based effect with escape", {
-  Errors :: module(
+  Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
-  Effects :: module(
+  Effects :: struct(
     errors : Errors
   );
 
@@ -603,11 +603,11 @@ test "Test nested module-based effect with escape", {
 };
 
 test "Test nested module-based effect with resume", {
-  Errors :: module(
+  Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
-  Effects :: module(
+  Effects :: struct(
     errors : Errors
   );
 
@@ -635,7 +635,7 @@ test "Test nested module-based effect with resume", {
 };
 
 test "Test module labeled using(name : ModuleType) with escape", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -659,7 +659,7 @@ test "Test module labeled using(name : ModuleType) with escape", {
 };
 
 test "Test module labeled using(name : ModuleType) with resume", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -1103,8 +1103,8 @@ test "Transitive SM while loop with early return", {
 test "Module effect with forall handler — escape in while loop", {
   // Tests the pattern from fixme.yo: module-based effect with forall(ResumeType),
   // handler uses escape inside a while loop to abort traversal.
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-    module(
+  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+    struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
@@ -1139,8 +1139,8 @@ test "Module effect with forall handler — escape in while loop", {
 
 test "Module effect with forall handler — resume in while loop", {
   // Module-based effect with forall(ResumeType), handler resumes with a value.
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-    module(
+  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+    struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
@@ -1182,8 +1182,8 @@ test "Module effect with forall handler — resume in while loop", {
 };
 
 test "Module effect with forall handler — break after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-    module(
+  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+    struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
@@ -1219,8 +1219,8 @@ test "Module effect with forall handler — break after resume in while loop", {
 };
 
 test "Module effect with forall handler — continue after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-    module(
+  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+    struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
@@ -1263,8 +1263,8 @@ test "Module effect with forall handler — continue after resume in while loop"
 };
 
 test "Module effect with forall handler — early return after resume in while loop", {
-  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-    module(
+  MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+    struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
@@ -1497,7 +1497,7 @@ test "Test three-level effect propagation with escape", {
 // Module effect with escape returning non-unit value
 // ---------------------------------------------------------------------------
 test "Test module effect escape with non-unit value", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -1527,7 +1527,7 @@ test "Test module effect escape with non-unit value", {
 // Tests that a module with more than one function field works correctly.
 // ---------------------------------------------------------------------------
 test "Test module effect with multiple function members", {
-  Logger :: module(
+  Logger :: struct(
     info : (fn(msg : String) -> i32),
     warn : (fn(msg : String) -> i32),
     count : (fn(current : i32) -> i32)
@@ -1566,11 +1566,11 @@ test "Test module effect with multiple function members", {
 // Two distinct module effect types used together.
 // ---------------------------------------------------------------------------
 test "Test multiple module effects in same scope", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
-  Log :: module(
+  Log :: struct(
     log : (fn(msg : String) -> i32)
   );
 
@@ -1728,7 +1728,7 @@ test "Test effect with Option return type", {
 // Combines forall(...(E)) spread with module-type effects.
 // ---------------------------------------------------------------------------
 test "Test effect polymorphism with module effect spread", {
-  Raise :: module(
+  Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
 
@@ -1755,7 +1755,7 @@ test "Test effect polymorphism with module effect spread", {
 // Transitive SM with module effects (combine forall + transitive + module)
 // ---------------------------------------------------------------------------
 test "Test transitive SM with module effect in while loop", {
-  Counter :: module(
+  Counter :: struct(
     increment : (fn(current : i32) -> i32)
   );
 
@@ -1786,11 +1786,17 @@ test "Test transitive SM with module effect in while loop", {
   assert((result == i32(10)), "transitive SM module: 1+2+3+4 = 10");
 };
 // Regression: regular -> functions cannot capture outer runtime variables.
-// The evaluator must emit a clear error instead of producing broken C code.
-test "regular fn handler cannot capture outer runtime variable", {
+// Runtime struct evidence does not turn a regular handler function into a closure.
+test "regular fn struct handler cannot capture outer runtime variable", {
+  Raise :: struct(
+    raise : (fn(msg : String) -> i32)
+  );
+
   outer_val := i32(42);
   comptime_expect_error(
-    given(exn) := Exception(throw: ((err) -> begin(assert((outer_val == i32(0)), "bad"), panic("error"))))
+    (given(r) : Raise) = Raise(
+      raise : ((msg) -> outer_val)
+    )
   );
 };
 

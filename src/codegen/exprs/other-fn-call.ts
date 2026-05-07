@@ -2680,6 +2680,56 @@ function resolveEvidenceArgsForCallSite(
               }
             }
           }
+        } else if (givenValue && isStructValue(givenValue)) {
+          let currentStruct = givenValue;
+          let navigated = true;
+          for (let i = 0; i < ep.fieldPath.length - 1; i++) {
+            const pathSegment = ep.fieldPath[i]!;
+            const idx = currentStruct.type.fields.findIndex(
+              (f) => f.label === pathSegment
+            );
+            if (
+              idx >= 0 &&
+              currentStruct.fields[idx] &&
+              isStructValue(currentStruct.fields[idx])
+            ) {
+              currentStruct = currentStruct.fields[
+                idx
+              ] as import("../../value").StructValue;
+            } else {
+              navigated = false;
+              break;
+            }
+          }
+          if (navigated) {
+            const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
+            const fieldIndex = currentStruct.type.fields.findIndex(
+              (f) => f.label === lastLabel
+            );
+            if (fieldIndex >= 0) {
+              const fieldValue = currentStruct.fields[fieldIndex];
+              if (fieldValue && isFunctionValue(fieldValue)) {
+                if (fieldValue.specializedFunctionCaches?.length > 0) {
+                  const specialized =
+                    fieldValue.specializedFunctionCaches[0]!
+                      .specializedFunction;
+                  const specializedCName =
+                    context.functions[specialized.funcId]?.cName;
+                  if (specializedCName) {
+                    result.push(`(void*)${specializedCName}`);
+                    resolved = true;
+                  }
+                }
+                if (!resolved) {
+                  const cName = context.functions[fieldValue.funcId]?.cName;
+                  if (cName) {
+                    result.push(cName);
+                    resolved = true;
+                  }
+                }
+              }
+            }
+          }
         } else if (givenValue && isFunctionValue(givenValue)) {
           // Bare function evidence (non-module) — look up cName directly.
           // For forall handlers, use the specialized version (cast to void*)
