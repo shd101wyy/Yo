@@ -23,10 +23,10 @@ import {
 } from "../../types/guards";
 import {
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTypeValue,
   isUnknownValue,
-  type ModuleValue,
+  type StructValue,
   type TraitValue,
 } from "../../value";
 import { collectType, collectTypesFromFunctionType } from "../types/collection";
@@ -108,7 +108,7 @@ function exprContainsUnknownValue(expr: Expr): boolean {
  * types). Collisions fall back to mangled funcId-based names.
  */
 export function collectRequiredFunctions(
-  moduleValue: ModuleValue | TraitValue,
+  moduleValue: StructValue | TraitValue,
   context: CodeGenContext,
   isTopLevelExport = true
 ): void {
@@ -213,7 +213,7 @@ export function collectRequiredFunctions(
  * marking them as module effect members so they get compiled as standalone functions.
  */
 function collectModuleEffectMembers(
-  mv: ModuleValue,
+  mv: StructValue,
   context: CodeGenContext
 ): void {
   for (let i = 0; i < mv.fields.length; i++) {
@@ -243,7 +243,7 @@ function collectModuleEffectMembers(
           }
         }
       }
-    } else if (fieldValue && isModuleValue(fieldValue)) {
+    } else if (fieldValue && isStructValue(fieldValue)) {
       collectModuleEffectMembers(fieldValue, context);
     }
   }
@@ -256,11 +256,11 @@ export function findFunctionCallsInExpr(
   expr: Expr,
   context: CodeGenContext
 ): void {
-  // Collect function values inside ModuleValues that are bound to variables
+  // Collect function values inside StructValues that are bound to variables
   // used as effect handlers (e.g., given(exn) := Exception(throw : handler)).
   // These functions live inside compile-time module values and are NOT represented
   // as function call expressions in the AST, so the normal traversal misses them.
-  if (expr.$?.value && isModuleValue(expr.$.value)) {
+  if (expr.$?.value && isStructValue(expr.$.value)) {
     const mv = expr.$.value;
     collectModuleEffectMembers(mv, context);
   }

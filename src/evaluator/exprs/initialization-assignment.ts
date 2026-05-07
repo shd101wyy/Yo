@@ -28,7 +28,6 @@ import { VUnit } from "../../unit-value";
 import {
   createUnknownValue,
   isFunctionValue,
-  isModuleValue,
   isStructValue,
   isTraitValue,
   isTypeValue,
@@ -291,9 +290,7 @@ ${exprToString(expr)}`,
       rhsValue.funcName = actualLhs.token.value;
       rhsValue.funcId += `_${actualLhs.token.value}`;
     } else if (
-      (isModuleValue(rhsValue) ||
-        isStructValue(rhsValue) ||
-        isTraitValue(rhsValue)) &&
+      (isStructValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName &&
       rhsValue.type !== context.SelfType
     ) {

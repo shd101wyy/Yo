@@ -4,7 +4,7 @@ import type { Expr, FnCallExpr, PathCollection, ComptimeRef } from "../expr";
 import type { FunctionValue } from "../function-value";
 import type { Token } from "../token";
 import type { FunctionType, TraitType, Type } from "../types/definitions";
-import type { ModuleValue, TraitValue, Value } from "../value";
+import type { StructValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -19,7 +19,7 @@ export interface FunctionEvaluationContext {
 }
 
 export type LoadModuleFn = (modulePath: string) => {
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   moduleError: Error | undefined;
 };
 
@@ -124,13 +124,6 @@ export interface EvaluatorContext {
   SelfTraitType?: Type;
 
   /**
-   * The record type currently being defined.
-   * Used inside module/record definitions to allow self-referencing via `SelfModule`.
-   * For example: `spawn : (fn(...) -> Impl(Future(Option(T), SelfModule)))`
-   */
-  SelfRecordType?: Type;
-
-  /**
    * The receiverType for implementing the module value.
    * Like:
    *
@@ -156,7 +149,7 @@ export interface EvaluatorContext {
    * @returns
    */
   loadModule?: (modulePath: string) => {
-    moduleValue: ModuleValue;
+    moduleValue: StructValue;
     moduleError: Error | undefined;
   };
 
@@ -349,7 +342,7 @@ export interface TypeCallResult {
 }
 
 export interface RecordTypeCallResult {
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   callerEnv: Environment;
 }
 

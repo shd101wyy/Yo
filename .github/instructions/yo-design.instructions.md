@@ -11,6 +11,9 @@ description: "Use when making design decisions about the Yo language, writing st
 - Use `struct(...)` for value types
 - Use `object(...)` for reference-counted types
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
+- Imported source-file namespaces are represented as structs. Do not introduce
+  `module(...)`, `Module`, or `SelfModule` syntax; use `struct(...)`, `Type`,
+  and normal `Self`.
 
 ## Struct runtime layout
 

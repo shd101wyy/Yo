@@ -4,9 +4,9 @@
 
 Yo currently has two record-shaped types:
 
-- **`Module`** — structural, comptime-only. Produced by `import "..."` and the
-  `module(...)` type expression. Used today as the type of effect records for
-  `given`/`using`.
+- **Legacy `Module`** — structural, comptime-only. Historically produced by
+  `import "..."` and the `module(...)` type expression. This surface syntax is
+  now removed; imports are source-namespace structs.
 - **`Struct`** — nominal, available at both comptime and runtime. Produced by
   `struct(...)`, `object(...)`, `newtype(...)` and carries a `TraitType` for
   methods.
@@ -164,13 +164,13 @@ APIs such as `build.module()` are project-module APIs rather than the old
 What's done (committed `7a2e31b4`, `f13dee48`, `9c5b14a6`):
 
 - `src/evaluator/calls/helper.ts`: Added `EffectRecordValue =
-ModuleValue | StructValue` plus `isEffectRecordValue` /
+StructValue` plus `isEffectRecordValue` /
   `isEffectRecordType` helpers. All effect-dispatch checks
   (`hasControlFunctionImplicitParams`, ctl-field discovery,
   given-resolution path walking) now accept both module and struct
   records.
 - `src/codegen/exprs/other-fn-call.ts`: Evidence parameter lookup
-  handles both `ModuleValue` and `StructValue`.
+  handles `StructValue` evidence records.
 - `src/evaluator/exprs/initialization-assignment.ts`: typeName
   tracking for given bindings recognizes `StructValue`.
 - `src/evaluator/calls/type.ts` (commit `9c5b14a6`): Propagate
@@ -348,10 +348,10 @@ Verification: `bun run build`,
 - Delete or archive `module.ts` evaluator/codegen leftovers.
 - Final `git grep -i "ModuleType\|moduleType\|module("` audit.
 
-**Status: PARTIAL.** User-facing docs and instructions now describe
-struct-based effect records and runtime evidence passing. The first source
-cleanup pass also moved evaluator terminology away from "module" for generic
-record/impl handling:
+**Status: PARTIAL, with surface keywords removed.** User-facing docs and
+instructions now describe struct-based effect records and runtime evidence
+passing. Source cleanup has also moved evaluator terminology away from
+"module" for generic record/impl handling:
 
 - `docs/en-US/ALGEBRAIC_EFFECTS.md` and `docs/zh-CN/ALGEBRAIC_EFFECTS.md`
   use `struct(...)` effect records, explain nominal struct evidence, and
@@ -365,24 +365,31 @@ record/impl handling:
   out as legacy flag names.
 - `.github/skills/yo-async-effects/async-effects-recipes.md` now uses
   struct-record effect examples and terminology.
-- Internal context/evaluator helpers now use record-oriented names
-  (`SelfRecordType`, `evaluateRecordType`, `evaluateRecordField`,
-  `evaluateImplBlock`) while preserving compatibility for the remaining
-  source-module implementation.
+- Internal evaluator helpers now use record-oriented names
+  (`evaluateRecordField`, `evaluateImplBlock`) while preserving compatibility
+  for the remaining source-module implementation. The old `module(...)`
+  `evaluateRecordType` dispatch and `SelfModule`/`SelfRecordType` plumbing have
+  been deleted.
 - The evaluator helper files have been renamed from `types/module.ts` and
   `calls/module-type.ts` to `types/record.ts` and `calls/record-type.ts`; the
   internal call-result discriminant is now `record-type`.
-- `TypeTag.Module` has been removed from the TypeScript compiler; imported
-  source modules still use `ValueTag.Module` as a namespace/loading value, but
-  there is no longer a separate module type tag.
+- `TypeTag.Module` has been removed from the TypeScript compiler.
+- Import/source-module namespaces are represented by `StructValue` with
+  optional namespace-only metadata. This preserves the import-only state that
+  made a naive replacement unsafe: partial fields during loading, `isLoading`
+  for circular imports, and `moduleLevelInitExprs` for module-level `:=`
+  codegen.
+- `ValueTag.Module`/`ValueTag.SourceModule`, `ModuleValue`, and the interim
+  `SourceModuleValue` have been removed. `StructValue` now represents both
+  ordinary struct values and source-module namespace values.
+- `module`, `Module`, and `SelfModule` have been removed from
+  `src/expr.ts`, VS Code TextMate highlighting, Vim highlighting, and the
+  evaluator's bare-identifier fallback. `TypeInfo.Module`/`is_module()` is also
+  removed; source-module namespaces reflect as `TypeInfo.Struct(...)`.
 - `tests/algebraic_effects.test.yo` now labels the migrated effect-record
   regressions as struct-record tests instead of module-effect tests.
-
-`ModuleValue` removal was investigated and deferred. It still carries
-import-specific state that `StructValue` does not: partial/undefined fields
-during loading, `isLoading` for circular imports, and `moduleLevelInitExprs` for
-module-level `:=` codegen. Removing it safely requires a dedicated source
-namespace/import-value design instead of a mechanical rename.
+- `tests/module_struct_unification.test.yo` includes a Phase 6 regression that
+  asserts both `module(...)` and bare `Module` are compile-time errors.
 
 ## Files Most Affected (per phase)
 
@@ -430,7 +437,11 @@ passing on pre-change compiler).
 
 ## Success Criteria
 
-- `TypeTag.Module` is gone from `src/types/definitions.ts`.
+- `TypeTag.Module` is gone from `src/types/tags.ts`.
+- `ValueTag.Module`/`ValueTag.SourceModule` and separate module value types are
+  gone; imported source namespaces use `StructValue`.
+- `module`, `Module`, and `SelfModule` no longer appear in compiler/highlighter
+  keyword tables or evaluator identifier fallback.
 - No `.yo` file under `std/`, `tests/`, `docs/` uses `module(...)`.
   (`yo-self/` is best-effort; remaining references there do not block.)
 - A test demonstrates `given`/`using` working with a runtime-constructed

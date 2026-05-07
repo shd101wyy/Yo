@@ -671,7 +671,6 @@ export const BuiltinKeywords = {
   newtype: ["newtype"],
   enum: ["enum"],
   union: ["union"],
-  module: ["module"],
   trait: ["trait"],
   impl: ["impl"],
   Impl: ["Impl"],
@@ -718,7 +717,6 @@ export const BuiltinKeywords = {
   Future: ["Future"],
   Concrete: ["Concrete"],
   Type: ["Type"],
-  Module: ["Module"],
   Trait: ["Trait"],
   ComptimeList: ["ComptimeList"],
 

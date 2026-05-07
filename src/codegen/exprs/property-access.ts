@@ -13,7 +13,7 @@ import {
 } from "../../types/guards";
 import {
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTraitValue,
   isTypeValue,
   isUnknownValue,
@@ -203,7 +203,7 @@ export function generateFieldAccess(
     // Module namespace field access (e.g. fcntl_io.O_NONBLOCK)
     // Modules are compile-time values and have no runtime C representation.
     // The field access should resolve directly to the field value/identifier.
-    if (isModuleType(objectType) || isModuleValue(objectValue)) {
+    if (isModuleType(objectType) || isStructValue(objectValue)) {
       const fieldValue = expr.$?.value;
 
       if (fieldValue) {
@@ -233,7 +233,7 @@ export function generateFieldAccess(
               }
             }
           }
-        } else if (!isModuleValue(fieldValue)) {
+        } else if (!isStructValue(fieldValue)) {
           return generateComptimeValue(fieldValue, context, expr);
         }
       }

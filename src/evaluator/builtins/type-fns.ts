@@ -399,7 +399,7 @@ export function evaluateYoTypeCanFormRcCycle({
  * Usage: __yo_type_impls(SomeType, SomeTrait)
  * Returns: comptime(bool)
  *
- * This checks if the type's trait has a field whose assignedValue is a ModuleValue
+ * This checks if the type's trait has a field whose assignedValue is a StructValue
  * that structurally matches the given trait (with the type as the receiver).
  */
 export function evaluateYoTypeImpls({
@@ -794,7 +794,7 @@ export function evaluateYoTypeGetInfo({
       break;
     }
 
-    // === Struct(fields, kind) / Module(fields) ===
+    // === Struct(fields, kind) ===
     case TypeTag.Struct: {
       const structType = type as StructType;
       const fieldListTmp = bindTempTypeFieldList(
@@ -803,11 +803,6 @@ export function evaluateYoTypeGetInfo({
         context
       );
       evalEnv = fieldListTmp.env;
-
-      if (structType.isModule) {
-        code = `TypeInfo.Module(${fieldListTmp.name})`;
-        break;
-      }
 
       let kindStr: string;
       if (structType.isNewtype) {

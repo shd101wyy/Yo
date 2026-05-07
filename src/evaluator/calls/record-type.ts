@@ -13,7 +13,7 @@ import type { FunctionType, ModuleType, Type } from "../../types/definitions";
 import { isFunctionType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import {
-  createModuleValue,
+  createStructValue,
   isFunctionValue,
   isTypeValue,
   type Value,
@@ -87,11 +87,11 @@ export function tryToImplementRecordWithArgumentsByRecordType({
         });
       }
 
-      // Check if label exists in the module type
+      // Check if label exists in the record type
       if (!moduleType.fields.find((e) => e.label === label)) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Module member with label "${label}" does not exist in the module type.`,
+          errorMessage: `Record member with label "${label}" does not exist in the record type.`,
         });
       }
 
@@ -101,12 +101,12 @@ export function tryToImplementRecordWithArgumentsByRecordType({
         if (moduleField.assignedValue) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${moduleField.label}" already has a assigned value:
+            errorMessage: `Record member "${moduleField.label}" already has an assigned value:
 ${valueToString(moduleField.assignedValue)}`,
           });
         }
 
-        // evaluate the module member type again.
+        // evaluate the record member type again.
         // Check evaluateFunctionParameterTypeAgain function
         // They should be similar
         let moduleFieldType: Type;
@@ -124,14 +124,13 @@ ${valueToString(moduleField.assignedValue)}`,
               expectedType: undefined,
               ReceiverType: undefined,
               SelfType: undefined,
-              SelfRecordType: moduleType, // Allow SelfModule resolution during module instantiation
             },
           });
           const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;
           if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
             throw formatErrorMessage({
               token: argExpr.token,
-              errorMessage: `Failed to evaluate the module member "${label}"`,
+              errorMessage: `Failed to evaluate the record member "${label}"`,
             });
           }
           moduleFieldType = evaluatedModuleMemberTypeValue.value;
@@ -153,14 +152,14 @@ ${valueToString(moduleField.assignedValue)}`,
           if (!value) {
             throw formatErrorMessage({
               token: argExpr.token,
-              errorMessage: `Failed to evaluate the module member "${label}"`,
+              errorMessage: `Failed to evaluate the record member "${label}"`,
             });
           }
           moduleFieldType = value.type;
         } else {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${label}" has no type or default value or assigned value.`,
+            errorMessage: `Record member "${label}" has no type or default value or assigned value.`,
           });
         }
 
@@ -179,7 +178,7 @@ ${valueToString(moduleField.assignedValue)}`,
         if (!argType) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Failed to evaluate the module member "${label}"`,
+            errorMessage: `Failed to evaluate the record member "${label}"`,
           });
         }
         if (evaluatedArgExpr.$?.env) {
@@ -195,7 +194,7 @@ ${valueToString(moduleField.assignedValue)}`,
         ) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Type mismatch for the module member "${label}":
+            errorMessage: `Type mismatch for the record member "${label}":
 Expected: ${typeToString(moduleFieldType)}
 Got:   ${typeToString(argType)}`,
           });
@@ -263,10 +262,10 @@ Got:   ${typeToString(argType)}`,
       }
 
       if (!resolvedValue) {
-        // Check if moduleMember has default or required value
+        // Check if the record member has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,
-          errorMessage: `Module member "${moduleField.label}" is not provided and has no required/default value.`,
+          errorMessage: `Record member "${moduleField.label}" is not provided and has no required/default value.`,
         });
       }
 
@@ -277,7 +276,7 @@ Got:   ${typeToString(argType)}`,
     }
   }
 
-  // Create the module value
-  const moduleValue = createModuleValue({ ...moduleType }, fields);
+  // Create the record value
+  const moduleValue = createStructValue({ ...moduleType }, fields);
   return { moduleValue, callerEnv };
 }

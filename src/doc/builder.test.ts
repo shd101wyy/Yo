@@ -1,7 +1,7 @@
 // Tests for the doc model builder.
 //
 // These tests verify that buildDocModule correctly combines evaluator
-// output (ModuleValue) with extracted doc comments to produce a DocModule.
+// output (StructValue) with extracted doc comments to produce a DocModule.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { ModuleManager } from "../module-manager";

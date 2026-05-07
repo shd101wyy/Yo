@@ -19,7 +19,7 @@ import type { ModuleType } from "../../types/definitions";
 import { isModuleType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { ValueTag } from "../../value-tag";
-import type { ModuleValue } from "../../value";
+import type { StructValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -42,13 +42,13 @@ export function evaluateAnonymousModuleBeginExprs({
    */
   allowPartialModule?: boolean;
   /**
-   * Callback to register the ModuleValue early so circular imports can
-   * access already-exported fields. Called immediately after the ModuleValue
+   * Callback to register the StructValue early so circular imports can
+   * access already-exported fields. Called immediately after the StructValue
    * is created (before any expressions are evaluated).
    */
-  registerPartialModule?: (mv: ModuleValue) => void;
+  registerPartialModule?: (mv: StructValue) => void;
 }): {
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   moduleType: ModuleType;
   env: Environment;
   partialModuleError?: Error;
@@ -60,8 +60,8 @@ export function evaluateAnonymousModuleBeginExprs({
 
   // Create the module value early so circular imports can access
   // already-exported fields through the shared fields arrays.
-  const moduleValue: ModuleValue = {
-    tag: ValueTag.Module,
+  const moduleValue: StructValue = {
+    tag: ValueTag.Struct,
     type: moduleType,
     fields: [],
     isLoading: true,
@@ -119,7 +119,7 @@ export function evaluateAnonymousModuleBeginExprs({
               });
             }
             const extendedModuleValue = evaluatedExtendedModuleExpr.$.value as
-              | ModuleValue
+              | StructValue
               | undefined;
 
             const excludedLabels: Set<string> = new Set();

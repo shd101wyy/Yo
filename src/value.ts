@@ -32,7 +32,6 @@ import type {
   EnumType,
   ExprType,
   FunctionType,
-  ModuleType,
   PtrType,
   SliceType,
   StructType,
@@ -91,7 +90,24 @@ export type TupleValue = {
 export type StructValue = {
   tag: ValueTag.Struct;
   type: StructType;
-  fields: Value[];
+  /**
+   * Ordinary runtime structs always store concrete field values. Imported
+   * source-module namespaces reuse StructValue and can expose runtime
+   * declarations before codegen has a compile-time value for them.
+   */
+  fields: (Value | undefined)[];
+  /**
+   * Source-module-level `:=` initialization expressions that need to be
+   * emitted as file-scope static variables with initialization in main().
+   * Only present for imported source-module namespace structs.
+   */
+  moduleLevelInitExprs?: Expr[];
+  /**
+   * True while the source module is still being evaluated (used for circular
+   * import detection). When a field is not found on a loading source module, a
+   * specific error is shown.
+   */
+  isLoading?: boolean;
 };
 
 export type EnumValue = {
@@ -99,26 +115,6 @@ export type EnumValue = {
   type: EnumType;
   variantName: string;
   fields: Value[];
-};
-
-export type ModuleValue = {
-  tag: ValueTag.Module;
-  type: ModuleType;
-  /**
-   * undefined element means runtime value.
-   */
-  fields: (Value | undefined)[];
-  /**
-   * Module-level `:=` initialization expressions that need to be
-   * emitted as file-scope static variables with initialization in main().
-   * These are collected during module evaluation for use by codegen.
-   */
-  moduleLevelInitExprs?: Expr[];
-  /**
-   * True while the module is still being evaluated (used for circular import detection).
-   * When a field is not found on a loading module, a specific error is shown.
-   */
-  isLoading?: boolean;
 };
 
 export type TraitValue = {
@@ -225,7 +221,6 @@ export type Value =
   | TupleValue
   | StructValue
   | EnumValue
-  | ModuleValue
   | TraitValue
   | FunctionValue
   | ExprValue
@@ -335,17 +330,6 @@ export function valueToString(value?: Value): string {
         return `<fn ${value.type.typeName}>`;
       }
       return `<fn>`;
-    }
-    case ValueTag.Module: {
-      return `${value.type.typeName ?? "_"}(${value.fields
-        .map((element, index) => {
-          let label = value.type.fields[index]!.label;
-          if (stringIsOperator(label)) {
-            label = `(${label})`;
-          }
-          return `${label}: ${valueToString(element)}`;
-        })
-        .join(", ")})`;
     }
     case ValueTag.Trait: {
       return `${value.type.typeName ?? "_"}(${value.fields
@@ -463,10 +447,6 @@ export function isSliceValue(value?: Value): value is SliceValue {
 
 export function isEnumValue(value?: Value): value is EnumValue {
   return value?.tag === ValueTag.Enum;
-}
-
-export function isModuleValue(value?: Value): value is ModuleValue {
-  return value?.tag === ValueTag.Module;
 }
 
 export function isTraitValue(value?: Value): value is TraitValue {
@@ -644,22 +624,11 @@ export function createUnknownValue(
 
 export function createStructValue(
   type: StructType,
-  fields: Value[]
+  fields: (Value | undefined)[],
+  moduleLevelInitExprs?: Expr[]
 ): StructValue {
   return {
     tag: ValueTag.Struct,
-    type,
-    fields,
-  };
-}
-
-export function createModuleValue(
-  type: ModuleType,
-  fields: (Value | undefined)[],
-  moduleLevelInitExprs?: Expr[]
-): ModuleValue {
-  return {
-    tag: ValueTag.Module,
     type,
     fields,
     moduleLevelInitExprs:
@@ -887,28 +856,6 @@ export function areValuesEqual(
         true
       ) ||
       value1.variantName !== (value2 as EnumValue).variantName
-    ) {
-      return false;
-    }
-    for (let i = 0; i < value1.fields.length; i++) {
-      if (
-        !areValuesEqual(
-          { value: value1.fields[i], env: expected.env },
-          { value: value2.fields[i], env: given.env }
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
-  } else if (isModuleValue(value1) && isModuleValue(value2)) {
-    if (
-      value1.fields.length !== value2.fields.length ||
-      !areTypesCompatible(
-        { type: value1.type, env: expected.env },
-        { type: value2.type, env: given.env },
-        true
-      )
     ) {
       return false;
     }

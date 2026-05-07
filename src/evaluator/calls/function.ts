@@ -1962,7 +1962,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       // Preserve the variableName if it was already set (e.g., from a previous overload attempt)
       const previousVariableName = expr.$?.variableName;
 
-      // For functions returning Impl(Module) (SomeType), set resolvedConcreteType
+      // For functions returning plain Impl(...) (SomeType), set resolvedConcreteType
       // to the concrete type from the function body.  This enables static dispatch
       // for method calls on the return value.
       let finalReturnType = returnType;
@@ -2415,7 +2415,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         env,
         type: moduleValue.type,
         value: moduleValue,
-        originType: moduleValue.type, // Module result's origin type is its type
+        originType: moduleValue.type, // Record result's origin type is its type
         pathCollection: [],
       };
 
@@ -2463,7 +2463,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         env,
         type: traitValue.type,
         value: traitValue,
-        originType: traitValue.type, // Module result's origin type is its type
+        originType: traitValue.type, // Trait result's origin type is its type
         pathCollection: [],
       };
 

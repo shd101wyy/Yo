@@ -19,11 +19,11 @@ import {
   isUnionType,
 } from "../types/guards";
 import {
-  isModuleValue,
+  isStructValue,
   isTypeValue,
   isTraitValue,
   isFunctionValue,
-  type ModuleValue,
+  type StructValue,
 } from "../value";
 import type { LspDocumentManager } from "./document-manager";
 import {
@@ -155,10 +155,10 @@ function findImportDefinition(
           (importArg as AtomExpr).token.position.column ===
             stringToken.position.column
         ) {
-          // The import expression's value should be a ModuleValue
+          // The import expression's value should be a StructValue
           // which has an env with the resolved module path
           const importValue = funcCallExpr.$?.value;
-          if (importValue && isModuleValue(importValue)) {
+          if (importValue && isStructValue(importValue)) {
             const modulePath = importValue.type.env.modulePath;
             if (modulePath) {
               result = {
@@ -222,8 +222,8 @@ function findVariableDefinition(
       const frame = env.frames[frameIndex];
       if (frame?.variables) {
         for (const variable of frame.variables) {
-          if (variable.value && isModuleValue(variable.value[0])) {
-            const moduleValue = variable.value[0] as ModuleValue;
+          if (variable.value && isStructValue(variable.value[0])) {
+            const moduleValue = variable.value[0] as StructValue;
             if (moduleValue.type && moduleValue.type.fields) {
               for (const element of moduleValue.type.fields) {
                 if (element && element.label === variableName) {

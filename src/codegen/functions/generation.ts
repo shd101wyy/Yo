@@ -393,7 +393,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     }
 
     // Skip functions with SomeType in parameters (truly generic)
-    // Or with SomeType in return type that isn't an Impl(Module) or Impl(Future)
+    // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
@@ -403,7 +403,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
-    // Allow functions returning plain Impl(Module) existential types (SomeType at top level)
+    // Allow functions returning plain Impl(...) existential types (SomeType at top level)
     // These are not truly generic - the concrete type is determined from the function body
     const returnsPlainImpl =
       isSomeType(functionType.return.type) &&
@@ -767,7 +767,7 @@ export function generateFunction(
     }
   }
 
-  // For functions returning Impl(Module) (SomeType), use the concrete type from the body
+  // For functions returning plain Impl(...) (SomeType), use the concrete type from the body
   // This is for static dispatch - the body's actual return type is the function's return type
   // BUT: Don't do this for specialized functions - their specializedType is already correct
   if (

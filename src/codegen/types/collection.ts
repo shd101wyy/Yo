@@ -35,11 +35,11 @@ import {
 import { typeContainsSomeType } from "../../types/utils";
 import {
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isNumberValue,
   isTraitValue,
   isTypeValue,
-  type ModuleValue,
+  type StructValue,
 } from "../../value";
 import { PrimitiveTypeTags } from "../constants";
 import {
@@ -57,7 +57,7 @@ import {
  * Collect all user-defined types that need to be generated
  */
 export function collectRequiredTypes(
-  moduleValue: ModuleValue,
+  moduleValue: StructValue,
   context: CodeGenContext
 ): void {
   // Start with exports functions and collect types used in their signatures and bodies
@@ -470,7 +470,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
           }
         } else if (
           field.assignedValue &&
-          (isModuleValue(field.assignedValue) ||
+          (isStructValue(field.assignedValue) ||
             isTraitValue(field.assignedValue))
         ) {
           // Module field has a module value - recursively collect its functions

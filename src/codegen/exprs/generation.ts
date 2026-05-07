@@ -36,7 +36,7 @@ import {
   isStructType,
   isUnitType,
 } from "../../types/guards";
-import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
+import { isFunctionValue, isStructValue, isUnknownValue } from "../../value";
 import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -422,7 +422,7 @@ function emitEffectInjection(
         // Resolve from using arg's module value (concrete module)
         if (!memberCode) {
           const usingArgValue = usingArg.$?.value;
-          if (usingArgValue && isModuleValue(usingArgValue)) {
+          if (usingArgValue && isStructValue(usingArgValue)) {
             const fieldIndex = moduleType.fields.indexOf(field);
             const memberValue = usingArgValue.fields[fieldIndex];
             if (memberValue && isFunctionValue(memberValue)) {
@@ -489,7 +489,7 @@ function resolveModuleFieldFromGivenBindingsForSpawn(
   for (let i = implicitVars.length - 1; i >= 0; i--) {
     const v = implicitVars[i]!;
     const val = v.value?.[v.value.length - 1];
-    if (val && isModuleValue(val)) {
+    if (val && isStructValue(val)) {
       const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
       if (fieldIdx >= 0) {
         const fieldVal = val.fields[fieldIdx];

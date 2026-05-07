@@ -11,7 +11,7 @@ import type { Expr } from "../expr";
 import Parser from "../parser";
 import { TokenType, type Token } from "../token";
 import { isModuleType } from "../types/guards";
-import type { ModuleValue } from "../value";
+import type { StructValue } from "../value";
 import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
 // Import extracted evaluator functions
@@ -62,11 +62,11 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
-  private moduleValue: ModuleValue | undefined;
+  private moduleValue: StructValue | undefined;
   private moduleError: Error | undefined;
   private env: Environment | undefined;
   private allowPartialModule: boolean;
-  private registerPartialModule: ((mv: ModuleValue) => void) | undefined;
+  private registerPartialModule: ((mv: StructValue) => void) | undefined;
 
   constructor({
     modulePath,
@@ -81,7 +81,7 @@ export default class Evaluator {
     loadModule: LoadModuleFn;
     inputString?: string;
     allowPartialModule?: boolean;
-    registerPartialModule?: (mv: ModuleValue) => void;
+    registerPartialModule?: (mv: StructValue) => void;
   }) {
     this.modulePath = modulePath;
     this.allowPartialModule = allowPartialModule;
@@ -219,7 +219,7 @@ export default class Evaluator {
     this.moduleError = partialModuleError;
   }
 
-  public getModuleValue(): ModuleValue {
+  public getModuleValue(): StructValue {
     if (!this.moduleValue) {
       throw new Error("Module value is not set");
     }

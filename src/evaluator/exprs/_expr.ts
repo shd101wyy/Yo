@@ -109,7 +109,6 @@ import { evaluateEnumType } from "../types/enum";
 import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
-import { evaluateRecordType } from "../types/record";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
 import { evaluateSliceType } from "../types/slice";
@@ -441,9 +440,6 @@ ${exprToString(expr)}`,
         context: { ...context },
         variablesToAdd: [],
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-      // module type
-      return evaluateRecordType({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.trait)) {
       // trait type
       return evaluateTraitType({ expr, env, context: { ...context } });

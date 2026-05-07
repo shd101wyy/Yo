@@ -87,11 +87,9 @@ import {
   createUnknownValue,
   type ExprValue,
   isFunctionValue,
-  isModuleValue,
   isStructValue,
   isTypeValue,
   isUnknownValue,
-  type ModuleValue,
   type StructValue,
   type Value,
   valueToString,
@@ -121,10 +119,10 @@ import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
 /** A value that can hold effect handler fields — either a module or struct. */
-type EffectRecordValue = ModuleValue | StructValue;
+type EffectRecordValue = StructValue;
 
 function isEffectRecordValue(v: Value | undefined): v is EffectRecordValue {
-  return isModuleValue(v) || isStructValue(v);
+  return isStructValue(v);
 }
 
 function isEffectRecordType(t: Type): t is ModuleType | StructType {

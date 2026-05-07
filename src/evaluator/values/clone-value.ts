@@ -8,11 +8,10 @@ import type {
   ComptimeStringValue,
   EnumValue,
   ExprValue,
-  ModuleValue,
+  StructValue,
   NumberValue,
   PtrValue,
   SliceValue,
-  StructValue,
   TraitValue,
   TupleValue,
   UnknownValue,
@@ -142,7 +141,7 @@ export function cloneValue(
       return {
         ...structValue,
         fields: structValue.fields.map((f) =>
-          cloneValue(f, preservePointerReferences, targetValueMapping)
+          f ? cloneValue(f, preservePointerReferences, targetValueMapping) : f
         ),
       } as StructValue;
     }
@@ -215,18 +214,6 @@ export function cloneValue(
           cloneValue(e, preservePointerReferences, targetValueMapping)
         ),
       } as ComptimeListValue;
-    }
-
-    case ValueTag.Module: {
-      const moduleValue = value as ModuleValue;
-      return {
-        ...moduleValue,
-        fields: moduleValue.fields.map((f) =>
-          f
-            ? cloneValue(f, preservePointerReferences, targetValueMapping)
-            : undefined
-        ),
-      } as ModuleValue;
     }
 
     case ValueTag.Trait: {

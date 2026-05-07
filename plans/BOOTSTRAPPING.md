@@ -947,7 +947,7 @@ To unblock several follow-on handlers (`open`, `binding`, `c-include`, ...) that
 
 **Files updated:**
 
-- `yo-self/evaluator/value.yo` — added `type_of_eval_value(v)` helper (best-effort recovery of `TypeValue` from a comptime `EvalValue`). Used by `open.yo` because yo-self's `ModuleVal(names, values)` does not carry a parallel type list (production `ModuleValue` does, via `type: ModuleType`). For `BoolVal`/`IntLit`/`FloatLit`/`StrLit`/`TypeVal`/`StructVal`/`ModuleVal` the type is exact; for unknown variants it falls back to `t_unit()`. Imports for the type constructors added.
+- `yo-self/evaluator/value.yo` — added `type_of_eval_value(v)` helper (best-effort recovery of `TypeValue` from a comptime `EvalValue`). Used by `open.yo` because yo-self's `ModuleVal(names, values)` does not carry a parallel type list (production imported namespace `StructValue` does, via `type: ModuleType`). For `BoolVal`/`IntLit`/`FloatLit`/`StrLit`/`TypeVal`/`StructVal`/`ModuleVal` the type is exact; for unknown variants it falls back to `t_unit()`. Imports for the type constructors added.
 - `yo-self/expr/expr.yo` — added `BF_DOT :: "."` constant and exported it (used by `open.yo` to detect property-access chains).
 
 **Documentation tightened:**

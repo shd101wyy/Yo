@@ -31,9 +31,8 @@ import {
   isArrayValue,
   isEnumValue,
   isFunctionValue,
-  isModuleValue,
-  isPtrValue,
   isStructValue,
+  isPtrValue,
   isTraitValue,
   isTupleValue,
   isTypeValue,
@@ -978,7 +977,7 @@ export function evaluatePropertyAccess({
               // If so, the field might exist but hasn't been exported yet.
               if (
                 objectExprValue &&
-                isModuleValue(objectExprValue) &&
+                isStructValue(objectExprValue) &&
                 objectExprValue.isLoading
               ) {
                 throw formatErrorMessage({
@@ -1030,7 +1029,7 @@ export function evaluatePropertyAccess({
               expr.$.value = fieldUnknown;
             } else {
               let values: (Value | undefined)[] = [];
-              if (isModuleValue(objectExprValue)) {
+              if (isStructValue(objectExprValue)) {
                 values = objectExprValue.fields;
               }
 

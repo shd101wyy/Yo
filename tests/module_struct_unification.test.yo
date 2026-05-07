@@ -208,3 +208,8 @@ test "Phase 1: comptime-only struct fields are erased from C layout", {
   counter := make_counter();
   assert((counter.next() == 42), "runtime field remains callable");
 };
+
+test "Phase 6: module and Module keywords are removed", {
+  comptime_expect_error(module(x : i32));
+  comptime_expect_error(Module);
+};

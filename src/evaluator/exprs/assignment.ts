@@ -57,7 +57,6 @@ import {
   isArrayValue,
   isEnumValue,
   isFunctionValue,
-  isModuleValue,
   isStructValue,
   isTraitValue,
   isTupleValue,
@@ -415,7 +414,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       rhsValue.funcName = variableName;
       rhsValue.funcId += `_${lhs.token.value}`;
     } else if (
-      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
+      (isStructValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName
     ) {
       // Don't set typeName if this is a reference to Self (context.SelfType)
@@ -893,9 +892,19 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                       newFields
                     );
                   } else {
+                    const tupleFields: Value[] = [];
+                    for (const fieldValue of newFields) {
+                      if (!fieldValue) {
+                        throw formatErrorMessage({
+                          token: expr.token,
+                          errorMessage: `Cannot assign runtime value into compile-time tuple field.`,
+                        });
+                      }
+                      tupleFields.push(fieldValue);
+                    }
                     newValue = createTupleValue(
                       structType as TupleType,
-                      newFields
+                      tupleFields
                     );
                   }
 

@@ -39,7 +39,6 @@ import { typeContainsRcType } from "../../types/utils";
 import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
-  isModuleValue,
   isStructValue,
   isTypeValue,
   isUnknownValue,
@@ -608,10 +607,7 @@ export function generateOtherFunctionCall(
               const givenVars = getVariablesFromEnv(callEnv, ep.implicitLabel);
               const givenVar = givenVars[givenVars.length - 1];
               const recordVal = givenVar?.value?.[0];
-              if (
-                recordVal &&
-                (isModuleValue(recordVal) || isStructValue(recordVal))
-              ) {
+              if (recordVal && isStructValue(recordVal)) {
                 // Navigate fieldPath through potentially nested effect records
                 let currentRecord = recordVal;
                 let navigated = true;
@@ -622,7 +618,7 @@ export function generateOtherFunctionCall(
                   );
                   if (idx >= 0 && currentRecord.fields[idx]) {
                     const nextVal = currentRecord.fields[idx]!;
-                    if (isModuleValue(nextVal) || isStructValue(nextVal)) {
+                    if (isStructValue(nextVal)) {
                       currentRecord = nextVal;
                     } else {
                       navigated = false;
@@ -2609,7 +2605,7 @@ function resolveEvidenceArgsForCallSite(
         // Phase 4b: runtime struct given binding — emit a C field access
         // through the runtime variable (e.g. `c.next`). This applies when
         // the given variable holds a runtime struct value (no comptime
-        // FunctionValue/ModuleValue/StructValue available). Requires
+        // FunctionValue/StructValue available). Requires
         // isCompileTimeOnly===false to distinguish runtime given(struct)
         // bindings from compile-time using(struct) parameters that are
         // lowered to flat evidence params at the C level.
@@ -2618,7 +2614,7 @@ function resolveEvidenceArgsForCallSite(
           givenVar &&
           givenVar.isCompileTimeOnly === false &&
           isStructType(givenVar.type) &&
-          (!givenValue || !isModuleValue(givenValue)) &&
+          (!givenValue || !isStructValue(givenValue)) &&
           (!givenValue || !isFunctionValue(givenValue))
         ) {
           const callEnvForName = expr.func.$?.env ?? expr.$?.env;
@@ -2641,8 +2637,8 @@ function resolveEvidenceArgsForCallSite(
           continue;
         }
 
-        if (givenValue && isModuleValue(givenValue)) {
-          // Navigate the field path through potentially nested modules
+        if (givenValue && isStructValue(givenValue)) {
+          // Navigate the field path through potentially nested struct records
           let currentModule = givenValue;
           let navigated = true;
           for (let i = 0; i < ep.fieldPath.length - 1; i++) {
@@ -2650,14 +2646,9 @@ function resolveEvidenceArgsForCallSite(
             const idx = currentModule.type.fields.findIndex(
               (f) => f.label === pathSegment
             );
-            if (
-              idx >= 0 &&
-              currentModule.fields[idx] &&
-              isModuleValue(currentModule.fields[idx])
-            ) {
-              currentModule = currentModule.fields[
-                idx
-              ] as import("../../value").ModuleValue;
+            const nextRecord = idx >= 0 ? currentModule.fields[idx] : undefined;
+            if (nextRecord && isStructValue(nextRecord)) {
+              currentModule = nextRecord;
             } else {
               navigated = false;
               break;
@@ -2674,56 +2665,6 @@ function resolveEvidenceArgsForCallSite(
                 // For forall functions that were specialized, the unspecialized C function
                 // is not generated — only specialized versions exist. Use one of those
                 // and cast to void* (the evidence param type for forall functions).
-                if (fieldValue.specializedFunctionCaches?.length > 0) {
-                  const specialized =
-                    fieldValue.specializedFunctionCaches[0]!
-                      .specializedFunction;
-                  const specializedCName =
-                    context.functions[specialized.funcId]?.cName;
-                  if (specializedCName) {
-                    result.push(`(void*)${specializedCName}`);
-                    resolved = true;
-                  }
-                }
-                if (!resolved) {
-                  const cName = context.functions[fieldValue.funcId]?.cName;
-                  if (cName) {
-                    result.push(cName);
-                    resolved = true;
-                  }
-                }
-              }
-            }
-          }
-        } else if (givenValue && isStructValue(givenValue)) {
-          let currentStruct = givenValue;
-          let navigated = true;
-          for (let i = 0; i < ep.fieldPath.length - 1; i++) {
-            const pathSegment = ep.fieldPath[i]!;
-            const idx = currentStruct.type.fields.findIndex(
-              (f) => f.label === pathSegment
-            );
-            if (
-              idx >= 0 &&
-              currentStruct.fields[idx] &&
-              isStructValue(currentStruct.fields[idx])
-            ) {
-              currentStruct = currentStruct.fields[
-                idx
-              ] as import("../../value").StructValue;
-            } else {
-              navigated = false;
-              break;
-            }
-          }
-          if (navigated) {
-            const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
-            const fieldIndex = currentStruct.type.fields.findIndex(
-              (f) => f.label === lastLabel
-            );
-            if (fieldIndex >= 0) {
-              const fieldValue = currentStruct.fields[fieldIndex];
-              if (fieldValue && isFunctionValue(fieldValue)) {
                 if (fieldValue.specializedFunctionCaches?.length > 0) {
                   const specialized =
                     fieldValue.specializedFunctionCaches[0]!

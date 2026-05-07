@@ -2,7 +2,7 @@
 // to produce structured documentation.
 //
 // The builder takes:
-//   1. A ModuleValue from the evaluator (types + exported declarations)
+//   1. A StructValue from the evaluator (types + exported declarations)
 //   2. A DocExtractionResult from the extractor (doc comments)
 //   3. Tokens from the lexer (for position matching)
 // And produces a DocModule with fully resolved type signatures and doc text.
@@ -10,7 +10,7 @@
 import type { Token } from "../token";
 import { TokenType } from "../token";
 import type { Environment } from "../env";
-import type { ModuleValue } from "../value";
+import type { StructValue } from "../value";
 import { valueToString, isTypeValue } from "../value";
 import { ValueTag } from "../value-tag";
 import type { FunctionValue } from "../function-value";
@@ -63,7 +63,7 @@ import type {
  */
 function resolveInnerType(
   field: ModuleField,
-  value: ModuleValue["fields"][number]
+  value: StructValue["fields"][number]
 ): Type {
   const type = field.type;
 
@@ -987,7 +987,7 @@ export interface BuildDocModuleOptions {
   /** The module path (e.g., "std/collections/array_list") */
   path: string;
   /** The evaluated module value */
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   /** The extracted doc comments */
   extraction: DocExtractionResult;
   /** The raw tokens (for future position-based matching) */
@@ -1397,7 +1397,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             ...extractDocSections(doc),
           });
         } else {
-          // Check if the function returns comptime(Trait) or comptime(Module)
+          // Check if the function returns comptime(Trait) or another comptime type record.
           const funcType = field.type as FunctionType;
           const retType = funcType.return.type;
           if (

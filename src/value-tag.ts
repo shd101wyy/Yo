@@ -25,7 +25,6 @@ export enum ValueTag {
   Tuple = "Tuple",
   Struct = "Struct",
   Enum = "Enum",
-  Module = "Module",
   Trait = "Trait",
   Expr = "Expr",
   ComptimeList = "ComptimeList",

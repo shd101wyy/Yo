@@ -50,7 +50,7 @@ import {
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { isFunctionValue, isModuleValue } from "../../value";
+import { isFunctionValue, isStructValue } from "../../value";
 import {
   emitAsyncFutureCompletion,
   emitAsyncFutureEscape,
@@ -2554,7 +2554,7 @@ function emitModuleEffectInjectionForSM(
     }
 
     // Resolve from explicit using arg's module value
-    if (!memberCode && usingArgValue && isModuleValue(usingArgValue)) {
+    if (!memberCode && usingArgValue && isStructValue(usingArgValue)) {
       const fieldIndex = moduleType.fields.indexOf(field);
       const memberValue = usingArgValue.fields[fieldIndex];
       if (memberValue && isFunctionValue(memberValue)) {
@@ -2588,7 +2588,7 @@ function emitModuleEffectInjectionForSM(
         for (let i = implicitVars.length - 1; i >= 0; i--) {
           const v = implicitVars[i]!;
           const val = v.value?.[v.value.length - 1];
-          if (val && isModuleValue(val)) {
+          if (val && isStructValue(val)) {
             const fieldIdx = val.type.fields.findIndex(
               (f) => f.label === field.label
             );
