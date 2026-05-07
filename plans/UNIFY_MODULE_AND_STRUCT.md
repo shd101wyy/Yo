@@ -184,7 +184,7 @@ under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.
 This is the payoff phase. It is itself broken into sub-steps because it
 touches the call-site lowering.
 
-**Status: Phase 4a in progress.**
+**Status: Phase 4a DONE, Phase 4b in progress (prep landed).**
 
 #### Phase 4a — Pin current behavior, identify the precise gap (DONE)
 
@@ -240,26 +240,36 @@ plumbing in `src/codegen/exprs/other-fn-call.ts` (`getEvidenceParameters`,
 `currentEvidenceParams`) extends naturally. (b2) can be revisited if a
 later use case (e.g. effect records with non-function fields) demands it.
 
-Sub-tasks for 4b:
+Sub-tasks for 4b (with precise insertion points discovered this session):
 
-1. Detect "evidence is non-comptime" in `helper.ts:2090-2148`; instead
-   of erroring, push a placeholder `implicitArgValues` entry that marks
-   the value as runtime-only and remembers the source variable.
-2. In the codegen path that resolves each evidence param
-   (`other-fn-call.ts:2480+`), add a 4th branch: when the given binding
-   has no comptime value but is a runtime struct of the right type,
-   emit `givenVar_cName.fieldName` (a C struct field access) as the
-   evidence argument.
-3. Make sure the function gets specialized-without-comptime-evidence:
-   the specialization key should include "evidence is runtime" but not
-   the per-field function identities. This avoids re-specialization per
-   call site for genuinely runtime evidence.
-4. Update codegen for `using` in the callee body so calls like
-   `c.next()` go through the C parameter rather than inlining the
-   field's function.
-5. Drop the `isCompileTimeOnly: true` marker on implicit params when
-   they are runtime-typed structs; keep it for module-typed implicits
-   so existing comptime paths are unaffected.
+1. **Allow runtime RHS for `given` bindings.** `assignment.ts:500-503`
+   currently sets `valueToStore = undefined` whenever a comptime
+   variable's RHS lacks a comptime value, then `updateExistingVariable`
+   stores `value: undefined`. (This is **why** `helper.ts:2140` reports
+   `givenVar.value === undefined` rather than UnknownValue.) For
+   `variable.isImplicit && type` is a runtime-capable struct, store
+   `[createUnknownValue(variableType, ...)]` plus a `isRuntimeOnly`
+   marker.
+2. **Lift the comptime-value requirement** at `helper.ts:2137-2142`.
+   When `givenVar.value?.[0]` is missing or marked runtime-only AND
+   the type is a struct, push a placeholder `implicitArgValues` entry
+   that remembers `givenVar.name` (its C name) instead of erroring.
+3. **Avoid per-evidence specialization for runtime evidence.** The
+   function-specialization key currently includes per-field function
+   identities (search `helper.ts` around 2706 for `compileTimeArgValues`).
+   When any implicit arg is runtime-only, generate one shared variant
+   that takes the evidence as C parameters.
+4. **Emit runtime evidence at call sites.** `other-fn-call.ts:2570-2640`
+   resolves each evidence param by reading `givenValue.fields[i]`
+   (a comptime FunctionValue). Add a 4th branch: when the source
+   given variable has no comptime value, emit
+   `${givenVar_cName}.${fieldPath_join('.')}` as the evidence arg.
+5. **Drop `isCompileTimeOnly: true` for runtime struct implicits.**
+   `binding.ts:115-116` (and the comptime-forcing in
+   `initialization-assignment.ts:171`) currently force every `given`
+   variable to be comptime. For runtime-capable struct types, allow
+   them to be runtime so codegen can refer to them via the C variable
+   name. Keep comptime-forcing for module-typed implicits.
 
 #### Phase 4c — Drop `isStructuralLegacy`, finalize semantics
 
