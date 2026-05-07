@@ -83,6 +83,7 @@ evaluate_struct_type :: (fn(
   args         := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types  := ArrayList(TypeValue).new();
+  runtime_field_types := ArrayList(TypeValue).new();
   fields       := ArrayList(TypeField).new();
 
   (i : usize) = usize(0);
@@ -115,6 +116,9 @@ evaluate_struct_type :: (fn(
 
     field_labels.push(String.from(field.label.as_str()));
     field_types.push(field.ty);
+    if(!(field.is_comptime), {
+      runtime_field_types.push(field.ty);
+    });
     fields.push(field);
     env = result.env;
     i = (i + usize(1));
@@ -147,7 +151,7 @@ evaluate_struct_type :: (fn(
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
   auto_derive_traits_for_struct_type(
     String.from(struct_id.as_str()),
-    field_types,
+    runtime_field_types,
     is_reference_semantics,
     is_atomic_rc,
     env,

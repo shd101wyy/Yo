@@ -324,6 +324,27 @@ wasm-wasi` and `--cc emcc` runs).
 - `./yo-cli test ./yo-self/tests/` is informational only — known failures
   there do not block landing the change.
 
+**Status: PARTIAL.** The self-hosted compiler still has a distinct
+`TypeValue.ModuleT`/`TypeTag.TModule` variant, but the Phase 1/4 runtime
+semantics have been mirrored where they are low-risk:
+
+- `yo-self/evaluator/types/struct.yo` now feeds only explicit runtime fields
+  into struct auto-derive checks, while the `TypeValue.Struct` still records
+  all fields and `TypeField.is_comptime` remains the source of truth.
+- `yo-self/codegen/types.yo` skips fields marked `is_comptime` in the
+  registered `TypeField` metadata when emitting C struct declarations.
+- `yo-self/evaluator/effects/effect_analysis.yo` accepts struct-typed effect
+  records in effect rows and transitive-effect detection instead of requiring
+  module evidence.
+- Added self-hosted regressions in `yo-self/tests/codegen.test.yo` and
+  `yo-self/tests/effect_analysis.test.yo`.
+
+Verification: `bun run build`,
+`yo-self/tests/codegen.test.yo`,
+`yo-self/tests/effect_analysis.test.yo`,
+`yo-self/tests/types_compound.test.yo`, and
+`yo-self/tests/types_guards.test.yo` pass with `--disable-sanitize`.
+
 ### Phase 6 — Documentation & cleanup
 
 - Update `.github/instructions/yo-design.instructions.md` and
