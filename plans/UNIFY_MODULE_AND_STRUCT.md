@@ -134,21 +134,47 @@ Each phase is independently shippable and leaves the test suite green.
 
 ### Phase 3 — Migrate `module(...)` syntax to `struct(...)`
 
-- Parser: keep `module` as a token; in the type-expression evaluator route
-  `module(...)` to `evaluateStructType` with `isStructuralLegacy = true`.
-- Mechanical migration:
-  ```bash
-  # Search-and-edit pass over std/, tests/, yo-self/, docs/
-  ```
-  performed manually, file-by-file (no blind sed — each diff reviewed).
-- Remove `src/evaluator/types/module.ts` and `src/evaluator/calls/module-type.ts`,
-  folding any unique logic into the struct equivalents.
-- Delete `module(...)` recognition from the type-expression evaluator once
-  the migration is complete; keep a clear error: _"`module(...)` has been
-  removed; use `struct(...)`."_
+**Status: PARTIAL — evaluator/codegen done, std lib migration BLOCKED.**
 
-**Exit criteria:** no `module(` remains in `.yo` source under `std/`,
-`tests/`, `yo-self/`, `docs/`. Full suite green.
+What's done (committed `7a2e31b4`, `f13dee48`):
+
+- `src/evaluator/calls/helper.ts`: Added `EffectRecordValue =
+ModuleValue | StructValue` plus `isEffectRecordValue` /
+  `isEffectRecordType` helpers. All effect-dispatch checks
+  (`hasControlFunctionImplicitParams`, ctl-field discovery,
+  given-resolution path walking) now accept both module and struct
+  records.
+- `src/codegen/exprs/other-fn-call.ts`: Evidence parameter lookup
+  handles both `ModuleValue` and `StructValue`.
+- `src/evaluator/exprs/initialization-assignment.ts`: typeName
+  tracking for given bindings recognizes `StructValue`.
+- `tests/algebraic_effects.test.yo`: 2 new tests prove `struct(...)`
+  works for both escape and resume effect handlers (60 / 60 pass).
+
+Blocker before std lib (`std/error.yo`, `std/prelude.yo`) migration
+can proceed:
+
+- **`forall` instantiation on nominal struct fields.** Replacing
+  `Exception :: module(throw : (fn(forall(ResumeType : Type),
+error : AnyError) -> ResumeType))` with `struct(...)` of the same
+  shape causes call sites like `IOError.check` (`exn.throw(dyn ...)`
+  inside a function returning `i32`) to fail with
+  `Type mismatch for parameter "result": Expected i32, Got T`.
+  The forall is no longer instantiated fresh per access. Module
+  fields are implicitly comptime which preserves this; struct fields
+  are runtime by default and lose the substitution. Marking the
+  field with `::` works for the type-check but elevates the struct
+  to `Type(1)`, which then breaks `comptime(Type)` return-type
+  annotations (`comptime(Module)` would still be needed).
+- Parser: `module` keyword and `module(...)` evaluator path remain
+  in place for now to keep std lib working.
+
+Tracked todo: `p3-forall-struct-field` — investigate forall freshness
+on struct field call before resuming the migration. `p3-yo-files-migrate`
+remains blocked on the above.
+
+**Exit criteria (deferred):** no `module(` remains in `.yo` source
+under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.
 
 ### Phase 4 — Make `given`/`using` runtime
 
