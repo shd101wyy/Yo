@@ -259,6 +259,15 @@ Once 4b lands and is green:
 - Add an evaluator error pointing users at named-struct migration when
   they try to pass an anonymous module-typed value to `using(...)`.
 
+**Status: BLOCKED on FutureTraitType codegen issue.** Migrating
+`std/prelude.yo` IO from `module(...)` to `struct(...)` exposes a
+pre-existing FIXME in C codegen (`generation.ts:727`): FutureTraitType
+gets a forward declaration but no body when reached via the trait
+collection path. See
+`issues/future-trait-type-incomplete-c-definition.md` for analysis and
+fix sketch. Phase 4 prep changes (`b57cc74d`) are forward-compatible;
+Phase 4c will resume after that codegen fix.
+
 **Exit criteria (full Phase 4):**
 
 - `make_counter`-style runtime evidence test passes (see
