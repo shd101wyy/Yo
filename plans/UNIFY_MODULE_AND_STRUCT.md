@@ -184,7 +184,7 @@ under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.
 This is the payoff phase. It is itself broken into sub-steps because it
 touches the call-site lowering.
 
-**Status: Phase 4a DONE, Phase 4b in progress (prep landed).**
+**Status: Phase 4 DONE (4a + 4b end-to-end; 4c pending design call).**
 
 #### Phase 4a — Pin current behavior, identify the precise gap (DONE)
 
@@ -199,77 +199,56 @@ In all cases the struct's field values (functions, etc.) are
 comptime-known, so the `using` parameter is **fully specialized away** —
 the C signature for `step :: (fn(using(c : Counter)) -> i32)` is emitted
 as `int32_t step()` and the field call inlined as a direct call to the
-field's C function. There is no runtime evidence parameter today.
+field's C function.
 
 Tests pinning this baseline live in
 `tests/module_struct_unification.test.yo` (Phase 4a tests).
 
-The first case that genuinely needs runtime evidence:
+#### Phase 4b — Runtime evidence parameter lowering (DONE)
+
+The runtime case
 
 ```rust
 make_counter :: (fn(use_a : bool) -> Counter)(...);
 (given(c) : Counter) = make_counter(true);
-step();   // Error: The "given" variable "c" has no compile-time value.
+step();   // step :: (fn(using(c : Counter)) -> i32)
 ```
 
-Error site: `src/evaluator/calls/helper.ts:2140` — the resolution path
-for `using(...)` parameters reads `givenVar.value?.[0]`, and erroring
-when it's absent. This guards against the codegen path, which currently
-reads the comptime `givenValue.fields[i]` to pick a C function name for
-each evidence parameter (see `src/codegen/exprs/other-fn-call.ts:2570+`).
+now compiles to:
 
-#### Phase 4b — Runtime evidence parameter lowering (NEXT)
+```c
+__yo_struct_..._Counter c = make_counter(true);
+int32_t v = step(c.next);   // evidence passed via runtime field access
+```
 
-Switch the C signature of any function with `using(s : SomeStruct)` to
-take an extra parameter per evidence "field" used inside the body. Two
-viable shapes:
+Implemented across 6 commits on `unify-module-and-struct`:
 
-- **(b1) Function-pointer evidence params.** For each `(implicitLabel,
-fieldPath)` actually consumed by the body, add one parameter (a
-  function pointer with the field's signature). This matches the current
-  resolution model used by control-functions and minimizes per-call
-  overhead.
-- **(b2) Whole-struct evidence params.** Pass the entire struct value
-  per `using(...)` clause and read fields at the call site
-  (`evidence.fieldName(...)`). Simpler conceptually, but bloats the C
-  ABI when only a few fields are used and breaks the existing
-  `effectFieldPath` / handler-installation tracking.
+- `435cb7a9` — `getEvidenceParameters` / `collectEvidenceFromModule`
+  walk struct types in addition to module types.
+- `b8106074` — `assignment.ts` stores `UnknownValue` for runtime
+  `given(struct)` bindings instead of `undefined`.
+- `4d14b26b` — end-to-end runtime path:
+  - `evaluator/exprs/binding.ts`: don't force `isCompileTimeOnly` for
+    struct-typed `given` bindings (module ones stay comptime).
+  - `evaluator/calls/helper.ts`: relax the given-variable filter to
+    accept runtime struct bindings; synthesize an `UnknownValue` when
+    the given binding lacks a comptime value.
+  - `codegen/exprs/binding.ts`: emit a real C variable declaration for
+    runtime struct given bindings.
+  - `codegen/exprs/assignment.ts`: emit a real C assignment by peeling
+    `given()` to the inner variable.
+  - `codegen/exprs/other-fn-call.ts`: new resolution branch emits
+    `${cName}.${fieldPath}` as the C evidence argument when the given
+    variable carries no comptime Module/Function value.
 
-**Recommendation:** start with (b1) so the existing evidence-param
-plumbing in `src/codegen/exprs/other-fn-call.ts` (`getEvidenceParameters`,
-`currentEvidenceParams`) extends naturally. (b2) can be revisited if a
-later use case (e.g. effect records with non-function fields) demands it.
+Specialization notes: function specialization is unaffected because
+the evidence is now passed as runtime C parameters; only one
+non-specialized variant is emitted per `using(struct)` callee.
 
-Sub-tasks for 4b (with precise insertion points discovered this session):
-
-1. **Allow runtime RHS for `given` bindings.** `assignment.ts:500-503`
-   currently sets `valueToStore = undefined` whenever a comptime
-   variable's RHS lacks a comptime value, then `updateExistingVariable`
-   stores `value: undefined`. (This is **why** `helper.ts:2140` reports
-   `givenVar.value === undefined` rather than UnknownValue.) For
-   `variable.isImplicit && type` is a runtime-capable struct, store
-   `[createUnknownValue(variableType, ...)]` plus a `isRuntimeOnly`
-   marker.
-2. **Lift the comptime-value requirement** at `helper.ts:2137-2142`.
-   When `givenVar.value?.[0]` is missing or marked runtime-only AND
-   the type is a struct, push a placeholder `implicitArgValues` entry
-   that remembers `givenVar.name` (its C name) instead of erroring.
-3. **Avoid per-evidence specialization for runtime evidence.** The
-   function-specialization key currently includes per-field function
-   identities (search `helper.ts` around 2706 for `compileTimeArgValues`).
-   When any implicit arg is runtime-only, generate one shared variant
-   that takes the evidence as C parameters.
-4. **Emit runtime evidence at call sites.** `other-fn-call.ts:2570-2640`
-   resolves each evidence param by reading `givenValue.fields[i]`
-   (a comptime FunctionValue). Add a 4th branch: when the source
-   given variable has no comptime value, emit
-   `${givenVar_cName}.${fieldPath_join('.')}` as the evidence arg.
-5. **Drop `isCompileTimeOnly: true` for runtime struct implicits.**
-   `binding.ts:115-116` (and the comptime-forcing in
-   `initialization-assignment.ts:171`) currently force every `given`
-   variable to be comptime. For runtime-capable struct types, allow
-   them to be runtime so codegen can refer to them via the C variable
-   name. Keep comptime-forcing for module-typed implicits.
+Verification: full test suite **2434/2434 passing** (commit `4d14b26b`).
+New regression test
+`Phase 4b: given(struct) bound to runtime function-returned value`
+in `tests/module_struct_unification.test.yo`.
 
 #### Phase 4c — Drop `isStructuralLegacy`, finalize semantics
 
