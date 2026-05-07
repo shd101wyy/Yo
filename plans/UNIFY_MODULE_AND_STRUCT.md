@@ -134,9 +134,10 @@ Each phase is independently shippable and leaves the test suite green.
 
 ### Phase 3 — Migrate `module(...)` syntax to `struct(...)`
 
-**Status: PARTIAL — evaluator/codegen done, std lib migration BLOCKED.**
+**Status: PARTIAL — evaluator/codegen done, std lib migration BLOCKED on a
+separate codegen issue (NOT the forall blocker, which is now fixed).**
 
-What's done (committed `7a2e31b4`, `f13dee48`):
+What's done (committed `7a2e31b4`, `f13dee48`, `9c5b14a6`):
 
 - `src/evaluator/calls/helper.ts`: Added `EffectRecordValue =
 ModuleValue | StructValue` plus `isEffectRecordValue` /
@@ -148,30 +149,32 @@ ModuleValue | StructValue` plus `isEffectRecordValue` /
   handles both `ModuleValue` and `StructValue`.
 - `src/evaluator/exprs/initialization-assignment.ts`: typeName
   tracking for given bindings recognizes `StructValue`.
+- `src/evaluator/calls/type.ts` (commit `9c5b14a6`): Propagate
+  `ioBuiltin` markers from extern function types to struct field
+  types. **This resolves the original "forall on struct field"
+  blocker** — see `issues/forall-loses-freshness-on-struct-field-call.md`
+  for details. Root cause was actually `ioBuiltin` propagation (not
+  forall freshness); without the marker IO builtin calls fall back
+  to generic specialization that can't infer T from arg types alone.
 - `tests/algebraic_effects.test.yo`: 2 new tests prove `struct(...)`
   works for both escape and resume effect handlers (60 / 60 pass).
 
-Blocker before std lib (`std/error.yo`, `std/prelude.yo`) migration
-can proceed:
+Remaining blocker before std lib (`std/error.yo`, `std/prelude.yo`)
+migration can complete:
 
-- **`forall` instantiation on nominal struct fields.** Replacing
-  `Exception :: module(throw : (fn(forall(ResumeType : Type),
-error : AnyError) -> ResumeType))` with `struct(...)` of the same
-  shape causes call sites like `IOError.check` (`exn.throw(dyn ...)`
-  inside a function returning `i32`) to fail with
-  `Type mismatch for parameter "result": Expected i32, Got T`.
-  The forall is no longer instantiated fresh per access. Module
-  fields are implicitly comptime which preserves this; struct fields
-  are runtime by default and lose the substitution. Marking the
-  field with `::` works for the type-check but elevates the struct
-  to `Type(1)`, which then breaks `comptime(Type)` return-type
-  annotations (`comptime(Module)` would still be needed).
-- Parser: `module` keyword and `module(...)` evaluator path remain
-  in place for now to keep std lib working.
+- **`async_await` codegen incompleteness.** Migrating
+  `IO :: module(...)` → `struct(...)` in `std/prelude.yo` causes the
+  "lazy async" test in `tests/async_await.test.yo` to fail with a
+  C compile error: forward-declared `__yo_future_trait_..._fn_...`
+  struct never gets a definition emitted. Likely related to how
+  Future trait/struct emission walks IO field accesses. Investigate
+  in `src/codegen/` for IO/Future emission paths that branch on
+  `isModuleType`.
 
-Tracked todo: `p3-forall-struct-field` — investigate forall freshness
-on struct field call before resuming the migration. `p3-yo-files-migrate`
-remains blocked on the above.
+Tracked todos: `p3-forall-struct-field` — DONE (resolved by `9c5b14a6`).
+`p3-yo-files-migrate` — remains blocked on async_await codegen. Phase 4
+does NOT depend on this — it can be exercised on user-defined effect
+structs in tests.
 
 **Exit criteria (deferred):** no `module(` remains in `.yo` source
 under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.

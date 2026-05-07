@@ -1,7 +1,43 @@
 # `forall` instantiation is lost when calling polymorphic functions through struct fields
 
-**Status:** Open. Discovered while migrating `std/prelude.yo` IO from
+**Status:** RESOLVED (2024-XX). Fixed in commit `9c5b14a6` by propagating
+`ioBuiltin` markers from extern function types to struct field types in
+`src/evaluator/calls/type.ts`.
+
+**Original context:** Discovered while migrating `std/prelude.yo` IO from
 `module(...)` to `struct(...)` (Phase 3 of `plans/UNIFY_MODULE_AND_STRUCT.md`).
+
+## Root cause
+
+The real failure mode was not a forall-freshness bug per se — it was that
+extern function fields (like `io_async`, `io_await`, `io_spawn`) carry an
+`ioBuiltin` marker that the IO-call paths use to invoke the specialized
+runtime path. `module-type.ts` propagates that marker to the module's field
+types when constructing the module value (lines 205-208). The struct
+constructor in `type.ts` did not, so when IO was a struct, those field types
+lost the marker and `io.await(...)` etc. fell back to a generic polymorphic
+call. Because the underlying functions are extern (no body), generic
+specialization cannot infer `T` from argument types and returns `T` as the
+result type — which then fails downstream type checks (e.g. `IOError.check`
+expecting `i32`).
+
+## Fix
+
+`src/evaluator/calls/type.ts` now mirrors `module-type.ts`:
+
+```typescript
+if (argType.ioBuiltin && isFunctionType(memberElement.type)) {
+  memberElement.type.ioBuiltin = argType.ioBuiltin;
+}
+```
+
+## Remaining follow-up
+
+Migrating `std/prelude.yo` IO to `struct(...)` still fails the
+`tests/async_await.test.yo` "lazy async" test with a C codegen error
+(forward-declared future-trait struct never gets a definition emitted).
+That is a codegen issue, tracked separately, and does not block runtime
+given/using (Phase 4) which can be exercised on user-defined structs.
 
 ## Symptom
 
