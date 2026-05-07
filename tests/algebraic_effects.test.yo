@@ -522,7 +522,7 @@ test "Test effect polymorphism with using spread and escape", {
   assert(false, "This line should not be reached since might_fail raises an error");
 };
 
-test "Test module-based effect with escape", {
+test "Test struct-record effect with escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -546,7 +546,7 @@ test "Test module-based effect with escape", {
   assert(false, "Should not reach here after escape");
 };
 
-test "Test module-based effect with resume", {
+test "Test struct-record effect with resume", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -567,12 +567,12 @@ test "Test module-based effect with resume", {
   );
 
   result := safe_divide(10, 0);
-  assert((result == 0), "module-based effect with resume: should be 0");
+  assert((result == 0), "struct-record effect with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "module-based effect with resume: should be 5");
+  assert((result2 == 5), "struct-record effect with resume: should be 5");
 };
 
-test "Test nested module-based effect with escape", {
+test "Test nested struct-record effect with escape", {
   Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -602,7 +602,7 @@ test "Test nested module-based effect with escape", {
   assert(false, "Should not reach here after escape");
 };
 
-test "Test nested module-based effect with resume", {
+test "Test nested struct-record effect with resume", {
   Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -629,12 +629,12 @@ test "Test nested module-based effect with resume", {
   );
 
   result := safe_divide(10, 0);
-  assert((result == 0), "nested module effect with resume: should be 0");
+  assert((result == 0), "nested struct-record effect with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "nested module effect with resume: should be 5");
+  assert((result2 == 5), "nested struct-record effect with resume: should be 5");
 };
 
-test "Test module labeled using(name : ModuleType) with escape", {
+test "Test struct record labeled using(name : Type) with escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -658,7 +658,7 @@ test "Test module labeled using(name : ModuleType) with escape", {
   assert(false, "Should not reach here after escape");
 };
 
-test "Test module labeled using(name : ModuleType) with resume", {
+test "Test struct record labeled using(name : Type) with resume", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -679,9 +679,9 @@ test "Test module labeled using(name : ModuleType) with resume", {
   );
 
   result := safe_divide(10, 0);
-  assert((result == 0), "module labeled with resume: should be 0");
+  assert((result == 0), "struct record labeled with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "module labeled with resume: should be 5");
+  assert((result2 == 5), "struct record labeled with resume: should be 5");
 };
 
 test "Test multiple effect row spreads with resume", {
@@ -1100,8 +1100,8 @@ test "Transitive SM while loop with early return", {
   assert((result == i32(12)), "transitive early return: should find 12");
 };
 
-test "Module effect with forall handler — escape in while loop", {
-  // Tests the pattern from fixme.yo: module-based effect with forall(ResumeType),
+test "Struct-record effect with forall handler — escape in while loop", {
+  // Tests the pattern from fixme.yo: struct-record effect with forall(ResumeType),
   // handler uses escape inside a while loop to abort traversal.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
@@ -1137,8 +1137,8 @@ test "Module effect with forall handler — escape in while loop", {
   assert(false, "Should not reach here after escape");
 };
 
-test "Module effect with forall handler — resume in while loop", {
-  // Module-based effect with forall(ResumeType), handler resumes with a value.
+test "Struct-record effect with forall handler — resume in while loop", {
+  // Struct-record effect with forall(ResumeType), handler resumes with a value.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -1181,7 +1181,7 @@ test "Module effect with forall handler — resume in while loop", {
   run_test();
 };
 
-test "Module effect with forall handler — break after resume in while loop", {
+test "Struct-record effect with forall handler — break after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -1213,12 +1213,12 @@ test "Module effect with forall handler — break after resume in while loop", {
       );
     };
 
-    assert((counter.* == i32(5)), "break after module resume: counter should be 5");
+    assert((counter.* == i32(5)), "break after struct-record resume: counter should be 5");
   };
   run_test();
 };
 
-test "Module effect with forall handler — continue after resume in while loop", {
+test "Struct-record effect with forall handler — continue after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -1255,14 +1255,14 @@ test "Module effect with forall handler — continue after resume in while loop"
       sum.* = (sum.* + result);
     };
 
-    assert((counter.* == i32(6)), "continue after module resume: counter should be 6");
+    assert((counter.* == i32(6)), "continue after struct-record resume: counter should be 6");
     // sum = 1 + 2 + 3 = 6
-    assert((sum.* == i32(6)), "continue after module resume: sum should be 6");
+    assert((sum.* == i32(6)), "continue after struct-record resume: sum should be 6");
   };
   run_test();
 };
 
-test "Module effect with forall handler — early return after resume in while loop", {
+test "Struct-record effect with forall handler — early return after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -1301,7 +1301,7 @@ test "Module effect with forall handler — early return after resume in while l
 
   result := find_first_positive();
   // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
-  assert((result == i32(1)), "early return after module resume: should find 1");
+  assert((result == i32(1)), "early return after struct-record resume: should find 1");
 };
 
 // ---------------------------------------------------------------------------
@@ -1494,9 +1494,9 @@ test "Test three-level effect propagation with escape", {
 };
 
 // ---------------------------------------------------------------------------
-// Module effect with escape returning non-unit value
+// Struct-record effect with escape returning non-unit value
 // ---------------------------------------------------------------------------
-test "Test module effect escape with non-unit value", {
+test "Test struct-record effect escape with non-unit value", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -1519,14 +1519,14 @@ test "Test module effect escape with non-unit value", {
   };
 
   result := run_test();
-  assert((result == i32(-1)), "module escape non-unit: should get -1");
+  assert((result == i32(-1)), "struct-record escape non-unit: should get -1");
 };
 
 // ---------------------------------------------------------------------------
-// Module effect with multiple functions
-// Tests that a module with more than one function field works correctly.
+// Struct-record effect with multiple functions
+// Tests that a struct record with more than one function field works correctly.
 // ---------------------------------------------------------------------------
-test "Test module effect with multiple function members", {
+test "Test struct-record effect with multiple function members", {
   Logger :: struct(
     info : (fn(msg : String) -> i32),
     warn : (fn(msg : String) -> i32),
@@ -1558,14 +1558,14 @@ test "Test module effect with multiple function members", {
   );
 
   result := log_messages();
-  assert((result == 3), "multi-member module: count(3) should return 3");
+  assert((result == 3), "multi-member struct record: count(3) should return 3");
 };
 
 // ---------------------------------------------------------------------------
-// Multiple module effects in the same scope
-// Two distinct module effect types used together.
+// Multiple struct-record effects in the same scope
+// Two distinct struct-record effect types used together.
 // ---------------------------------------------------------------------------
-test "Test multiple module effects in same scope", {
+test "Test multiple struct-record effects in same scope", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -1598,10 +1598,10 @@ test "Test multiple module effects in same scope", {
   );
 
   result := compute(10, 2);
-  assert((result == 5), "multi-module: 10/2 = 5");
+  assert((result == 5), "multi-struct-record: 10/2 = 5");
 
   result2 := compute(10, 0);
-  assert((result2 == 0), "multi-module: raise returns 0");
+  assert((result2 == 0), "multi-struct-record: raise returns 0");
 };
 
 // ---------------------------------------------------------------------------
@@ -1724,10 +1724,10 @@ test "Test effect with Option return type", {
 };
 
 // ---------------------------------------------------------------------------
-// Effect-polymorphic function with module effect (not just fn-type effect)
-// Combines forall(...(E)) spread with module-type effects.
+// Effect-polymorphic function with struct-record effect (not just fn-type effect)
+// Combines forall(...(E)) spread with struct-record effects.
 // ---------------------------------------------------------------------------
-test "Test effect polymorphism with module effect spread", {
+test "Test effect polymorphism with struct-record effect spread", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -1748,13 +1748,13 @@ test "Test effect polymorphism with module effect spread", {
   );
 
   result := run(might_fail);
-  assert(result == i32(77), "module effect polymorphism: should be 77");
+  assert(result == i32(77), "struct-record effect polymorphism: should be 77");
 };
 
 // ---------------------------------------------------------------------------
-// Transitive SM with module effects (combine forall + transitive + module)
+// Transitive SM with struct-record effects (combine forall + transitive + record)
 // ---------------------------------------------------------------------------
-test "Test transitive SM with module effect in while loop", {
+test "Test transitive SM with struct-record effect in while loop", {
   Counter :: struct(
     increment : (fn(current : i32) -> i32)
   );
@@ -1783,7 +1783,7 @@ test "Test transitive SM with module effect in while loop", {
   );
 
   result := loop_with_effect(i32(4));
-  assert((result == i32(10)), "transitive SM module: 1+2+3+4 = 10");
+  assert((result == i32(10)), "transitive SM struct record: 1+2+3+4 = 10");
 };
 // Regression: regular -> functions cannot capture outer runtime variables.
 // Runtime struct evidence does not turn a regular handler function into a closure.

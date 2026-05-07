@@ -26,10 +26,10 @@ import {
 import {
   type ArrayValue,
   type ComptimeListValue,
-  type StructValue,
-  type TupleValue,
   isTypeValue,
+  type StructValue,
   type TraitValue,
+  type TupleValue,
   type Value,
 } from "./value";
 import { ValueTag } from "./value-tag";
@@ -676,7 +676,6 @@ export const BuiltinKeywords = {
   impl: ["impl"],
   Impl: ["Impl"],
   begin: ["begin"],
-  module_begin: ["module_begin"],
   import: ["import"],
   export: ["export"],
   open: ["open"],

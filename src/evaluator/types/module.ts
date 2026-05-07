@@ -38,7 +38,7 @@ import { isValidVariableName } from "../utils";
  *
  * All fields in module are compile-time only by default.
  */
-export function evaluateModuleField({
+export function evaluateRecordField({
   expr,
   moduleFieldIndex,
   env,
@@ -429,7 +429,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
   };
 }
 
-export function evaluateModuleType({
+export function evaluateRecordType({
   expr,
   env,
   context,
@@ -603,14 +603,14 @@ export function evaluateModuleType({
     }
     // module field
     else {
-      const { field: field, env: nextEnv } = evaluateModuleField({
+      const { field: field, env: nextEnv } = evaluateRecordField({
         expr: arg,
         env,
         moduleFieldIndex: i,
         context: {
           ...context,
           SelfType: undefined, // Modules cannot refer to Self while defining fields
-          SelfModuleType: moduleType, // Allow SelfModule for self-referencing
+          SelfRecordType: moduleType, // Allow SelfModule for self-referencing
         },
         isForEvaluatingModuleType: true,
       });

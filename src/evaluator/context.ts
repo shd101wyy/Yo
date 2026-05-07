@@ -124,11 +124,11 @@ export interface EvaluatorContext {
   SelfTraitType?: Type;
 
   /**
-   * The module type currently being defined.
-   * Used inside module(...) definitions to allow self-referencing via `SelfModule`.
+   * The record type currently being defined.
+   * Used inside module/record definitions to allow self-referencing via `SelfModule`.
    * For example: `spawn : (fn(...) -> Impl(Future(Option(T), SelfModule)))`
    */
-  SelfModuleType?: Type;
+  SelfRecordType?: Type;
 
   /**
    * The receiverType for implementing the module value.

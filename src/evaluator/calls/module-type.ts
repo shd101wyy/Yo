@@ -124,7 +124,7 @@ ${valueToString(moduleField.assignedValue)}`,
               expectedType: undefined,
               ReceiverType: undefined,
               SelfType: undefined,
-              SelfModuleType: moduleType, // Allow SelfModule resolution during module instantiation
+              SelfRecordType: moduleType, // Allow SelfModule resolution during module instantiation
             },
           });
           const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;

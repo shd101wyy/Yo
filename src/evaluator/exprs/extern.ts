@@ -24,7 +24,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateModuleField } from "../types/module";
+import { evaluateRecordField } from "../types/module";
 
 export function evaluateExtern({
   expr,
@@ -86,7 +86,7 @@ export function evaluateExtern({
   const fields: ModuleField[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    const { field: field, env: nextEnv } = evaluateModuleField({
+    const { field: field, env: nextEnv } = evaluateRecordField({
       expr: arg,
       env,
       moduleFieldIndex: i,

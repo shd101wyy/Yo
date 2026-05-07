@@ -109,7 +109,7 @@ import { evaluateEnumType } from "../types/enum";
 import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
-import { evaluateModuleType } from "../types/module";
+import { evaluateRecordType } from "../types/module";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
 import { evaluateSliceType } from "../types/slice";
@@ -124,7 +124,7 @@ import { evaluateCharLiteral } from "../values/char";
 import { evaluateComptimeListValue } from "../values/comptime-list";
 import { evaluateDynValue } from "../values/dyn";
 import { evaluateFloatLiteral } from "../values/float";
-import { evaluateModuleValue } from "../values/impl";
+import { evaluateImplBlock } from "../values/impl";
 import { evaluateIntegerLiteral } from "../values/integer";
 import { evaluateStringLiteral } from "../values/string";
 import { evaluateTupleValue } from "../values/tuple";
@@ -443,7 +443,7 @@ ${exprToString(expr)}`,
       });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
       // module type
-      return evaluateModuleType({ expr, env, context: { ...context } });
+      return evaluateRecordType({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.trait)) {
       // trait type
       return evaluateTraitType({ expr, env, context: { ...context } });
@@ -452,7 +452,7 @@ ${exprToString(expr)}`,
       return evaluateImplConstraint({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
       // module value implementation
-      return evaluateModuleValue({ expr, env, context: { ...context } });
+      return evaluateImplBlock({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeof)) {
       // typeof
       return evaluateTypeOf({ expr, env, context: { ...context } });

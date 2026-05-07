@@ -811,7 +811,7 @@ const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
  * Set of "receiverTypeId:traitTypeId" pairs that are currently mid-registration
- * in evaluateModuleValue (non-generic impls only). Used to handle recursive types
+ * in evaluateImplBlock (non-generic impls only). Used to handle recursive types
  * such as `TreeNode :: enum(Branch(left: Box(Self), ...))` with `derive(TreeNode, Clone)`:
  * when the clone body validates `Box(TreeNode) <: Clone`, it checks `TreeNode <: Clone`,
  * which would fail because the impl hasn't been registered yet.
@@ -2762,7 +2762,7 @@ function attachTraitToReceiverType(
   }
 }
 
-export function evaluateModuleValue({
+export function evaluateImplBlock({
   expr,
   env,
   context,

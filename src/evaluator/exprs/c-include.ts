@@ -23,7 +23,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { type EvaluatorContext } from "../context";
-import { evaluateModuleField } from "../types/module";
+import { evaluateRecordField } from "../types/module";
 import { evaluateExpression } from "./expr";
 
 export function evaluateCInclude({
@@ -85,7 +85,7 @@ c_include "<stdio.h>" ...;`,
   const fields: ModuleField[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    const { field: field, env: nextEnv } = evaluateModuleField({
+    const { field: field, env: nextEnv } = evaluateRecordField({
       expr: arg,
       env,
       moduleFieldIndex: i,

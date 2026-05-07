@@ -829,7 +829,7 @@ export function createFunctionType({
   parametersFrame,
   SelfType,
   SelfTraitType,
-  SelfModuleType,
+  SelfRecordType,
   isClosure,
 }: {
   parameters: FunctionParameter[];
@@ -842,7 +842,7 @@ export function createFunctionType({
   parametersFrame: Frame;
   SelfType?: Type;
   SelfTraitType?: Type;
-  SelfModuleType?: Type;
+  SelfRecordType?: Type;
   isClosure?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
@@ -861,7 +861,7 @@ export function createFunctionType({
     parametersFrame,
     SelfType,
     SelfTraitType,
-    SelfModuleType,
+    SelfRecordType,
     trait,
     isClosure,
   };

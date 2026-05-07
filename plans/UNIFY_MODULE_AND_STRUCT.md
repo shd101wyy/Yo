@@ -349,7 +349,9 @@ Verification: `bun run build`,
 - Final `git grep -i "ModuleType\|moduleType\|module("` audit.
 
 **Status: PARTIAL.** User-facing docs and instructions now describe
-struct-based effect records and runtime evidence passing:
+struct-based effect records and runtime evidence passing. The first source
+cleanup pass also moved evaluator terminology away from "module" for generic
+record/impl handling:
 
 - `docs/en-US/ALGEBRAIC_EFFECTS.md` and `docs/zh-CN/ALGEBRAIC_EFFECTS.md`
   use `struct(...)` effect records, explain nominal struct evidence, and
@@ -361,6 +363,18 @@ struct-based effect records and runtime evidence passing:
 - `.github/instructions/c-codegen.instructions.md` describes struct-record
   evidence; remaining `isModuleEffectMember` mentions are explicitly called
   out as legacy flag names.
+- Internal context/evaluator helpers now use record-oriented names
+  (`SelfRecordType`, `evaluateRecordType`, `evaluateRecordField`,
+  `evaluateImplBlock`) while preserving compatibility for the remaining
+  source-module implementation.
+- `tests/algebraic_effects.test.yo` now labels the migrated effect-record
+  regressions as struct-record tests instead of module-effect tests.
+
+`ModuleValue` removal was investigated and deferred. It still carries
+import-specific state that `StructValue` does not: partial/undefined fields
+during loading, `isLoading` for circular imports, and `moduleLevelInitExprs` for
+module-level `:=` codegen. Removing it safely requires a dedicated source
+namespace/import-value design instead of a mechanical rename.
 
 ## Files Most Affected (per phase)
 

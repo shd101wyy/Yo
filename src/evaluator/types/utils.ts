@@ -1210,7 +1210,7 @@ export function addRcFunctionsToIsoType({
 
 /**
  * Helper function to attach a trait to a receiver type.
- * This follows the same pattern as evaluateModuleValue for impl(type, Trait()).
+ * This follows the same pattern as evaluateImplBlock for impl(type, Trait()).
  */
 export function attachTraitToReceiverType(
   moduleName: string,

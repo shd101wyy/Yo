@@ -902,10 +902,10 @@ export interface FunctionType extends Type {
   SelfTraitType?: Type;
 
   /**
-   * The module type that this function was defined in (for SelfModule resolution).
-   * Set when a function type is created inside a module(...) definition.
+   * The record type that this function was defined in (for SelfModule resolution).
+   * Set when a function type is created inside a module/record definition.
    */
-  SelfModuleType?: Type;
+  SelfRecordType?: Type;
 
   /**
    * The trait that contains this function's methods (like ___drop, ___dup for closures).
