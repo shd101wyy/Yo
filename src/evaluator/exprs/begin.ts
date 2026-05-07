@@ -32,13 +32,16 @@ import {
 } from "../../expr";
 import { exprTreeContainsReturn } from "../../expr-traversal";
 import { generateExprFromCode } from "../../parser";
+import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { isObjectType, isSomeType } from "../../types/guards";
+import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
+import { isFunctionValue, isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsFn } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
 import { throwExprIsImplicitVariableError } from "../utils";
 
@@ -47,6 +50,204 @@ import { throwExprIsImplicitVariableError } from "../utils";
  * Set it to `false` to disable the optimization.
  */
 const OPTIMIZE_DUP_AND_DROP_PAIRS = true;
+
+function tokensAreComparable(left: Token, right: Token): boolean {
+  return (
+    left.modulePath === right.modulePath &&
+    left.inputString === right.inputString
+  );
+}
+
+function tokenIsAtOrBefore(left: Token, right: Token): boolean {
+  if (!tokensAreComparable(left, right)) return false;
+  return left.position.character <= right.position.character;
+}
+
+function tokenIsBefore(left: Token, right: Token): boolean {
+  if (!tokensAreComparable(left, right)) return false;
+  return left.position.character < right.position.character;
+}
+
+function variableIsCapturedByCurrentFunction(
+  variable: Variable,
+  context: EvaluatorContext
+): boolean {
+  return context.capturedVariables?.has(variable.name) === true;
+}
+
+function getLastComparableTokenInExpr(expr: Expr, reference: Token): Token {
+  let last = expr.token;
+  if (!tokensAreComparable(last, reference)) {
+    last = reference;
+  }
+
+  const visit = (node: Expr): void => {
+    if (
+      tokensAreComparable(node.token, reference) &&
+      node.token.position.character > last.position.character
+    ) {
+      last = node.token;
+    }
+
+    if (exprIsFunctionCall(node)) {
+      visit(node.func);
+      for (const arg of node.args) {
+        visit(arg);
+      }
+    }
+  };
+
+  visit(expr);
+  return last;
+}
+
+function isFunctionBoundaryForEarlyDrop(expr: Expr): boolean {
+  if (!exprIsFunctionCallOf(expr, ["->", "=>"])) return false;
+  if (expr.$?.isAnonymousFunctionDefinition === true) return true;
+  if (expr.$?.value !== undefined && isFunctionValue(expr.$.value)) {
+    return true;
+  }
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCall(expr.func) &&
+    (exprIsFunctionCallOf(expr.func, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(expr.func, BuiltinKeywords.unsafe_fn) ||
+      exprIsFunctionCallOf(expr.func, BuiltinKeywords.Fn))
+  ) {
+    return true;
+  }
+  if (!expr.$) return true;
+  return false;
+}
+
+function attachEarlyReturnOnlyDropExpressionToReturns(
+  expr: Expr,
+  variable: Variable,
+  dropExpr: Expr
+): void {
+  const initializedAtToken = variable.initializedAtToken;
+  const consumedAtToken = variable.consumedAtToken;
+  if (!initializedAtToken || !consumedAtToken) return;
+
+  const attachIfCleanupPointNeedsDrop = (cleanupPoint: Token): void => {
+    const variablesAtReturn = expr.$?.env
+      ? getVariablesFromEnv(expr.$.env, variable.name)
+      : [];
+    const latestVarAtReturn = variablesAtReturn[variablesAtReturn.length - 1];
+    if (!latestVarAtReturn?.initializedAtToken) return;
+
+    if (
+      tokenIsAtOrBefore(initializedAtToken, cleanupPoint) &&
+      tokenIsBefore(cleanupPoint, consumedAtToken) &&
+      expr.$
+    ) {
+      const existingDrops = expr.$.earlyReturnOnlyDeferredDropExpressions ?? [];
+      if (!existingDrops.includes(dropExpr)) {
+        expr.$.earlyReturnOnlyDeferredDropExpressions = [
+          ...existingDrops,
+          dropExpr,
+        ];
+      }
+    }
+  };
+
+  if (exprIsAtom(expr)) {
+    if (
+      exprIsAtomOf(expr, BuiltinKeywords.return) ||
+      exprIsAtomOf(expr, BuiltinKeywords.escape)
+    ) {
+      attachIfCleanupPointNeedsDrop(expr.token);
+    }
+    return;
+  }
+
+  if (exprIsFunctionCall(expr)) {
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.return) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.escape)
+    ) {
+      attachIfCleanupPointNeedsDrop(
+        getLastComparableTokenInExpr(expr, consumedAtToken)
+      );
+      return;
+    }
+
+    if (expr.$?.macroExpansion) {
+      attachEarlyReturnOnlyDropExpressionToReturns(
+        expr.$.macroExpansion,
+        variable,
+        dropExpr
+      );
+    }
+
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+    ) {
+      attachEarlyReturnOnlyDropExpressionToReturns(
+        expr.func,
+        variable,
+        dropExpr
+      );
+      for (const arg of expr.args) {
+        if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=>")) {
+          for (const branchPart of arg.args) {
+            attachEarlyReturnOnlyDropExpressionToReturns(
+              branchPart,
+              variable,
+              dropExpr
+            );
+          }
+        } else {
+          attachEarlyReturnOnlyDropExpressionToReturns(arg, variable, dropExpr);
+        }
+      }
+      return;
+    }
+
+    if (isFunctionBoundaryForEarlyDrop(expr)) {
+      return;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      isFunctionType(expr.func.$.value.value)
+    ) {
+      return;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      typeImplementsFn(expr.func.$.value.value)
+    ) {
+      return;
+    }
+
+    attachEarlyReturnOnlyDropExpressionToReturns(expr.func, variable, dropExpr);
+    for (const arg of expr.args) {
+      attachEarlyReturnOnlyDropExpressionToReturns(arg, variable, dropExpr);
+    }
+  }
+}
+
+function variableCanNeedDropIgnoringConsumed(variable: Variable): boolean {
+  if (!variable.isOwningTheRcValue) return false;
+  if (!typeContainsRcType(variable.type)) return false;
+  if (variable.isModuleLevel) return false;
+
+  const varType = variable.type;
+  if (
+    isSomeType(varType) &&
+    !varType.resolvedConcreteType &&
+    varType.requiredTraits.length === 0
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * Generate ___drop expressions for variables that need cleanup.
@@ -1368,7 +1569,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const variables = getVariablesFromEnv(env, returnValueExprVariableName);
     if (variables.length) {
       const variable = variables[variables.length - 1]!;
-      returnVariable = variable;
+      if (
+        returnValueExpr?.$?.type &&
+        areTypesCompatible(
+          { type: variable.type, env },
+          { type: returnValueExpr.$.type, env }
+        )
+      ) {
+        returnVariable = variable;
+      }
     }
   }
 
@@ -1438,6 +1647,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       ];
     }
 
+    variablesNeedingDrop = variablesNeedingDrop.filter(
+      (variable) => !variableIsCapturedByCurrentFunction(variable, context)
+    );
     // Loop traversal borrow chain optimization:
     // Detect linked-list traversal patterns where a variable is initialized from a
     // parameter and reassigned inside a while-match loop from a field of itself.
@@ -1677,6 +1889,62 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
   let consumedVariableDropExpressions: Expr[] | undefined = undefined;
+
+  if (exprIsFunctionCall(expr) && env.frames.length > 0) {
+    const currentFrameForEarlyReturns = env.frames[env.frames.length - 1]!;
+    const regularDropIds = new Set(
+      (OPTIMIZE_DUP_AND_DROP_PAIRS
+        ? variablesActuallyNeedingDrop
+        : variablesNeedingDrop
+      ).map((variable) => variable.id)
+    );
+    const earlyReturnOnlyVariables: Variable[] = [];
+
+    for (const variable of currentFrameForEarlyReturns.variables) {
+      if (!variable.consumedAtToken) continue;
+      if (!variable.initializedAtToken) continue;
+      if (!tokenIsAtOrBefore(expr.token, variable.initializedAtToken)) continue;
+      if (variableIsCapturedByCurrentFunction(variable, context)) continue;
+      if (variable.token.modulePath.startsWith("auto-generated://")) continue;
+      if (regularDropIds.has(variable.id)) continue;
+      if (!variableCanNeedDropIgnoringConsumed(variable)) continue;
+      earlyReturnOnlyVariables.push(variable);
+    }
+
+    if (earlyReturnOnlyVariables.length > 0) {
+      let tempEnv = env;
+      for (const variable of earlyReturnOnlyVariables) {
+        tempEnv = updateExistingVariable(tempEnv, variable, {
+          ...variable,
+          consumedAtToken: undefined,
+        });
+      }
+
+      const earlyDropResult = generateDeferredDropExpressions({
+        variablesToDrop: earlyReturnOnlyVariables,
+        env: tempEnv,
+        context: {
+          ...context,
+          expectedType: undefined,
+        },
+      });
+      const earlyDrops = earlyDropResult.deferredDropExpressions;
+      if (earlyDrops) {
+        for (let i = 0; i < earlyReturnOnlyVariables.length; i++) {
+          const variable = earlyReturnOnlyVariables[i]!;
+          const dropExpr = earlyDrops[i];
+          if (!dropExpr) continue;
+          for (const arg of expr.args) {
+            attachEarlyReturnOnlyDropExpressionToReturns(
+              arg,
+              variable,
+              dropExpr
+            );
+          }
+        }
+      }
+    }
+  }
 
   if (
     (OPTIMIZE_DUP_AND_DROP_PAIRS

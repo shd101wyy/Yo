@@ -2026,6 +2026,20 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         expr.$.controlFlow = controlFlowOf("escape");
       }
 
+      // NOTE: A previous version (commit f51ad0d3) added a "parametricity"
+      // detection here that marked calls like `exn.throw(...)` as
+      // controlFlow="escape" so the begin-block evaluator would skip
+      // subsequent dead code (like `t_i32()` constructor calls).
+      // That detection was reverted because it also fired on calls inside
+      // async closures whose closure parameters wrap forall-T inside
+      // Impl(Fn(...) -> T) (which `typeContainsSomeType` does not look
+      // through), and on user code with explicit `return` statements after
+      // a `raise(...)`-style escape — breaking closure return-type
+      // inference for tests like `tests/async_await.test.yo`'s
+      // "Test escape in async closure".
+      // See `issues/codegen-dead-code-after-exn-throw.md` for the original
+      // problem this was trying to solve.
+
       // For io.async calls, propagate awaitAnalysis and captureType from the closure
       // argument to the call expression. This enables codegen to generate a state machine
       // instead of a sync future when the closure contains await points.

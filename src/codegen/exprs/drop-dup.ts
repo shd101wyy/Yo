@@ -24,6 +24,7 @@ import {
   type CodeGenContext,
   getDeferredDropTargetAtomName,
   getTypeString,
+  isDeferredDropForClosureCapture,
 } from "../utils";
 import { generateExpr } from "./expr";
 
@@ -315,6 +316,15 @@ export function generateDeferredDropExpressions(
 
   if (expr.$?.deferredDropExpressions) {
     for (const dropExpr of expr.$.deferredDropExpressions) {
+      if (
+        isDeferredDropForClosureCapture(
+          dropExpr,
+          context.currentClosureCaptures
+        )
+      ) {
+        continue;
+      }
+
       // Skip drops already emitted inside short-circuit conditional branches
       if (context.shortCircuitHandledDropVarNames) {
         const targetVarName = getDeferredDropTargetAtomName(dropExpr);

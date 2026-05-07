@@ -1339,6 +1339,10 @@ export function generateOtherFunctionCall(
         let closureCall: string;
         let isFunctionPointerParam = false;
         let functionPointerReturnType: Type | undefined;
+        // When the param type is SomeType that resolves to FunctionType, the C
+        // declaration is void* (because getTypeString(SomeType) = void*). We
+        // must cast void* to the concrete function pointer type before calling.
+        let functionPointerResolvedFnType: FunctionType | undefined;
         if (
           exprIsAtom(expr.func) &&
           (context as FunctionGenerationContext).currentFunctionType
@@ -1349,14 +1353,44 @@ export function generateOtherFunctionCall(
           const matchedParam = curFnType.parameters.find(
             (p) => p.label === funcVarName
           );
-          if (matchedParam && isFunctionType(matchedParam.type)) {
-            isFunctionPointerParam = true;
-            functionPointerReturnType = (matchedParam.type as FunctionType)
-              .return.type;
+          if (matchedParam) {
+            if (isFunctionType(matchedParam.type)) {
+              isFunctionPointerParam = true;
+              functionPointerReturnType = (matchedParam.type as FunctionType)
+                .return.type;
+            } else if (isSomeType(matchedParam.type)) {
+              // Walk the SomeType chain to find the concrete FunctionType.
+              // This occurs when a forall parameter constrained by Impl(Fn(...))
+              // is specialized with a concrete function type — the C param is
+              // declared as void*, so we need an explicit cast.
+              let cur: Type = matchedParam.type;
+              while (cur.tag === TypeTag.SomeType) {
+                const s = cur as SomeType;
+                if (!s.resolvedConcreteType || s.resolvedConcreteType === s)
+                  break;
+                cur = s.resolvedConcreteType;
+              }
+              if (isFunctionType(cur)) {
+                isFunctionPointerParam = true;
+                functionPointerReturnType = (cur as FunctionType).return.type;
+                functionPointerResolvedFnType = cur as FunctionType;
+              }
+            }
           }
         }
         if (isFunctionPointerParam) {
-          closureCall = `${closureCode}(${args.join(", ")})`;
+          if (functionPointerResolvedFnType) {
+            // The C param is void* (SomeType resolved to FunctionType).
+            // Cast to the concrete function pointer type before calling.
+            const fnPtrProto = generateFunctionPrototype(
+              functionPointerResolvedFnType,
+              "(*)",
+              context
+            );
+            closureCall = `((${fnPtrProto})(${closureCode}))(${args.join(", ")})`;
+          } else {
+            closureCall = `${closureCode}(${args.join(", ")})`;
+          }
         } else if (isDynClosure) {
           const allArgs = [`(${closureCode}).data`, ...args];
           closureCall = `(${closureCode}).vtable->call(${allArgs.join(", ")})`;
@@ -1383,9 +1417,19 @@ export function generateOtherFunctionCall(
             : undefined;
 
           if (!mapped) {
-            // Fallback to old representation if mapping is missing.
-            const allArgs = [`(${closureCode}).data`, ...args];
-            closureCall = `(${closureCode}).call(${allArgs.join(", ")})`;
+            // No registered Impl closure mapping. This means the value is a
+            // plain function pointer (passed as void* via an Impl(Fn(...))
+            // parameter) rather than a closure struct. Build a function pointer
+            // cast from the Fn trait's call signature and call through it.
+            const runtimeCallSigParams = callSig.parameters.filter(
+              (p) => !p.isCompileTimeOnly
+            );
+            const returnTypeStr = getTypeString(callSig.return.type, context);
+            const paramTypeStrs = runtimeCallSigParams.map((p) =>
+              getTypeString(p.type, context)
+            );
+            const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))(${closureCode}))`;
+            closureCall = `${fnPtrCast}(${args.join(", ")})`;
           } else {
             // Check if the closure function has evidence parameters
             const closureEvidenceParams = getEvidenceParameters(callSig);

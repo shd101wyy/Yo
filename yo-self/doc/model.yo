@@ -1,0 +1,214 @@
+//! Documentation model types for the Yo compiler.
+//!
+//! Mirrors `src/doc/model.ts` — 1:1 port.
+//!
+//! Represents the structured documentation IR produced by combining doc
+//! comment extraction with evaluator type information.
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+// ---------------------------------------------------------------------------
+// DocItemKind — discriminates the kind of a documented item
+// ---------------------------------------------------------------------------
+
+//! Mirrors the `DocItemKind` string union in TypeScript.
+DocItemKind :: enum(
+  Function,
+  Struct,
+  Object,
+  AtomicObject,
+  Enum,
+  Newtype,
+  Union,
+  Trait,
+  Module,
+  Constant,
+  TypeAlias,
+  TypeFunction
+);
+
+/// Convert a DocItemKind to its canonical string representation.
+doc_item_kind_to_string :: (fn(kind : DocItemKind) -> String)(
+  match(kind,
+    .Function     => `function`,
+    .Struct       => `struct`,
+    .Object       => `object`,
+    .AtomicObject => `atomic object`,
+    .Enum         => `enum`,
+    .Newtype      => `newtype`,
+    .Union        => `union`,
+    .Trait        => `trait`,
+    .Module       => `module`,
+    .Constant     => `constant`,
+    .TypeAlias    => `type-alias`,
+    .TypeFunction => `type-function`
+  )
+);
+
+// ---------------------------------------------------------------------------
+// DocTraitKind — discriminates the kind of a documented trait/module
+// ---------------------------------------------------------------------------
+
+DocTraitKind :: enum(
+  Trait,
+  Module,
+  TraitFunction,
+  ModuleFunction
+);
+
+/// Convert a DocTraitKind to its canonical string representation.
+doc_trait_kind_to_string :: (fn(kind : DocTraitKind) -> String)(
+  match(kind,
+    .Trait          => `trait`,
+    .Module         => `module`,
+    .TraitFunction  => `trait-function`,
+    .ModuleFunction => `module-function`
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Parameter and field documentation
+// ---------------------------------------------------------------------------
+
+DocParam :: struct(
+  name          : String,
+  type_         : String,
+  is_comptime   : bool,
+  is_implicit   : bool,
+  default_value : Option(String),
+  doc           : Option(String)
+);
+
+DocField :: struct(
+  name          : String,
+  type_         : String,
+  doc           : Option(String),
+  default_value : Option(String)
+);
+
+DocVariant :: struct(
+  name         : String,
+  fields       : Option(ArrayList(DocField)),
+  doc          : Option(String),
+  discriminant : Option(String)
+);
+
+DocAssociatedType :: struct(
+  name       : String,
+  doc        : Option(String),
+  constraint : Option(String)
+);
+
+DocImplAssocType :: struct(
+  name  : String,
+  type_ : String,
+  doc   : Option(String)
+);
+
+DocImpl :: struct(
+  signature        : String,
+  trait_name       : Option(String),
+  method_names     : ArrayList(String),
+  associated_types : Option(ArrayList(DocImplAssocType))
+);
+
+// ---------------------------------------------------------------------------
+// Function documentation
+// ---------------------------------------------------------------------------
+
+DocFunction :: struct(
+  name        : String,
+  doc         : Option(String),
+  signature   : String,
+  parameters  : ArrayList(DocParam),
+  return_type : String,
+  type_params : Option(ArrayList(DocParam)),
+  effects     : Option(ArrayList(DocParam)),
+  is_method   : bool,
+  self_type   : Option(String),
+  returns     : Option(String),
+  errors      : Option(String),
+  deprecated  : Option(String),
+  examples    : Option(String)
+);
+
+// ---------------------------------------------------------------------------
+// Type documentation
+// ---------------------------------------------------------------------------
+
+DocType :: struct(
+  name        : String,
+  doc         : Option(String),
+  kind        : DocItemKind,
+  signature   : String,
+  type_params : Option(ArrayList(DocParam)),
+  fields      : Option(ArrayList(DocField)),
+  variants    : Option(ArrayList(DocVariant)),
+  methods     : ArrayList(DocFunction),
+  trait_impls : ArrayList(String),
+  impls       : Option(ArrayList(DocImpl)),
+  deprecated  : Option(String),
+  examples    : Option(String)
+);
+
+// ---------------------------------------------------------------------------
+// Trait documentation
+// ---------------------------------------------------------------------------
+
+DocTrait :: struct(
+  name             : String,
+  doc              : Option(String),
+  kind             : DocTraitKind,
+  signature        : String,
+  type_params      : Option(ArrayList(DocParam)),
+  associated_types : Option(ArrayList(DocAssociatedType)),
+  methods          : ArrayList(DocFunction),
+  implementors     : ArrayList(String),
+  deprecated       : Option(String),
+  examples         : Option(String)
+);
+
+// ---------------------------------------------------------------------------
+// Constant documentation
+// ---------------------------------------------------------------------------
+
+DocConstant :: struct(
+  name       : String,
+  doc        : Option(String),
+  type_      : String,
+  value      : Option(String),
+  deprecated : Option(String)
+);
+
+// ---------------------------------------------------------------------------
+// Module documentation (recursive via ArrayList)
+// ---------------------------------------------------------------------------
+
+DocModule :: struct(
+  name       : String,
+  path       : String,
+  doc        : Option(String),
+  functions  : ArrayList(DocFunction),
+  types      : ArrayList(DocType),
+  traits     : ArrayList(DocTrait),
+  constants  : ArrayList(DocConstant),
+  submodules : ArrayList(Box(Self))
+);
+
+// ---------------------------------------------------------------------------
+// Top-level documentation model
+// ---------------------------------------------------------------------------
+
+DocModel :: struct(
+  name    : String,
+  modules : ArrayList(DocModule),
+  version : Option(String)
+);
+
+export
+  DocItemKind, doc_item_kind_to_string,
+  DocTraitKind, doc_trait_kind_to_string,
+  DocParam, DocField, DocVariant, DocAssociatedType,
+  DocImplAssocType, DocImpl, DocFunction,
+  DocType, DocTrait, DocConstant, DocModule, DocModel;

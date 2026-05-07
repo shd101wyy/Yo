@@ -32,31 +32,81 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run all: `./yo-cli test ./yo-self/tests/`
 - Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
 - Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
-- Run evaluator only: `./yo-cli test ./yo-self/tests/eval.test.yo`
-- Currently 180 tests (33 lexer + 36 parser + 15 types/env + 51 evaluator + 45 other), ~7 minutes.
+- Run evaluator only: `./yo-cli test ./yo-self/tests/eval_part1.test.yo` (split into parts 1-4)
+- Currently ~2010 evaluator tests across `eval_part{1..4}.test.yo`. Each split takes ~5 min Yo→C compile + several min C compile on native. WASM targets are too slow (>10 min Yo compile each, ~6 MB C output) and are skipped via `// @skip_wasm32-*` directives.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
 
-### ASAN stack depth limit for yo-self evaluator tests
+### macOS 26 AMFI / ASAN dylib workaround
 
-The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~693 local variables.
-ASAN disables stack frame reuse and adds redzones around every variable, inflating
-each `evaluate()` call significantly.
+On macOS 26+ (current release), locally-compiled C binaries linked against the
+Nix-store ASAN dylib (`libclang_rt.asan_osx_dynamic.dylib`) are rejected by
+AMFI/XProtect with "Unrecoverable CT signature issue". The process starts but
+never executes; the test runner's 60s watchdog eventually kills it. This
+affects ALL branches and ALL test files, including a trivial `assert(true)`.
+
+**Workaround**: pass `--disable-sanitize` to skip AddressSanitizer linkage:
+
+```bash
+./yo-cli test ./tests/basic.test.yo --disable-sanitize --parallel 1
+./yo-cli test ./yo-self/tests/ --disable-sanitize --parallel 1
+```
+
+This disables leak detection on macOS, but tests still validate logic.
+See `issues/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
+
+**Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
+`--target wasm-wasi` to run via `wasmtime`:
+
+```bash
+./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
+```
+
+> Note: `eval_part{1..4}.test.yo` carry `// @skip_wasm32-*` directives because each
+> split would take >15 min on WASM (5 min Yo compile + ~10 min emcc on a 6 MB C file).
+> Run them natively (with `--disable-sanitize` on macOS) only.
+
+The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
+`-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries
+have sufficient memory.
+
+Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
+skipped via `// @skip_wasm32-wasi` and are not required for CI on affected systems.
+
+### Stack depth limit for yo-self evaluator tests
+
+The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~2482 local variables
+(grown from ~693 in early phases) and occupies **~1.5 MB of stack space per frame**
+at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
+directly on the stack. ASAN inflates this further by disabling stack frame reuse
+and adding redzones around every variable.
 
 **Per-frame overhead by platform:**
 
-- macOS ARM64: ~566KB per `evaluate()` frame
-- Windows x86_64: ~1.1MB per `evaluate()` frame (larger redzones + x86_64 ABI spills)
+- macOS ARM64 native (no ASAN): ~1.5MB per `evaluate()` frame
+- macOS ARM64 with ASAN: ~566KB per `evaluate()` frame (ASAN "fake stack" uses
+  separate heap allocation, reducing the real C-stack portion)
+- Windows x86_64: ~1.1MB per `evaluate()` frame with ASAN
 
-**macOS ARM64 (8MB default stack):**
+**macOS ARM64 native (256MB reserve set via `-Wl,-stack_size,0x10000000` in
+`src/test-runner.ts`):**
 
-- Safe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → ✓
-- Safe: fact(2) needs ~6 frames × 566KB ≈ 3.4MB → ✓
-- Safe: fib(2) needs ~8 frames × 566KB ≈ 4.5MB → ✓
-- Unsafe: countdown(3) needs ~9 frames × 566KB > 8MB → **STACK OVERFLOW**
-- Unsafe: fact(3) needs ~9+ frames × 566KB > 8MB → **STACK OVERFLOW**
+- Safe: countdown(1) needs ~5 frames × 1.5MB ≈ 7.5MB (was SIGSEGV at 8MB default)
+- Safe: countdown(10) needs ~50 frames × 1.5MB ≈ 75MB → ✓ with 256MB reserve
+- Safe: ack(2,3) needs ~100 frames × 1.5MB ≈ 150MB → ✓ with 256MB reserve
+- Unsafe: ack(3,2) needs ~2700+ frames → **STACK OVERFLOW** (too deep for any reasonable stack)
+
+**macOS ARM64 with ASAN (8MB default; --disable-sanitize recommended):**
+
+- Safe: countdown(1) needs ~5 frames × 566KB ≈ 2.8MB → ✓
+- Safe: fib(1) needs ~4 frames × 566KB ≈ 2.3MB → ✓
+- Unsafe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → **STACK OVERFLOW** (after Phase 3a ExprId growth)
+- Unsafe: fact(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW**
 - Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
+
+Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
+(TraitT extended with new fields). See `issues/asan-eval-frame-size-after-expr-id.md`.
 
 **Windows x86_64 (16MB reserve set via `-Wl,/STACK:16777216` in `src/test-runner.ts`):**
 
@@ -64,7 +114,7 @@ each `evaluate()` call significantly.
 - Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
 - Unsafe: countdown(3) / fact(3) would exceed 16MB → **STACK OVERFLOW**
 
-When writing recursive evaluator tests, use small inputs (e.g. fib(2), countdown(2), fact(2)).
+When writing recursive evaluator tests, use small inputs (e.g. fib(1), countdown(1)).
 Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
 
 ## Important constraints
@@ -107,6 +157,30 @@ test "Async test", {
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
 - `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
+
+**IMPORTANT**: `assert(condition, msg)` takes `str` for `msg`. Do NOT pass a template string (`` `...` ``):
+
+```rust
+// ❌ WRONG — template string is String, not str
+assert(false, `unexpected: ${value}`);
+
+// ✅ CORRECT — use a plain str literal
+assert(false, "unexpected");
+```
+
+## Exception effect in yo-self tests
+
+When testing functions that require `using(exn : Exception)`, provide the effect with `given`:
+
+```rust
+test "my test", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  result := my_function_that_throws(using(exn));
+  // ...
+};
+```
+
+This is the standard pattern from `yo-self/tests/parser.test.yo`.
 
 Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
 

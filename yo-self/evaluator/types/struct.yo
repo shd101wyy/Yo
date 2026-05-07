@@ -1,0 +1,176 @@
+//! evaluate_struct_type — evaluates `struct(...)`, `object(...)`, and `newtype(...)` type expressions.
+//!
+//! 1:1 port of `src/evaluator/types/struct.ts`.
+//!
+//! Creates a TypeValue.Struct with the given fields.
+//! `is_reference_semantics` is set for `object`, `is_newtype` for `newtype`,
+//! and `is_atomic_rc` for `atomic object`.
+//! All TypeField metadata is registered in `g_struct_field_registry`.
+//!
+//! Stubs: `addRcFunctionSignaturesToStructType`,
+//!        `autoDeriveTraitsAndAddRcFunctionsForStructType`,
+//!        `beginSendDerivation`, `endSendDerivation`, `typeImplementsSend`
+//! are not yet ported (see plans/BOOTSTRAPPING.md Phase 3).
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
+  ast_expr_is_fn_call, ast_expr_is_fn_call_of,
+  make_err_expr,
+  BK_STRUCT, BK_OBJECT, BK_NEWTYPE }              :: import "../../expr/expr.yo";
+{ new_expr_info, expr_info_table_set }             :: import "../../expr/expr_info.yo";
+{ Environment }                                    :: import "../../env/env.yo";
+{ EvalContext }                                    :: import "../context.yo";
+{ EvalValue, create_type_value }                   :: import "../value.yo";
+{ TypeValue }                                      :: import "../../types/type.yo";
+{ type_of_type }                                   :: import "../../types/hierarchy.yo";
+{ format_error_message }                           :: import "../../error/error.yo";
+{ Exception }                                      :: import "std/error";
+{ TypeField, EvalTypeFieldResult,
+  evaluate_type_field, register_struct_fields }    :: import "./field.yo";
+{ random_id }                                      :: import "../utils.yo";
+{ ArrayList }                                      :: import "std/collections/array_list";
+{ auto_derive_traits_for_struct_type }             :: import "./auto_derive.yo";
+
+evaluate_struct_type :: (fn(
+  expr         : AstExpr,
+  env_in       : Environment,
+  ctx          : *(EvalContext),
+  is_atomic_rc : bool,
+  using(exn : Exception)
+) -> AstExpr)({
+  (env : Environment) = env_in;
+
+  is_object_keyword  := ast_expr_is_fn_call_of(expr, BK_OBJECT,  Option(usize).None);
+  is_struct_keyword  := ast_expr_is_fn_call_of(expr, BK_STRUCT,  Option(usize).None);
+  is_newtype_keyword := ast_expr_is_fn_call_of(expr, BK_NEWTYPE, Option(usize).None);
+
+  if(!(((is_struct_keyword || is_object_keyword) || is_newtype_keyword)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "struct" or "object" or "newtype", got:\n${ast_expr_to_string(expr)}`,
+      false,
+      .None
+    ));
+  });
+
+  is_reference_semantics := is_object_keyword;
+  is_newtype             := is_newtype_keyword;
+
+  struct_id := `struct_${random_id(env.module_path)}`;
+
+  // Preliminary struct type (empty fields) used as SelfType during field evaluation.
+  // This allows self-referential types like `struct(val: Option(Self))`.
+  prelim_ty := TypeValue.Struct(
+    String.from(struct_id.as_str()),
+    String.from(""),
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    is_reference_semantics,
+    is_atomic_rc,
+    is_newtype
+  );
+
+  // Temporarily set SelfType in context for field evaluation.
+  old_self_type := ctx.self_type;
+  ctx.self_type = Option(TypeValue).Some(prelim_ty);
+
+  // TODO (Phase 3): addRcFunctionSignaturesToStructType stub — no-op for now.
+  // TODO (Phase 3): beginSendDerivation stub — no-op for now.
+
+  // Evaluate fields
+  args         := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  field_labels := ArrayList(String).new();
+  field_types  := ArrayList(TypeValue).new();
+  fields       := ArrayList(TypeField).new();
+
+  (i : usize) = usize(0);
+  while runtime((i < args.len())), {
+    arg    := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    result := evaluate_type_field(arg, i, env, ctx, "struct", using(exn));
+    field  := result.field;
+
+    // Check for duplicate labels
+    (dup_idx : usize) = usize(0);
+    (has_dup : bool)  = false;
+    while runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
+      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      if((existing == field.label), { has_dup = true; });
+      dup_idx = (dup_idx + usize(1));
+    };
+    if(has_dup, {
+      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+      err_tok := if(ast_expr_is_fn_call(arg),
+        match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
+        ast_expr_token(arg)
+      );
+      exn.throw(dyn format_error_message(
+        err_tok,
+        `Duplicate label "${field.label}" in struct`,
+        false,
+        .None
+      ));
+    });
+
+    field_labels.push(String.from(field.label.as_str()));
+    field_types.push(field.ty);
+    fields.push(field);
+    env = result.env;
+    i = (i + usize(1));
+  };
+
+  // Check newtype constraint: must have exactly one field
+  if((is_newtype && !(fields.len() == usize(1))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Newtype struct must have exactly one field, but got ${fields.len()} fields.`,
+      false,
+      .None
+    ));
+  });
+
+
+  // Build final struct TypeValue with all fields populated.
+  // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
+  struct_ty  := TypeValue.Struct(
+    String.from(struct_id.as_str()),
+    String.from(""),
+    field_labels,
+    field_types,
+    is_reference_semantics,
+    is_atomic_rc,
+    is_newtype
+  );
+
+  // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
+  // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
+  auto_derive_traits_for_struct_type(
+    String.from(struct_id.as_str()),
+    field_types,
+    is_reference_semantics,
+    is_atomic_rc,
+    env,
+    struct_ty
+  );
+
+  // Restore SelfType
+  ctx.self_type = old_self_type;
+
+  // Register TypeField metadata in global registry
+  register_struct_fields(String.from(struct_id.as_str()), fields);
+
+  struct_val := create_type_value(struct_ty);
+  meta_ty    := type_of_type(struct_ty);
+  out_info   := new_expr_info(env, meta_ty);
+  out_info.value = Option(EvalValue).Some(struct_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+
+  // Annotate callee (expr.func) with same info (mirrors TypeScript: expr.func.$ = expr.$)
+  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box.*, .Atom(_, _) => expr);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
+
+  expr
+});
+
+export evaluate_struct_type;

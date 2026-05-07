@@ -35,19 +35,18 @@ const SKIP_PRELUDE =
   process.env.YO_SKIP_PRELUDE === "1" || process.env.YO_SKIP_PRELUDE === "true";
 
 /**
- * Check if any comment in the tokens contains a specific attribute.
- * This is useful for checking attributes like @skip_prelude, @no-implicit-prelude, etc.
- * In the future, this can be extended to support JSDoc-like attributes.
+ * Check if any plain single-line (`//`) or multi-line block comment in the
+ * tokens contains a specific attribute. Doc comment tokens (`///`, `//!`,
+ * `/**`, `/*!`) are deliberately excluded so that documentation that merely
+ * mentions an attribute (e.g. to describe what `@skip_prelude` does) does
+ * not trigger it. Useful for checking attributes like @skip_prelude,
+ * @no-implicit-prelude, etc.
  */
 function hasCommentAttribute(tokens: Token[], attribute: string): boolean {
   return tokens.some(
     (token) =>
       (token.type === TokenType.SingleLineComment ||
-        token.type === TokenType.MultiLineComment ||
-        token.type === TokenType.DocLineComment ||
-        token.type === TokenType.InnerDocLineComment ||
-        token.type === TokenType.DocBlockComment ||
-        token.type === TokenType.InnerDocBlockComment) &&
+        token.type === TokenType.MultiLineComment) &&
       token.value.includes(attribute)
   );
 }

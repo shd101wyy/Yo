@@ -1,0 +1,1106 @@
+//! evaluate_trait_type — evaluates `trait(...)` type expressions.
+//!
+//! 1:1 port of `src/evaluator/types/trait.ts` (Phase 2az).
+//!
+//! Key functions:
+//!   - `_get_or_create_some_ty_for_trait` — resolves or creates a SomeType for a where-clause LHS
+//!   - `_apply_single_constraint_for_trait` — applies one where-clause constraint (for retry)
+//!   - `_parse_trait_where_clauses` — bulk where-clause parsing with pending retry support
+//!   - `_evaluate_trait_field` — evaluates one trait field expression
+//!   - `evaluate_trait_type` — main entry point (exported)
+//!
+//! Phase 2az known stubs / skips:
+//!   - `selfType.trait = traitType` skipped — SomeT has no `trait` field in yo-self
+//!   - `attachTraitToReceiverType` for Runtime trait skipped
+//!   - `findSomeTypeMissingComptimeConstraint` check skipped (same as function.yo)
+//!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
+  ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
+  BK_WHERE, BK_TRAIT, BK_COMPTIME, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST,
+  BK_TUPLE }
+  :: import "../../expr/expr.yo";
+{ new_expr_info, expr_info_table_get, expr_info_table_set }          :: import "../../expr/expr_info.yo";
+{ Environment, get_variables_from_env, add_variable_to_env }         :: import "../../env/env.yo";
+{ EvalContext, ExpectedTypeCtx }                                      :: import "../context.yo";
+{ EvalValue, create_type_value, create_unknown_val, is_type_value }  :: import "../value.yo";
+{ TypeValue, t_some_t, generate_some_type_id,
+  is_some_type, is_trait_type }                                        :: import "../../types/type.yo";
+{ type_of_type }                                                      :: import "../../types/hierarchy.yo";
+{ are_types_compatible }                                              :: import "../../types/compatibility.yo";
+{ type_to_string }                                                    :: import "../../types/string.yo";
+{ format_error_message }                                              :: import "../../error/error.yo";
+{ is_valid_variable_name }                                            :: import "../exprs/binding.yo";
+{ Exception }                                                         :: import "std/error";
+{ evaluate_expression, evaluate_expression_raw }                     :: import "../exprs/expr.yo";
+{ _add_where_clause_constraint, _trait_has_receiver }                :: import "./function.yo";
+{ ArrayList }                                                         :: import "std/collections/array_list";
+{ random_id }                                                         :: import "../utils.yo";
+
+// ---------------------------------------------------------------------------
+// Local data structures
+// ---------------------------------------------------------------------------
+
+/// Result of resolving the LHS of a where-clause constraint.
+_SomeTyResolvedResult :: struct(
+  some_ty : TypeValue,
+  is_self : bool
+);
+
+/// Pending where-clause constraint that failed to evaluate during pre-pass.
+_PendingTraitConstraint :: struct(
+  lhs_expr                 : AstExpr,
+  trait_expr               : AstExpr,
+  original_constraint_expr : AstExpr
+);
+
+/// Result of evaluating a single trait field.
+_TraitFieldResult :: struct(
+  label              : String,
+  ty                 : TypeValue,
+  assoc_some_ty      : Option(TypeValue),
+  assigned_value_opt : Option(EvalValue),
+  default_value_opt  : Option(EvalValue)
+);
+
+// ---------------------------------------------------------------------------
+// Local helper: extract fn call args
+// ---------------------------------------------------------------------------
+
+_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,
+    .FnCall(_, _, args, _, _) => args,
+    .Atom(_, _)               => ArrayList(AstExpr).new()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// _get_or_create_some_ty_for_trait
+// ---------------------------------------------------------------------------
+
+/// Resolve or create a SomeType for the LHS of a trait where-clause constraint.
+/// Mirrors `getOrCreateSomeTypeForTraitWhereClause` from trait.ts lines 65-149.
+///
+/// - If lhsExpr is atom "Self", returns the pre-created selfType.
+/// - If lhsExpr is any other atom:
+///     - Looks up existing SomeType in env by name.
+///     - Creates a new SomeType if not found.
+/// - Otherwise evaluates lhsExpr and extracts the SomeType from the result.
+_get_or_create_some_ty_for_trait :: (fn(
+  lhs_expr  : AstExpr,
+  self_type : TypeValue,
+  env_mut   : *(Environment),
+  ctx       : *(EvalContext),
+  using(exn : Exception)
+) -> _SomeTyResolvedResult)({
+  // "Self" case
+  if(ast_expr_is_atom(lhs_expr), {
+    var_name := ast_expr_token(lhs_expr).value;
+
+    if((var_name.as_str() == "Self"), {
+      return _SomeTyResolvedResult(self_type, true);
+    });
+
+    // Look up existing var in env
+    existing_vars := get_variables_from_env(env_mut.*, var_name);
+    if((existing_vars.len() > usize(0)), {
+      last_v := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(lhs_expr),
+          String.from("Expected type for left-hand side of where clause constraint."),
+          false,
+          .None
+        ));
+        return _SomeTyResolvedResult(TypeValue.Unit, false);
+      });
+      match(last_v.value,
+        .Some(ev) => {
+          match(ev,
+            .TypeVal(b) => {
+              if(is_some_type(b.*), {
+                return _SomeTyResolvedResult(b.*, false);
+              });
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+    });
+
+    // Create a new SomeType
+    top_frame := env_mut.frames.len();
+    if((top_frame == usize(0)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs_expr),
+        String.from("Expected type for left-hand side of where clause constraint."),
+        false,
+        .None
+      ));
+      return _SomeTyResolvedResult(TypeValue.Unit, false);
+    });
+    new_some_ty := t_some_t(var_name, (top_frame - usize(1)));
+    tv          := create_type_value(new_some_ty);
+
+    _ := add_variable_to_env(
+      env_mut,
+      var_name,
+      type_of_type(new_some_ty),
+      .Some(tv),
+      true,   // is_compile_time_only
+      false,  // is_reassignable
+      false,  // is_owning_the_rc_value
+      false,  // is_implicit
+      ast_expr_token(lhs_expr)
+    );
+
+    lhs_info := new_expr_info(env_mut.*, type_of_type(new_some_ty));
+    lhs_info.value = .Some(tv);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
+
+    return _SomeTyResolvedResult(new_some_ty, false);
+  });
+
+  // Non-atom LHS: evaluate and extract SomeType
+  old_self_type := ctx.self_type;
+  ctx.self_type = .Some(self_type);
+  evaluated_lhs := evaluate_expression(lhs_expr, env_mut.*, ctx);
+  ctx.self_type = old_self_type;
+
+  lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
+  lhs_info     := match(lhs_info_opt, .Some(i) => i, .None => {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_expr),
+      String.from("Expected type for left-hand side of where clause constraint."),
+      false,
+      .None
+    ));
+    new_expr_info(env_mut.*, TypeValue.Unit)
+  });
+
+  if(!(is_type_value(lhs_info.value)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_expr),
+      String.from("Expected type for left-hand side of where clause constraint."),
+      false,
+      .None
+    ));
+  });
+
+  env_mut.* = lhs_info.env;
+  lhs_tv := match(lhs_info.value,
+    .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .None    => TypeValue.Unit
+  );
+
+  if(!(is_some_type(lhs_tv)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_expr),
+      `Expected SomeType for left-hand side of where clause constraint, got ${type_to_string(lhs_tv)}`,
+      false,
+      .None
+    ));
+  });
+
+  _SomeTyResolvedResult(lhs_tv, false)
+});
+
+// ---------------------------------------------------------------------------
+// _apply_single_constraint_for_trait
+// ---------------------------------------------------------------------------
+
+/// Apply a single where-clause constraint (used for pending retry).
+/// Mirrors `applySingleTraitConstraintForTrait` from trait.ts lines 151-283.
+/// Returns true on success, false if evaluation failed (enabling caller to skip).
+_apply_single_constraint_for_trait :: (fn(
+  lhs_expr                 : AstExpr,
+  trait_expr               : AstExpr,
+  self_type                : TypeValue,
+  trait_ty                 : TypeValue,
+  env_mut                  : *(Environment),
+  ctx                      : *(EvalContext),
+  using(exn                : Exception)
+) -> bool)({
+  // Check if negated
+  (is_negated       : bool)    = false;
+  (unwrapped_te     : AstExpr) = trait_expr;
+  if(ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1))), {
+    is_negated = true;
+    unwrapped_te = match(_fn_call_args(trait_expr).get(usize(0)),
+      .Some(a) => a, .None => trait_expr
+    );
+  });
+
+  // Resolve LHS (use outer exn — hard failure).
+  // The given/using soft-failure pattern generates incomplete C calls.
+  (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
+  resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
+  resolved_opt = .Some(resolved);
+
+  res := match(resolved_opt, .Some(r) => r, .None => { return false; });
+
+  // Evaluate trait expression (use outer exn — hard failure).
+  (trait_ty2   : TypeValue) = TypeValue.Unit;
+  old_self_type := ctx.self_type;
+  ctx.self_type = .Some(self_type);
+  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
+  ctx.self_type = old_self_type;
+
+  te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
+  te_info     := match(te_info_opt, .Some(i) => i, .None => { return false; });
+  if(!(is_type_value(te_info.value)), { return false; });
+  env_mut.* = te_info.env;
+  trait_ty2 = match(te_info.value,
+    .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .None    => TypeValue.Unit
+  );
+
+  if(!(is_trait_type(trait_ty2)), {
+    // Hard error — we got a value but it's not a trait
+    // (soft failure is only for eval errors, not type errors)
+    return false;
+  });
+
+  if(_trait_has_receiver(trait_ty2), {
+    return false;
+  });
+
+  // If this is the Self type, record constraint on the trait type's self_constraints
+  if(res.is_self, {
+    match(trait_ty,
+      .TraitT(_, _, _, _, _, _, sc, nc) => {
+        if(is_negated, { nc.push(trait_ty2); }, { sc.push(trait_ty2); });
+      },
+      _ => ()
+    );
+  });
+
+  // Add constraint to SomeT's required/negative trait lists
+  _add_where_clause_constraint(res.some_ty, trait_ty2, is_negated);
+
+  true
+});
+
+// ---------------------------------------------------------------------------
+// _parse_trait_where_clauses
+// ---------------------------------------------------------------------------
+
+/// Parse where-clause constraint expressions for a trait definition.
+/// Mirrors `parseTraitWhereClauseConstraints` from trait.ts lines 285-443.
+/// If `collect_pending` is true, failed evaluations are collected for retry.
+_parse_trait_where_clauses :: (fn(
+  constraint_exprs : ArrayList(AstExpr),
+  self_type        : TypeValue,
+  trait_ty         : TypeValue,
+  collect_pending  : bool,
+  env_mut          : *(Environment),
+  ctx              : *(EvalContext),
+  using(exn : Exception)
+) -> ArrayList(_PendingTraitConstraint))({
+  pending_traits := ArrayList(_PendingTraitConstraint).new();
+
+  (ci : usize) = usize(0);
+  while runtime((ci < constraint_exprs.len())), {
+    constraint_expr := match(constraint_exprs.get(ci), .Some(e) => e, .None => {
+      ci = constraint_exprs.len();
+      make_err_expr()
+    });
+    ci = (ci + usize(1));
+
+    if(!(ast_expr_is_fn_call_of(constraint_expr, "<:", .Some(usize(2)))), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(constraint_expr),
+        `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(constraint_expr)}`,
+        false,
+        .None
+      ));
+    });
+
+    c_args   := _fn_call_args(constraint_expr);
+    lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_expr := match(c_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+
+    // Resolve LHS (use outer exn — hard failure).
+    // The given/using soft-failure pattern generates incomplete C calls.
+    (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
+    resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
+    resolved_opt = .Some(resolved);
+
+    res := match(resolved_opt, .Some(r) => r, .None => { continue; });
+
+    // Collect RHS trait exprs (single or tuple)
+    rhs_trait_exprs := ArrayList(AstExpr).new();
+    if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None), {
+      rhs_args := _fn_call_args(rhs_expr);
+      (ri : usize) = usize(0);
+      while runtime((ri < rhs_args.len())), {
+        rte := match(rhs_args.get(ri), .Some(a) => a, .None => make_err_expr());
+        rhs_trait_exprs.push(rte);
+        ri = (ri + usize(1));
+      };
+    }, {
+      rhs_trait_exprs.push(rhs_expr);
+    });
+
+    // Evaluate each trait expr and apply constraint
+    (ti : usize) = usize(0);
+    while runtime((ti < rhs_trait_exprs.len())), {
+      trait_expr_item := match(rhs_trait_exprs.get(ti), .Some(a) => a, .None => make_err_expr());
+      ti = (ti + usize(1));
+
+      // Check negation
+      (is_neg       : bool)    = false;
+      (unwrapped_te : AstExpr) = trait_expr_item;
+      if(ast_expr_is_fn_call_of(trait_expr_item, "!", .Some(usize(1))), {
+        is_neg = true;
+        unwrapped_te = match(_fn_call_args(trait_expr_item).get(usize(0)),
+          .Some(a) => a, .None => trait_expr_item
+        );
+      });
+
+      // Evaluate trait expression
+      // Note: errors propagate via outer exn (collect_pending fallback simplified)
+      (trait_ty2 : TypeValue)    = TypeValue.Unit;
+      old_self_type := ctx.self_type;
+      old_self_trait_type := ctx.self_trait_type;
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
+      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
+      ctx.self_type = old_self_type;
+      ctx.self_trait_type = old_self_trait_type;
+
+      te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
+      te_info     := match(te_info_opt, .Some(i) => i, .None => {
+        if(collect_pending, {
+          pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          continue;
+        }, {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(unwrapped_te),
+            String.from("Expected trait type for right-hand side of where clause constraint."),
+            false,
+            .None
+          ));
+        });
+        new_expr_info(env_mut.*, TypeValue.Unit)
+      });
+
+      if(!(is_type_value(te_info.value)), {
+        if(collect_pending, {
+          pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          continue;
+        }, {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(unwrapped_te),
+            String.from("Expected trait type for right-hand side of where clause constraint."),
+            false,
+            .None
+          ));
+        });
+      });
+
+      env_mut.* = te_info.env;
+      trait_ty2 = match(te_info.value,
+        .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .None    => TypeValue.Unit
+      );
+
+      if(!(is_trait_type(trait_ty2)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(unwrapped_te),
+          `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty2)}`,
+          false,
+          .None
+        ));
+      });
+
+      if(_trait_has_receiver(trait_ty2), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(unwrapped_te),
+          String.from("Trait type in where clause already has a receiver type assigned."),
+          false,
+          .None
+        ));
+      });
+
+      // If LHS is Self, record constraint on the trait type
+      if(res.is_self, {
+        match(trait_ty,
+          .TraitT(_, _, _, _, _, _, sc, nc) => {
+            if(is_neg, { nc.push(trait_ty2); }, { sc.push(trait_ty2); });
+          },
+          _ => ()
+        );
+      });
+
+      // Add constraint to SomeT's required/negative trait lists
+      _add_where_clause_constraint(res.some_ty, trait_ty2, is_neg);
+    };
+  };
+
+  pending_traits
+});
+
+// ---------------------------------------------------------------------------
+// _evaluate_trait_field
+// ---------------------------------------------------------------------------
+
+/// Evaluate a single field expression inside a `trait(...)` definition.
+/// Mirrors `evaluateTraitField` from trait.ts lines 454-878.
+///
+/// Parses the field syntax, evaluates the type, handles optional default/assigned
+/// values, sets expr info entries, and detects associated types.
+_evaluate_trait_field :: (fn(
+  expr                       : AstExpr,
+  trait_field_index          : usize,
+  self_type                  : TypeValue,
+  trait_ty                   : TypeValue,
+  expected_trait_type_opt    : Option(TypeValue),
+  env_mut                    : *(Environment),
+  ctx                        : *(EvalContext),
+  is_for_evaluating_trait_ty : bool,
+  using(exn : Exception)
+) -> _TraitFieldResult)({
+  // Phase 1: detect `?=` outer wrapper
+  (default_value_expr_opt  : Option(AstExpr)) = Option(AstExpr).None;
+  (assigned_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
+  (expr_inner              : AstExpr)         = expr;
+
+  if(ast_expr_is_fn_call_of(expr, "?=", .Some(usize(2))), {
+    inner_args          := _fn_call_args(expr);
+    default_value_expr_opt = .Some(match(inner_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner         = match(inner_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  });
+
+  // Phase 2: detect `=` / `:=` / `::` assigned value
+  if((ast_expr_is_fn_call_of(expr_inner, BK_ASSIGN, .Some(usize(2))) ||
+      ast_expr_is_fn_call_of(expr_inner, BK_INIT_ASSIGN, .Some(usize(2))) ||
+      ast_expr_is_fn_call_of(expr_inner, BK_CONST, .Some(usize(2)))), {
+    if(ast_expr_is_fn_call_of(expr_inner, BK_CONST, .Some(usize(2))), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr_inner),
+        String.from("Cannot use \"::\" for trait field. Use \":=\" instead.\nAll trait fields are compile-time only by default."),
+        false,
+        .None
+      ));
+    });
+    av_args             := _fn_call_args(expr_inner);
+    assigned_value_expr_opt = .Some(match(av_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner         = match(av_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  });
+
+  // Cannot have both default and assigned
+  if((default_value_expr_opt.is_some() && assigned_value_expr_opt.is_some()), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("Cannot have both default value and required value for trait field."),
+      false,
+      .None
+    ));
+  });
+
+  // Phase 3: parse label and type expr
+  (label_str       : String)          = String.from("");
+  (label_expr_opt  : Option(AstExpr)) = Option(AstExpr).None;
+  (type_expr_opt   : Option(AstExpr)) = Option(AstExpr).None;
+
+  if(ast_expr_is_fn_call_of(expr_inner, BK_COLON, .Some(usize(2))), {
+    // `label : Type` form
+    colon_args       := _fn_call_args(expr_inner);
+    lhs_label_expr   := match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_type_expr    := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+
+    // `comptime(label) : Type` is forbidden in traits
+    if(ast_expr_is_fn_call_of(lhs_label_expr, BK_COMPTIME, .Some(usize(1))), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs_label_expr),
+        String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default."),
+        false,
+        .None
+      ));
+    });
+
+    if((!(ast_expr_is_atom(lhs_label_expr)) && !(is_valid_variable_name(lhs_label_expr))), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs_label_expr),
+        `Expected identifier for trait field label, got ${ast_expr_to_string(lhs_label_expr)}`,
+        false,
+        .None
+      ));
+    });
+
+    label_str      = ast_expr_token(lhs_label_expr).value;
+    label_expr_opt = .Some(lhs_label_expr);
+    type_expr_opt  = .Some(rhs_type_expr);
+  }, {
+    // No colon — check for `comptime(x)` form (forbidden)
+    if(ast_expr_is_fn_call_of(expr_inner, BK_COMPTIME, .Some(usize(1))), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr_inner),
+        String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default."),
+        false,
+        .None
+      ));
+    });
+
+    // Must have default or assigned for no-colon form; e.g. `Output ?= Self`
+    if((default_value_expr_opt.is_none() && assigned_value_expr_opt.is_none()), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        `Expected label for trait field, got ${ast_expr_to_string(expr_inner)}`,
+        false,
+        .None
+      ));
+    });
+
+    // The expr_inner itself is the label
+    if(!(is_valid_variable_name(expr_inner)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr_inner),
+        `Expected identifier for trait field label, got ${ast_expr_to_string(expr_inner)}`,
+        false,
+        .None
+      ));
+    });
+
+    label_str      = ast_expr_token(expr_inner).value;
+    label_expr_opt = .Some(expr_inner);
+  });
+
+  // Determine expected field type from context
+  (expected_field_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
+  match(expected_trait_type_opt, .Some(expected_tt) => {
+    match(expected_tt,
+      .TraitT(_, _, _, fts, _, _, _, _) => {
+        match(fts.get(trait_field_index),
+          .Some(ft) => {
+            expected_field_ty_opt = .Some(ft);
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  }, .None => ());
+
+  // Phase 4: evaluate type expression if present
+  (field_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
+
+  match(type_expr_opt, .Some(type_expr) => {
+    // Set expected type on ctx temporarily
+    old_expected_type := ctx.expected_type;
+    match(expected_field_ty_opt, .Some(eft) => {
+      ctx.expected_type = .Some(ExpectedTypeCtx(eft, env_mut.*));
+    }, .None => {
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+    });
+
+    old_self_type := ctx.self_type;
+    old_self_trait_type := ctx.self_trait_type;
+    ctx.self_type = .Some(self_type);
+    ctx.self_trait_type = .Some(trait_ty);
+
+    evaluated_te := evaluate_expression(type_expr, env_mut.*, ctx);
+
+    ctx.expected_type = old_expected_type;
+    ctx.self_type = old_self_type;
+    ctx.self_trait_type = old_self_trait_type;
+
+    te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
+    te_info     := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut.*, TypeValue.Unit));
+    env_mut.* = te_info.env;
+
+    if(!(is_type_value(te_info.value)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(type_expr),
+        `Expected type for trait field, got ${ast_expr_to_string(type_expr)}`,
+        false,
+        .None
+      ));
+    });
+
+    ty := match(te_info.value,
+      .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
+      .None    => TypeValue.Unit
+    );
+    field_ty_opt = .Some(ty);
+  }, .None => ());
+
+  // Phase 5: evaluate assigned value if present
+  (assigned_val_opt : Option(EvalValue)) = Option(EvalValue).None;
+
+  match(assigned_value_expr_opt, .Some(av_expr) => {
+    field_expected_ty_opt := match(field_ty_opt,
+      .Some(ft) => Option(TypeValue).Some(ft),
+      .None     => expected_field_ty_opt
+    );
+
+    old_expected_type := ctx.expected_type;
+    match(field_expected_ty_opt, .Some(fet) => {
+      ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut.*));
+    }, .None => {
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+    });
+
+    old_self_type := ctx.self_type;
+    old_self_trait_type := ctx.self_trait_type;
+    ctx.self_type = .Some(self_type);
+    ctx.self_trait_type = .Some(trait_ty);
+
+    evaluated_av := evaluate_expression(av_expr, env_mut.*, ctx);
+
+    ctx.expected_type = old_expected_type;
+    ctx.self_type = old_self_type;
+    ctx.self_trait_type = old_self_trait_type;
+
+    av_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_av));
+    av_info     := match(av_info_opt, .Some(i) => i, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(av_expr),
+        `Failed to evaluate required value expression: ${ast_expr_to_string(av_expr)}`,
+        false,
+        .None
+      ));
+      new_expr_info(env_mut.*, TypeValue.Unit)
+    });
+
+    env_mut.* = av_info.env;
+    av := match(av_info.value, .Some(v) => v, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(av_expr),
+        `Expected compile-time known value for required value, got ${ast_expr_to_string(av_expr)}`,
+        false,
+        .None
+      ));
+      EvalValue.UnitVal
+    });
+
+    // Validate type compatibility if expected type is set
+    av_ty := av_info.ty;
+    match(field_expected_ty_opt, .Some(fet) => {
+      if(!(are_types_compatible(fet, av_ty)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(av_expr),
+          `Assigned value type mismatch:\nExpected type: ${type_to_string(fet)}\nGiven type: ${type_to_string(av_ty)}`,
+          false,
+          .None
+        ));
+      });
+      field_ty_opt = .Some(fet);
+    }, .None => {
+      field_ty_opt = .Some(av_ty);
+    });
+
+    assigned_val_opt = .Some(av);
+  }, .None => ());
+
+  // Phase 6: evaluate default value if present
+  (default_val_opt : Option(EvalValue)) = Option(EvalValue).None;
+
+  match(default_value_expr_opt, .Some(dv_expr) => {
+    field_expected_ty_opt := match(field_ty_opt,
+      .Some(ft) => Option(TypeValue).Some(ft),
+      .None     => expected_field_ty_opt
+    );
+
+    old_expected_type := ctx.expected_type;
+    match(field_expected_ty_opt, .Some(fet) => {
+      ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut.*));
+    }, .None => {
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+    });
+
+    old_self_type := ctx.self_type;
+    old_self_trait_type := ctx.self_trait_type;
+    ctx.self_type = .Some(self_type);
+    ctx.self_trait_type = .Some(trait_ty);
+
+    evaluated_dv := evaluate_expression(dv_expr, env_mut.*, ctx);
+
+    ctx.expected_type = old_expected_type;
+    ctx.self_type = old_self_type;
+    ctx.self_trait_type = old_self_trait_type;
+
+    dv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dv));
+    dv_info     := match(dv_info_opt, .Some(i) => i, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(dv_expr),
+        `Failed to evaluate default value expression: ${ast_expr_to_string(dv_expr)}`,
+        false,
+        .None
+      ));
+      new_expr_info(env_mut.*, TypeValue.Unit)
+    });
+
+    env_mut.* = dv_info.env;
+    dv := match(dv_info.value, .Some(v) => v, .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(dv_expr),
+        `Expected compile-time known value for default value, got ${ast_expr_to_string(dv_expr)}`,
+        false,
+        .None
+      ));
+      EvalValue.UnitVal
+    });
+
+    // Validate type compatibility
+    dv_ty := dv_info.ty;
+    match(field_expected_ty_opt, .Some(fet) => {
+      if(!(are_types_compatible(fet, dv_ty)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(dv_expr),
+          `Default value type mismatch:\nExpected type: ${type_to_string(fet)}\nGiven type: ${type_to_string(dv_ty)}`,
+          false,
+          .None
+        ));
+      });
+      field_ty_opt = .Some(fet);
+    }, .None => {
+      field_ty_opt = .Some(dv_ty);
+    });
+
+    default_val_opt = .Some(dv);
+  }, .None => ());
+
+  // Unwrap field type
+  field_ty := match(field_ty_opt, .Some(ft) => ft, .None => {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("Failed to infer the field type"),
+      false,
+      .None
+    ));
+    TypeValue.Unit
+  });
+
+  // Set expr info on label_expr
+  match(label_expr_opt, .Some(le) => {
+    label_val := match(assigned_val_opt, .Some(av) => av, .None => create_unknown_val(field_ty));
+    le_info := new_expr_info(env_mut.*, field_ty);
+    le_info.value = .Some(label_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
+  }, .None => ());
+
+  // Set expr info on the field expr itself (unit value)
+  unit_info := new_expr_info(env_mut.*, TypeValue.Unit);
+  unit_info.value = .Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
+
+  // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
+  (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
+
+  is_type_uni_0 := match(field_ty, .TypeUni(lvl) => (lvl == usize(0)), _ => false);
+  if(((is_for_evaluating_trait_ty && assigned_val_opt.is_none()) && is_type_uni_0), {
+    // Check if a SomeType for this label already exists in env
+    existing_vars := get_variables_from_env(env_mut.*, label_str);
+    (found_existing : bool) = false;
+    if((existing_vars.len() > usize(0)), {
+      match(existing_vars.get((existing_vars.len() - usize(1))),
+        .Some(last_v) => {
+          match(last_v.value,
+            .Some(ev) => {
+              match(ev,
+                .TypeVal(b) => {
+                  if(is_some_type(b.*), {
+                    assoc_some_ty_opt = .Some(b.*);
+                    found_existing = true;
+                  });
+                },
+                _ => ()
+              );
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
+
+    if(!(found_existing), {
+      top_frame := env_mut.frames.len();
+      if((top_frame > usize(0)), {
+        new_some_ty := t_some_t(label_str, (top_frame - usize(1)));
+        assoc_some_ty_opt = .Some(new_some_ty);
+      });
+    });
+  });
+
+  _TraitFieldResult(
+    label_str,
+    field_ty,
+    assoc_some_ty_opt,
+    assigned_val_opt,
+    default_val_opt
+  )
+});
+
+// ---------------------------------------------------------------------------
+// evaluate_trait_type
+// ---------------------------------------------------------------------------
+
+/// Evaluate a `trait(...)` expression.
+/// Mirrors `evaluateTraitType` from trait.ts lines 880-1140.
+evaluate_trait_type :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected "trait", got:\n${ast_expr_to_string(expr)}`,
+      false,
+      .None
+    ));
+  });
+
+  (env_mut : Environment) = env;
+
+  // Extract trait name from context if available
+  // (yo-self: trait name is set externally via variable binding, not embedded in the trait expr)
+  trait_name_str := String.from("");
+
+  // Build the shared ArrayLists that will form the TraitT value
+  trait_id         := `trait_${random_id(env_mut.module_path)}`;
+  assoc_type_names := ArrayList(String).new();
+  field_labels     := ArrayList(String).new();
+  field_types      := ArrayList(TypeValue).new();
+  self_constraints     := ArrayList(TypeValue).new();
+  neg_self_constraints := ArrayList(TypeValue).new();
+
+  // Mutable trait type value — ArrayList fields are RC objects, so in-place
+  // push() calls on self_constraints/neg_self_constraints reflect into trait_ty.
+  (trait_ty : TypeValue) = TypeValue.TraitT(
+    trait_name_str,
+    assoc_type_names,
+    field_labels,
+    field_types,
+    trait_id,
+    Option(Box(TypeValue)).None,
+    self_constraints,
+    neg_self_constraints
+  );
+
+  // Push a scoped env frame for trait evaluation
+  _ := env_mut.push_frame(false);
+
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+
+  // Create "Self" SomeType for the trait
+  top_frame := env_mut.frames.len();
+  self_frame_level := if((top_frame > usize(0)), (top_frame - usize(1)), usize(0));
+  self_type := t_some_t(String.from("Self"), self_frame_level);
+  // Note: selfType.trait = traitType is skipped — SomeT has no `trait` field in yo-self.
+
+  // Find where clause exprs (last arg, if it's a where(...) call)
+  (where_clause_exprs_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  if((args.len() > usize(0)), {
+    last_arg := match(args.get((args.len() - usize(1))), .Some(a) => a, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(last_arg, BK_WHERE, .None), {
+      w_args := _fn_call_args(last_arg);
+      if((w_args.len() == usize(0)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(last_arg),
+          String.from("The where clause must have at least one constraint."),
+          false,
+          .None
+        ));
+      });
+      where_clause_exprs_opt = .Some(w_args);
+    });
+  });
+
+  // Pre-parse where-clause constraints (collect_pending = true)
+  pending_constraints := ArrayList(_PendingTraitConstraint).new();
+
+  match(where_clause_exprs_opt, .Some(wce) => {
+    if((wce.len() > usize(0)), {
+      old_self_type := ctx.self_type;
+      old_self_trait_type := ctx.self_trait_type;
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
+
+      pending_constraints = _parse_trait_where_clauses(
+        wce, self_type, trait_ty, true, &(env_mut), ctx, using(exn)
+      );
+
+      ctx.self_type = old_self_type;
+      ctx.self_trait_type = old_self_trait_type;
+    });
+  }, .None => ());
+
+  // Evaluate trait fields (skip the where clause if present at the end)
+  (field_index : usize) = usize(0);
+  (i : usize) = usize(0);
+  while runtime((i < args.len())), {
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    i = (i + usize(1));
+
+    if(ast_expr_is_fn_call_of(arg, BK_WHERE, .None), {
+      if((i != args.len()), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg),
+          String.from("The where clause must be the last argument in a trait definition."),
+          false,
+          .None
+        ));
+      });
+      continue;
+    });
+
+    // Determine expected field type from context
+    expected_trait_type_opt := match(ctx.expected_type,
+      .Some(et) => match(et.ty,
+        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
+        _ => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    );
+
+    field_result := _evaluate_trait_field(
+      arg,
+      field_index,
+      self_type,
+      trait_ty,
+      expected_trait_type_opt,
+      &(env_mut),
+      ctx,
+      true,
+      using(exn)
+    );
+    field_index = (field_index + usize(1));
+
+    // Check for duplicate labels
+    (is_duplicate : bool) = false;
+    (li : usize) = usize(0);
+    while runtime((li < field_labels.len())), {
+      existing_label := match(field_labels.get(li), .Some(s) => s, .None => String.from(""));
+      li = (li + usize(1));
+      if((existing_label.as_str() == field_result.label.as_str()), {
+        is_duplicate = true;
+        li = field_labels.len();
+      });
+    };
+    if(is_duplicate, {
+      exn.throw(dyn format_error_message(
+        match(args.get((i - usize(1))), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr)),
+        `Duplicate label 3 "${field_result.label}" in trait`,
+        false,
+        .None
+      ));
+    });
+
+    field_labels.push(field_result.label);
+    field_types.push(field_result.ty);
+
+    // If it's an associated type, add it to assoc_type_names and bind in env
+    match(field_result.assoc_some_ty, .Some(some_ty) => {
+      assoc_type_names.push(field_result.label);
+
+      // Only bind if not already bound (check existing vars)
+      existing_vars := get_variables_from_env(env_mut, field_result.label);
+      (already_bound : bool) = false;
+      if((existing_vars.len() > usize(0)), {
+        match(existing_vars.get((existing_vars.len() - usize(1))),
+          .Some(last_v) => {
+            match(last_v.value,
+              .Some(ev) => {
+                match(ev,
+                  .TypeVal(b) => {
+                    if(is_some_type(b.*), {
+                      already_bound = true;
+                    });
+                  },
+                  _ => ()
+                );
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      });
+
+      if(!(already_bound), {
+        tv := create_type_value(some_ty);
+        _ := add_variable_to_env(
+          &(env_mut),
+          field_result.label,
+          type_of_type(some_ty),
+          .Some(tv),
+          true,   // is_compile_time_only
+          false,  // is_reassignable
+          false,  // is_owning_the_rc_value
+          false,  // is_implicit
+          ast_expr_token(arg)
+        );
+      });
+    }, .None => ());
+  };
+
+  // Retry any pending where-clause constraints after all fields are evaluated
+  if((pending_constraints.len() > usize(0)), {
+    still_pending := ArrayList(_PendingTraitConstraint).new();
+
+    (pi : usize) = usize(0);
+    while runtime((pi < pending_constraints.len())), {
+      pc := match(pending_constraints.get(pi), .Some(p) => p, .None => {
+        pi = pending_constraints.len();
+        _PendingTraitConstraint(make_err_expr(), make_err_expr(), make_err_expr())
+      });
+      pi = (pi + usize(1));
+
+      success := _apply_single_constraint_for_trait(
+        pc.lhs_expr, pc.trait_expr, self_type, trait_ty, &(env_mut), ctx
+      );
+
+      if(!(success), {
+        still_pending.push(pc);
+      });
+    };
+
+    if((still_pending.len() > usize(0)), {
+      // Re-evaluate the first failing constraint to surface a proper error
+      failed := match(still_pending.get(usize(0)), .Some(p) => p, .None => {
+        still_pending.get(usize(0));
+        _PendingTraitConstraint(make_err_expr(), make_err_expr(), make_err_expr())
+      });
+      retry_list := ArrayList(AstExpr).new();
+      retry_list.push(failed.original_constraint_expr);
+
+      old_self_type := ctx.self_type;
+      old_self_trait_type := ctx.self_trait_type;
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
+
+      _ := _parse_trait_where_clauses(
+        retry_list, self_type, trait_ty, false, &(env_mut), ctx, using(exn)
+      );
+
+      ctx.self_type = old_self_type;
+      ctx.self_trait_type = old_self_trait_type;
+    });
+  });
+
+  // Pop the scoped env frame
+  env_mut.pop_frame();
+
+  // Build final trait type value and set expr info
+  trait_val := create_type_value(trait_ty);
+  out_info  := new_expr_info(env_mut, type_of_type(trait_ty));
+  out_info.value = .Some(trait_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+
+  // Also set info on the callee (func) expression
+  match(expr, .FnCall(_, func_box, _, _, _) => {
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_box.*), out_info);
+  }, .Atom(_, _) => ());
+
+  expr
+});
+
+export evaluate_trait_type;

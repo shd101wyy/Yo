@@ -1,0 +1,523 @@
+//! evaluate_anonymous_function_implementation — evaluates anonymous function literals.
+//!
+//! Phase 3 implementation — port of `src/evaluator/values/anonymous-function.ts`.
+//!
+//! Handles:
+//!   `(params) -> body`   — regular anonymous function (expected type must be Func)
+//!   `(params) => body`   — closure (expected type must be SomeT or FnTraitT with Fn trait)
+//!   `(params) =>> body`  — async closure (like `=>` but marks io.async context)
+//!
+//! Phase 3 simplifications (vs full TypeScript port):
+//!   - Capture struct creation skipped (cap_names/cap_tys/cap_vals are empty)
+//!   - substituteSomeTypesFromEnv skipped
+//!   - evaluatedBodyContainsEscape skipped
+//!   - analyzeCtfeCapability skipped
+//!   - await analysis skipped
+//!   - Effect row spread expansion skipped (uses existing implicit params as-is)
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+
+{
+  AstExpr,
+  ast_expr_token, ast_expr_id,
+  ast_expr_is_fn_call_of, ast_expr_is_atom,
+  make_err_expr,
+  BK_TUPLE
+} :: import "../../expr/expr.yo";
+
+{
+  ExprInfo, new_expr_info,
+  expr_info_table_set
+} :: import "../../expr/expr_info.yo";
+
+{
+  Environment,
+  add_variable_to_env,
+  synthetic_token
+} :: import "../../env/env.yo";
+
+{
+  TypeValue, t_unit
+} :: import "../../types/type.yo";
+
+{
+  EvalValue,
+  create_unknown_val
+} :: import "../value.yo";
+
+{
+  EvalContext
+} :: import "../context.yo";
+{ random_id } :: import "../utils.yo";
+{ format_error_message } :: import "../../error/error.yo";
+{ Exception } :: import "std/error";
+{ register_definition_site_return }  :: import "../types/definition_site_registry.yo";
+{ extract_fn_trait_from_type } :: import "../trait_checking.yo";
+
+/// Helper: get the operator string from an anonymous function expression.
+/// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
+_get_anon_op :: (fn(expr : AstExpr) -> String)(
+  match(expr,
+    .Atom(_, t) => t.value,
+    .FnCall(_, fb, _, _, _) => match(fb.*,
+      .Atom(_, t) => t.value,
+      .FnCall(_, _, _, _, _) => String.from("<unknown>")
+    )
+  )
+);
+
+/// Helper: get the argument at index `i` from a FnCall, or `make_err_expr()` if missing.
+_get_arg :: (fn(expr : AstExpr, i : usize) -> AstExpr)(
+  match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(i),
+      .Some(a) => a,
+      .None    => make_err_expr()
+    ),
+    .Atom(_, _) => make_err_expr()
+  )
+);
+
+/// Helper: get the actual parameter name from a parameter expression.
+/// Handles bare atoms (`x`) and colon-annotated (`x : T`).
+/// Falls back to `fallback` if neither pattern matches.
+_get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> String)(
+  match(param_expr,
+    .Atom(_, ptok) => ptok.value,
+    .FnCall(_, fb, args, _, _) => match(fb.*,
+      .Atom(_, fbtok) => cond(
+        (fbtok.value.as_str() == ":") => match(args.get(usize(0)),
+          .Some(name_expr) => match(name_expr,
+            .Atom(_, ntok) => ntok.value,
+            .FnCall(_, _, _, _, _) => (&fallback).clone()
+          ),
+          .None => (&fallback).clone()
+        ),
+        true => (&fallback).clone()
+      ),
+      .FnCall(_, _, _, _, _) => (&fallback).clone()
+    )
+  )
+);
+
+/// Helper: build a Func TypeValue from a FnTraitT TypeValue.
+/// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
+/// and wraps them in a no-forall, no-implicit Func.
+_func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
+  match(ftt,
+    .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
+      ArrayList(String).new(),   // no forall labels
+      ArrayList(TypeValue).new(),// no forall types
+      cpl,
+      cpt,
+      ArrayList(String).new(),   // no implicit labels
+      ArrayList(TypeValue).new(),// no implicit types
+      ArrayList(bool).new(),     // no effect row spreads
+      ArrayList(TypeValue).new(),// no where types
+      cr_box
+    ),
+    _ => TypeValue.Unit
+  )
+);
+
+evaluate_anonymous_function_implementation :: (fn(
+  expr   : AstExpr,
+  env    : Environment,
+  ctx    : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  tok := ast_expr_token(expr);
+  op_str := _get_anon_op(expr);
+
+  // Require exactly 2 args: param declaration + body.
+  n_expr_args := match(expr,
+    .FnCall(_, _, a, _, _) => a.len(),
+    .Atom(_, _) => usize(0)
+  );
+  if((n_expr_args != usize(2)), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Anonymous function: expected 2 args, got ${n_expr_args}`,
+      false,
+      .None
+    ));
+  });
+
+  param_decl := _get_arg(expr, usize(0));
+  body_expr  := _get_arg(expr, usize(1));
+
+  // -------------------------------------------------------------------------
+  // Resolve the expected type from context.
+  // -------------------------------------------------------------------------
+  expected_ty := match(ctx.expected_type,
+    .Some(etc) => etc.ty,
+    .None => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("Anonymous function: no expected type in context. Add an explicit type annotation."),
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Determine whether this is a closure (`=>` / `=>>`) or regular function
+  // (`->`).  For closures the expected type is normally SomeT or FnTraitT
+  // (the Fn-trait wrapper); for regular functions it is Func.
+  // -------------------------------------------------------------------------
+  op_is_arrow      := (op_str.as_str() == "->");
+  is_creating_closure := (!(op_is_arrow));
+
+  // Resolve the concrete Func type to use for parameter/return information.
+  // For Func expected types: use directly.
+  // For FnTraitT: convert to Func.
+  // For SomeT: extract FnTraitT via trait_checking, then convert to Func.
+  function_type_opt := match(expected_ty,
+    .Func(_, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(expected_ty),
+    .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
+    .SomeT(_, _, _, _, _, _, _, _, _) => {
+      fn_trait_opt := extract_fn_trait_from_type(expected_ty);
+      match(fn_trait_opt,
+        .Some(ftt) => Option(TypeValue).Some(_func_from_fn_trait(ftt)),
+        .None      => Option(TypeValue).None
+      )
+    },
+    _ => Option(TypeValue).None
+  );
+
+  function_type := match(function_type_opt,
+    .Some(ft) => ft,
+    .None => {
+      exn.throw(dyn format_error_message(
+        tok,
+        String.from("Anonymous function: expected a Func or Impl(Fn(...)) type"),
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Extract Func fields.
+  // -------------------------------------------------------------------------
+  forall_labels   := match(function_type,
+    .Func(fl, _, _, _, _, _, _, _, _) => fl,
+    _ => ArrayList(String).new()
+  );
+  param_labels    := match(function_type,
+    .Func(_, _, pl, _, _, _, _, _, _) => pl,
+    _ => ArrayList(String).new()
+  );
+  param_types     := match(function_type,
+    .Func(_, _, _, pt, _, _, _, _, _) => pt,
+    _ => ArrayList(TypeValue).new()
+  );
+  implicit_labels := match(function_type,
+    .Func(_, _, _, _, il, _, _, _, _) => il,
+    _ => ArrayList(String).new()
+  );
+  implicit_types  := match(function_type,
+    .Func(_, _, _, _, _, it, _, _, _) => it,
+    _ => ArrayList(TypeValue).new()
+  );
+  result_box      := match(function_type,
+    .Func(_, _, _, _, _, _, _, _, rb) => rb,
+    _ => box(TypeValue.Unit)
+  );
+
+  // -------------------------------------------------------------------------
+  // Parse the parameter declaration into a flat list.
+  // `param_decl` is either a tuple(...) with multiple params or a single expr.
+  // -------------------------------------------------------------------------
+  raw_param_exprs := match(param_decl,
+    .FnCall(_, fb2, decl_args, _, _) => match(fb2.*,
+      .Atom(_, ptok) => cond(
+        (ptok.value.as_str() == BK_TUPLE) => decl_args,
+        true => {
+          single_list := ArrayList(AstExpr).new();
+          single_list.push(param_decl);
+          single_list
+        }
+      ),
+      .FnCall(_, _, _, _, _) => {
+        single_list2 := ArrayList(AstExpr).new();
+        single_list2.push(param_decl);
+        single_list2
+      }
+    ),
+    .Atom(_, _) => {
+      single_list3 := ArrayList(AstExpr).new();
+      single_list3.push(param_decl);
+      single_list3
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Separate forall / using / regular parameter expressions.
+  // -------------------------------------------------------------------------
+  forall_param_exprs  := ArrayList(AstExpr).new();
+  using_param_exprs   := ArrayList(AstExpr).new();
+  regular_param_exprs := ArrayList(AstExpr).new();
+
+  (sep_i : usize) = usize(0);
+  n_raw := raw_param_exprs.len();
+  while runtime((sep_i < n_raw)), {
+    pe := match(raw_param_exprs.get(sep_i), .Some(a) => a, .None => make_err_expr());
+    is_forall_call := ast_expr_is_fn_call_of(pe, "forall", .None);
+    is_using_call  := ast_expr_is_fn_call_of(pe, "using", .None);
+    cond(
+      is_forall_call => {
+        fa := match(pe, .FnCall(_, _, fa_args, _, _) => fa_args, .Atom(_, _) => ArrayList(AstExpr).new());
+        (fi : usize) = usize(0);
+        while runtime((fi < fa.len())), {
+          fpe := match(fa.get(fi), .Some(a) => a, .None => make_err_expr());
+          forall_param_exprs.push(fpe);
+          fi = (fi + usize(1));
+        };
+      },
+      is_using_call => {
+        ua := match(pe, .FnCall(_, _, ua_args, _, _) => ua_args, .Atom(_, _) => ArrayList(AstExpr).new());
+        (ui : usize) = usize(0);
+        while runtime((ui < ua.len())), {
+          upe := match(ua.get(ui), .Some(a) => a, .None => make_err_expr());
+          using_param_exprs.push(upe);
+          ui = (ui + usize(1));
+        };
+      },
+      true => {
+        regular_param_exprs.push(pe);
+      }
+    );
+    sep_i = (sep_i + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Validate regular parameter count.
+  // -------------------------------------------------------------------------
+  n_regular  := regular_param_exprs.len();
+  n_expected := param_labels.len();
+  if((n_regular != n_expected), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`,
+      false,
+      .None
+    ));
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 3ad: snapshot outer env for closure/function capture.
+  // Mirrors eval.yo lines 1696-1730: iterate all outer frames and collect
+  // all visible variable bindings. Runtime variables (no comptime value) are
+  // stored as VarRef(name) in cap_vals so they can be found at call time.
+  // This must happen BEFORE pushing the parameter frame so we only capture
+  // the outer lexical scope (params are bound fresh at each call site).
+  // -------------------------------------------------------------------------
+  cap_names  := ArrayList(String).new();
+  cap_tys    := ArrayList(TypeValue).new();
+  cap_vals   := ArrayList(EvalValue).new();
+  n_cap_fr   := env.frames.len();
+  (cap_fi : usize) = usize(0);
+  while runtime((cap_fi < n_cap_fr)), {
+    match(env.frames.get(cap_fi),
+      .Some(cap_frame) => {
+        n_cap_v := cap_frame.variables.len();
+        (cap_vi : usize) = usize(0);
+        while runtime((cap_vi < n_cap_v)), {
+          match(cap_frame.variables.get(cap_vi),
+            .Some(cv) => {
+              cond(
+                (!(cv.name.as_str() == "__recur_fn")) => {
+                  cap_names.push(cv.name);
+                  cap_tys.push(cv.ty);
+                  cap_val := match(cv.value,
+                    .Some(actual) => actual,
+                    .None => EvalValue.VarRef(cv.name)
+                  );
+                  cap_vals.push(cap_val);
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+          cap_vi = (cap_vi + usize(1));
+        };
+      },
+      .None => ()
+    );
+    cap_fi = (cap_fi + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Push a new environment frame for the function parameters.
+  // -------------------------------------------------------------------------
+  _frame_idx := env.push_frame(false);
+
+  // -------------------------------------------------------------------------
+  // Add forall parameters to the environment.
+  // Each forall type variable is bound as a compile-time unknown SomeT.
+  // -------------------------------------------------------------------------
+  (fa_env_i : usize) = usize(0);
+  while runtime((fa_env_i < forall_labels.len())), {
+    fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
+    fl_ty   := TypeValue.SomeT(
+      (&fl_name).clone(),
+      (&fl_name).clone(),
+      env.frame_count(),
+      box(TypeValue.TypeUni(usize(0))),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      false
+    );
+    fl_tok  := synthetic_token((&fl_name).clone(), env.module_path);
+    _fa_v   := add_variable_to_env(
+      &(env),
+      (&fl_name).clone(),
+      TypeValue.TypeUni(usize(0)),
+      Option(EvalValue).Some(EvalValue.TypeVal(box(fl_ty))),
+      true,
+      false,
+      false,
+      false,
+      fl_tok
+    );
+    fa_env_i = (fa_env_i + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Add implicit (using) parameters to the environment.
+  // -------------------------------------------------------------------------
+  (il_env_i : usize) = usize(0);
+  while runtime((il_env_i < implicit_labels.len())), {
+    il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
+    il_ty   := match(implicit_types.get(il_env_i), .Some(t) => t, .None => TypeValue.Unit);
+    il_tok  := synthetic_token((&il_name).clone(), env.module_path);
+    il_val  := create_unknown_val((&il_ty).clone());
+    _il_v   := add_variable_to_env(
+      &(env),
+      (&il_name).clone(),
+      il_ty,
+      Option(EvalValue).Some(il_val),
+      true,
+      false,
+      false,
+      true,
+      il_tok
+    );
+    il_env_i = (il_env_i + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Build param_type_names and add regular parameters to the environment.
+  // Use the user-supplied name from the parameter expression where available;
+  // fall back to the expected label.
+  // -------------------------------------------------------------------------
+  param_type_names    := ArrayList(String).new();
+  actual_param_labels := ArrayList(String).new();
+
+  (rp_i : usize) = usize(0);
+  while runtime((rp_i < n_regular)), {
+    rpe        := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
+    exp_label  := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
+    rp_ty      := match(param_types.get(rp_i), .Some(t) => t, .None => TypeValue.Unit);
+
+    // Derive the actual parameter name from the user's expression.
+    param_name := _get_param_name_from_expr(rpe, (&exp_label).clone());
+
+    // param_type_name for generic param binding at call time
+    ptn := match(rp_ty,
+      .SomeT(_, name, _, _, _, _, _, _, _) => name,
+      _ => String.from("")
+    );
+    param_type_names.push((&ptn).clone());
+    actual_param_labels.push((&param_name).clone());
+
+    rp_tok  := ast_expr_token(rpe);
+    _rp_v   := add_variable_to_env(
+      &(env),
+      param_name,
+      rp_ty,
+      Option(EvalValue).None,
+      false,
+      false,
+      false,
+      false,
+      rp_tok
+    );
+    rp_i = (rp_i + usize(1));
+  };
+
+  // -------------------------------------------------------------------------
+  // Build the FuncVal.
+  // Phase 3ad: captures are populated from the outer env snapshot above.
+  // -------------------------------------------------------------------------
+  func_id := cond(
+    is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
+    true                => (String.from("fn_")      + random_id(env.module_path))
+  );
+
+  func_val := EvalValue.FuncVal(
+    forall_labels,
+    actual_param_labels,
+    param_type_names,
+    implicit_labels,
+    box(body_expr),
+    cap_names,
+    cap_tys,
+    cap_vals,
+    (&func_id).clone()
+  );
+
+  // Register definitionSiteEnclosingFunctionType return type.
+  // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+  //   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type : undefined
+  // in src/evaluator/values/anonymous-function.ts.
+  match(ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(fb_ctx.kind,
+      .FunctionBody => match(fb_ctx.func_type,
+        .Some(enclosing_func_ty) => {
+          enclosing_return_ty := match(enclosing_func_ty,
+            .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
+            _ => TypeValue.Unit
+          );
+          register_definition_site_return((&func_id).clone(), enclosing_return_ty);
+        },
+        .None => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
+
+  // -------------------------------------------------------------------------
+  // Create a function-body evaluation context and evaluate the body.
+  // Phase 3: body evaluation is deferred to call time (like
+  // try_to_implement_function_by_function_type). This means return-type
+  // mismatches inside the body are not caught at definition time.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Restore the parameter frame.
+  // -------------------------------------------------------------------------
+  env.pop_frame();
+
+  // -------------------------------------------------------------------------
+  // Build and store the ExprInfo for this expression.
+  // -------------------------------------------------------------------------
+  info := new_expr_info(env, function_type);
+  info.value                            = Option(EvalValue).Some(func_val);
+  info.is_anonymous_function_definition = Option(bool).Some(true);
+  // Phase 3: closure_function_value is not set (EvalValue is not Clone).
+  // Downstream code falls back to reading info.value when closure_function_value is None.
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+
+  expr
+});
+
+export evaluate_anonymous_function_implementation;

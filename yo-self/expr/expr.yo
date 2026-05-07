@@ -5,7 +5,9 @@
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
-{ TokenKind, Token } :: import "../lexer/token.yo";
+{ TokenKind, Token }        :: import "../lexer/token.yo";
+{ format_error_message }    :: import "../error/error.yo";
+{ Exception }               :: import "std/error";
 
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE       :: "tuple";
@@ -19,19 +21,219 @@ BK_ANON_STRUCT :: "_";
 BK_EXPORT      :: "export";
 BK_OPEN        :: "open";
 
+/// Builtin function name strings used by evaluator handlers.
+/// Mirrors `BuiltinFunctions` in `src/expr.ts`.
+BF_TYPEOF      :: "typeof";
+BF_SIZEOF      :: "sizeof";
+BF_ALIGNOF     :: "alignof";
+BF_TYPEID      :: "typeid";
+BF_RUNTIME     :: "runtime";
+BF_ESCAPE      :: "escape";
+BF_RECUR       :: "recur";
+BF_DOT         :: ".";
+// Core builtins
+BF_COMPTIME_ASSERT        :: "comptime_assert";
+BF_COMPTIME_FN            :: "comptime_fn";
+BF_COMPTIME_PRINT         :: "comptime_print";
+BF_COMPTIME_EXPECT_ERROR  :: "comptime_expect_error";
+BF_COMPTIME_EVAL          :: "comptime_eval";
+BF_PANIC                  :: "panic";
+BF_ASM                    :: "asm";
+BF_GLOBAL_ASM             :: "global_asm";
+BF_MACRO_EXPAND           :: "macro_expand";
+BF_CONSUME                :: "consume";
+BF_DROP                   :: "___drop";
+BF_DUP                    :: "___dup";
+BF_VA_START               :: "va_start";
+BF_ADDRESS_OF             :: "&";
+BF_ARRAY_FILL             :: "__yo_array_fill";
+BF_DERIVE                 :: "derive";
+BF_DERIVE_RULE            :: "derive_rule";
+BF_RC                     :: "rc";
+BF_THE                    :: "the";
+BF_DOWNCAST               :: "downcast";
+
+// RC / ownership builtins
+BF_YO_DECR_RC             :: "__yo_decr_rc";
+BF_YO_INCR_RC             :: "__yo_incr_rc";
+BF_YO_DECR_RC_ATOMIC      :: "__yo_decr_rc_atomic";
+BF_YO_INCR_RC_ATOMIC      :: "__yo_incr_rc_atomic";
+BF_YO_ISO_EXTRACT         :: "__yo_iso_extract";
+BF_YO_ISO_DISPOSE         :: "__yo_iso_dispose";
+BF_YO_DROP_ARRAY_ELEMENT  :: "__yo_drop_array_element";
+BF_YO_DUP_ARRAY_ELEMENT   :: "__yo_dup_array_element";
+BF_YO_DROP_TUPLE_ELEMENT  :: "__yo_drop_tuple_element";
+BF_YO_DUP_TUPLE_ELEMENT   :: "__yo_dup_tuple_element";
+BF_YO_RC_OWN              :: "__yo_rc_own";
+BF_YO_DYN_DROP            :: "__yo_dyn_drop";
+BF_YO_DYN_DUP             :: "__yo_dyn_dup";
+BF_YO_SOMETYPE_DROP       :: "__yo_sometype_drop";
+BF_YO_SOMETYPE_DUP        :: "__yo_sometype_dup";
+BF_YO_GC_COLLECT          :: "__yo_gc_collect";
+
+// Expr builtins
+BF_YO_AS                  :: "__yo_as";
+
+// Expr builtins
+BF_YO_EXPR_IS_ATOM        :: "__yo_expr_is_atom";
+BF_YO_EXPR_IS_FN_CALL     :: "__yo_expr_is_fn_call";
+BF_YO_EXPR_GET_CALLEE     :: "__yo_expr_get_callee";
+BF_YO_EXPR_GET_ARGS       :: "__yo_expr_get_args";
+BF_YO_EXPR_TO_STRING      :: "__yo_expr_to_string";
+BF_YO_EXPR_EQ             :: "__yo_expr_eq";
+
+// Comptime list builtins
+BF_YO_COMPTIME_LIST_CAR           :: "__yo_comptime_list_car";
+BF_YO_COMPTIME_LIST_CDR           :: "__yo_comptime_list_cdr";
+BF_YO_COMPTIME_LIST_CONS          :: "__yo_comptime_list_cons";
+BF_YO_COMPTIME_LIST_APPEND        :: "__yo_comptime_list_append";
+BF_YO_COMPTIME_LIST_LENGTH        :: "__yo_comptime_list_length";
+BF_YO_COMPTIME_LIST_ELEMENT_TYPE  :: "__yo_comptime_list_element_type";
+BF_YO_COMPTIME_LIST_GET           :: "__yo_comptime_list_get";
+BF_YO_COMPTIME_LIST_INDEX                   :: "__yo_comptime_list_index";
+BF_YO_COMPTIME_LIST_INDEX_RANGE             :: "__yo_comptime_list_index_range";
+BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE   :: "__yo_comptime_list_index_range_inclusive";
+
+// Type builtins
+BF_YO_TYPE_TO_COMPTIME_STRING  :: "__yo_type_to_comptime_string";
+BF_YO_ARE_TYPES_COMPATIBLE     :: "__yo_are_types_compatible";
+BF_YO_ARE_TYPES_EQUAL          :: "__yo_are_types_equal";
+BF_YO_TYPE_CONTAINS_RC_TYPE    :: "__yo_type_contains_rc_type";
+BF_YO_TYPE_CAN_FORM_RC_CYCLE   :: "__yo_type_can_form_rc_cycle";
+BF_YO_TYPE_IMPLS               :: "__yo_type_impls";
+BF_YO_TYPE_GET_INFO            :: "__yo_type_get_info";
+BF_YO_TYPE_JOIN_FIELDS         :: "__yo_type_join_fields";
+BF_YO_TYPE_MAP_VARIANTS        :: "__yo_type_map_variants";
+BF_YO_COMPTIME_STRING_TO_EXPR  :: "__yo_comptime_string_to_expr";
+
+// Var builtins
+BF_YO_VAR_PRINT_INFO           :: "__yo_var_print_info";
+BF_YO_VAR_IS_OWNING_RC         :: "__yo_var_is_owning_the_rc_value";
+BF_YO_VAR_HAS_OTHER_ALIASES    :: "__yo_var_has_other_aliases";
+
+// Process builtins
+BF_YO_PROCESS_PLATFORM   :: "__yo_process_platform";
+BF_YO_PROCESS_ARCH       :: "__yo_process_arch";
+BF_YO_POINTER_SIZE_BITS  :: "__yo_pointer_size_bits";
+
+// Build system builtins
+BF_YO_BUILD_EXECUTABLE          :: "__yo_build_executable";
+BF_YO_BUILD_STATIC_LIBRARY      :: "__yo_build_static_library";
+BF_YO_BUILD_SHARED_LIBRARY      :: "__yo_build_shared_library";
+BF_YO_BUILD_TEST                :: "__yo_build_test";
+BF_YO_BUILD_RUN                 :: "__yo_build_run";
+BF_YO_BUILD_STEP                :: "__yo_build_step";
+BF_YO_BUILD_STEP_DEPEND_ON      :: "__yo_build_step_depend_on";
+BF_YO_BUILD_TARGET_HOST         :: "__yo_build_target_host";
+BF_YO_BUILD_TARGET_PARSE        :: "__yo_build_target_parse";
+BF_YO_BUILD_DEPENDENCY          :: "__yo_build_dependency";
+BF_YO_BUILD_PATH_DEPENDENCY     :: "__yo_build_path_dependency";
+BF_YO_BUILD_SYSTEM_LIBRARY      :: "__yo_build_system_library";
+BF_YO_BUILD_LINK                :: "__yo_build_link";
+BF_YO_BUILD_LINK_SYSTEM_LIBRARY :: "__yo_build_link_system_library";
+BF_YO_BUILD_OPTION              :: "__yo_build_option";
+BF_YO_BUILD_DEP_ARTIFACT        :: "__yo_build_dep_artifact";
+BF_YO_BUILD_MODULE              :: "__yo_build_module";
+BF_YO_BUILD_MODULE_LINK         :: "__yo_build_module_link";
+BF_YO_BUILD_ADD_IMPORT          :: "__yo_build_add_import";
+BF_YO_BUILD_ADD_CFLAGS          :: "__yo_build_add_cflags";
+BF_YO_BUILD_DEP_MODULE          :: "__yo_build_dep_module";
+BF_YO_BUILD_DOC                 :: "__yo_build_doc";
+
+// Comptime bool builtins
+BF_COMPTIME_BOOL_AND                 :: "__yo_comptime_bool_and";
+BF_COMPTIME_BOOL_OR                  :: "__yo_comptime_bool_or";
+BF_COMPTIME_BOOL_EQ                  :: "__yo_comptime_bool_eq";
+BF_COMPTIME_BOOL_NEQ                 :: "__yo_comptime_bool_neq";
+BF_COMPTIME_BOOL_NOT                 :: "__yo_comptime_bool_not";
+BF_COMPTIME_BOOL_TO_COMPTIME_STRING  :: "__yo_comptime_bool_to_comptime_string";
+
+// Comptime string builtins
+BF_COMPTIME_STRING_CONCAT               :: "__yo_comptime_string_concat";
+BF_COMPTIME_STRING_EQ                   :: "__yo_comptime_string_eq";
+BF_COMPTIME_STRING_NEQ                  :: "__yo_comptime_string_neq";
+BF_COMPTIME_STRING_LT                   :: "__yo_comptime_string_lt";
+BF_COMPTIME_STRING_LTE                  :: "__yo_comptime_string_lte";
+BF_COMPTIME_STRING_GT                   :: "__yo_comptime_string_gt";
+BF_COMPTIME_STRING_GTE                  :: "__yo_comptime_string_gte";
+BF_COMPTIME_STRING_LENGTH               :: "__yo_comptime_string_length";
+BF_COMPTIME_STRING_TO_UPPER             :: "__yo_comptime_string_to_upper";
+BF_COMPTIME_STRING_TO_LOWER             :: "__yo_comptime_string_to_lower";
+BF_COMPTIME_STRING_SLICE                :: "__yo_comptime_string_slice";
+BF_COMPTIME_STRING_INDEX                :: "__yo_comptime_string_index";
+BF_COMPTIME_STRING_INDEX_RANGE          :: "__yo_comptime_string_index_range";
+BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE :: "__yo_comptime_string_index_range_inclusive";
+
+// Comptime array/slice index builtins
+BF_COMPTIME_ARRAY_INDEX                  :: "__yo_comptime_array_index";
+BF_COMPTIME_SLICE_INDEX                  :: "__yo_comptime_slice_index";
+BF_COMPTIME_ARRAY_INDEX_RANGE            :: "__yo_comptime_array_index_range";
+BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE  :: "__yo_comptime_array_index_range_inclusive";
+BF_COMPTIME_SLICE_INDEX_RANGE            :: "__yo_comptime_slice_index_range";
+BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE  :: "__yo_comptime_slice_index_range_inclusive";
+
+/// Builtin keyword strings used by the evaluator — control / declaration forms.
+/// Mirrors the `BuiltinKeywords` enum in `src/expr.ts`.
+BK_COMPTIME    :: "comptime";
+BK_GIVEN       :: "given";
+BK_FORALL      :: "forall";
+BK_COLON       :: ":";
+BK_ASSIGN      :: "=";
+BK_INIT_ASSIGN :: ":=";
+BK_CONST       :: "::";
+BK_COND        :: "cond";
+BK_MATCH       :: "match";
+BK_WHILE       :: "while";
+BK_RETURN      :: "return";
+BK_BREAK       :: "break";
+BK_TEST        :: "test";
+BK_EXTERN      :: "extern";      // `extern` declaration form
+BK_C_INCLUDE   :: "c_include";   // `c_include` form
+BK_SUBTYPE_OF  :: "<:";          // `T <: Trait` constraint operator
+BK_EXISTS      :: "exists";      // `exists(T)` type-existence check
+BK_WHERE       :: "where";       // `where(T <: Trait)` clause
+BK_FN               :: "fn";
+BK_UNSAFE_FN        :: "unsafe_fn";
+BK_FN_TRAIT         :: "Fn";
+BK_ATOMIC           :: "atomic";
+BK_OBJECT           :: "object";
+BK_STRUCT           :: "struct";
+BK_NEWTYPE          :: "newtype";
+BK_ENUM             :: "enum";
+BK_UNION            :: "union";
+BK_MODULE           :: "module";
+BK_TRAIT            :: "trait";
+BK_IMPL_UPPER       :: "Impl";
+BK_IMPL_LOWER       :: "impl";
+BK_PTR              :: "*";
+BK_ISO              :: "Iso";
+BK_COMPTIME_LIST_TYPE :: "ComptimeList";
+BK_FUTURE           :: "Future";
+BK_CONCRETE         :: "Concrete";
+BK_DYN_UPPER        :: "Dyn";
+BK_DYN_LOWER        :: "dyn";
+BK_OP_AND           :: "&&";
+BK_OP_OR            :: "||";
+BK_QUOTE            :: "quote";
+BK_GENSYM           :: "gensym";
+BK_COMPTIME_LIST_VAL :: "comptime_list";
+
+/// A stable identifier for an AST expression node. Assigned during parsing.
+ExprId :: usize;
+
 /// An AST expression node. There are exactly two kinds:
 ///  - Atom: a single token (identifier, literal, operator, dot, …)
 ///  - FnCall: a function call with a func expression, args list, infix flag, and token
 AstExpr :: enum(
-  Atom(token : Token),
-  FnCall(func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
 );
 
 derive(AstExpr, Clone);
 
 /// Build a placeholder Atom expression used as a fallback in error paths.
 make_err_expr :: (fn() -> AstExpr)(
-  .Atom(Token(
+  .Atom(usize(0), Token(
     kind: TokenKind.Identifier,
     value: String.from("?"),
     row: usize(0),
@@ -45,45 +247,53 @@ make_err_expr :: (fn() -> AstExpr)(
 /// Return the representative token of an expression (used for error reporting).
 ast_expr_token :: (fn(e : AstExpr) -> Token)(
   match(e,
-    .Atom(tok) => tok,
-    .FnCall(_, _, _, tok) => tok
+    .Atom(_, tok) => tok,
+    .FnCall(_, _, _, _, tok) => tok
   )
 );
 
+
+/// Return the stable ExprId of an expression node.
+ast_expr_id :: (fn(e : AstExpr) -> ExprId)(
+  match(e,
+    .Atom(id, _) => id,
+    .FnCall(id, _, _, _, _) => id
+  )
+);
 /// True if `e` is an Atom.
 ast_expr_is_atom :: (fn(e : AstExpr) -> bool)(
   match(e,
-    .Atom(_) => true,
-    .FnCall(_, _, _, _) => false
+    .Atom(_, _) => true,
+    .FnCall(_, _, _, _, _) => false
   )
 );
 
 /// True if `e` is a FnCall.
 ast_expr_is_fn_call :: (fn(e : AstExpr) -> bool)(
   match(e,
-    .Atom(_) => false,
-    .FnCall(_, _, _, _) => true
+    .Atom(_, _) => false,
+    .FnCall(_, _, _, _, _) => true
   )
 );
 
 /// True if `e` is an Atom whose token is an Operator.
 ast_expr_is_atom_and_operator :: (fn(e : AstExpr) -> bool)(
   match(e,
-    .Atom(tok) => (tok.kind == TokenKind.Operator),
-    .FnCall(_, _, _, _) => false
+    .Atom(_, tok) => (tok.kind == TokenKind.Operator),
+    .FnCall(_, _, _, _, _) => false
   )
 );
 
 /// True if `e` is an infix FnCall with an Operator func and exactly 2 args.
 ast_expr_is_infix_op_fn_call :: (fn(e : AstExpr) -> bool)(
   match(e,
-    .Atom(_) => false,
-    .FnCall(func_box, args, is_infix, _) => cond(
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, is_infix, _) => cond(
       (is_infix == false) => false,
       (args.len() != usize(2)) => false,
       true => match(func_box.*,
-        .Atom(ftok) => (ftok.kind == TokenKind.Operator),
-        .FnCall(_, _, _, _) => false
+        .Atom(_, ftok) => (ftok.kind == TokenKind.Operator),
+        .FnCall(_, _, _, _, _) => false
       )
     )
   )
@@ -92,22 +302,22 @@ ast_expr_is_infix_op_fn_call :: (fn(e : AstExpr) -> bool)(
 /// Convert an expression to a compact string representation (for debugging/error messages).
 ast_expr_to_string :: (fn(e : AstExpr) -> String)(
   match(e,
-    .Atom(tok) => tok.value,
-    .FnCall(func_box, args, is_infix, _) => {
+    .Atom(_, tok) => tok.value,
+    .FnCall(_, func_box, args, is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(func_box.*,
-        .Atom(ftok) => ((ftok.kind == TokenKind.Operator) || (ftok.kind == TokenKind.Dot)),
-        .FnCall(_, _, _, _) => false
+        .Atom(_, ftok) => ((ftok.kind == TokenKind.Operator) || (ftok.kind == TokenKind.Dot)),
+        .FnCall(_, _, _, _, _) => false
       );
       func_is_tuple_kw := match(func_box.*,
-        .Atom(ftok) => (ftok.value.as_str() == BK_TUPLE),
-        .FnCall(_, _, _, _) => false
+        .Atom(_, ftok) => (ftok.value.as_str() == BK_TUPLE),
+        .FnCall(_, _, _, _, _) => false
       );
       cond(
         func_is_op_or_dot => {
           func_tok_val := match(func_box.*,
-            .Atom(ftok) => ftok.value,
-            .FnCall(_, _, _, _) => String.from("?")
+            .Atom(_, ftok) => ftok.value,
+            .FnCall(_, _, _, _, _) => String.from("?")
           );
           cond(
             (n == usize(1)) => {
@@ -196,5 +406,338 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
   )
 );
 
-export AstExpr, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN;
-export make_err_expr, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string;
+export AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN;
+export BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_ESCAPE, BF_RECUR, BF_DOT;
+export BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH;
+export BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST;
+export BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE;
+export make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string;
+
+// ---------------------------------------------------------------------------
+// Atom / FnCall predicate helpers (mirrors src/expr.ts exprIsAtomOf, etc.)
+// ---------------------------------------------------------------------------
+
+/// True if `e` is an Atom whose token value equals `value`.
+/// Mirrors the `typeof values === "string"` branch of `exprIsAtomOf`.
+ast_expr_is_atom_of :: (fn(e : AstExpr, value : str) -> bool)(
+  match(e,
+    .Atom(_, tok)       => (tok.value == String.from(value)),
+    .FnCall(_, _, _, _, _) => false
+  )
+);
+
+/// True if `e` is an Atom whose token value is found in `values`.
+/// Mirrors the `values.includes(expr.token.value)` branch of `exprIsAtomOf`.
+ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
+  match(e,
+    .Atom(_, tok) => {
+      n := values.len();
+      i := usize(0);
+      while runtime((i < n)), {
+        v := match(values.get(i), .Some(s) => s, .None => "~unreachable~");
+        if((tok.value == String.from(v)), { return true; });
+        i = (i + usize(1));
+      };
+      false
+    },
+    .FnCall(_, _, _, _, _) => false
+  )
+);
+
+/// True if `e` is a FnCall whose func is an Atom equal to `func_name`,
+/// and whose argument count equals `arg_count` (if `.Some`).
+/// Mirrors `exprIsFunctionCallOf` in `src/expr.ts`.
+ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(usize)) -> bool)(
+  match(e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, _, _) => {
+      func_name_matches := match(func_box.*,
+        .Atom(_, tok) => (tok.value == String.from(func_name)),
+        .FnCall(_, _, _, _, _) => false
+      );
+      if(!(func_name_matches), { return false; });
+      count_ok := match(arg_count,
+        .None    => true,
+        .Some(n) => (args.len() == n)
+      );
+      count_ok
+    }
+  )
+);
+
+/// True if `e` is a FnCall whose func is an Atom found in `func_names`,
+/// and whose argument count equals `arg_count` (if `.Some`).
+/// Mirrors the `funcNames.includes(funcName)` branch of `exprIsFunctionCallOf`.
+ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_count : Option(usize)) -> bool)(
+  match(e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, _, _) => {
+      func_name_in_list := match(func_box.*,
+        .Atom(_, tok) => {
+          n := func_names.len();
+          i := usize(0);
+          found := false;
+          while runtime((i < n)), {
+            v := match(func_names.get(i), .Some(s) => s, .None => "~unreachable~");
+            if((tok.value == String.from(v)), { found = true; return found; });
+            i = (i + usize(1));
+          };
+          found
+        },
+        .FnCall(_, _, _, _, _) => false
+      );
+      if(!(func_name_in_list), { return false; });
+      count_ok := match(arg_count,
+        .None    => true,
+        .Some(n) => (args.len() == n)
+      );
+      count_ok
+    }
+  )
+);
+
+/// Structural equality for two AstExpr nodes.
+/// Atoms are equal if their token values are equal.
+/// FnCalls are equal if their func and all args are recursively equal.
+///
+/// Mirrors `exprsAreEqual` in `src/expr.ts`.
+exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
+  match(e1,
+    .Atom(_, tok1) => match(e2,
+      .Atom(_, tok2)          => (tok1.value == tok2.value),
+      .FnCall(_, _, _, _, _) => false
+    ),
+    .FnCall(_, func1, args1, _, _) => match(e2,
+      .Atom(_, _) => false,
+      .FnCall(_, func2, args2, _, _) => {
+        if(!(recur(func1.*, func2.*)), { return false; });
+        n1 := args1.len();
+        n2 := args2.len();
+        if((n1 != n2), { return false; });
+        i := usize(0);
+        while runtime((i < n1)), {
+          a1 := match(args1.get(i), .Some(a) => a, .None => make_err_expr());
+          a2 := match(args2.get(i), .Some(a) => a, .None => make_err_expr());
+          if(!(recur(a1, a2)), { return false; });
+          i = (i + usize(1));
+        };
+        true
+      }
+    )
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Expr traversal helpers
+// ---------------------------------------------------------------------------
+
+/// True if `expr` introduces a new function/closure boundary and should NOT
+/// be recursed into when scanning for escape/return/await.
+///
+/// Mirrors `isFunctionBoundaryArrow` in `src/expr-traversal.ts`.
+/// A simplified port: checks for `->`, `=>`, `=>>` operators, and the
+/// `(fn(...) -> T)({body})` pattern (outer FnCall whose func is a fn-type call).
+is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, _, _, _) => match(func_box.*,
+      .Atom(_, tok) => {
+        v := tok.value.as_str();
+        ((v == "->") || ((v == "=>") || (v == "=>>")))
+      },
+      .FnCall(_, inner_func_box, _, _, _) => match(inner_func_box.*,
+        .Atom(_, inner_tok) => {
+          iv := inner_tok.value.as_str();
+          ((iv == BK_FN) || ((iv == BK_UNSAFE_FN) || (iv == BK_FN_TRAIT)))
+        },
+        .FnCall(_, _, _, _, _) => false
+      )
+    )
+  )
+);
+
+/// Traverse an evaluated expression tree checking for an `escape` keyword usage.
+/// Skips new function/closure boundaries (`->`, `=>`, function type calls).
+/// Recurses into `cond`/`match` branches without treating branch arrows as
+/// function boundaries.
+///
+/// The cond/match branch traversal is inlined here (rather than delegated to a
+/// separate visitor function) to avoid mutual-recursion forward-reference issues.
+///
+/// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
+evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
+  match(e,
+    .Atom(_, tok) => (tok.value.as_str() == BF_ESCAPE),
+    .FnCall(_, func_box, args, _, _) => {
+      is_cond  := ast_expr_is_fn_call_of(e, BK_COND,  .None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
+      if((is_cond || is_match), {
+        // Inline traverseCondMatchBranches: recurse into each arg.
+        // Branch arrows `condition => body` are NOT function boundaries:
+        // recurse into both the condition and the body parts.
+        if(recur(func_box.*), { return true; });
+        na := args.len();
+        (ia : usize) = usize(0);
+        (found_a : bool) = false;
+        while runtime(((ia < na) && (!(found_a)))), {
+          arg_a := match(args.get(ia), .Some(a) => a, .None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>", .None);
+          if(is_branch_arrow, {
+            inner_args := match(arg_a,
+              .FnCall(_, _, ia_inner, _, _) => ia_inner,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            ni := inner_args.len();
+            (ji : usize) = usize(0);
+            while runtime(((ji < ni) && (!(found_a)))), {
+              bp := match(inner_args.get(ji), .Some(a) => a, .None => make_err_expr());
+              if(recur(bp), { found_a = true; });
+              ji = (ji + usize(1));
+            };
+          }, {
+            if(recur(arg_a), { found_a = true; });
+          });
+          ia = (ia + usize(1));
+        };
+        return found_a;
+      });
+      if(is_function_boundary_arrow(e), { return false; });
+      if(recur(func_box.*), { return true; });
+      n := args.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while runtime(((i < n) && (!(found)))), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        if(recur(arg), { found = true; });
+        i = (i + usize(1));
+      };
+      found
+    }
+  )
+);
+
+export BK_FN, BK_UNSAFE_FN, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION;
+export BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO;
+export BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER;
+export BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL;
+export BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL;
+export BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START;
+export BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST;
+export BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC;
+export BF_YO_ISO_EXTRACT, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT;
+export BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN;
+export BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT;
+export BF_YO_AS;
+export BF_YO_EXPR_IS_ATOM, BF_YO_EXPR_IS_FN_CALL, BF_YO_EXPR_GET_CALLEE, BF_YO_EXPR_GET_ARGS;
+export BF_YO_EXPR_TO_STRING, BF_YO_EXPR_EQ;
+export BF_YO_COMPTIME_LIST_CAR, BF_YO_COMPTIME_LIST_CDR, BF_YO_COMPTIME_LIST_CONS;
+export BF_YO_COMPTIME_LIST_APPEND, BF_YO_COMPTIME_LIST_LENGTH, BF_YO_COMPTIME_LIST_ELEMENT_TYPE;
+export BF_YO_COMPTIME_LIST_GET, BF_YO_COMPTIME_LIST_INDEX, BF_YO_COMPTIME_LIST_INDEX_RANGE;
+export BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE;
+export BF_YO_TYPE_TO_COMPTIME_STRING, BF_YO_ARE_TYPES_COMPATIBLE, BF_YO_ARE_TYPES_EQUAL;
+export BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_CAN_FORM_RC_CYCLE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO;
+export BF_YO_TYPE_JOIN_FIELDS, BF_YO_TYPE_MAP_VARIANTS, BF_YO_COMPTIME_STRING_TO_EXPR;
+export BF_YO_VAR_PRINT_INFO, BF_YO_VAR_IS_OWNING_RC, BF_YO_VAR_HAS_OTHER_ALIASES;
+export BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS;
+export BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY;
+export BF_YO_BUILD_TEST, BF_YO_BUILD_RUN, BF_YO_BUILD_STEP, BF_YO_BUILD_STEP_DEPEND_ON;
+export BF_YO_BUILD_TARGET_HOST, BF_YO_BUILD_TARGET_PARSE, BF_YO_BUILD_DEPENDENCY;
+export BF_YO_BUILD_PATH_DEPENDENCY, BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK;
+export BF_YO_BUILD_LINK_SYSTEM_LIBRARY, BF_YO_BUILD_OPTION, BF_YO_BUILD_DEP_ARTIFACT;
+export BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK, BF_YO_BUILD_ADD_IMPORT;
+export BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC;
+export BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR, BF_COMPTIME_BOOL_EQ, BF_COMPTIME_BOOL_NEQ;
+export BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING;
+export BF_COMPTIME_STRING_CONCAT, BF_COMPTIME_STRING_EQ, BF_COMPTIME_STRING_NEQ;
+export BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE, BF_COMPTIME_STRING_GT, BF_COMPTIME_STRING_GTE;
+export BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER, BF_COMPTIME_STRING_TO_LOWER;
+export BF_COMPTIME_STRING_SLICE, BF_COMPTIME_STRING_INDEX, BF_COMPTIME_STRING_INDEX_RANGE;
+export BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE;
+export BF_COMPTIME_ARRAY_INDEX, BF_COMPTIME_SLICE_INDEX, BF_COMPTIME_ARRAY_INDEX_RANGE;
+export BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE, BF_COMPTIME_SLICE_INDEX_RANGE;
+export BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE;
+/// Throws if `expr` is not a FnCall of `func_name` with an optional exact `arg_count`.
+/// Mirrors `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+expect_expr_to_be_fn_call_of :: (fn(
+  expr      : AstExpr,
+  func_name : str,
+  arg_count : Option(usize),
+  using(exn : Exception)
+) -> unit)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  match(arg_count,
+    .Some(n) => {
+      actual := match(expr,
+        .FnCall(_, _, args, _, _) => args.len(),
+        _                        => usize(0)
+      );
+      if((actual != n), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
+          false, .None
+        ));
+      });
+    },
+    .None => ()
+  )
+});
+
+/// Throws if `expr` is not a FnCall of one of `func_names` with an optional exact `arg_count`.
+/// Mirrors the list variant of `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+expect_expr_to_be_fn_call_of_any :: (fn(
+  expr       : AstExpr,
+  func_names : ArrayList(str),
+  arg_count  : Option(usize),
+  using(exn  : Exception)
+) -> unit)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`,
+      false, .None
+    ));
+  });
+  match(arg_count,
+    .Some(n) => {
+      actual := match(expr,
+        .FnCall(_, _, args, _, _) => args.len(),
+        _                        => usize(0)
+      );
+      if((actual != n), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
+          false, .None
+        ));
+      });
+    },
+    .None => ()
+  )
+});
+
+export ast_expr_is_atom_of, ast_expr_is_atom_of_any;
+export ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any;
+export exprs_are_equal;
+export expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any;
+export is_function_boundary_arrow, evaluated_body_contains_escape;

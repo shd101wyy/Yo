@@ -123,7 +123,7 @@ test "Struct with primitive fields → TypeUni(0)", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(TypeValue.BoolT);
-  result := type_of_type(TypeValue.Struct(String.from("Point"), labels, types));
+  result := type_of_type(TypeValue.Struct(String.from(""), String.from("Point"), labels, types, false, false, false));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 };
 
@@ -132,7 +132,7 @@ test "Struct with TypeUni(0) field → TypeUni(1)", {
   labels.push(String.from("ty"));
   types := ArrayList(TypeValue).new();
   types.push(TypeValue.TypeUni(usize(0)));
-  result := type_of_type(TypeValue.Struct(String.from("TypeBox"), labels, types));
+  result := type_of_type(TypeValue.Struct(String.from(""), String.from("TypeBox"), labels, types, false, false, false));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
 };
 
@@ -150,7 +150,7 @@ test "EnumT with primitive variants → TypeUni(0)", {
   vfields := ArrayList(ArrayList(TypeValue)).new();
   vfields.push(none_fields);
   vfields.push(some_fields);
-  result := type_of_type(TypeValue.EnumT(String.from("Option"), vnames, vfields));
+  result := type_of_type(TypeValue.EnumT(String.from(""), String.from("Option"), vnames, vfields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new()));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "EnumT with i32 variant → TypeUni(0)");
 };
 
@@ -163,6 +163,10 @@ test "TraitT → TypeUni(1)", {
     String.from("Clone"),
     ArrayList(String).new(),
     ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    String.from(""),
+    Option(Box(TypeValue)).None,
+    ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new()
   ));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "TraitT should be TypeUni(1)");
@@ -170,6 +174,7 @@ test "TraitT → TypeUni(1)", {
 
 test "ModuleT → TypeUni(1)", {
   result := type_of_type(TypeValue.ModuleT(
+    String.from(""),
     String.from("std/fmt"),
     ArrayList(String).new(),
     ArrayList(TypeValue).new()

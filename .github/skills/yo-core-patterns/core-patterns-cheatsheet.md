@@ -310,6 +310,21 @@ Yo's reference counting handles shallow copies automatically (no `Clone` trait c
 the `Clone` trait is only for deep cloning and has the same circularity problem.
 In practice, passing `EvalValue`-like types by value works fine without a `Clone` impl.
 
+### Comparing complex enum types
+
+Complex enum types (structs/enums with nested fields) do not support `==`/`!=` unless `Eq` is
+derived or implemented. For **tag-only equality** (checking which variant), use a tag function:
+
+```rust
+// WRONG — TypeValue enum doesn't support !=
+if(my_type != t_unit(), { ... });
+
+// CORRECT — compare tags instead
+{ type_value_tag } :: import "../../types/type.yo";
+{ TypeTag }        :: import "../../types/tags.yo";
+if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
+```
+
 ## Error handling
 
 ```rust
@@ -403,3 +418,18 @@ result := my_module.helper(i32(5));
 
 - `impl { ... }` creates a module namespace
 - Only `::` (compile-time) bindings are allowed inside
+
+## yo-self API: String vs str parameter gotchas
+
+Several `yo-self/` APIs take `String` (not `str`) parameters even when the argument is conceptually a name:
+
+- `get_variables_from_env(env, name: String)` — pass the `String` directly, do NOT call `.as_str()` first
+- Most other env/value/type lookup functions follow the same convention
+
+```rust
+// ❌ Wrong — .as_str() converts String → str but the param is String
+vars := get_variables_from_env(env, prop_name_su.as_str());
+
+// ✅ Correct — pass the String directly
+vars := get_variables_from_env(env, prop_name_su);
+```

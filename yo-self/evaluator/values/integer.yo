@@ -1,0 +1,86 @@
+//! evaluate_integer_literal — evaluates integer literal expressions.
+//!
+//! 1:1 port of `src/evaluator/values/integer.ts`.
+//!
+//! Integer literals are stored as `IntLit(raw)` where `raw` is the decimal
+//! string of the parsed value. The type is determined from `ctx.expected_type`:
+//! if the expected type is a specific integer size, that type is used;
+//! otherwise `t_comptime_int()` is the default.
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
+{ Environment }                                    :: import "../../env/env.yo";
+{ EvalContext }                                    :: import "../context.yo";
+{ EvalValue }                                      :: import "../value.yo";
+{ TokenKind }                                      :: import "../../lexer/token.yo";
+{ t_comptime_int,
+  t_u8, t_i8, t_u16, t_i16,
+  t_u32, t_i32, t_u64, t_i64,
+  t_usize, t_isize }                               :: import "../../types/type.yo";
+{ is_u8_type, is_i8_type, is_u16_type, is_i16_type,
+  is_u32_type, is_i32_type, is_u64_type, is_i64_type,
+  is_usize_type, is_isize_type }                   :: import "../../types/guards.yo";
+{ Exception }                                      :: import "std/error";
+{ format_error_message }                           :: import "../../error/error.yo";
+{ parse_raw_int }                                  :: import "../utils.yo";
+
+evaluate_integer_literal :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  tok := ast_expr_token(expr);
+  if(!(tok.kind == TokenKind.Integer), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Expected integer literal, got ${tok.value}`,
+      false,
+      .None
+    ));
+  });
+
+  // Parse to i64, normalize to decimal string
+  parsed := match(parse_raw_int(tok.value),
+    .Some(n) => n,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        tok,
+        `Failed to parse integer literal: ${tok.value}`,
+        false,
+        .None
+      ));
+      i64(0)  // unreachable
+    }
+  );
+  raw := parsed.to_string();
+
+  // Determine type from expected_type context (mirrors TypeScript valueTag logic)
+  ty := match(ctx.expected_type,
+    .Some(ectx) => cond(
+      is_usize_type(ectx.ty) => t_usize(),
+      is_isize_type(ectx.ty) => t_isize(),
+      is_u8_type(ectx.ty)    => t_u8(),
+      is_i8_type(ectx.ty)    => t_i8(),
+      is_u16_type(ectx.ty)   => t_u16(),
+      is_i16_type(ectx.ty)   => t_i16(),
+      is_u32_type(ectx.ty)   => t_u32(),
+      is_i32_type(ectx.ty)   => t_i32(),
+      is_u64_type(ectx.ty)   => t_u64(),
+      is_i64_type(ectx.ty)   => t_i64(),
+      true                   => t_comptime_int()
+    ),
+    .None => t_comptime_int()
+  );
+
+  val  := EvalValue.IntLit(String.from(raw.as_str()));
+  info := new_expr_info(env, ty);
+  info.value = .Some(val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+
+export evaluate_integer_literal;

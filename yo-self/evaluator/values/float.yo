@@ -1,0 +1,72 @@
+//! evaluate_float_literal — evaluates floating-point literal expressions.
+//!
+//! 1:1 port of `src/evaluator/values/float.ts`.
+//!
+//! Float literals are stored as `FloatLit(raw)` where `raw` is the decimal
+//! string representation. The type is `t_comptime_float()` by default, or
+//! `t_f32()` / `t_f64()` when the expected context demands a concrete float.
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
+{ Environment }                                    :: import "../../env/env.yo";
+{ EvalContext }                                    :: import "../context.yo";
+{ EvalValue }                                      :: import "../value.yo";
+{ TokenKind }                                      :: import "../../lexer/token.yo";
+{ t_comptime_float, t_f32, t_f64 }                 :: import "../../types/type.yo";
+{ is_f32_type, is_f64_type }                       :: import "../../types/guards.yo";
+{ Exception }                                      :: import "std/error";
+{ format_error_message }                           :: import "../../error/error.yo";
+{ parse_raw_float }                                :: import "../utils.yo";
+
+evaluate_float_literal :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  tok := ast_expr_token(expr);
+  if(!(tok.kind == TokenKind.Float), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Expected float literal, got ${tok.value}`,
+      false,
+      .None
+    ));
+  });
+
+  // Parse to f64, normalize to decimal string
+  parsed := match(parse_raw_float(tok.value),
+    .Some(f) => f,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        tok,
+        `Failed to parse float literal: ${tok.value}`,
+        false,
+        .None
+      ));
+      f64(0.0)  // unreachable
+    }
+  );
+  raw := parsed.to_string();
+
+  // Determine type from expected_type context
+  ty := match(ctx.expected_type,
+    .Some(ectx) => cond(
+      is_f32_type(ectx.ty) => t_f32(),
+      is_f64_type(ectx.ty) => t_f64(),
+      true                 => t_comptime_float()
+    ),
+    .None => t_comptime_float()
+  );
+
+  val  := EvalValue.FloatLit(String.from(raw.as_str()));
+  info := new_expr_info(env, ty);
+  info.value = .Some(val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+
+export evaluate_float_literal;

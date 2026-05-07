@@ -1,0 +1,156 @@
+//! evaluate_fn_trait_type — evaluates `Fn(params) -> ReturnType` expressions.
+//!
+//! 1:1 port of `src/evaluator/types/fn-trait.ts` (Phase 2ax).
+//!
+//! Creates a FnTraitT type that represents a callable Fn trait
+//! (similar to Rust's Fn trait). Used with:
+//!   - Impl(Fn(...) -> ...) for static dispatch with closures
+//!   - Dyn(Fn(...) -> ...) for dynamic dispatch
+
+open import "std/string";
+open import "std/fmt";
+
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
+  ast_expr_is_fn_call, ast_expr_is_fn_call_of,
+  make_err_expr, BK_FN_TRAIT }
+  :: import "../../expr/expr.yo";
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
+{ Environment }                   :: import "../../env/env.yo";
+{ EvalContext }                   :: import "../context.yo";
+{ EvalValue, create_type_value, is_type_value } :: import "../value.yo";
+{ TypeValue, t_fn_trait }         :: import "../../types/type.yo";
+{ type_of_type }                  :: import "../../types/hierarchy.yo";
+{ format_error_message }          :: import "../../error/error.yo";
+{ Exception }                     :: import "std/error";
+{ evaluate_expression }           :: import "../exprs/expr.yo";
+{ ArrayList }                     :: import "std/collections/array_list";
+{ evaluate_function_parameters, FuncParam, FuncParamsResult } :: import "./function.yo";
+
+// ---------------------------------------------------------------------------
+// Local helpers
+// ---------------------------------------------------------------------------
+
+_fn_trait_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,
+    .FnCall(_, _, args, _, _) => args,
+    .Atom(_, _)               => ArrayList(AstExpr).new()
+  )
+);
+
+// ---------------------------------------------------------------------------
+// evaluate_fn_trait_type
+// ---------------------------------------------------------------------------
+
+/// Evaluates the `Fn(params) -> ReturnType` syntax.
+/// Creates a FnTraitT type that represents a callable trait (similar to Rust's Fn trait).
+///
+/// Mirrors `evaluateFnTraitType` from fn-trait.ts.
+evaluate_fn_trait_type :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  // expr is the `->` expression with Fn(...) on the left and return type on the right
+  if(!(ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      `Expected -> operator for Fn trait type, got:\n${ast_expr_to_string(expr)}`,
+      false,
+      .None
+    ));
+  });
+
+  expr_args        := _fn_trait_call_args(expr);
+  fn_call_expr     := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+
+  if(((!(ast_expr_is_fn_call(fn_call_expr))) ||
+      !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(fn_call_expr),
+      `Expected Fn(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`,
+      false,
+      .None
+    ));
+  });
+
+  // Get parameter expressions from Fn(...)
+  param_exprs := _fn_trait_call_args(fn_call_expr);
+
+  // Evaluate parameters using the same logic as regular function types
+  // (pushes a new env frame, doesn't pop it yet)
+  prev_is_eval_fn_type := ctx.is_evaluating_function_type;
+  ctx.is_evaluating_function_type = true;
+  (env_mut : Environment) = env;
+  params_result := evaluate_function_parameters(param_exprs, &(env_mut), ctx, using(exn));
+
+  // Evaluate the return type
+  evaluated_ret_expr := evaluate_expression(return_type_expr, env_mut, ctx);
+  ctx.is_evaluating_function_type = prev_is_eval_fn_type;
+
+  // Extract return TypeValue from expr info
+  ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_expr));
+  return_type := match(ret_info_opt,
+    .Some(info) => {
+      if(!(is_type_value(info.value)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(return_type_expr),
+          `Expected a type for Fn return type, got:\n${ast_expr_to_string(return_type_expr)}`,
+          false,
+          .None
+        ));
+      });
+      match(info.value,
+        .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .None    => TypeValue.Unit
+      )
+    },
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(return_type_expr),
+        String.from("Failed to evaluate return type for Fn trait."),
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    }
+  );
+
+  // Pop the parameters frame
+  env_mut.pop_frame();
+
+  // Build the FnTraitT from the params_result
+  call_param_labels := ArrayList(String).new();
+  call_param_types  := ArrayList(TypeValue).new();
+  (pi : usize) = usize(0);
+  while runtime((pi < params_result.params.len())), {
+    p := match(params_result.params.get(pi), .Some(x) => x, .None => { pi = params_result.params.len(); break; });
+    call_param_labels.push(p.label);
+    call_param_types.push(p.ty);
+    pi = (pi + usize(1));
+  };
+
+  implicit_labels  := ArrayList(String).new();
+  implicit_types   := ArrayList(TypeValue).new();
+  implicit_spreads := ArrayList(bool).new();
+  (ii : usize) = usize(0);
+  while runtime((ii < params_result.implicit_params.len())), {
+    ip := match(params_result.implicit_params.get(ii), .Some(x) => x, .None => { ii = params_result.implicit_params.len(); break; });
+    implicit_labels.push(ip.label);
+    implicit_types.push(ip.ty);
+    implicit_spreads.push(ip.is_effect_row_spread);
+    ii = (ii + usize(1));
+  };
+
+  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, implicit_spreads);
+
+  // Set expr info
+  out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
+  out_info.value = .Some(create_type_value(fn_trait_type));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+
+  expr
+});
+
+export evaluate_fn_trait_type;

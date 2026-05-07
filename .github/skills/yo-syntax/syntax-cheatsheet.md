@@ -90,6 +90,7 @@ Key rules:
 - In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
 - **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
 
 ## Calls, operators, and whitespace
@@ -103,9 +104,10 @@ masked := ((A | B) | C);
 - Prefer parenthesized calls: `func(arg1, arg2)`
 - `func (a, b)` is a different parse shape than `func(a, b)`
 - Yo has no operator precedence; fully parenthesize binary expressions
-- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Always wrap: `p := &s; func(p, a, b)` or use `func((&s), a, b)`.
+- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Preferred fix: parenthesize the operand: `func(&(s), a, b)`. The outer-parens form `func((&s), a, b)` also works. Either is fine; the operand-parens form `&(x)` matches how the parser thinks about it.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
+- **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
 
 ## Functions and methods
 
@@ -241,6 +243,8 @@ match(s,
 
 Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
 
+> **Critical**: Within a single match arm, you must use **either all positional or all named** field patterns. Mixing positional and named fields in the same arm (e.g., `.Foo(x, y: z, w)`) causes C codegen to emit undeclared identifiers for the named fields. This is a parser/codegen limitation — do not mix.
+
 ## Generics and compile-time
 
 ```rust
@@ -321,12 +325,27 @@ while true, {
 while comptime(i < 10), {
   // body evaluated/unrolled at compile time
 };
+
+// for loop — 2-arg prelude macro; first arg MUST be an iterator (has .next()):
+for(list.iter(), x => {    // ArrayList, array → call .iter() first
+  process(x);
+});
+
+for(map.into_iter(), bucket => {
+  println(bucket.key);
+});
+
+for(list.iter(), (ptr) => { // ptr is a mutable reference to each element
+  ptr.* = transform(ptr.*);
+});
 ```
 
 - Use `recur(...)` for self-recursion
 - `while cond` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while comptime(cond)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
+- **`for(arr, item => { body })`** — correct 2-arg prelude macro form. The `item => { body }` is an anonymous closure.
+- **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
 
@@ -426,6 +445,35 @@ test "Async test", {
 
 ## Common pitfalls
 
+### `&&` short-circuit with `match`/`cond` on RHS causes C codegen scope bug
+
+Using `&&` where the right-hand side is a `match` or `cond` expression causes
+a C codegen bug: the temp variable for the RHS is declared inside the short-circuit
+`if` block but the cleanup drop is emitted outside it. This produces a C compile
+error ("use of undeclared identifier").
+
+```rust
+// WRONG — triggers codegen scope bug:
+is_ok := (av.is_compile_time_only && match(av.value,
+  .Some(v) => compute(v),
+  .None    => false
+));
+
+// CORRECT — use an explicit if block to scope the match:
+(is_ok : bool) = false;
+if(av.is_compile_time_only, {
+  is_ok = match(av.value,
+    .Some(v) => compute(v),
+    .None    => false
+  );
+});
+```
+
+This only affects `&&`/`||` where the **right-hand side contains a `match`,
+`cond`, or other expression that allocates heap-managed temporaries** (e.g.,
+`String`, `ArrayList`, `Option(HeapType)`). Pure boolean expressions on both
+sides are fine.
+
 ### `impl(...)` requires a trailing semicolon
 
 ```rust
@@ -454,6 +502,28 @@ _b := bar();
 foo();
 bar();
 ```
+
+### Enum pattern matching does NOT support literal values
+
+Match patterns on enum variants only support **variable binding**, not literal comparison.
+`.BoolVal(true)` binds the inner value to a variable named `true` — it does NOT check
+if the value is `true`. The arm always matches any `BoolVal`.
+
+```rust
+// ❌ WRONG — always matches (true is a variable binding, not a comparison)
+match(val,
+  .BoolVal(true) => handle_true(),
+  _ => ()
+);
+
+// ✅ CORRECT — bind to variable, then check with cond
+match(val,
+  .BoolVal(b) => cond(b => handle_true(), true => ()),
+  _ => ()
+);
+```
+
+Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
 
 ### `type` is a reserved keyword — avoid as field/param name
 
@@ -545,7 +615,44 @@ This applies to ALL callee-before-caller relationships:
 - `print_build_summary` before `execute_step`
 - Exports section must come AFTER all definitions
 
-### `if(!cond, block)` — use parentheses
+### Named tuple fields in type syntax are not allowed
+
+Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use an `object` struct instead:
+
+```rust
+// WRONG — "Labelled field is not allowed in tuple value":
+get_range :: (fn(ty : TypeValue) -> Option((min : i64, max : u64)))(
+  .Some((min: i64(-128), max: u64(127)))
+);
+
+// CORRECT — define a named struct:
+Range :: object(min : i64, max : u64);
+get_range :: (fn(ty : TypeValue) -> Option(Range))(
+  .Some({min: i64(-128), max: u64(127)})
+);
+```
+
+Named fields work in struct/object constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
+
+### `Option` equality comparison limitations
+
+Comparing `Option(T)` with `== .None` or `== .Some(...)` fails when the inner type `T` lacks a derived `Eq` implementation or when `.None` is type-ambiguous. Always use the method API:
+
+```rust
+// WRONG — "No matching call found with arguments: r == .None":
+assert((r == .None), "should be None");
+
+// CORRECT — use .is_none() / .is_some() / .unwrap():
+assert(r.is_none(), "should be None");
+assert(r.is_some(), "should be Some");
+assert((r.unwrap() == expected_value), "value check");
+
+// Also fine in match:
+match(r,
+  .Some(v) => assert((v == expected_value), "value check"),
+  .None    => assert(false, "unexpected None")
+);
+```
 
 The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
 
@@ -555,6 +662,79 @@ if(!cond, { do_thing(); });
 
 // CORRECT — ! only consumes (cond):
 if((!cond), { do_thing(); });
+```
+
+### `escape` requires a nested-function context
+
+`escape value` exits the **enclosing function** — the nearest `fn(...)` that
+wraps the current code. It requires that the code is inside a nested function
+(e.g., a closure or `given` handler lambda), NOT at the top level of a
+standalone function definition.
+
+```rust
+// CORRECT — escape inside a given handler lambda (lambda has enclosing fn):
+given(exn) := Exception(throw: ((err) -> {
+  escape result   // exits the outer function that contains this given()
+}));
+do_something(using(exn));
+
+// CORRECT — escape inside a closure passed as argument:
+result := match(opt, .Some(x) => x, .None => {
+  // This is NOT a nested function — use return:
+  // WRONG: escape default_val  // ERROR: no enclosing fn
+  return default_val  // CORRECT: return exits the enclosing fn directly
+});
+
+// WRONG — escape inside a match arm (not a nested fn):
+match(opt,
+  .Some(x) => { escape x }  // ERROR: "can only be used inside a function that has an enclosing function"
+);
+```
+
+**Rule of thumb**: Use `escape` only inside lambdas passed to `given()` handlers.
+In all other contexts (match arms, if blocks, begin blocks, top-level fn bodies),
+use `return` for early exit.
+
+`return` inside a lambda exits that lambda only; `escape` exits the OUTER function
+(the one that installed the `given` handler).
+
+### Parameter reassignment
+
+Function parameters are **NOT reassignable**. To reassign, declare a mutable local:
+
+```rust
+// WRONG — cannot reassign parameter 'env':
+my_fn :: (fn(env : Environment) -> Environment)({
+  env = other_env;  // ERROR: "cannot reassign itself"
+  env
+});
+
+// CORRECT — create a mutable local copy:
+my_fn :: (fn(init_env : Environment) -> Environment)({
+  (env : Environment) = init_env;
+  env = other_env;  // OK — reassigning local variable
+  env
+});
+```
+
+This also applies to `object` types: you can mutate fields (`env.field = val`)
+but cannot rebind the variable (`env = other_env`).
+
+### String cloning
+
+Calling `.clone()` on a `String` field from a struct/method chain requires a
+reference — take `&` first:
+
+```rust
+// WRONG — .clone() requires *(Self) but gets Self value from field access:
+name := token.value.clone();            // ERROR
+
+// CORRECT — take reference first:
+tok := some_fn_call();
+name := (&tok.value).clone();           // OK
+
+// ALSO CORRECT — use String.from on the str slice:
+name := String.from(token.value.as_str());
 ```
 
 ### Template strings produce `String`, literals are `str`
@@ -584,3 +764,257 @@ These features are powerful but less commonly used. Consult the linked docs for 
 | Isolated types         | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
 | Arc (atomic ref count) | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
 | Parallelism            | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
+
+---
+
+## Self-hosted evaluator (`yo-self/`) — known limitations and pitfalls
+
+These constraints apply **only** to the self-hosted Yo evaluator (code inside `yo-self/`). The TypeScript-compiled Yo compiler does not have these restrictions.
+
+### Match patterns: no bare identifier catch-all
+
+The self-hosted parser only accepts three match arm forms:
+
+- `.VariantName` — unit variant
+- `.VariantName(p1, p2, ...)` — tuple variant
+- `_` — wildcard
+
+**Bare identifier catch-all `t => ...` is NOT supported.** Use `_` and access the outer binding directly:
+
+```rust
+// ❌ NOT supported in yo-self/
+match(val, {
+  .SomeVariant(x) => x,
+  t => t,      // ERROR: bare identifier not a valid pattern
+})
+
+// ✅ Correct — use outer binding
+match(val, {
+  .SomeVariant(x) => x,
+  _ => val,    // refer to outer binding
+})
+```
+
+### String concatenation: no `String + str` operator
+
+The `+` operator does not accept mixed `String`/`str` operands.
+**Always use template strings** for concatenation:
+
+```rust
+// ❌ Type error
+result := (parts + ", ");
+result := (parts + item.as_str());
+
+// ✅ Template strings
+result := `${parts}, `;
+result := `${parts}${item}`;
+```
+
+### `clone()` on extracted String fields is ambiguous
+
+When a `String` field is bound in a match arm, calling `.clone()` triggers an ambiguity error (two impls: `fn(self: String)` and `fn(self: *(String))`).
+
+```rust
+// ❌ Ambiguous
+.StructVal(name, fields) => name.clone()
+
+// ✅ Use from + as_str
+.StructVal(name, fields) => String.from(name.as_str())
+```
+
+### `box(val)` is a move — cannot box the same value twice
+
+```rust
+// ❌ Move error: target is moved by first box(target)
+p1 := PtrVal(box(target), usize(0));
+p2 := PtrVal(box(target), usize(0));  // ERROR: target already moved
+
+// ✅ Create separate instances
+p1 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
+p2 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
+```
+
+### `recur(...)` for self-recursive lambdas
+
+Lambdas defined as `name :: (fn(args) -> T)(body)` cannot call `name` inside `body`.
+Use `recur(...)` instead:
+
+```rust
+// ❌ Would not find `my_fn` inside its own body
+my_fn :: (fn(x : i32) -> i32)({
+  my_fn(x - 1)   // ERROR: `my_fn` not in scope yet
+});
+
+// ✅ Use recur
+my_fn :: (fn(x : i32) -> i32)({
+  recur(x - 1)
+});
+```
+
+### `{ expr }` without semicolons is a struct literal, not a block
+
+```rust
+// ❌ Parsed as struct literal `{ match(...) }`
+fn :: (fn() -> T)({ match(x, arms) })
+
+// ✅ Remove braces or add semicolon
+fn :: (fn() -> T)(match(x, arms))
+fn :: (fn() -> T)({ match(x, arms); })
+```
+
+### Template strings cannot be nested inside `${...}` interpolations
+
+A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.
+
+```rust
+// ❌ Inner backtick closes the outer template string — parse error
+lines.push(`**Implements:** ${`, `.join(names)}`);
+
+// ✅ Assign the separator to a variable first
+sep := `, `;
+lines.push(`**Implements:** ${sep.join(names)}`);
+```
+
+### Pushing RC struct fields into ArrayList does not need `.clone()`
+
+String (and other RC object) fields of structs can be passed directly to `ArrayList.push()`. Calling `.clone()` triggers an ambiguity error between `fn(self: String)` and `fn(self: *(String))` overloads.
+
+```rust
+// ❌ Ambiguous clone call
+names.push(param.name.clone());
+
+// ✅ Push directly — RC bump happens automatically
+names.push(param.name);
+```
+
+If explicit clone is needed elsewhere, use `(&field).clone()` to select the pointer overload.
+
+### `.Some(expr)` in expression position is parsed as a 2-arg property access
+
+Using `.Some(x)` as an expression (not inside a match pattern) is parsed by the Yo parser
+as a 2-arg dot property access: `obj.(prop, arg)`. This means `evaluate_property_access` is
+invoked on it at compile time, causing confusing errors like "Failed to infer enum variant type".
+
+```rust
+// ❌ Parsed as 2-arg property access — NOT an Option::Some constructor call
+val := .Some(oi.ty);
+
+// ✅ Use the explicit fully-qualified form
+val := Option(TypeValue).Some(oi.ty);
+```
+
+### `||` chaining requires explicit parentheses for 3+ operands
+
+Chaining three or more `||` terms in a single expression is rejected with a precedence error.
+Always add explicit parentheses around each pair:
+
+```rust
+// ❌ Rejected — ambiguous precedence
+if ((is_tuple_type(ty) || is_struct_type(ty) || is_union_type(ty)), ...)
+
+// ✅ Parenthesise each pair
+if (((is_tuple_type(ty) || is_struct_type(ty)) || is_union_type(ty)), ...)
+```
+
+### Duplicate imports from the same path must be merged
+
+Having two `:: import "path"` lines importing from the same file causes a compile error.
+Always merge them into a single destructuring import:
+
+```rust
+// ❌ Two imports from the same path
+{ Foo } :: import "../../mod.yo";
+{ Bar } :: import "../../mod.yo";
+
+// ✅ Merged
+{ Foo, Bar } :: import "../../mod.yo";
+```
+
+### Implicit (`using`) parameters cannot be used with `:=` assignment
+
+Implicit effect parameters introduced via `using(name : Type)` cannot be bound
+to a discarded variable with `:= name`. They can only be passed via `using()`.
+To suppress "unused parameter" warnings for an implicit param, simply omit the
+discard assignment — implicit params never trigger unused-variable errors.
+
+```rust
+// WRONG — implicit variable cannot be used in assignment:
+foo :: (fn(using(exn : Exception)) -> unit)({
+  _ := exn;   // ERROR: Cannot use implicit variable "exn" in assignment
+  ()
+});
+
+// CORRECT — just omit the discard line:
+foo :: (fn(using(exn : Exception)) -> unit)({
+  ()
+});
+```
+
+### Nested `Option` patterns require staging
+
+`match` does not support nested destructuring patterns like `.Some(.TypeVal(x))`.
+Split into two separate `match` expressions.
+
+```rust
+// WRONG — nested option pattern:
+match(opt_value,
+  .Some(.TypeVal(box)) => { ... },   // ERROR
+  _ => { ... }
+);
+
+// CORRECT — match in two stages:
+match(opt_value,
+  .Some(v) => match(v,
+    .TypeVal(box) => { ... },
+    _ => { ... }
+  ),
+  .None => { ... }
+);
+```
+
+### Outer match on `Option` must have `.None` arm
+
+When using `match(opt, .Some(x) => match(x, ...), ...)`, the outer match
+needs its own `.None` arm. The inner match's `_ =>` wildcard does NOT cover
+the outer match's `.None` variant.
+
+```rust
+// WRONG — outer match missing .None:
+match(opt_callee_value,
+  .Some(cv) => match(cv,
+    .Foo(x) => { ... },
+    _ => { throw_phase3() }   // inner wildcard, does NOT cover outer .None
+  )                           // outer match closes here — .None uncovered!
+);
+
+// CORRECT — add explicit .None arm to outer match:
+match(opt_callee_value,
+  .Some(cv) => match(cv,
+    .Foo(x) => { ... },
+    _ => { throw_phase3() }
+  ),
+  .None => { throw_phase3_none() }
+);
+```
+
+### Parenthesis balance in deeply nested matches
+
+When using `match(outer, .Some(x) => match(inner, ...), .None => ...)`,
+count parentheses carefully:
+
+- The inner `match(inner, ...)` closes with its own `)`
+- AFTER that `)`, add a `,` then the outer `.None =>` arm
+- The outer match closes with its own `)`
+- Only then does `});` close the function body
+
+```rust
+// Correct structure:
+match(outer_val,
+  .Some(x) => match(x,
+    arm1,
+    arm2,
+    _ => { fallback() }   // last inner arm, no trailing comma
+  ),                       // ← closes inner match; `,` continues outer
+  .None => { fallback() } // ← outer .None arm
+)                          // ← closes outer match
+```

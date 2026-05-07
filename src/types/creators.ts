@@ -1138,6 +1138,17 @@ export function createFutureTraitType(
  * This ensures that Dyn types with the same module structure get the same ID.
  */
 function createTraitSignature(traitType: TraitType): string {
+  // Fn traits store the call signature in isFn.callType, not in fields.
+  // Without this branch, all Dyn(Fn(...)) types produce an empty field list and
+  // hash to the same canonical id, causing a codegen collision.
+  if ((traitType as FnTraitType).isFn) {
+    const fnType = (traitType as FnTraitType).isFn.callType;
+    const paramSigs = fnType.parameters
+      .map((p) => `${p.label}:${typeToString(p.type)}`)
+      .join(",");
+    const returnSig = typeToString(fnType.return.type);
+    return `fn:(${paramSigs})->${returnSig}`;
+  }
   const fieldSignatures = traitType.fields.map((field) => {
     // For function types, create a canonical signature
     if (field.type.tag === TypeTag.Function) {

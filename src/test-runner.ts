@@ -369,7 +369,8 @@ function compileBatchedBinary(
   filePath: string,
   cCompiler: string,
   wasmTarget?: TargetInfo,
-  keepGeneratedFiles?: boolean
+  keepGeneratedFiles?: boolean,
+  noSanitize?: boolean
 ): BatchCompileResult {
   const program = generateBatchedTestProgram(tests, nonTestContent);
   const originalDir = path.dirname(filePath);
@@ -449,10 +450,29 @@ function compileBatchedBinary(
     }
     const yoCompileMs = Date.now() - yoCompileStart;
 
-    const generatedCode = moduleManager.getGeneratedCode();
+    let generatedCode = moduleManager.getGeneratedCode();
     const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
     const usesParallelism = moduleManager.usesParallelism;
     moduleManager = null;
+
+    // On Linux, prepend a setrlimit call to increase the stack limit from the
+    // default 8 MB to 64 MB.  The ELF PT_GNU_STACK linker flag (-Wl,-z,stack-size=)
+    // is ignored by the kernel when RLIMIT_STACK (ulimit -s) is lower — the soft
+    // limit always takes precedence.  We call setrlimit in a constructor so it runs
+    // before main(), before any ASAN instrumentation touches the stack.
+    // See issues/linux-test-stack-overflow.md for the full root cause analysis.
+    if (process.platform === "linux") {
+      generatedCode =
+        `#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sys/resource.h>
+__attribute__((constructor)) static void _yo_increase_stack_limit(void) {
+  struct rlimit rl = { .rlim_cur = 64UL * 1024 * 1024, .rlim_max = RLIM_INFINITY };
+  setrlimit(RLIMIT_STACK, &rl);
+}
+` + generatedCode;
+    }
 
     fs.writeFileSync(testCPath, generatedCode);
 
@@ -462,7 +482,7 @@ function compileBatchedBinary(
 
     // Build C compile args
     const asanFlags =
-      !isMSVC && !isEmcc
+      !isMSVC && !isEmcc && !noSanitize
         ? getSanitizerFlags({ sanitize: "address", compilerInfo })
         : { flags: [] };
 
@@ -481,6 +501,10 @@ function compileBatchedBinary(
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           "-fno-strict-aliasing",
+          // Increase bracket nesting limit (default 256 is too low for large
+          // batch test binaries that include the full yo-self evaluator).
+          // Not supported by MSVC, so guard on !isMSVC is applied below.
+          ...(!isMSVC ? ["-fbracket-depth=1024"] : []),
           ...(isEmcc
             ? ["-w"]
             : [
@@ -519,6 +543,18 @@ function compileBatchedBinary(
       }
     }
 
+    if (!isWindows && !isEmcc && process.platform === "darwin") {
+      // Increase the stack reserve to 256 MB on macOS.  The default 8 MB is
+      // insufficient for large yo-self tests: the `evaluate` function in
+      // yo-self/evaluator/eval.yo has ~2482 local variables that consume
+      // ~1.5 MB of stack space per frame (at -O0, no stack-frame reuse).
+      // Tests that run recursive programs through the proto-evaluator (e.g.
+      // countdown(10), fibonacci(10)) require dozens of simultaneous evaluate()
+      // frames.  256 MB (≈170 frames) covers all test inputs in the suite.
+      // macOS linker flag: -Wl,-stack_size,<hex-bytes> (0x10000000 = 256 MB).
+      compileArgs.splice(-2, 0, "-Wl,-stack_size,0x10000000");
+    }
+
     if (!isMSVC && !isEmcc && needsIntelAsmSyntax) {
       compileArgs.splice(-2, 0, "-masm=intel");
     }
@@ -532,6 +568,14 @@ function compileBatchedBinary(
       compileArgs.splice(-2, 0, "-fno-exceptions");
       if (isWasi) {
         compileArgs.splice(-2, 0, "-sSTANDALONE_WASM");
+        // Increase stack and initial memory for WASI builds.  The yo-self
+        // evaluator's `evaluate()` function has 693+ local variables, which
+        // inflates each call frame significantly.  Emscripten's default stack
+        // size (64KB) and initial memory (16MB) are insufficient for batch
+        // test binaries that include the full evaluator.  16MB stack + 128MB
+        // initial memory provides enough headroom for all tests.
+        compileArgs.splice(-2, 0, "-sSTACK_SIZE=16777216");
+        compileArgs.splice(-2, 0, "-sINITIAL_MEMORY=134217728");
       } else {
         compileArgs.splice(-2, 0, "-sNODERAWFS=1");
       }
@@ -550,10 +594,22 @@ function compileBatchedBinary(
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",
       encoding: "utf-8",
+      timeout: 600_000,
       ...spawnShellOption,
     });
     const cCompileMs = Date.now() - cCompileStart;
 
+    if (
+      compileResult.error &&
+      (compileResult.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
+    ) {
+      cleanup();
+      throw new Error(
+        `C compilation timed out after 600s (compiler: ${cCompiler}). ` +
+          `This usually indicates a stuck linker or extremely large input. ` +
+          `See issues/test-runner-no-compile-timeout.md.`
+      );
+    }
     if (compileResult.status !== 0) {
       cleanup();
       throw new Error(
@@ -593,13 +649,14 @@ function runTestFromBatchedBinary(
   binaryPath: string,
   cCompiler: string,
   wasmTarget?: TargetInfo,
-  profile?: boolean
+  profile?: boolean,
+  noSanitize?: boolean
 ): TestResult {
   const startTime = Date.now();
   const compilerInfo = getCompilerInfo(cCompiler);
   const { isMSVC, isWindows, isEmcc } = compilerInfo;
   const isWasi = wasmTarget ? isTargetStandaloneWasi(wasmTarget) : false;
-  const useAsan = !isMSVC && !isEmcc;
+  const useAsan = !isMSVC && !isEmcc && !noSanitize;
 
   try {
     let runResult;
@@ -609,6 +666,8 @@ function runTestFromBatchedBinary(
       runResult = spawnSync(
         "wasmtime",
         [
+          "-W",
+          "max-wasm-stack=16777216",
           "--dir",
           testDir,
           "--dir",
@@ -717,7 +776,7 @@ function runTestFromBatchedBinary(
         const leakInfo = leakMatch ? leakMatch[1] : combinedOutput;
         errorMessage = `Memory leak detected:\n${leakInfo}`;
       } else {
-        errorMessage = `Test failed with exit code ${runResult.status}\n${runResult.stdout}\n${runResult.stderr}`;
+        errorMessage = `Test failed with exit code ${runResult.status} signal=${runResult.signal}\n${runResult.stdout}\n${runResult.stderr}`;
       }
     }
 
@@ -796,6 +855,7 @@ async function runSingleFileInIsolatedProcess({
   testNamePattern,
   keepGeneratedFiles,
   profile,
+  noSanitize,
 }: {
   filePath: string;
   cCompiler: string;
@@ -805,6 +865,7 @@ async function runSingleFileInIsolatedProcess({
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
   profile?: boolean;
+  noSanitize?: boolean;
 }): Promise<IsolatedFileRunResult> {
   return await new Promise((resolve) => {
     const bunExecutable = process.env.BUN || "bun";
@@ -836,6 +897,9 @@ async function runSingleFileInIsolatedProcess({
     if (keepGeneratedFiles) {
       args.push("--keep-generated-files");
     }
+    if (noSanitize) {
+      args.push("--disable-sanitize");
+    }
     if (profile) {
       args.push("--profile");
     }
@@ -848,6 +912,17 @@ async function runSingleFileInIsolatedProcess({
 
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+
+    const PER_FILE_TIMEOUT_MS = 1_800_000;
+    const watchdog = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore — child may have already exited
+      }
+    }, PER_FILE_TIMEOUT_MS);
 
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
@@ -858,6 +933,7 @@ async function runSingleFileInIsolatedProcess({
     });
 
     child.on("error", (error) => {
+      clearTimeout(watchdog);
       resolve({
         filePath,
         errorMessage: `Failed to spawn isolated test process: ${error.message}`,
@@ -865,6 +941,17 @@ async function runSingleFileInIsolatedProcess({
     });
 
     child.on("close", (code) => {
+      clearTimeout(watchdog);
+      if (timedOut) {
+        resolve({
+          filePath,
+          errorMessage:
+            `Isolated test process timed out after ${PER_FILE_TIMEOUT_MS / 1000}s. ` +
+            `This usually means the Yo or C compilation phase is stuck. ` +
+            `See issues/test-runner-no-compile-timeout.md.`,
+        });
+        return;
+      }
       const summary = parseTestSummaryFromOutput(stdout);
       if (summary) {
         resolve({ filePath, summary });
@@ -895,6 +982,7 @@ async function runTestsInIsolatedProcesses({
   testNamePattern,
   keepGeneratedFiles,
   profile,
+  noSanitize,
   startTime,
 }: {
   testFiles: string[];
@@ -906,6 +994,7 @@ async function runTestsInIsolatedProcesses({
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
   profile?: boolean;
+  noSanitize?: boolean;
   startTime: number;
 }): Promise<TestRunSummary> {
   const allResults: TestResult[] = [];
@@ -931,6 +1020,7 @@ async function runTestsInIsolatedProcesses({
         testNamePattern,
         keepGeneratedFiles,
         profile,
+        noSanitize,
       });
 
       const relativePath = path.relative(process.cwd(), filePath);
@@ -1056,6 +1146,7 @@ async function runTestsSequentially(
     keepGeneratedFiles?: boolean;
     profile?: boolean;
     wasmTarget?: TargetInfo;
+    noSanitize?: boolean;
   }
 ): Promise<{
   results: TestResult[];
@@ -1111,7 +1202,8 @@ async function runTestsSequentially(
       firstTest.test.filePath,
       cCompiler,
       options.wasmTarget,
-      options.keepGeneratedFiles
+      options.keepGeneratedFiles,
+      options.noSanitize
     );
   } catch (compileError) {
     // Batch compilation failed — report as failure for all tests
@@ -1148,7 +1240,8 @@ async function runTestsSequentially(
       batchResult.binaryPath,
       cCompiler,
       options.wasmTarget,
-      options.profile
+      options.profile,
+      options.noSanitize
     );
     reportResult(test, result);
   }
@@ -1171,6 +1264,7 @@ export async function runTests(
     parallel?: number;
     keepGeneratedFiles?: boolean;
     profile?: boolean;
+    noSanitize?: boolean;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
@@ -1263,6 +1357,7 @@ export async function runTests(
       testNamePattern: options.testNamePattern,
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
+      noSanitize: options.noSanitize,
       startTime,
     });
     parallelResult.skipped += skippedTests;
@@ -1349,6 +1444,7 @@ export async function runTests(
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
       wasmTarget,
+      noSanitize: options.noSanitize,
     });
 
     allResults.push(...result.results);

@@ -1,0 +1,115 @@
+//! evaluator/calls/comptime_list_type — try_to_implement_comptime_list_by_comptime_list_type.
+//!
+//! 1:1 port of `src/evaluator/calls/comptime-list-type.ts`.
+//!
+//! Builds a ComptimeList value from a `ComptimeListT(child)` type and a list
+//! of argument expressions, e.g.:
+//!
+//!   ExprList :: ComptimeList(Expr);
+//!   list :: ExprList(quote(x), quote(y), quote(z));
+
+open import "std/string";
+{ ArrayList } :: import "std/collections/array_list";
+{ Exception } :: import "std/error";
+
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+{ new_expr_info, expr_info_table_get,
+  expr_info_table_set }                                 :: import "../../expr/expr_info.yo";
+{ Environment }                                         :: import "../../env/env.yo";
+{ TypeValue }                                           :: import "../../types/type.yo";
+{ are_types_compatible }                                :: import "../../types/compatibility.yo";
+{ type_to_string }                                      :: import "../../types/string.yo";
+{ EvalContext, ExpectedTypeCtx }                        :: import "../context.yo";
+{ EvalValue }                                           :: import "../value.yo";
+{ format_error_message }                                :: import "../../error/error.yo";
+{ evaluate_expression }                                 :: import "../exprs/expr.yo";
+{ set_expr_as_needs_to_call_dup }                       :: import "../utils.yo";
+
+/// Build a ComptimeList value from `comptime_list_type` and `arg_exprs`.
+///
+/// Mirrors `tryToImplementComptimeListByComptimeListType` in
+/// `src/evaluator/calls/comptime-list-type.ts`.
+try_to_implement_comptime_list_by_comptime_list_type :: (fn(
+  expr               : AstExpr,
+  comptime_list_type : TypeValue,
+  arg_exprs          : ArrayList(AstExpr),
+  caller_env         : Environment,
+  ctx                : *(EvalContext),
+  using(exn          : Exception)
+) -> AstExpr)({
+  // Extract child type from ComptimeListT(child).
+  expected_element_type := match(comptime_list_type,
+    .ComptimeListT(child) => child.*,
+    _                     => TypeValue.Unit
+  );
+
+  (env : Environment)              = caller_env;
+  elements                        := ArrayList(EvalValue).new();
+
+  (i : usize) = usize(0);
+  while runtime((i < arg_exprs.len())), {
+    arg_expr := match(arg_exprs.get(i), .Some(a) => a, .None => make_err_expr());
+
+    // Set expectedType in context for this evaluation, then restore.
+    saved_expected := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
+      ty:  expected_element_type,
+      env: env
+    ));
+
+    evaluated_arg := evaluate_expression(arg_expr, env, ctx);
+
+    ctx.expected_type = saved_expected;
+
+    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+    info := match(info_opt,
+      .Some(it) => it,
+      .None     => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg_expr),
+          `Failed to evaluate ComptimeList element at index ${i.to_string()}.`,
+          false,
+          .None
+        ));
+        new_expr_info(env, TypeValue.Unit)
+      }
+    );
+
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
+
+    env = info.env;
+
+    if(!(are_types_compatible(info.ty, expected_element_type)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg_expr),
+        `ComptimeList element at index ${i.to_string()} has incompatible type:
+- Expected: ${type_to_string(expected_element_type)}
+- Given   : ${type_to_string(info.ty)}`,
+        false,
+        .None
+      ));
+    });
+
+    match(info.value,
+      .Some(v) => { elements.push(v); (); },
+      .None    => { exn.throw(dyn format_error_message(
+        ast_expr_token(arg_expr),
+        `Expected compile-time known value for ComptimeList element at index ${i.to_string()}, got ${type_to_string(info.ty)}`,
+        false,
+        .None
+      )); (); }
+    );
+
+    i = (i + usize(1));
+  };
+
+  // Build ComptimeList value and annotate ExprInfo.
+  list_val := EvalValue.ComptimeListVal(elements);
+  out_info := new_expr_info(env, comptime_list_type);
+  out_info.value = Option(EvalValue).Some(list_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+
+  expr
+});
+
+export try_to_implement_comptime_list_by_comptime_list_type;

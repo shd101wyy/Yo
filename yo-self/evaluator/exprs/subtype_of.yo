@@ -1,0 +1,329 @@
+//! evaluate_subtype_of — handles the `T <: Trait` expression.
+//!
+//! 1:1 port of `src/evaluator/exprs/subtype-of.ts`.
+
+open import "std/string";
+
+{ ArrayList }                                          :: import "std/collections/array_list";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr,
+  ast_expr_is_fn_call_of, BK_TUPLE, BK_SUBTYPE_OF }   :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
+{ Environment }                                        :: import "../../env/env.yo";
+{ EvalContext }                                        :: import "../context.yo";
+{ EvalValue }                                          :: import "../value.yo";
+{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
+{ is_type_val }                                        :: import "../value.yo";
+{ is_trait_type, is_some_type }                        :: import "../../types/guards.yo";
+{ type_to_string }                                     :: import "../../types/string.yo";
+{ format_error_message }                               :: import "../../error/error.yo";
+{ Exception }                                          :: import "std/error";
+{ evaluate_expression }                                :: import "./expr.yo";
+{ _add_where_clause_constraint, _trait_has_receiver }  :: import "../types/function.yo";
+{ type_implements_trait_bool }                         :: import "../trait_checking.yo";
+
+/// Evaluate the `T <: Trait` constraint operator.
+///
+/// Mirrors `evaluateSubtypeOf` in `src/evaluator/exprs/subtype-of.ts`.
+evaluate_subtype_of :: (fn(
+  expr    : AstExpr,
+  env_in  : Environment,
+  ctx     : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  (env : Environment) = env_in;
+
+  // Validate: `<:` with exactly 2 arguments.
+  if(!(ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2)))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("`<:` requires exactly two arguments."),
+      false,
+      .None
+    ));
+  });
+
+  // Extract args.
+  lhs_expr := match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+      .Some(a) => a,
+      .None    => make_err_expr()
+    ),
+    .Atom(_, _) => make_err_expr()
+  );
+  rhs_expr := match(expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),
+      .Some(a) => a,
+      .None    => make_err_expr()
+    ),
+    .Atom(_, _) => make_err_expr()
+  );
+
+  // Evaluate the LHS (the type parameter or concrete type).
+  evaluated_lhs := evaluate_expression(lhs_expr, env, ctx);
+  lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
+  lhs_info := match(lhs_info_opt,
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs_expr),
+        String.from("Expected type for left-hand side of `<:`."),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  env = lhs_info.env;
+
+  // LHS must be a TypeValue.
+  lhs_type_val := match(lhs_info.value,
+    .Some(v) => if(is_type_val(v),
+      v,
+      {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(lhs_expr),
+          String.from("Expected type for left-hand side expression of `<:`."),
+          false,
+          .None
+        ));
+        EvalValue.UnitVal
+      }
+    ),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(lhs_expr),
+        String.from("Expected type for left-hand side expression of `<:`."),
+        false,
+        .None
+      ));
+      EvalValue.UnitVal
+    }
+  );
+  lhs_ty := match(lhs_type_val,
+    .TypeVal(b) => b.*,
+    _           => t_unit()
+  );
+
+  // In a where clause, the LHS must be a SomeType (type parameter).
+  if((ctx.is_inside_where_clause && !(is_some_type(lhs_ty))), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(lhs_expr),
+      `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${type_to_string(lhs_ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  // Collect trait expressions.
+  // Supports single trait or tuple of traits; also negated traits T <: !(Trait).
+  // Use parallel arrays (trait_exprs_arr, is_neg_arr) since tuple type params
+  // are not supported in yo-self.
+  trait_exprs_arr := ArrayList(AstExpr).new();
+  is_neg_arr      := ArrayList(bool).new();
+  rhs_is_tuple := ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None);
+  if(rhs_is_tuple, {
+    // Tuple form: (Trait1, Trait2, ...).
+    rhs_args := match(rhs_expr,
+      .FnCall(_, _, args, _, _) => args,
+      .Atom(_, _)               => ArrayList(AstExpr).new()
+    );
+    (i : usize) = usize(0);
+    while((i < rhs_args.len()), {
+      trait_expr := match(rhs_args.get(i),
+        .Some(a) => a,
+        .None    => make_err_expr()
+      );
+      is_neg := ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1)));
+      actual_trait_expr := if(is_neg,
+        match(trait_expr,
+          .FnCall(_, _, inner_args, _, _) => match(inner_args.get(usize(0)),
+            .Some(a) => a,
+            .None    => make_err_expr()
+          ),
+          .Atom(_, _) => make_err_expr()
+        ),
+        trait_expr
+      );
+      trait_exprs_arr.push(actual_trait_expr);
+      is_neg_arr.push(is_neg);
+      i = (i + usize(1));
+    });
+  }, {
+    // Single trait form.
+    rhs_is_neg := ast_expr_is_fn_call_of(rhs_expr, "!", .Some(usize(1)));
+    actual_rhs := if(rhs_is_neg,
+      match(rhs_expr,
+        .FnCall(_, _, inner_args, _, _) => match(inner_args.get(usize(0)),
+          .Some(a) => a,
+          .None    => make_err_expr()
+        ),
+        .Atom(_, _) => make_err_expr()
+      ),
+      rhs_expr
+    );
+    trait_exprs_arr.push(actual_rhs);
+    is_neg_arr.push(rhs_is_neg);
+  });
+
+  // Evaluate each trait expression.
+  trait_type_vals := ArrayList(TypeValue).new();
+  trait_neg_flags := ArrayList(bool).new();
+  (ti : usize) = usize(0);
+  while((ti < trait_exprs_arr.len()), {
+    te := match(trait_exprs_arr.get(ti),
+      .Some(e) => e,
+      .None    => make_err_expr()
+    );
+    is_neg := match(is_neg_arr.get(ti), .Some(b) => b, .None => false);
+
+    evaluated_te := evaluate_expression(te, env, ctx);
+    te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
+    te_info := match(te_info_opt,
+      .Some(i) => i,
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(te),
+          String.from("Expected trait type for right-hand side of `<:`."),
+          false,
+          .None
+        ));
+        new_expr_info(env, t_unit())
+      }
+    );
+    env = te_info.env;
+
+    // RHS must be a TypeValue that is a TraitType.
+    trait_ty_val := match(te_info.value,
+      .Some(v) => match(v,
+        .TypeVal(b) => if(is_trait_type(b.*),
+          b.*,
+          {
+            exn.throw(dyn format_error_message(
+              ast_expr_token(te),
+              String.from("Expected trait type for right-hand side of `<:`."),
+              false,
+              .None
+            ));
+            t_unit()
+          }
+        ),
+        _ => {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(te),
+            String.from("Expected trait type for right-hand side of `<:`."),
+            false,
+            .None
+          ));
+          t_unit()
+        }
+      ),
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(te),
+          String.from("Expected trait type for right-hand side of `<:`."),
+          false,
+          .None
+        ));
+        t_unit()
+      }
+    );
+
+    // Negated constraints only allowed in where clauses.
+    if((is_neg && !(ctx.is_inside_where_clause)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(te),
+        String.from("Negated trait constraints !(Trait) are only allowed in where clauses."),
+        false,
+        .None
+      ));
+    });
+
+    // The trait must not already have a receiver type assigned.
+    if(_trait_has_receiver(trait_ty_val), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(te),
+        String.from("Expected trait type already has a receiver type assigned."),
+        false,
+        .None
+      ));
+    });
+
+    trait_type_vals.push(trait_ty_val);
+    trait_neg_flags.push(is_neg);
+    ti = (ti + usize(1));
+  });
+
+  if(ctx.is_inside_where_clause, {
+    // Record constraints on the SomeType (in-place mutation on required/negative lists).
+    (wi : usize) = usize(0);
+    while((wi < trait_type_vals.len()), {
+      wt := match(trait_type_vals.get(wi), .Some(t) => t, .None => t_unit());
+      wn := match(trait_neg_flags.get(wi), .Some(b) => b, .None => false);
+      _add_where_clause_constraint(lhs_ty, wt, wn);
+      wi = (wi + usize(1));
+    });
+    // Clone lhs_ty for new_expr_info; explicitly consume original with box().
+    out_info := new_expr_info(env, lhs_ty.clone());
+    _ := box(lhs_ty);
+    out_info.value = .Some(lhs_type_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr
+  }, {
+    // Non-where-clause: only single trait allowed.
+    if((trait_type_vals.len() > usize(1)), {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(rhs_expr),
+        String.from("Multiple trait constraints (tuple form) are only allowed in where clauses."),
+        false,
+        .None
+      ));
+    });
+
+    trait_ty := match(trait_type_vals.get(usize(0)),
+      .Some(t) => t,
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          String.from("No trait found in `<:` expression."),
+          false,
+          .None
+        ));
+        t_unit()
+      }
+    );
+
+    // Verify LHS implements the trait (skip for SomeType — checked at instantiation).
+    if(!(is_some_type(lhs_ty)), {
+      if(!(type_implements_trait_bool(lhs_ty, trait_ty, env)), {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          `Type "${type_to_string(lhs_ty)}" does not implement trait "${type_to_string(trait_ty)}".`,
+          false,
+          .None
+        ));
+      });
+    });
+
+    // Create a new trait with receiver type (is_concrete) set to lhs_ty.
+    // Mirrors TypeScript's `{ ...traitType, receiverType: typeValue.value }`.
+    // Box lhs_ty before the match so both arms can consume it (arm 1 uses the box,
+    // arm 2 dereferences and discards it).
+    lhs_ty_box := box(lhs_ty);
+    trait_with_receiver := match(trait_ty,
+      .TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints) =>
+        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(Box(TypeValue)).Some(lhs_ty_box), self_constraints, neg_self_constraints),
+      _ => {
+        _ := lhs_ty_box;
+        trait_ty
+      }
+    );
+    trait_with_receiver_clone := trait_with_receiver.clone();
+    trait_type_val := EvalValue.TypeVal(box(trait_with_receiver));
+    out_info := new_expr_info(env, trait_with_receiver_clone);
+    out_info.value = .Some(trait_type_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr
+  })
+});
+
+export evaluate_subtype_of;

@@ -1050,6 +1050,32 @@ Got:      "${paramName}"`,
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
+  // Regular functions (->) are not closures and cannot capture outer runtime variables.
+  // If the body references an outer runtime variable, the codegen would emit the function
+  // as a standalone C function with no capture parameters, producing an "undeclared
+  // identifier" C compile error. Catch this early with a clear diagnostic.
+  //
+  // Note: trackVariableUsage already skips comptime-only variables, so any entry in
+  // capturedVariables represents a runtime variable. We further filter to only flag
+  // *true* outer captures (frameLevel < outerEnv.frames.length), which mirrors the same
+  // threshold used by enrichCapturedVariables for closures. Parameters live at
+  // frameLevel == outerEnv.frames.length and are NOT outer captures.
+  if (!isCreatingClosure && capturedVariables && capturedVariables.size > 0) {
+    const trueOuterCaptures = Array.from(capturedVariables.entries()).filter(
+      ([, info]) => info.frameLevel < outerEnv.frames.length
+    );
+    if (trueOuterCaptures.length > 0) {
+      const capturedNames = trueOuterCaptures.map(([name]) => name).join(", ");
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `A regular function (using ->) cannot capture outer runtime variables: ${capturedNames}.
+Use a closure (=> syntax) instead, or refactor the handler to not reference outer variables.
+If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions,
+so only builtin functions (panic, escape) and local variables are accessible.`,
+      });
+    }
+  }
+
   // If the body uses `escape`, mark this function value as isControlFunction.
   // This propagates to effect analysis and codegen so they know to generate
   // state machines for functions that call this handler through `using`.

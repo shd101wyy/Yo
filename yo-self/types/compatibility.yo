@@ -1,62 +1,187 @@
-//! are_types_compatible — structural compatibility check.
+//! are_types_compatible — structural compatibility check (Phase 2f).
 //!
-//! Mirrors `areTypesCompatible` in `src/types/compatibility.ts`. Phase 2a
-//! handles primitives, ComptimeInt → integer widening, ComptimeFloat → float
-//! widening, ComptimeString → comptime_string, pointers, slices, arrays of
-//! equal length, and tuples of equal arity. The full implementation (with
-//! traits, dyn dispatch, function-type variance, SomeType resolution, …) is
-//! a Phase 2b/3 deliverable.
+//! Mirrors `areTypesCompatible` in `src/types/compatibility.ts`.
+//!
+//! Argument convention (opposite of TypeScript):
+//!   `actual`   = the type we have        (TS: `given`)
+//!   `expected` = the type context expects (TS: `expected`)
+//!
+//! Public API:
+//!   are_types_compatible(actual, expected) -> bool
+//!   are_types_compatible_exact(actual, expected) -> bool
+//!   are_function_types_compatible(actual, expected) -> bool
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { TypeValue, type_value_tag, is_int_type, is_float_type } :: import "./type.yo";
 { TypeTag } :: import "./tags.yo";
+{
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_comptime_string_type,
+  is_u8_type,
+  is_char_type,
+  is_c_compatible_type
+} :: import "./guards.yo";
 
-/// Structural type compatibility.
-///
-/// `actual` is the type we have; `expected` is the type the context expects.
-/// The relation is intentionally asymmetric — comptime literals widen to
-/// concrete numeric types but not vice versa.
-are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
-  // Same tag short-circuit for tag-only variants
-  ta := type_value_tag(actual);
-  te := type_value_tag(expected);
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
-  // Comptime widening
-  if((ta == TypeTag.TComptimeInt), {
-    if(is_int_type(expected), { return true; });
-    if((te == TypeTag.TUsize), { return true; });
-    if((te == TypeTag.TIsize), { return true; });
-    if(is_float_type(expected), { return true; });
-    if((te == TypeTag.TComptimeFloat), { return true; });
+_visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
+  i := usize(0);
+  n := visited.len();
+  while runtime((i < n)), {
+    s := match(visited.get(i), .Some(v) => v, .None => ``);
+    if((s == key), { return true; });
+    i = (i + usize(1));
+  };
+  false
+});
+
+_is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
+  i := usize(0);
+  n := used.len();
+  while runtime((i < n)), {
+    ui := match(used.get(i), .Some(v) => v, .None => usize(999999));
+    if((ui == idx), { return true; });
+    i = (i + usize(1));
+  };
+  false
+});
+
+// Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
+// ArrayList is RC-shared — mutations to out_* are visible to the caller.
+_flatten_effects :: (fn(
+  labels     : ArrayList(String),
+  types      : ArrayList(TypeValue),
+  spreads    : ArrayList(bool),
+  out_labels : ArrayList(String),
+  out_types  : ArrayList(TypeValue)
+) -> unit)({
+  i := usize(0);
+  n := labels.len();
+  while runtime((i < n)), {
+    lbl := match(labels.get(i),  .Some(v) => v, .None => ``);
+    ty  := match(types.get(i),   .Some(v) => v, .None => TypeValue.Unit);
+    sp  := match(spreads.get(i), .Some(v) => v, .None => false);
+    if(sp, {
+      match(ty,
+        .EffectsRowT(implicit_labels: row_labels, implicit_types: row_types) => {
+          j := usize(0);
+          m := row_labels.len();
+          while runtime((j < m)), {
+            rl := match(row_labels.get(j), .Some(v) => v, .None => ``);
+            rt := match(row_types.get(j),  .Some(v) => v, .None => TypeValue.Unit);
+            out_labels.push(rl);
+            out_types.push(rt);
+            j = (j + usize(1));
+          };
+        },
+        _ => {
+          out_labels.push(lbl);
+          out_types.push(ty);
+        }
+      );
+    }, {
+      out_labels.push(lbl);
+      out_types.push(ty);
+    });
+    i = (i + usize(1));
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Core implementation
+// ---------------------------------------------------------------------------
+
+_compat_impl :: (fn(
+  actual        : TypeValue,
+  expected      : TypeValue,
+  require_exact : bool,
+  visited       : ArrayList(String)
+) -> bool)({
+  // --- ComptimeInt widening -------------------------------------------------
+  if(is_comptime_int_type(actual), {
+    return match(expected,
+      .ComptimeInt   => true,
+      _ => cond(
+        require_exact => false,
+        true => match(expected,
+          .Int(_, _)     => true,
+          .Usize         => true,
+          .Isize         => true,
+          .Float(_)      => true,
+          .ComptimeFloat => true,
+          .CChar         => true,
+          .CShort        => true,
+          .CUShort       => true,
+          .CInt          => true,
+          .CUInt         => true,
+          .CLong         => true,
+          .CULong        => true,
+          .CLongLong     => true,
+          .CULongLong    => true,
+          _              => false
+        )
+      )
+    );
   });
-  if((ta == TypeTag.TComptimeFloat), {
-    if(is_float_type(expected), { return true; });
+
+  // --- ComptimeFloat widening -----------------------------------------------
+  if(is_comptime_float_type(actual), {
+    return match(expected,
+      .ComptimeFloat => true,
+      _ => cond(
+        require_exact => false,
+        true => match(expected,
+          .Float(_)      => true,
+          _              => false
+        )
+      )
+    );
   });
 
-  // Tag mismatch otherwise
-  if((ta != te), { return false; });
+  // --- ComptimeString widening ----------------------------------------------
+  if(is_comptime_string_type(actual), {
+    return match(expected,
+      .ComptimeString => true,
+      _ => cond(
+        require_exact => false,
+        true => match(expected,
+          .Slice(einner)   => is_u8_type(einner.*),
+          .Pointer(einner) => cond(
+            is_u8_type(einner.*)   => true,
+            is_char_type(einner.*) => true,
+            true                   => false
+          ),
+          _ => false
+        )
+      )
+    );
+  });
 
-  // Per-variant structural check
-  return match(actual,
-    .Unit            => true,
-    .BoolT           => true,
-    .Void            => true,
-    .Usize           => true,
-    .Isize           => true,
-    .ComptimeInt     => true,
-    .ComptimeFloat   => true,
-    .ComptimeString  => true,
-    .CChar           => true,
-    .CShort          => true,
-    .CUShort         => true,
-    .CInt            => true,
-    .CUInt           => true,
-    .CLong           => true,
-    .CULong          => true,
-    .CLongLong       => true,
-    .CULongLong      => true,
-    .CLongDouble     => true,
+  // --- C-compatible types ---------------------------------------------------
+  if(is_c_compatible_type(actual), {
+    if(!(is_c_compatible_type(expected)), { return false; });
+    return (type_value_tag(actual) == type_value_tag(expected));
+  });
+
+  // --- Tag mismatch ---------------------------------------------------------
+  if((type_value_tag(actual) != type_value_tag(expected)), { return false; });
+
+  // --- Main structural match ------------------------------------------------
+  match(actual,
+    // Primitives
+    .Unit  => match(expected, .Unit  => true, _ => false),
+    .BoolT => match(expected, .BoolT => true, _ => false),
+    .Void  => match(expected, .Void  => true, _ => false),
+    .Usize => match(expected, .Usize => true, _ => false),
+    .Isize => match(expected, .Isize => true, _ => false),
+    .ComptimeInt    => match(expected, .ComptimeInt    => true, _ => false),
+    .ComptimeFloat  => match(expected, .ComptimeFloat  => true, _ => false),
+    .ComptimeString => match(expected, .ComptimeString => true, _ => false),
+
     .Int(abits, asigned) => match(expected,
       .Int(ebits, esigned) => ((abits == ebits) && (asigned == esigned)),
       _ => false
@@ -69,79 +194,79 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
       .TypeUni(elvl) => (alvl == elvl),
       _ => false
     ),
+
+    // Pointer children always use require_exact=true (TS semantics)
     .Pointer(ainner) => match(expected,
-      .Pointer(einner) => recur(ainner.*, einner.*),
+      .Pointer(einner) => recur(ainner.*, einner.*, true, visited),
       _ => false
     ),
     .Slice(ainner) => match(expected,
-      .Slice(einner) => recur(ainner.*, einner.*),
+      .Slice(einner) => recur(ainner.*, einner.*, require_exact, visited),
       _ => false
     ),
     .Array(ainner, alen) => match(expected,
-      .Array(einner, elen) => ((alen == elen) && recur(ainner.*, einner.*)),
+      .Array(einner, elen) => ((alen == elen) && recur(ainner.*, einner.*, require_exact, visited)),
       _ => false
     ),
-    .Tuple(_, atypes) => match(expected,
-      .Tuple(_, etypes) => {
+
+    .Tuple(alabels, atypes) => match(expected,
+      .Tuple(elabels, etypes) => {
         n := atypes.len();
         if((n != etypes.len()), { return false; });
         i := usize(0);
-        ok := true;
         while runtime((i < n)), {
-          ax_opt := atypes.get(i);
-          bx_opt := etypes.get(i);
-          match(ax_opt,
-            .Some(ax) => match(bx_opt,
-              .Some(bx) => if(!(recur(ax, bx)), { ok = false; }),
-              .None     => { ok = false; }
-            ),
-            .None => { ok = false; }
-          );
-          if(!(ok), { break; });
+          at := match(atypes.get(i),  .Some(v) => v, .None => TypeValue.Unit);
+          et := match(etypes.get(i),  .Some(v) => v, .None => TypeValue.Unit);
+          al := match(alabels.get(i), .Some(v) => v, .None => ``);
+          el := match(elabels.get(i), .Some(v) => v, .None => ``);
+          if((al != el), { return false; });
+          if(!(recur(at, et, require_exact, visited)), { return false; });
           i = (i + usize(1));
         };
-        ok
+        true
       },
       _ => false
     ),
-    .Func(param_types: aps, result: ares) => match(expected,
-      .Func(param_types: eps, result: eres) => {
-        n := aps.len();
-        if((n != eps.len()), { return false; });
-        if(!(recur(ares.*, eres.*)), { return false; });
+
+    // Function types: compare forall count, param count, types, return
+    .Func(forall_types: afts, param_types: apts, result: aret) => match(expected,
+      .Func(forall_types: efts, param_types: epts, result: eret) => {
+        if((afts.len() != efts.len()), { return false; });
+        if((apts.len() != epts.len()), { return false; });
         i := usize(0);
-        ok := true;
-        while runtime((i < n)), {
-          ax_opt := aps.get(i);
-          bx_opt := eps.get(i);
-          match(ax_opt,
-            .Some(ax) => match(bx_opt,
-              .Some(bx) => if(!(recur(ax, bx)), { ok = false; }),
-              .None     => { ok = false; }
-            ),
-            .None => { ok = false; }
-          );
-          if(!(ok), { break; });
+        while runtime((i < afts.len())), {
+          at := match(afts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          et := match(efts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          if(!(recur(at, et, require_exact, visited)), { return false; });
           i = (i + usize(1));
         };
-        ok
+        i = usize(0);
+        while runtime((i < apts.len())), {
+          at := match(apts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          et := match(epts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          if(!(recur(at, et, require_exact, visited)), { return false; });
+          i = (i + usize(1));
+        };
+        recur(aret.*, eret.*, require_exact, visited)
       },
       _ => false
     ),
-    // Named nominal types — compare by name (Phase 2a; nominal identity is
-    // refined later when we wire in module paths).
-    .Struct(aname, _, _) => match(expected,
-      .Struct(ename, _, _) => (aname == ename),
+
+    // Named user types: name-only comparison (Phase 2f)
+    .Struct(_, aname, _, _, _, _, _) => match(expected,
+      .Struct(_, ename, _, _, _, _, _) => (aname == ename),
       _ => false
     ),
-    .EnumT(aname, _, _) => match(expected,
-      .EnumT(ename, _, _) => (aname == ename),
+    .EnumT(_, aname, _, _, _, _, _) => match(expected,
+      .EnumT(_, ename, _, _, _, _, _) => (aname == ename),
       _ => false
     ),
     .Union(aname, _, _) => match(expected,
       .Union(ename, _, _) => (aname == ename),
       _ => false
     ),
+
+    // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural
     .TraitT(name: aname) => match(expected,
       .TraitT(name: ename) => (aname == ename),
       _ => false
@@ -150,13 +275,183 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
       .ModuleT(name: ename) => (aname == ename),
       _ => false
     ),
-    // SomeType: identity by (name, frame_level). Phase 2b adds trait-aware
-    // unification.
+
+    // SomeT: name + frame_level identity (Phase 2f: no env resolution)
     .SomeT(name: aname, frame_level: alvl) => match(expected,
       .SomeT(name: ename, frame_level: elvl) => ((aname == ename) && (alvl == elvl)),
       _ => false
-    )
-  );
+    ),
+
+    // -----------------------------------------------------------------------
+    // Phase 2f variants
+    // -----------------------------------------------------------------------
+    .ExprT => match(expected, .ExprT => true, _ => false),
+
+    .ComptimeListT(achild) => match(expected,
+      .ComptimeListT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      _ => false
+    ),
+
+    .EffectsRowT(implicit_labels: als, implicit_types: ats) => match(expected,
+      .EffectsRowT(implicit_labels: els, implicit_types: ets) => {
+        if((als.len() != els.len()), { return false; });
+        i := usize(0);
+        while runtime((i < als.len())), {
+          al := match(als.get(i), .Some(v) => v, .None => ``);
+          el := match(els.get(i), .Some(v) => v, .None => ``);
+          at := match(ats.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          et := match(ets.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          if((al != el), { return false; });
+          if(!(recur(at, et, require_exact, visited)), { return false; });
+          i = (i + usize(1));
+        };
+        true
+      },
+      _ => false
+    ),
+
+    .TypeAppT(constructor: acon, args: aargs) => match(expected,
+      .TypeAppT(constructor: econ, args: eargs) => {
+        // Both constructors must be SomeT and share the same unique ID
+        acid_valid := match(acon.*, .SomeT(id: _) => true, _ => false);
+        ecid_valid := match(econ.*, .SomeT(id: _) => true, _ => false);
+        if((((!(acid_valid)) || (!(ecid_valid)))), { return false; });
+        acid := match(acon.*, .SomeT(id: cid) => cid, _ => ``);
+        ecid := match(econ.*, .SomeT(id: cid) => cid, _ => ``);
+        if((acid != ecid), { return false; });
+        if((aargs.len() != eargs.len()), { return false; });
+        i := usize(0);
+        while runtime((i < aargs.len())), {
+          at := match(aargs.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          et := match(eargs.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          if(!(recur(at, et, require_exact, visited)), { return false; });
+          i = (i + usize(1));
+        };
+        true
+      },
+      _ => false
+    ),
+
+    .IsoT(achild) => match(expected,
+      .IsoT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      _ => false
+    ),
+
+    // DynT: subset-based — all expected required traits must appear in actual;
+    // none of expected's negative traits may appear in actual's required traits.
+    .DynT(required_trait_types: artt, required_trait_levels: _, negative_trait_types: antt, negative_trait_levels: _) =>
+      match(expected,
+        .DynT(required_trait_types: ertt, negative_trait_types: entt) => {
+          i := usize(0);
+          while runtime((i < ertt.len())), {
+            et := match(ertt.get(i), .Some(v) => v, .None => TypeValue.Unit);
+            found := false;
+            j := usize(0);
+            while runtime((j < artt.len())), {
+              at := match(artt.get(j), .Some(v) => v, .None => TypeValue.Unit);
+              if(recur(et, at, require_exact, visited), { found = true; });
+              if(found, { break; });
+              j = (j + usize(1));
+            };
+            if(!(found), { return false; });
+            i = (i + usize(1));
+          };
+          i = usize(0);
+          while runtime((i < entt.len())), {
+            et := match(entt.get(i), .Some(v) => v, .None => TypeValue.Unit);
+            j := usize(0);
+            while runtime((j < artt.len())), {
+              at := match(artt.get(j), .Some(v) => v, .None => TypeValue.Unit);
+              if(recur(et, at, require_exact, visited), { return false; });
+              j = (j + usize(1));
+            };
+            i = (i + usize(1));
+          };
+          true
+        },
+        _ => false
+      ),
+
+    // FnTraitT: structural — same base_name, pairwise params, compatible result
+    .FnTraitT(base_name: abn, call_param_types: apts, call_result: aret) => match(expected,
+      .FnTraitT(base_name: ebn, call_param_types: epts, call_result: eret) => {
+        if((abn != ebn), { return false; });
+        if((apts.len() != epts.len()), { return false; });
+        i := usize(0);
+        while runtime((i < apts.len())), {
+          at := match(apts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          et := match(epts.get(i), .Some(v) => v, .None => TypeValue.Unit);
+          if(!(recur(at, et, require_exact, visited)), { return false; });
+          i = (i + usize(1));
+        };
+        recur(aret.*, eret.*, require_exact, visited)
+      },
+      _ => false
+    ),
+
+    // FutureTraitT: same base_name, compatible output, order-independent effects
+    .FutureTraitT(base_name: abn, output: aout, effect_labels: aels, effect_types: aets, effect_spreads: aesp) =>
+      match(expected,
+        .FutureTraitT(base_name: ebn, output: eout, effect_labels: eels, effect_types: eets, effect_spreads: eesp) => {
+          if((abn != ebn), { return false; });
+          if(!(recur(aout.*, eout.*, require_exact, visited)), { return false; });
+          flat_a_labels := ArrayList(String).new();
+          flat_a_types  := ArrayList(TypeValue).new();
+          flat_e_labels := ArrayList(String).new();
+          flat_e_types  := ArrayList(TypeValue).new();
+          _flatten_effects(aels, aets, aesp, flat_a_labels, flat_a_types);
+          _flatten_effects(eels, eets, eesp, flat_e_labels, flat_e_types);
+          // Backward compat: empty effects on either side → compatible
+          if(((flat_a_types.len() == usize(0)) || (flat_e_types.len() == usize(0))), {
+            return true;
+          });
+          if((flat_a_types.len() != flat_e_types.len()), { return false; });
+          // Order-independent set matching
+          used := ArrayList(usize).new();
+          ei := usize(0);
+          while runtime((ei < flat_e_types.len())), {
+            et := match(flat_e_types.get(ei),  .Some(v) => v, .None => TypeValue.Unit);
+            el := match(flat_e_labels.get(ei), .Some(v) => v, .None => ``);
+            found := false;
+            ai := usize(0);
+            while runtime((ai < flat_a_types.len())), {
+              if(!(_is_in_used(used, ai)), {
+                at := match(flat_a_types.get(ai),  .Some(v) => v, .None => TypeValue.Unit);
+                al := match(flat_a_labels.get(ai), .Some(v) => v, .None => ``);
+                if(((al == el) && recur(et, at, require_exact, visited)), {
+                  used.push(ai);
+                  found = true;
+                });
+              });
+              if(found, { break; });
+              ai = (ai + usize(1));
+            };
+            if(!(found), { return false; });
+            ei = (ei + usize(1));
+          };
+          true
+        },
+        _ => false
+      ),
+
+    _ => false
+  )
 });
 
-export are_types_compatible;
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+  _compat_impl(actual, expected, false, ArrayList(String).new())
+);
+
+are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+  _compat_impl(actual, expected, true, ArrayList(String).new())
+);
+
+are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+  _compat_impl(actual, expected, false, ArrayList(String).new())
+);
+
+export are_types_compatible, are_types_compatible_exact, are_function_types_compatible;

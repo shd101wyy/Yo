@@ -81,18 +81,40 @@ TypeValue :: enum(
   ),
 
   // Named user-defined types ------------------------------------------------
+  /// `id` uniquely identifies this struct definition (mirrors `StructType.id`
+  /// in `src/types/definitions.ts`).  Set to `""` for types reconstructed
+  /// from runtime values via `type_of_eval_value`.
+  /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
+  /// `is_atomic_rc` = true for `atomic object(...)`.
+  /// `is_newtype` = true for `newtype(...)`.
   Struct(
-    name         : String,
-    field_labels : ArrayList(String),
-    field_types  : ArrayList(Self)
+    id                   : String,
+    name                 : String,
+    field_labels         : ArrayList(String),
+    field_types          : ArrayList(Self),
+    is_reference_semantics : bool,
+    is_atomic_rc         : bool,
+    is_newtype           : bool
   ),
 
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
   /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+  /// `selected_variant_name` is set when the type has been narrowed to a specific
+  /// variant (e.g. after pattern matching or destructuring).
+  /// Mirrors `EnumType.selectedVariantName` in `src/types/definitions.ts`.
+  /// `variant_field_labels` holds the per-variant label names in declaration
+  /// order — used by labeled destructuring and match (Phase 2ae+).
+  /// `id` uniquely identifies this enum definition (mirrors `EnumType.id`).
+  /// `variant_discriminants` holds one discriminant value per variant (in order).
+  /// Mirrors `EnumVariant.discriminant` in `src/types/definitions.ts`.
   EnumT(
-    name           : String,
-    variant_names  : ArrayList(String),
-    variant_fields : ArrayList(ArrayList(Self))
+    id                    : String,
+    name                  : String,
+    variant_names         : ArrayList(String),
+    variant_fields        : ArrayList(ArrayList(Self)),
+    selected_variant_name : Option(String),
+    variant_field_labels  : ArrayList(ArrayList(String)),
+    variant_discriminants : ArrayList(i64)
   ),
 
   Union(
@@ -103,15 +125,25 @@ TypeValue :: enum(
 
   // Traits / modules --------------------------------------------------------
   /// Named trait type. Phase 2b: associated type names and method/field list.
+  /// Phase 2aq: `id` for unique identity, `is_concrete` for `Concrete(T)` marker
+  /// (mirrors TypeScript `TraitType.id` and `TraitType.isConcrete`).
+  /// Phase 2az: `self_constraints` and `neg_self_constraints` mirror
+  /// TypeScript `TraitType.selfConstraints` / `TraitType.negativeSelfConstraints`.
   TraitT(
-    name             : String,
-    assoc_type_names : ArrayList(String),    // names of associated type members
-    field_labels     : ArrayList(String),    // method / field names
-    field_types      : ArrayList(Self)       // method / field types
+    name                 : String,
+    assoc_type_names     : ArrayList(String),    // names of associated type members
+    field_labels         : ArrayList(String),    // method / field names
+    field_types          : ArrayList(Self),      // method / field types
+    id                   : String,               // unique identity string
+    is_concrete          : Option(Box(Self)),    // Some(T) when this is `Concrete(T)`
+    self_constraints     : ArrayList(Self),      // where-clause constraints on Self
+    neg_self_constraints : ArrayList(Self)       // negative where-clause constraints on Self
   ),
 
   /// Named module type. Phase 2b: function-field list.
+  /// Phase 2au: `id` added for nominal identity (mirrors TypeScript ModuleType.id).
   ModuleT(
+    id           : String,                   // unique module type identity
     name         : String,
     field_labels : ArrayList(String),        // function / field names
     field_types  : ArrayList(Self)           // function / field types
@@ -132,7 +164,60 @@ TypeValue :: enum(
     required_trait_types  : ArrayList(Self),   // required trait constraints
     required_trait_levels : ArrayList(usize),  // frame-level of each constraint
     negative_trait_types  : ArrayList(Self),   // negative trait constraints
-    negative_trait_levels : ArrayList(usize)   // frame-level of each negative constraint
+    negative_trait_levels : ArrayList(usize),  // frame-level of each negative constraint
+    is_effects_row        : bool               // true when this SomeType represents an effect-row spread `...(E)`
+  ),
+
+  // Phase 2f: advanced type variants ----------------------------------------
+
+  /// The Yo `Expr` type (a quoted expression node).
+  ExprT,
+
+  /// A compile-time homogeneous list. `child` is the element type.
+  ComptimeListT(child : Box(Self)),
+
+  /// An effects row — labels and types for `using(...)` constraints.
+  EffectsRowT(
+    implicit_labels : ArrayList(String),
+    implicit_types  : ArrayList(Self)
+  ),
+
+  /// Application of a generic type constructor to arguments.
+  /// `constructor` is always a `SomeT` (the type-constructor variable).
+  TypeAppT(
+    constructor : Box(Self),
+    args        : ArrayList(Self)
+  ),
+
+  /// Iso-wrapped type (linear / unique reference).
+  IsoT(child : Box(Self)),
+
+  /// Dynamic-dispatch type with trait bounds.
+  DynT(
+    required_trait_types  : ArrayList(Self),
+    required_trait_levels : ArrayList(usize),
+    negative_trait_types  : ArrayList(Self),
+    negative_trait_levels : ArrayList(usize)
+  ),
+
+  /// Fn-trait type (Fn / FnMut / FnOnce).
+  FnTraitT(
+    base_name         : String,
+    call_param_labels : ArrayList(String),
+    call_param_types  : ArrayList(Self),
+    call_result       : Box(Self),
+    implicit_labels   : ArrayList(String),
+    implicit_types    : ArrayList(Self),
+    implicit_spreads  : ArrayList(bool)
+  ),
+
+  /// Future-trait type with associated output and effects.
+  FutureTraitT(
+    base_name      : String,
+    output         : Box(Self),
+    effect_labels  : ArrayList(String),
+    effect_types   : ArrayList(Self),
+    effect_spreads : ArrayList(bool)
   )
 );
 
@@ -180,6 +265,20 @@ t_comptime_float  :: (fn() -> TypeValue)(.ComptimeFloat);
 t_comptime_string :: (fn() -> TypeValue)(.ComptimeString);
 
 t_type            :: (fn() -> TypeValue)(.TypeUni(usize(0)));
+// TypeUni(1) — the "kind" for Module and Trait (one level above Type(0))
+t_type_1          :: (fn() -> TypeValue)(.TypeUni(usize(1)));
+
+// C-compatible types (platform-dependent size; no compile-time arithmetic)
+t_c_char          :: (fn() -> TypeValue)(.CChar);
+t_c_short         :: (fn() -> TypeValue)(.CShort);
+t_c_ushort        :: (fn() -> TypeValue)(.CUShort);
+t_c_int           :: (fn() -> TypeValue)(.CInt);
+t_c_uint          :: (fn() -> TypeValue)(.CUInt);
+t_c_long          :: (fn() -> TypeValue)(.CLong);
+t_c_ulong         :: (fn() -> TypeValue)(.CULong);
+t_c_longlong      :: (fn() -> TypeValue)(.CLongLong);
+t_c_ulonglong     :: (fn() -> TypeValue)(.CULongLong);
+t_c_longdouble    :: (fn() -> TypeValue)(.CLongDouble);
 
 t_ptr             :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
 t_slice           :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
@@ -217,12 +316,12 @@ t_trait :: (fn(
   field_labels : ArrayList(String),
   field_types  : ArrayList(TypeValue)
 ) -> TypeValue)(
-  .TraitT(name, assoc_names, field_labels, field_types)
+  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
 );
 
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : String) -> TypeValue)(
-  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
 );
 
 /// Create a module type with field lists.
@@ -231,12 +330,81 @@ t_module :: (fn(
   field_labels : ArrayList(String),
   field_types  : ArrayList(TypeValue)
 ) -> TypeValue)(
-  .ModuleT(name, field_labels, field_types)
+  .ModuleT(String.from(""), name, field_labels, field_types)
 );
 
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : String) -> TypeValue)(
-  .ModuleT(name, ArrayList(String).new(), ArrayList(TypeValue).new())
+  .ModuleT(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new())
+);
+
+// ---------------------------------------------------------------------------
+// Convenience constructors for Phase 2f variants
+// ---------------------------------------------------------------------------
+
+t_expr_t :: (fn() -> TypeValue)(.ExprT);
+
+t_comptime_list :: (fn(child : TypeValue) -> TypeValue)(
+  .ComptimeListT(box(child))
+);
+
+t_effects_row :: (fn(labels : ArrayList(String), types : ArrayList(TypeValue)) -> TypeValue)(
+  .EffectsRowT(labels, types)
+);
+
+t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeValue)(
+  .TypeAppT(box(constructor), args)
+);
+
+t_iso :: (fn(child : TypeValue) -> TypeValue)(
+  .IsoT(box(child))
+);
+
+t_dyn :: (fn(
+  required_trait_types  : ArrayList(TypeValue),
+  required_trait_levels : ArrayList(usize),
+  negative_trait_types  : ArrayList(TypeValue),
+  negative_trait_levels : ArrayList(usize)
+) -> TypeValue)(
+  .DynT(required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels)
+);
+
+t_dyn_simple :: (fn(required_trait_types : ArrayList(TypeValue)) -> TypeValue)(
+  .DynT(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
+);
+
+t_fn_trait :: (fn(
+  base_name         : String,
+  call_param_labels : ArrayList(String),
+  call_param_types  : ArrayList(TypeValue),
+  call_result       : TypeValue,
+  implicit_labels   : ArrayList(String),
+  implicit_types    : ArrayList(TypeValue),
+  implicit_spreads  : ArrayList(bool)
+) -> TypeValue)(
+  .FnTraitT(base_name, call_param_labels, call_param_types, box(call_result), implicit_labels, implicit_types, implicit_spreads)
+);
+
+t_fn_trait_simple :: (fn(
+  base_name        : String,
+  call_param_types : ArrayList(TypeValue),
+  call_result      : TypeValue
+) -> TypeValue)(
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, box(call_result), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+);
+
+t_future_trait :: (fn(
+  base_name      : String,
+  output         : TypeValue,
+  effect_labels  : ArrayList(String),
+  effect_types   : ArrayList(TypeValue),
+  effect_spreads : ArrayList(bool)
+) -> TypeValue)(
+  .FutureTraitT(base_name, box(output), effect_labels, effect_types, effect_spreads)
+);
+
+t_future_trait_simple :: (fn(base_name : String, output : TypeValue) -> TypeValue)(
+  .FutureTraitT(base_name, box(output), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 
 /// Create an unconstrained SomeType (generic type variable).
@@ -245,7 +413,8 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     generate_some_type_id(), name, frame_level,
     Box(TypeValue)(.TypeUni(usize(0))),
     ArrayList(TypeValue).new(), ArrayList(usize).new(),
-    ArrayList(TypeValue).new(), ArrayList(usize).new()
+    ArrayList(TypeValue).new(), ArrayList(usize).new(),
+    false
   )
 );
 
@@ -297,12 +466,20 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Array(_, _)          => TypeTag.TArray,
     .Tuple(_, _)          => TypeTag.TTuple,
     .Func(result: _)      => TypeTag.TFunction,
-    .Struct(_, _, _)      => TypeTag.TStruct,
-    .EnumT(_, _, _)       => TypeTag.TEnum,
+    .Struct(_, _, _, _, _, _, _)      => TypeTag.TStruct,
+    .EnumT(_, _, _, _, _, _, _)       => TypeTag.TEnum,
     .Union(_, _, _)       => TypeTag.TUnion,
-    .TraitT(name: _)      => TypeTag.TTrait,
-    .ModuleT(name: _)     => TypeTag.TModule,
-    .SomeT(name: _)       => TypeTag.TSomeType
+    .TraitT(name: _)            => TypeTag.TTrait,
+    .ModuleT(_, _, _, _)           => TypeTag.TModule,
+    .SomeT(name: _)             => TypeTag.TSomeType,
+    .ExprT                      => TypeTag.TExpr,
+    .ComptimeListT(_)           => TypeTag.TComptimeList,
+    .EffectsRowT(_, _)          => TypeTag.TEffectsRow,
+    .TypeAppT(_, _)             => TypeTag.TTypeApplication,
+    .IsoT(_)                    => TypeTag.TIso,
+    .DynT(_, _, _, _)           => TypeTag.TDyn,
+    .FnTraitT(base_name: _)     => TypeTag.TTrait,
+    .FutureTraitT(base_name: _) => TypeTag.TTrait
   )
 );
 
@@ -361,19 +538,32 @@ is_some_type :: (fn(t : TypeValue) -> bool)(
 );
 
 is_trait_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .TraitT(name: _) => true, _ => false)
+  match(t,
+    .TraitT(name: _)          => true,
+    .FnTraitT(base_name: _)   => true,
+    .FutureTraitT(base_name: _) => true,
+    _ => false
+  )
 );
 
 is_module_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .ModuleT(name: _) => true, _ => false)
+  match(t, .ModuleT(_, _, _, _) => true, _ => false)
 );
 
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Struct(_, _, _) => true, _ => false)
+  match(t, .Struct(_, _, _, _, _, _, _) => true, _ => false)
 );
 
 is_enum_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .EnumT(_, _, _) => true, _ => false)
+  match(t, .EnumT(_, _, _, _, _, _, _) => true, _ => false)
+);
+
+is_union_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Union(_, _, _) => true, _ => false)
+);
+
+is_tuple_type :: (fn(t : TypeValue) -> bool)(
+  match(t, .Tuple(_, _) => true, _ => false)
 );
 
 is_unit_type :: (fn(t : TypeValue) -> bool)(
@@ -399,8 +589,16 @@ export
   t_trait, t_trait_simple,
   t_module, t_module_simple,
   t_some_t, generate_some_type_id,
+  t_expr_t, t_comptime_list, t_effects_row, t_type_app, t_iso,
+  t_dyn, t_dyn_simple,
+  t_fn_trait, t_fn_trait_simple,
+  t_future_trait, t_future_trait_simple,
+  t_type_1,
+  t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint,
+  t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble,
   is_int_type, is_float_type, is_signed_int_type, is_numeric_type,
   is_pointer_type, is_slice_type, is_array_type, is_function_type,
   is_trait_type, is_module_type,
   is_some_type, is_struct_type, is_enum_type,
+  is_union_type, is_tuple_type,
   is_unit_type, is_bool_type;

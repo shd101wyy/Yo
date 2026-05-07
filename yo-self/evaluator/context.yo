@@ -14,8 +14,8 @@
 //! * TypeScript `Type` → `TypeValue` (our enum-based type representation).
 //! * TypeScript `Value | ModuleValue | TraitValue | FunctionValue` → `EvalValue`.
 //! * TypeScript `Expr | FnCallExpr` → `AstExpr`.
-//! * TypeScript `PathCollection` (Path[]) → `ArrayList(AstExpr)` (Phase 2b stub;
-//!   a proper Path type will be added when expr.yo is extended).
+//! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
+//!   imported from `yo-self/expr/expr_info.yo` (Phase 2k).
 
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
@@ -25,23 +25,12 @@ open import "std/string";
 { EvalValue }  :: import "./value.yo";
 { Environment, Variable } :: import "../env/env.yo";
 { AstExpr }    :: import "../expr/expr.yo";
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import "../expr/expr_info.yo";
 { Token }      :: import "../lexer/token.yo";
 
 // ---------------------------------------------------------------------------
-// PathCollection stub (Phase 2b)
+// PathCollection now imported from ../expr/expr_info.yo (Phase 2k)
 // ---------------------------------------------------------------------------
-
-/// In `src/expr.ts`, PathCollection is `Path[]` — a tracking structure for
-/// mutable reference paths used by the ownership / codegen pass.
-///
-/// Phase 2b: `Path` will be a proper struct once expr.yo is extended.
-/// For now, represent a path collection as an opaque list of AST expressions.
-PathCollection :: ArrayList(AstExpr);
-
-/// Create an empty path collection.
-path_collection_new :: (fn() -> PathCollection)(
-  ArrayList(AstExpr).new()
-);
 
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
@@ -141,6 +130,60 @@ ImplConcreteTypeInfo :: object(
   concrete_type : TypeValue,
   env           : Environment,
   token         : Token
+);
+
+// ---------------------------------------------------------------------------
+// CTFE cache types
+// ---------------------------------------------------------------------------
+
+/// One cached call entry for a compile-time function.
+///
+/// Mirrors `CalledComptimeFunctionCache` in `src/function-value.ts`.
+/// Simplified: `env` field dropped (we use callerEnv at lookup time);
+/// `body` field dropped (ExprInfoTable makes AST re-evaluation safe).
+CalledComptimeFnCache :: object(
+  func_id    : String,
+  arg_values : ArrayList(EvalValue),
+  /// `UnknownVal(ty)` for an in-progress recursive call; actual return value when done.
+  value      : EvalValue
+);
+
+/// Per-function CTFE cache bucket, keyed by `func_id`.
+///
+/// Mirrors the per-`FunctionValue` `calledComptimeFunctionCaches` array in TS,
+/// but stored globally in `EvalContext` instead of on the `FuncVal` to avoid
+/// circular imports between `value.yo` and `env.yo`.
+ComptimeFnCacheEntry :: object(
+  func_id : String,
+  caches  : ArrayList(CalledComptimeFnCache)
+);
+
+// ---------------------------------------------------------------------------
+// Specialization cache types
+// ---------------------------------------------------------------------------
+
+/// One cached specialization of a generic function.
+///
+/// Mirrors `SpecializedFunctionCache` on TypeScript's `FunctionValue`.
+/// Stored globally in `EvalContext.specialized_fn_caches` (keyed by `func_id`)
+/// rather than on `FuncVal`, to avoid updating ~24 pattern-match sites.
+SpecializedFunctionCache :: object(
+  /// The compile-time argument values (forall + implicit + comptime params)
+  /// used to create this specialization.
+  compile_time_arg_values : ArrayList(EvalValue),
+  /// The concrete runtime parameter types that distinguish this specialization
+  /// from others with the same compile-time args.
+  runtime_parameter_types : ArrayList(TypeValue),
+  /// The specialized function value (EvalValue.FuncVal with updated func_id).
+  specialized_func_value  : EvalValue,
+  /// The environment at cache-creation time (for value equality checks).
+  env                     : Environment
+);
+
+/// Per-function bucket of specialization caches, keyed by `func_id`.
+SpecializedFunctionCacheEntry :: object(
+  func_id : String,
+  caches  : ArrayList(SpecializedFunctionCache)
 );
 
 // ---------------------------------------------------------------------------
@@ -245,7 +288,25 @@ EvalContext :: object(
   currently_specializing_function_stack  : Option(ArrayList(SpecializingFunctionInfo)),
 
   /// Doc-comment lookup table (position key → comment text).
-  doc_comment_lookup                     : Option(HashMap(String, String))
+  doc_comment_lookup                     : Option(HashMap(String, String)),
+
+  /// Side-table for expression evaluation results (replaces TypeScript's `expr.$` mutation).
+  expr_info_table                        : ExprInfoTable,
+
+  /// CTFE call cache — per-function buckets keyed by `func_id`.
+  ///
+  /// Stored here (rather than on `FuncVal`) to avoid a circular import between
+  /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
+  /// one compile-time function.
+  comptime_fn_caches                     : ArrayList(ComptimeFnCacheEntry),
+
+  /// Specialization cache — per-function buckets keyed by `func_id`.
+  ///
+  /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
+  /// explosion.  Each entry holds all cached specializations for one generic
+  /// function.  Mirrors `specializedFunctionCaches` on TypeScript's
+  /// `FunctionValue`.
+  specialized_fn_caches                  : ArrayList(SpecializedFunctionCacheEntry)
 );
 
 /// Create a minimal execution context with sensible defaults.
@@ -281,7 +342,10 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     is_evaluating_generic_impl_specialization:   false,
     currently_specializing_function:             Option(SpecializingFunctionInfo).None,
     currently_specializing_function_stack:       Option(ArrayList(SpecializingFunctionInfo)).None,
-    doc_comment_lookup:                          Option(HashMap(String, String)).None
+    doc_comment_lookup:                          Option(HashMap(String, String)).None,
+    expr_info_table:                             expr_info_table_new(),
+    comptime_fn_caches:                          ArrayList(ComptimeFnCacheEntry).new(),
+    specialized_fn_caches:                       ArrayList(SpecializedFunctionCacheEntry).new()
   )
 );
 
@@ -318,7 +382,6 @@ ArgValues :: object(
 FuncCallResult :: object(
   callee_env                    : Environment,
   caller_env                    : Environment,
-  /// Phase 2b: PathCollection is simplified to ArrayList(AstExpr).
   path_collection               : PathCollection,
   return_type                   : TypeValue,
   return_value                  : Option(EvalValue),
@@ -328,6 +391,20 @@ FuncCallResult :: object(
   specialized_function_value    : Option(EvalValue),
   /// Drop expressions for RC cleanup of temporary function arguments.
   deferred_drop_expressions     : Option(ArrayList(AstExpr))
+);
+
+// ---------------------------------------------------------------------------
+// ComptimeFnCallResult
+// ---------------------------------------------------------------------------
+
+/// Result from `evaluate_comptime_fn_call`.
+///
+/// Mirrors the anonymous return type of `evaluateComptimeFunctionCall` in
+/// `src/evaluator/calls/comptime-fn.ts`.
+ComptimeFnCallResult :: object(
+  value      : EvalValue,
+  caller_env : Environment,
+  callee_env : Environment
 );
 
 // ---------------------------------------------------------------------------
@@ -613,12 +690,17 @@ export
   CapturedVarInfo,
   SpecializingFunctionInfo,
   ImplConcreteTypeInfo,
+  CalledComptimeFnCache,
+  ComptimeFnCacheEntry,
+  SpecializedFunctionCache,
+  SpecializedFunctionCacheEntry,
   EvalContext,
   eval_context_new,
   ArgEntry,
   VarArgEntry,
   ArgValues,
   FuncCallResult,
+  ComptimeFnCallResult,
   TypeCallResult,
   ModuleTypeCallResult,
   TraitTypeCallResult,

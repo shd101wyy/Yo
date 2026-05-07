@@ -227,6 +227,22 @@ function collectModuleEffectMembers(
         };
         findFunctionCallsInExpr(fieldValue.body, context);
       }
+      // Also collect specialized versions (e.g., forall throw handlers specialized
+      // for concrete ResumeTypes such as SomeType or struct types). Without this,
+      // the codegen emits a call to the specialized name but never defines it.
+      if (fieldValue.specializedFunctionCaches) {
+        for (const cache of fieldValue.specializedFunctionCaches) {
+          const specialized = cache.specializedFunction;
+          if (specialized && !context.functions[specialized.funcId]) {
+            specialized.isModuleEffectMember = true;
+            context.functions[specialized.funcId] = {
+              value: specialized,
+              cName: sanitizeForCIdentifier(specialized.funcId),
+            };
+            findFunctionCallsInExpr(specialized.body, context);
+          }
+        }
+      }
     } else if (fieldValue && isModuleValue(fieldValue)) {
       collectModuleEffectMembers(fieldValue, context);
     }

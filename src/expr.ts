@@ -301,6 +301,13 @@ export interface EvaluatedExprData {
   deferredDropExpressions?: Expr[];
 
   /**
+   * Drop expressions for variables that are consumed later in the same scope.
+   * They are only needed on early return/escape paths before the consume point;
+   * normal scope exit must not emit them because ownership has moved.
+   */
+  earlyReturnOnlyDeferredDropExpressions?: Expr[];
+
+  /**
    * Drop expressions for RC-typed variables that are consumed by the return value
    * (ownership transfer). These drops are NOT needed at normal scope exit (the
    * value is moved), but ARE needed when escape propagates through the function

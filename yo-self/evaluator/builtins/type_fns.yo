@@ -1,0 +1,1353 @@
+//! evaluator/builtins/type_fns — type introspection builtin functions.
+//!
+//! Full 1:1 port of `src/evaluator/builtins/type-fns.ts`.
+//!
+//! Functions implemented:
+//!   evaluate_yo_type_to_string, evaluate_yo_are_types_compatible,
+//!   evaluate_yo_are_types_equal, evaluate_yo_type_contains_rc_type,
+//!   evaluate_yo_type_can_form_rc_cycle, evaluate_yo_type_impls,
+//!   evaluate_yo_type_get_info, evaluate_comptime_eval,
+//!   evaluate_comptime_string_to_expr, evaluate_type_join_fields,
+//!   evaluate_type_map_variants.
+
+open import "std/string";
+{ ArrayList }                               :: import "std/collections/array_list";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set,
+  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
+{ Environment, add_variable_to_env,
+  synthetic_token }                         :: import "../../env/env.yo";
+{ EvalContext, ExpectedTypeCtx }             :: import "../context.yo";
+{ EvalValue, is_type_val, is_str_lit,
+  is_func_val, is_expr_val, create_unknown_val,
+  create_type_value, type_of_eval_value }   :: import "../value.yo";
+{ TypeValue, t_unit, t_bool, t_type,
+  t_comptime_string, t_comptime_int,
+  t_comptime_float, t_expr_t,
+  t_comptime_list, is_some_type,
+  is_struct_type, is_enum_type }            :: import "../../types/type.yo";
+{ is_type_hierarchy_type, is_trait_type }   :: import "../../types/guards.yo";
+{ are_types_compatible, are_types_compatible_exact } :: import "../../types/compatibility.yo";
+{ type_to_string }                          :: import "../../types/string.yo";
+{ type_contains_rc_type, can_type_form_rc_cycle } :: import "../../types/utils.yo";
+{ type_implements_trait_bool }              :: import "../trait_checking.yo";
+{ format_error_message }                    :: import "../../error/error.yo";
+{ evaluate_expression }                     :: import "../exprs/expr.yo";
+{ generate_expr_from_code,
+  generate_exprs_from_code }                :: import "../../parser/parser.yo";
+{ random_id }                               :: import "../utils.yo";
+{ Exception }                               :: import "std/error";
+
+/// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
+/// If value is .None (runtime expression), throws.
+/// If value is .Some(.TypeVal(tv)), returns tv.*.
+/// If value is .Some(other), throws with a descriptive error.
+_extract_type_val :: (fn(
+  arg      : AstExpr,
+  info     : ExprInfo,
+  fn_name  : str,
+  using(exn : Exception)
+) -> TypeValue)(
+  match(info.value,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg),
+        `${fn_name}: expected a type value, got runtime expression`,
+        false,
+        .None
+      ));
+      TypeValue.Unit
+    },
+    .Some(v) => match(v,
+      .TypeVal(tv) => tv.*,
+      _ => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg),
+          `${fn_name}: expected a TypeVal, got a non-type value`,
+          false,
+          .None
+        ));
+        TypeValue.Unit
+      }
+    )
+  )
+);
+
+/// __yo_type_to_comptime_string(T) -> comptime_string
+/// Returns the string representation of type T.
+evaluate_yo_type_to_string :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg  := evaluate_expression(arg0, env, ctx);
+  arg_info  := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_to_comptime_string: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_to_comptime_string: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  // Default output: unknown comptime_string value.
+  out_info := new_expr_info(arg_info.env, t_comptime_string());
+  out_info.value = Option(EvalValue).Some(create_unknown_val(t_comptime_string()));
+
+  // If the type is concretely known, compute the string.
+  match(arg_info.value,
+    .Some(v) => match(v,
+      .TypeVal(tv) => {
+        s := type_to_string(tv.*);
+        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(s));
+      },
+      _ => ()
+    ),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_to_comptime_string: expected type value, got runtime expression"),
+        false,
+        .None
+      ));
+    }
+  );
+
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_are_types_compatible(expected, given) -> bool
+/// Returns true if `given` type is compatible with `expected` type.
+evaluate_yo_are_types_compatible :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  // Evaluate expected type (clear expected_type and self_type for arg eval).
+  saved_expected := ctx.expected_type;
+  saved_self     := ctx.self_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_0 := evaluate_expression(arg0, env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_0 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_are_types_compatible: failed to evaluate first argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  if(!(is_type_hierarchy_type(info_0.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_are_types_compatible: expected a Type for first argument, got: ${type_to_string(info_0.ty)}`,
+      false,
+      .None
+    ));
+  });
+  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible");
+  cur_env       := info_0.env;
+
+  // Evaluate given type.
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_1 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_are_types_compatible: failed to evaluate second argument"),
+        false,
+        .None
+      ));
+      new_expr_info(cur_env, t_unit())
+    }
+  );
+  if(!(is_type_hierarchy_type(info_1.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg1),
+      `__yo_are_types_compatible: expected a Type for second argument, got: ${type_to_string(info_1.ty)}`,
+      false,
+      .None
+    ));
+  });
+  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible");
+  cur_env     = info_1.env;
+
+  // are_types_compatible(actual, expected) — yo-self param order
+  compatible := are_types_compatible(given_type, expected_type);
+
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(compatible));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_are_types_equal(a, b) -> bool
+/// Returns true if the two types are exactly equal (no implicit conversions).
+evaluate_yo_are_types_equal :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  saved_expected := ctx.expected_type;
+  saved_self     := ctx.self_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_0 := evaluate_expression(arg0, env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_0 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_are_types_equal: failed to evaluate first argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal");
+  cur_env := info_0.env;
+
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ctx.self_type     = Option(TypeValue).None;
+  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  ctx.expected_type = saved_expected;
+  ctx.self_type     = saved_self;
+
+  info_1 := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_are_types_equal: failed to evaluate second argument"),
+        false,
+        .None
+      ));
+      new_expr_info(cur_env, t_unit())
+    }
+  );
+  type_b  := _extract_type_val(arg1, info_1, "__yo_are_types_equal");
+  cur_env  = info_1.env;
+
+  // Use exact match (requireExactMatch = true in TS).
+  equal := are_types_compatible_exact(type_a, type_b);
+
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(equal));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_contains_rc_type(T) -> bool
+/// Returns true if the type contains an RC-managed type.
+/// Delegates to type_contains_rc_type (stub: always false in Phase 2).
+evaluate_yo_type_contains_rc_type :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg := evaluate_expression(arg0, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_contains_rc_type: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_contains_rc_type: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type");
+  flag     := type_contains_rc_type(type_val);
+
+  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_can_form_rc_cycle(T) -> bool
+/// Returns true if the type can form an RC reference cycle.
+/// Delegates to can_type_form_rc_cycle (stub: always false in Phase 2).
+evaluate_yo_type_can_form_rc_cycle :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval_arg := evaluate_expression(arg0, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_can_form_rc_cycle: failed to evaluate argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+
+  if(!(is_type_hierarchy_type(arg_info.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      `__yo_type_can_form_rc_cycle: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
+      false,
+      .None
+    ));
+  });
+
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle");
+  flag     := can_type_form_rc_cycle(type_val);
+
+  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
+/// __yo_type_impls(T, Trait) -> bool
+/// Returns true if T implements the given Trait.
+/// Mirrors `evaluateYoTypeImpls` in `src/evaluator/builtins/type-fns.ts`.
+evaluate_yo_type_impls :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  // Evaluate arg0 (the type to check).
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_impls: failed to evaluate type argument"),
+        false,
+        .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (cur_env : Environment) = info0.env;
+
+  if(!(is_type_hierarchy_type(info0.ty)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      String.from("__yo_type_impls: expected Type for first argument"),
+      false,
+      .None
+    ));
+  });
+
+  target_type := _extract_type_val(arg0, info0, "__yo_type_impls", using(exn));
+
+  // Evaluate arg1 (the trait to check for).
+  eval1 := evaluate_expression(arg1, cur_env, ctx);
+  info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_impls: failed to evaluate trait argument"),
+        false,
+        .None
+      ));
+      new_expr_info(cur_env, t_unit())
+    }
+  );
+  cur_env = info1.env;
+
+  // Determine the trait type from arg1.
+  // Case 1: arg1 evaluates to a TypeVal containing a TraitType.
+  // Case 2: arg1's type is a TraitType (e.g. an impl parameter).
+  // Case 3: arg1's type is TypeUni (unknown generic) — return unknown bool.
+  trait_type_opt := match(info1.value,
+    .Some(v) => if(is_type_val(v),
+      {
+        tv := match(v, .TypeVal(b) => b.*, _ => t_unit());
+        if(is_trait_type(tv), Option(TypeValue).Some(tv), Option(TypeValue).None)
+      },
+      Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+
+  // If not found via value, check if the type itself is a trait type.
+  trait_type_opt2 := match(trait_type_opt,
+    .Some(_) => trait_type_opt,
+    .None => if(is_trait_type(info1.ty),
+      Option(TypeValue).Some(info1.ty),
+      Option(TypeValue).None
+    )
+  );
+
+  // If still not found, check if it's a generic unknown (TypeUni → return unknown bool).
+  if(match(trait_type_opt2, .None => is_type_hierarchy_type(info1.ty), .Some(_) => false), {
+    out := new_expr_info(cur_env, t_bool());
+    out.value = .Some(create_unknown_val(t_bool()));
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+    return expr;
+  });
+
+  trait_type := match(trait_type_opt2,
+    .Some(tt) => tt,
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_impls: expected trait type for second argument"),
+        false,
+        .None
+      ));
+      t_unit()
+    }
+  );
+
+  result := type_implements_trait_bool(target_type, trait_type, cur_env);
+
+  out := new_expr_info(cur_env, t_bool());
+  out.value = .Some(EvalValue.BoolVal(result));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 private helpers — used by the five builtins below.
+// ---------------------------------------------------------------------------
+
+/// Escape a string for safe embedding inside a Yo double-quoted string literal.
+_ti_escape_str :: (fn(s : String) -> String)({
+  s2 := s.replace(String.from("\\"), String.from("\\\\"));
+  s2.replace(String.from("\""), String.from("\\\""))
+});
+
+/// Bind a TypeValue to a fresh comptime temp variable in the env.
+/// Mutates env in place via pointer; returns the generated variable name.
+_ti_bind_type :: (fn(
+  env_ptr : *(Environment),
+  ty      : TypeValue,
+  _ctx    : *(EvalContext)
+) -> String)({
+  name_str := `__ti_t_${random_id(env_ptr.module_path)}`;
+  _add := add_variable_to_env(
+    env_ptr,
+    String.from(name_str.as_str()),
+    t_type(),
+    Option(EvalValue).Some(EvalValue.TypeVal(box(ty))),
+    true, false, false, false,
+    synthetic_token(String.from(name_str.as_str()), env_ptr.module_path)
+  );
+  name_str
+});
+
+/// Evaluate a code string with force_compile_time_bindings=true.
+/// Updates env pointed to by env_ptr; returns the resulting EvalValue if any.
+_ti_eval_code :: (fn(
+  env_ptr : *(Environment),
+  code    : String,
+  ctx     : *(EvalContext),
+  using(exn : Exception)
+) -> Option(EvalValue))({
+  code_expr := generate_expr_from_code(code.as_str(), using(exn));
+  old_force := ctx.force_compile_time_bindings;
+  ctx.force_compile_time_bindings = true;
+  result_ast := evaluate_expression(code_expr, env_ptr.*, ctx);
+  ctx.force_compile_time_bindings = old_force;
+  result_info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
+    .Some(i) => i,
+    .None    => new_expr_info(env_ptr.*, t_unit())
+  );
+  env_ptr.* = result_info.env;
+  result_info.value
+});
+
+/// Build a ComptimeList from EvalValues.  If values is non-empty, the element
+/// type is inferred from the first value; otherwise `type_name` is evaluated to
+/// obtain the element type.  Binds the list to a fresh temp var and returns its name.
+_ti_bind_comptime_list :: (fn(
+  env_ptr    : *(Environment),
+  values     : ArrayList(EvalValue),
+  type_name  : String,
+  var_prefix : String,
+  ctx        : *(EvalContext),
+  using(exn  : Exception)
+) -> String)({
+  elem_type := if((values.len() > usize(0)),
+    match(values.get(usize(0)), .Some(v) => type_of_eval_value(v), .None => t_unit()),
+  {
+    // Evaluate the type name to discover the element type.
+    type_ast := generate_expr_from_code(type_name.as_str(), using(exn));
+    old_force := ctx.force_compile_time_bindings;
+    ctx.force_compile_time_bindings = true;
+    type_result_ast := evaluate_expression(type_ast, env_ptr.*, ctx);
+    ctx.force_compile_time_bindings = old_force;
+    type_info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(type_result_ast)),
+      .Some(i) => i,
+      .None    => new_expr_info(env_ptr.*, t_unit())
+    );
+    env_ptr.* = type_info.env;
+    match(type_info.value,
+      .Some(v) => match(v, .TypeVal(tv) => tv.*, _ => t_unit()),
+      .None    => t_unit()
+    )
+  });
+  list_type := t_comptime_list(elem_type);
+  list_val  := EvalValue.ComptimeListVal(values);
+  name_str  := `__ti_${var_prefix}_${random_id(env_ptr.module_path)}`;
+  _add := add_variable_to_env(
+    env_ptr,
+    String.from(name_str.as_str()),
+    list_type,
+    Option(EvalValue).Some(list_val),
+    true, false, false, false,
+    synthetic_token(String.from(name_str.as_str()), env_ptr.module_path)
+  );
+  name_str
+});
+
+/// Build a single TypeFieldInfo value from a label + type pair.
+/// Evaluates `TypeFieldInfo("label", ty_var)` in the env via code string.
+_ti_build_type_field_info :: (fn(
+  env_ptr  : *(Environment),
+  label    : String,
+  field_ty : TypeValue,
+  ctx      : *(EvalContext),
+  using(exn : Exception)
+) -> EvalValue)({
+  ty_name       := _ti_bind_type(env_ptr, field_ty, ctx);
+  escaped_label := _ti_escape_str(label);
+  code          := ((((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_name) + String.from(")"));
+  match(_ti_eval_code(env_ptr, code, ctx, using(exn)),
+    .Some(v) => v,
+    .None    => EvalValue.UnitVal
+  )
+});
+
+/// Build a ComptimeList(TypeFieldInfo) from parallel label/type lists.
+/// Returns the name of the temp var holding the list.
+_ti_bind_type_field_list :: (fn(
+  env_ptr : *(Environment),
+  labels  : ArrayList(String),
+  types   : ArrayList(TypeValue),
+  ctx     : *(EvalContext),
+  using(exn : Exception)
+) -> String)({
+  fi_vals := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  n := labels.len();
+  while runtime((i < n)), {
+    label    := match(labels.get(i), .Some(l) => l, .None => String.from(""));
+    field_ty := match(types.get(i),  .Some(t) => t, .None => t_unit());
+    fi_val   := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, using(exn));
+    _push    := fi_vals.push(fi_val);
+    i = (i + usize(1));
+  };
+  _ti_bind_comptime_list(env_ptr, fi_vals, String.from("TypeFieldInfo"), String.from("fl"), ctx, using(exn))
+});
+
+/// Build a VariantInfo value from the variant's name, field list, enum type, and index.
+/// Evaluates `VariantInfo("name", fl_var, et_var, usize(idx))` via code string.
+_ti_build_variant_info :: (fn(
+  env_ptr        : *(Environment),
+  v_name         : String,
+  v_field_labels : ArrayList(String),
+  v_field_types  : ArrayList(TypeValue),
+  enum_ty        : TypeValue,
+  v_idx          : usize,
+  ctx            : *(EvalContext),
+  using(exn      : Exception)
+) -> EvalValue)({
+  et_name      := _ti_bind_type(env_ptr, enum_ty, ctx);
+  fl_name      := _ti_bind_type_field_list(env_ptr, v_field_labels, v_field_types, ctx, using(exn));
+  escaped_name := _ti_escape_str(v_name);
+  idx_str      := v_idx.to_string();
+  code := ((((((((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_name) + String.from(", ")) + et_name) + String.from(", usize(")) + idx_str) + String.from("))"));  match(_ti_eval_code(env_ptr, code, ctx, using(exn)),
+    .Some(v) => v,
+    .None    => EvalValue.UnitVal
+  )
+});
+
+/// Build a ComptimeList(VariantInfo) from an EnumT type's variant data.
+/// Returns the name of the temp var holding the list.
+_ti_bind_variant_info_list :: (fn(
+  env_ptr              : *(Environment),
+  enum_ty              : TypeValue,
+  variant_names        : ArrayList(String),
+  variant_fields       : ArrayList(ArrayList(TypeValue)),
+  variant_field_labels : ArrayList(ArrayList(String)),
+  ctx                  : *(EvalContext),
+  using(exn            : Exception)
+) -> String)({
+  vi_vals := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  n := variant_names.len();
+  while runtime((i < n)), {
+    v_name         := match(variant_names.get(i),        .Some(nm) => nm, .None => String.from(""));
+    v_fields       := match(variant_fields.get(i),       .Some(f)  => f,  .None => ArrayList(TypeValue).new());
+    v_field_labels := match(variant_field_labels.get(i), .Some(l)  => l,  .None => ArrayList(String).new());
+    vi_val         := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, using(exn));
+    _push          := vi_vals.push(vi_val);
+    i = (i + usize(1));
+  };
+  _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, using(exn))
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 builtin implementations
+// ---------------------------------------------------------------------------
+
+/// __yo_type_get_info(T) -> TypeInfo
+/// Returns a TypeInfo enum value with metadata about the type.
+evaluate_yo_type_get_info :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_get_info: failed to evaluate type argument"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (local_env : Environment) = info0.env;
+  type_val := _extract_type_val(arg0, info0, "__yo_type_get_info", using(exn));
+
+  // SomeType → return UnknownVal with TypeInfo type (avoid calling constructors).
+  if(is_some_type(type_val), {
+    unit_ast     := generate_expr_from_code("TypeInfo.Unit", using(exn));
+    old_force    := ctx.force_compile_time_bindings;
+    ctx.force_compile_time_bindings = true;
+    unit_result  := evaluate_expression(unit_ast, local_env, ctx);
+    ctx.force_compile_time_bindings = old_force;
+    unit_info    := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(unit_result)),
+      .Some(i) => i, .None => new_expr_info(local_env, t_unit()));
+    ti_ty        := unit_info.ty;
+    unknown_val  := create_unknown_val(ti_ty);
+    out          := new_expr_info(local_env, ti_ty);
+    out.value    = Option(EvalValue).Some(unknown_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+    return expr;
+  });
+
+  // Build code string for each TypeValue variant.
+  code := match(type_val,
+    .Unit          => String.from("TypeInfo.Unit"),
+    .BoolT         => String.from("TypeInfo.Bool"),
+    .Void          => String.from("TypeInfo.Void"),
+    .Usize         => String.from("TypeInfo.Usize"),
+    .Isize         => String.from("TypeInfo.Isize"),
+    .ComptimeInt   => String.from("TypeInfo.ComptimeInt"),
+    .ComptimeFloat => String.from("TypeInfo.ComptimeFloat"),
+    .ComptimeString => String.from("TypeInfo.ComptimeString"),
+    .CChar         => String.from("TypeInfo.Char"),
+    .CShort        => String.from("TypeInfo.Short"),
+    .CUShort       => String.from("TypeInfo.UShort"),
+    .CInt          => String.from("TypeInfo.Int"),
+    .CUInt         => String.from("TypeInfo.UInt"),
+    .CLong         => String.from("TypeInfo.Long"),
+    .CULong        => String.from("TypeInfo.ULong"),
+    .CLongLong     => String.from("TypeInfo.LongLong"),
+    .CULongLong    => String.from("TypeInfo.ULongLong"),
+    .CLongDouble   => String.from("TypeInfo.LongDouble"),
+    .ExprT         => String.from("TypeInfo.Expr"),
+    .EffectsRowT(_, _)  => String.from("TypeInfo.EffectsRow"),
+    .TypeAppT(_, _)     => String.from("TypeInfo.TypeApplication"),
+    .Int(bits, signed)  => cond(
+      (signed && (bits == u8(8)))    => String.from("TypeInfo.I8"),
+      (signed && (bits == u8(16)))   => String.from("TypeInfo.I16"),
+      (signed && (bits == u8(32)))   => String.from("TypeInfo.I32"),
+      (signed && (bits == u8(64)))   => String.from("TypeInfo.I64"),
+      (!(signed) && (bits == u8(8))) => String.from("TypeInfo.U8"),
+      (!(signed) && (bits == u8(16))) => String.from("TypeInfo.U16"),
+      (!(signed) && (bits == u8(32))) => String.from("TypeInfo.U32"),
+      (!(signed) && (bits == u8(64))) => String.from("TypeInfo.U64"),
+      true => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(expr),
+          String.from("__yo_type_get_info: unsupported Int bits"),
+          false, .None
+        ));
+        String.from("TypeInfo.Unit")
+      }
+    ),
+    .Float(bits) => if((bits == u8(32)), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
+    .TypeUni(level) => ((String.from("TypeInfo.Type(") + level.to_string()) + String.from(")")),
+    .Pointer(pointee_box) => {
+      cn := _ti_bind_type(&(local_env), pointee_box.*, ctx);
+      (String.from("TypeInfo.Ptr(") + cn) + String.from(")")
+    },
+    .Slice(element_box) => {
+      cn := _ti_bind_type(&(local_env), element_box.*, ctx);
+      (String.from("TypeInfo.Slice(") + cn) + String.from(")")
+    },
+    .Array(element_box, length) => {
+      cn := _ti_bind_type(&(local_env), element_box.*, ctx);
+      (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
+    },
+    .IsoT(child_box) => {
+      cn := _ti_bind_type(&(local_env), child_box.*, ctx);
+      (String.from("TypeInfo.Iso(") + cn) + String.from(")")
+    },
+    .ComptimeListT(child_box) => {
+      cn := _ti_bind_type(&(local_env), child_box.*, ctx);
+      (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
+    },
+    .Tuple(labels, types) => {
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
+    },
+    .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype) => {
+      fl_name  := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      kind_str := cond(
+        is_newtype => String.from("StructKind.NewType"),
+        is_atomic  => String.from("StructKind.AtomicObject"),
+        is_ref     => String.from("StructKind.Object"),
+        true       => String.from("StructKind.Struct")
+      );
+      (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
+    },
+    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
+      vl_name := _ti_bind_variant_info_list(&(local_env), type_val, variant_names, variant_fields, variant_field_labels, ctx, using(exn));
+      (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
+    },
+    .Union(_, labels, types) => {
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
+    },
+    .ModuleT(_, _, labels, types) => {
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      (String.from("TypeInfo.Module(") + fl_name) + String.from(")")
+    },
+    _ => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        String.from("__yo_type_get_info: unsupported type variant"),
+        false, .None
+      ));
+      String.from("TypeInfo.Unit")
+    }
+  );
+
+  // Evaluate the TypeInfo constructor code string.
+  info_expr   := generate_expr_from_code(code.as_str(), using(exn));
+  old_force   := ctx.force_compile_time_bindings;
+  ctx.force_compile_time_bindings = true;
+  result_ast  := evaluate_expression(info_expr, local_env, ctx);
+  ctx.force_compile_time_bindings = old_force;
+  result_info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(expr),
+        String.from("__yo_type_get_info: failed to create TypeInfo value"),
+        false, .None
+      ));
+      new_expr_info(local_env, t_unit())
+    }
+  );
+
+  out := new_expr_info(info0.env, result_info.ty);
+  out.value = result_info.value;
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+/// comptime_eval(code_string) -> ()
+/// Parses and evaluates a comptime_string as Yo code. Returns unit.
+evaluate_comptime_eval :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("comptime_eval: failed to evaluate argument"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (local_env : Environment) = info0.env;
+
+  // Non-StrLit value (e.g. UnknownVal for SomeType) → return unit silently.
+  is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
+  if(!(is_str), {
+    out := new_expr_info(local_env, t_unit());
+    out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+    return expr;
+  });
+
+  // Extract the code string from StrLit.raw.
+  raw := match(info0.value,
+    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
+    .None    => String.from("")
+  );
+  n_raw    := raw.len();
+  code_str := if(raw.starts_with(String.from("\"")),
+    raw.substring(usize(1), (n_raw - usize(1))),
+    raw
+  );
+
+  // Parse and evaluate each expression in the code string.
+  code_exprs := generate_exprs_from_code(code_str.as_str(), using(exn));
+  (ci : usize) = usize(0);
+  n_exprs    := code_exprs.len();
+  while runtime((ci < n_exprs)), {
+    code_expr := match(code_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
+    old_force := ctx.force_compile_time_bindings;
+    ctx.force_compile_time_bindings = false;
+    ce_result := evaluate_expression(code_expr, local_env, ctx);
+    ctx.force_compile_time_bindings = old_force;
+    ce_info   := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ce_result)),
+      .Some(i) => i,
+      .None    => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg0),
+          String.from("comptime_eval: failed to evaluate code expression"),
+          false, .None
+        ));
+        new_expr_info(local_env, t_unit())
+      }
+    );
+    local_env = ce_info.env;
+    ci = (ci + usize(1));
+  };
+
+  out := new_expr_info(local_env, t_unit());
+  out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+/// __yo_comptime_string_to_expr(code : comptime_string) -> comptime(Expr)
+/// Parses a comptime_string as a Yo expression and returns it as a comptime Expr.
+evaluate_comptime_string_to_expr :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_comptime_string_to_expr: failed to evaluate argument"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (local_env : Environment) = info0.env;
+
+  // If the value is not a StrLit, return UnknownVal(Expr) or throw.
+  is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
+  if(!(is_str), {
+    match(info0.value,
+      .Some(_) => {
+        // Value exists but is not a comptime_string → return unknown Expr.
+        unknown_val := create_unknown_val(t_expr_t());
+        out := new_expr_info(local_env, t_expr_t());
+        out.value = Option(EvalValue).Some(unknown_val);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+        return expr;
+      },
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg0),
+          String.from("__yo_comptime_string_to_expr: expected a comptime_string argument"),
+          false, .None
+        ));
+      }
+    );
+  });
+
+  // Extract code string from StrLit.raw.
+  raw := match(info0.value,
+    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
+    .None    => String.from("")
+  );
+  n_raw    := raw.len();
+  code_str := if(raw.starts_with(String.from("\"")),
+    raw.substring(usize(1), (n_raw - usize(1))),
+    raw
+  );
+
+  // Parse a single expression.
+  parsed_expr := generate_expr_from_code(code_str.as_str(), using(exn));
+  expr_val    := EvalValue.ExprVal(box(parsed_expr));
+  out         := new_expr_info(local_env, t_expr_t());
+  out.value   = Option(EvalValue).Some(expr_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+/// __yo_type_join_fields(T, mapper, combiner) -> comptime(Expr)
+/// For each field of struct T, calls mapper(FieldInfo) → Expr, then combines
+/// all Exprs left-associatively using the combiner operator.
+evaluate_type_join_fields :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  arg2 := match(args.get(usize(2)), .Some(a) => a, .None => { return expr; });
+
+  // Evaluate T.
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_join_fields: failed to evaluate type argument"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (local_env : Environment) = info0.env;
+  target_type := _extract_type_val(arg0, info0, "__yo_type_join_fields", using(exn));
+
+  // SomeType → return UnknownVal(Expr).
+  if(is_some_type(target_type), {
+    unknown_val := create_unknown_val(t_expr_t());
+    out := new_expr_info(local_env, t_expr_t());
+    out.value = Option(EvalValue).Some(unknown_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+    return expr;
+  });
+
+  if(!(is_struct_type(target_type)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      String.from("__yo_type_join_fields: expected a struct type"),
+      false, .None
+    ));
+  });
+
+  // Evaluate mapper.
+  eval1 := evaluate_expression(arg1, local_env, ctx);
+  info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_join_fields: failed to evaluate mapper"),
+        false, .None
+      ));
+      new_expr_info(local_env, t_unit())
+    }
+  );
+  local_env = info1.env;
+  mapper_val := match(info1.value,
+    .Some(v) => if(is_func_val(v), v, {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_join_fields: second argument must be a function"),
+        false, .None
+      ));
+      EvalValue.UnitVal
+    }),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_join_fields: mapper is a runtime expression"),
+        false, .None
+      ));
+      EvalValue.UnitVal
+    }
+  );
+
+  // Evaluate combiner.
+  eval2 := evaluate_expression(arg2, local_env, ctx);
+  info2 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval2)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg2),
+        String.from("__yo_type_join_fields: failed to evaluate combiner"),
+        false, .None
+      ));
+      new_expr_info(local_env, t_unit())
+    }
+  );
+  local_env = info2.env;
+  combiner_expr := match(info2.value,
+    .Some(v) => match(v,
+      .ExprVal(e_box) => e_box.*,
+      _ => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg2),
+          String.from("__yo_type_join_fields: third argument must be a quoted expression"),
+          false, .None
+        ));
+        make_err_expr()
+      }
+    ),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg2),
+        String.from("__yo_type_join_fields: combiner is a runtime expression"),
+        false, .None
+      ));
+      make_err_expr()
+    }
+  );
+
+  // Bind mapper to a temp var so it can be called by name.
+  mapper_name  := `__dm_${random_id(local_env.module_path)}`;
+  _add_mapper  := add_variable_to_env(
+    &(local_env), String.from(mapper_name.as_str()),
+    info1.ty, Option(EvalValue).Some(mapper_val),
+    true, false, false, false,
+    synthetic_token(String.from(mapper_name.as_str()), local_env.module_path)
+  );
+
+  // Collect struct field label/type lists.
+  struct_labels := match(target_type,
+    .Struct(_, _, ls, _, _, _, _) => ls,
+    _ => ArrayList(String).new()
+  );
+  struct_types := match(target_type,
+    .Struct(_, _, _, ts, _, _, _) => ts,
+    _ => ArrayList(TypeValue).new()
+  );
+  n_fields := struct_labels.len();
+  if((n_fields == usize(0)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(expr),
+      String.from("__yo_type_join_fields: struct has no fields"),
+      false, .None
+    ));
+  });
+
+  // For each field, build FieldInfo and call mapper.
+  result_exprs := ArrayList(AstExpr).new();
+  (si : usize) = usize(0);
+  while runtime((si < n_fields)), {
+    label    := match(struct_labels.get(si), .Some(l) => l, .None => String.from(""));
+    field_ty := match(struct_types.get(si),  .Some(t) => t, .None => t_unit());
+    // Build FieldInfo("label", type_var).
+    ft_name       := _ti_bind_type(&(local_env), field_ty, ctx);
+    escaped_label := _ti_escape_str(label);
+    fi_code       := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
+    fi_val_opt    := _ti_eval_code(&(local_env), fi_code, ctx, using(exn));
+    fi_val        := match(fi_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
+    fi_type       := type_of_eval_value(fi_val);
+    // Bind FieldInfo to temp var, then call mapper(fi_name).
+    fi_name  := `__da_${random_id(local_env.module_path)}`;
+    _add_fi  := add_variable_to_env(
+      &(local_env), String.from(fi_name.as_str()),
+      fi_type, Option(EvalValue).Some(fi_val),
+      true, false, false, false,
+      synthetic_token(String.from(fi_name.as_str()), local_env.module_path)
+    );
+    call_code    := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
+    call_ast     := generate_expr_from_code(call_code.as_str(), using(exn));
+    old_force    := ctx.force_compile_time_bindings;
+    ctx.force_compile_time_bindings = true;
+    call_result  := evaluate_expression(call_ast, local_env, ctx);
+    ctx.force_compile_time_bindings = old_force;
+    call_info    := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
+      .Some(i) => i, .None => new_expr_info(local_env, t_unit())
+    );
+    local_env = call_info.env;
+    result_expr  := match(call_info.value,
+      .Some(v) => match(v,
+        .ExprVal(e_box) => e_box.*,
+        _ => {
+          exn.throw(dyn format_error_message(
+            ast_expr_token(arg1),
+            String.from("__yo_type_join_fields: mapper must return comptime(Expr)"),
+            false, .None
+          ));
+          make_err_expr()
+        }
+      ),
+      .None => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg1),
+          String.from("__yo_type_join_fields: mapper returned no value"),
+          false, .None
+        ));
+        make_err_expr()
+      }
+    );
+    _push := result_exprs.push(result_expr);
+    si = (si + usize(1));
+  };
+
+  // Combine all Exprs left-associatively using combiner token.
+  tok := ast_expr_token(combiner_expr);
+  (acc_expr : AstExpr) = match(result_exprs.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+  (ri : usize) = usize(1);
+  while runtime((ri < result_exprs.len())), {
+    rhs           := match(result_exprs.get(ri), .Some(e) => e, .None => make_err_expr());
+    combine_args  := ArrayList(AstExpr).new();
+    _p1           := combine_args.push(acc_expr);
+    _p2           := combine_args.push(rhs);
+    acc_expr      = AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tok)), combine_args, true, tok);
+    ri = (ri + usize(1));
+  };
+
+  combined_val := EvalValue.ExprVal(box(acc_expr));
+  out          := new_expr_info(local_env, t_expr_t());
+  out.value    = Option(EvalValue).Some(combined_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+/// __yo_type_map_variants(T, mapper) -> comptime(ComptimeList(Expr))
+/// For each variant of enum T, calls mapper(VariantInfo) → Expr and returns
+/// a ComptimeList(Expr) for use with unquote_splicing.
+evaluate_type_map_variants :: (fn(
+  expr : AstExpr,
+  env  : Environment,
+  ctx  : *(EvalContext),
+  using(exn : Exception)
+) -> AstExpr)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+
+  // Evaluate T.
+  eval0 := evaluate_expression(arg0, env, ctx);
+  info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg0),
+        String.from("__yo_type_map_variants: failed to evaluate type argument"),
+        false, .None
+      ));
+      new_expr_info(env, t_unit())
+    }
+  );
+  (local_env : Environment) = info0.env;
+  target_type := _extract_type_val(arg0, info0, "__yo_type_map_variants", using(exn));
+
+  // SomeType → return UnknownVal(ComptimeList(Expr)).
+  if(is_some_type(target_type), {
+    list_type   := t_comptime_list(t_expr_t());
+    unknown_val := create_unknown_val(list_type);
+    out := new_expr_info(local_env, list_type);
+    out.value = Option(EvalValue).Some(unknown_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+    return expr;
+  });
+
+  if(!(is_enum_type(target_type)), {
+    exn.throw(dyn format_error_message(
+      ast_expr_token(arg0),
+      String.from("__yo_type_map_variants: expected an enum type"),
+      false, .None
+    ));
+  });
+
+  // Evaluate mapper.
+  eval1 := evaluate_expression(arg1, local_env, ctx);
+  info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
+    .Some(i) => i,
+    .None    => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_map_variants: failed to evaluate mapper"),
+        false, .None
+      ));
+      new_expr_info(local_env, t_unit())
+    }
+  );
+  local_env = info1.env;
+  mapper_val := match(info1.value,
+    .Some(v) => if(is_func_val(v), v, {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_map_variants: second argument must be a function"),
+        false, .None
+      ));
+      EvalValue.UnitVal
+    }),
+    .None => {
+      exn.throw(dyn format_error_message(
+        ast_expr_token(arg1),
+        String.from("__yo_type_map_variants: mapper is a runtime expression"),
+        false, .None
+      ));
+      EvalValue.UnitVal
+    }
+  );
+
+  // Bind mapper to a temp var.
+  mapper_name := `__dvm_${random_id(local_env.module_path)}`;
+  _add_mapper := add_variable_to_env(
+    &(local_env), String.from(mapper_name.as_str()),
+    info1.ty, Option(EvalValue).Some(mapper_val),
+    true, false, false, false,
+    synthetic_token(String.from(mapper_name.as_str()), local_env.module_path)
+  );
+
+  // Extract enum variant data.
+  variant_names        := match(target_type, .EnumT(_, _, vn, _, _, _, _)  => vn,  _ => ArrayList(String).new());
+  variant_fields       := match(target_type, .EnumT(_, _, _, vf, _, _, _)  => vf,  _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_field_labels := match(target_type, .EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+
+  result_vals := ArrayList(EvalValue).new();
+  (vi : usize) = usize(0);
+  n_variants  := variant_names.len();
+  while runtime((vi < n_variants)), {
+    v_name         := match(variant_names.get(vi),        .Some(nm) => nm, .None => String.from(""));
+    v_fields       := match(variant_fields.get(vi),       .Some(f)  => f,  .None => ArrayList(TypeValue).new());
+    v_field_labels := match(variant_field_labels.get(vi), .Some(l)  => l,  .None => ArrayList(String).new());
+    // Build VariantInfo value.
+    vi_val  := _ti_build_variant_info(&(local_env), v_name, v_field_labels, v_fields, target_type, vi, ctx, using(exn));
+    vi_type := type_of_eval_value(vi_val);
+    // Bind VariantInfo to temp var, then call mapper(vi_var_name).
+    vi_name  := `__dvi_${random_id(local_env.module_path)}`;
+    _add_vi  := add_variable_to_env(
+      &(local_env), String.from(vi_name.as_str()),
+      vi_type, Option(EvalValue).Some(vi_val),
+      true, false, false, false,
+      synthetic_token(String.from(vi_name.as_str()), local_env.module_path)
+    );
+    call_code   := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
+    call_ast    := generate_expr_from_code(call_code.as_str(), using(exn));
+    old_force   := ctx.force_compile_time_bindings;
+    ctx.force_compile_time_bindings = true;
+    call_result := evaluate_expression(call_ast, local_env, ctx);
+    ctx.force_compile_time_bindings = old_force;
+    call_info   := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
+      .Some(i) => i, .None => new_expr_info(local_env, t_unit())
+    );
+    local_env = call_info.env;
+    // The mapper result should be an ExprVal; wrap it as-is for the list.
+    result_ev := match(call_info.value,
+      .Some(v) => v,
+      .None    => {
+        exn.throw(dyn format_error_message(
+          ast_expr_token(arg1),
+          String.from("__yo_type_map_variants: mapper returned no value"),
+          false, .None
+        ));
+        EvalValue.UnitVal
+      }
+    );
+    _push := result_vals.push(result_ev);
+    vi = (vi + usize(1));
+  };
+
+  // Return a ComptimeList(Expr).
+  list_type := t_comptime_list(t_expr_t());
+  list_val  := EvalValue.ComptimeListVal(result_vals);
+  out       := new_expr_info(local_env, list_type);
+  out.value = Option(EvalValue).Some(list_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+
+export evaluate_yo_are_types_compatible, evaluate_yo_are_types_equal,
+       evaluate_yo_type_can_form_rc_cycle, evaluate_yo_type_contains_rc_type,
+       evaluate_yo_type_impls, evaluate_yo_type_to_string, evaluate_yo_type_get_info,
+       evaluate_comptime_eval, evaluate_comptime_string_to_expr,
+       evaluate_type_join_fields, evaluate_type_map_variants;

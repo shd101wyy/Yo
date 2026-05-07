@@ -1,0 +1,218 @@
+//! Self-hosted Evaluator entry point.
+//!
+//! Mirrors `src/evaluator/index.ts` — the `Evaluator` class wraps
+//! the proto-evaluator and handles:
+//!   - Parsing the input source
+//!   - Checking for `@skip_prelude` in the token stream
+//!   - Injecting prelude exports into a dedicated env frame
+//!   - Wiring up the module loader via `set_module_loader`
+//!   - Calling `evaluate_module_body`
+//!
+//! Phase 2i: Structural port using the proto-evaluator (`eval.yo`) as the
+//! evaluation backend.  Stubs for: impl registry cleanup, doc-comment
+//! extraction.  `allowPartialModule` / `registerPartialModule` are not
+//! supported by the proto-evaluator and are omitted.
+//!
+//! Phase 3y: `register_evaluate_expression()` is called during initialization
+//! to wire the modular dispatcher into `g_evaluate_expression`. This allows
+//! modular evaluator components to call `evaluate_expression` without needing
+//! to manually install the dispatcher in every test/call site.
+//!
+//! Translation decisions vs `src/evaluator/index.ts`:
+//!   - TypeScript class → Yo `object` + `impl` block.
+//!   - `loadModule: LoadModuleFn` → `(fn(path : String) -> Option(EvalValue))`,
+//!     matching `set_module_loader`'s expected type directly.
+//!   - Prelude load failure sets `module_error`; does not throw.
+//!   - `getModuleValue()` returns `Option(EvalValue)` independent of error state.
+//!   - `program.clone()` is used so the stored `program` field remains valid
+//!     after `evaluate_module_body` consumes its copy.
+
+open import "std/string";
+open import "std/fmt";
+open import "std/error";
+{ ArrayList } :: import "std/collections/array_list";
+{ Token, TokenKind } :: import "../lexer/token.yo";
+{ Parser } :: import "../parser/parser.yo";
+{ AstExpr } :: import "../expr/expr.yo";
+{ Environment } :: import "../env/env.yo";
+{ TypeValue } :: import "../types/type.yo";
+{ EvalValue } :: import "./value.yo";
+{ evaluate_module_body, set_module_loader } :: import "./eval.yo";
+{ register_evaluate_expression }           :: import "./exprs/_expr.yo";
+
+// ---------------------------------------------------------------------------
+// Comment-attribute check
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if any comment token in `tokens` contains `attribute`.
+/// Mirrors `hasCommentAttribute` in `src/evaluator/index.ts`.
+is_comment_token_kind :: (fn(k : TokenKind) -> bool)(
+  cond(
+    (k == TokenKind.SingleLineComment)    => true,
+    (k == TokenKind.MultiLineComment)     => true,
+    (k == TokenKind.DocLineComment)       => true,
+    (k == TokenKind.InnerDocLineComment)  => true,
+    (k == TokenKind.DocBlockComment)      => true,
+    (k == TokenKind.InnerDocBlockComment) => true,
+    true => false
+  )
+);
+
+/// Returns `true` if any plain comment (`//` or `/* */`) in `tokens` contains
+/// `attribute`. Doc comment tokens (`///`, `//!`, `/** */`, `/*! */`) are
+/// deliberately excluded so that documentation that merely mentions an
+/// attribute does not trigger it.
+/// Mirrors `hasCommentAttribute` in `src/evaluator/index.ts`.
+has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  n := tokens.len();
+  while runtime(((i < n) && (!(found)))), {
+    match(tokens.get(i),
+      .Some(tok) => {
+        is_plain_comment := cond(
+          (tok.kind == TokenKind.SingleLineComment) => true,
+          (tok.kind == TokenKind.MultiLineComment)  => true,
+          true => false
+        );
+        if((is_plain_comment && tok.value.contains(attribute)), {
+          found = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  found
+});
+
+// ---------------------------------------------------------------------------
+// Evaluator object
+// ---------------------------------------------------------------------------
+
+/// Wraps parse + evaluate into a single reusable handle.
+///
+/// Mirrors the `Evaluator` class in `src/evaluator/index.ts`.
+Evaluator :: object(
+  input_string : String,
+  module_path  : String,
+  program      : ArrayList(AstExpr),
+  tokens       : ArrayList(Token),
+  module_value : Option(EvalValue),
+  module_error : Option(String),
+  env          : Option(Environment)
+);
+
+impl(Evaluator,
+  /// Create an `Evaluator` from pre-loaded source text.
+  ///
+  /// Phase 2i: file reading is the caller's responsibility.
+  /// A `new_from_file` helper with `using(io : IO)` will be added later.
+  ///
+  /// `load_module_fn` is called for every `import "..."` encountered during
+  /// evaluation, AND for loading the prelude (unless the `@skip_prelude` directive
+  /// is present in the source).  Return `None` from the callback to signal
+  /// that a module could not be found.
+  new : (fn(
+    module_path    : String,
+    std_path       : String,
+    load_module_fn : (fn(path : String) -> Option(EvalValue)),
+    input_string   : String,
+    using(exn      : Exception)
+  ) -> Self)({
+    // --- Parse ---
+    parser  := Parser.new(input_string, module_path, using(exn));
+    toks    := parser.get_tokens();
+    program := parser.get_program(using(exn));
+
+    // --- Create base environment ---
+    (env : Environment) = Environment.new(module_path);
+
+    // Wire the module loader so `import "..."` resolves during evaluation.
+    set_module_loader(load_module_fn);
+
+    // --- Prelude injection ---
+    // Pass a clone of toks so toks remains available for storage below.
+    skip_prelude := has_comment_attribute(toks.clone(), `@skip_prelude`);
+    (module_error : Option(String)) = .None;
+    if((!(skip_prelude)), {
+      prelude_path := `file://${std_path}/prelude.yo`;
+      match(load_module_fn(prelude_path),
+        .Some(pval) =>
+          match(pval,
+            .ModuleVal(pnames, pvalues) => {
+              // Push a dedicated prelude frame so user code can shadow prelude names.
+              env.push_frame(true);
+              (pi : usize) = usize(0);
+              pn := pnames.len();
+              while runtime((pi < pn)), {
+                match(pnames.get(pi),
+                  .Some(pname) => {
+                    match(pvalues.get(pi),
+                      .Some(pval_item) => {
+                        env.define_val(pname, TypeValue.Unit, true, .Some(pval_item));
+                        ()
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+                pi = (pi + usize(1));
+              };
+            },
+            _ => {
+              module_error = .Some(String.from("Prelude is not a module value"));
+            }
+          ),
+        .None => {
+          module_error = .Some(String.from("Failed to load prelude"));
+        }
+      );
+    });
+
+    // --- Evaluate ---
+    // Phase 3y: register the modular dispatcher so `evaluate_expression`
+    // dispatches through the correct function slot even without a test stub.
+    register_evaluate_expression();
+    // Clone program so the stored `program` field remains valid after
+    // `evaluate_module_body` consumes its copy.
+    program_for_eval := program.clone();
+    module_value := evaluate_module_body(program_for_eval, &env);
+
+    Evaluator(
+      input_string: input_string,
+      module_path:  module_path,
+      program:      program,
+      tokens:       toks,
+      module_value: module_value,
+      module_error: module_error,
+      env:          .Some(env)
+    )
+  }),
+
+  get_program      : (fn(self : Self) -> ArrayList(AstExpr))(self.program),
+  get_tokens       : (fn(self : Self) -> ArrayList(Token))(self.tokens),
+  get_module_value : (fn(self : Self) -> Option(EvalValue))(self.module_value),
+  get_module_error : (fn(self : Self) -> Option(String))(self.module_error),
+  get_env          : (fn(self : Self) -> Option(Environment))(self.env)
+);
+
+// ---------------------------------------------------------------------------
+// Impl-registry stub re-exports
+// ---------------------------------------------------------------------------
+// These will clear global impl state when `src/evaluator/values/impl.ts` is
+// ported.  Until then they are no-ops that callers (e.g. module-manager) can
+// safely call.
+
+/// No-op stub. Mirrors `clearImplsFromModule` in `src/evaluator/values/impl.ts`.
+clear_impls_from_module :: (fn(_module_path : String) -> unit)(());
+
+/// No-op stub. Mirrors `clearGenericImplsFromModule` in `src/evaluator/values/impl.ts`.
+clear_generic_impls_from_module :: (fn(_module_path : String) -> unit)(());
+
+/// No-op stub. Mirrors `clearAllGlobalImplState` in `src/evaluator/values/impl.ts`.
+clear_all_global_impl_state :: (fn() -> unit)(());
+
+export has_comment_attribute, Evaluator;
+export clear_impls_from_module, clear_generic_impls_from_module, clear_all_global_impl_state;

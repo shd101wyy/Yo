@@ -53,6 +53,16 @@ impl(Emitter,
     self.*.declarations.push_str("\n");
   }),
 
+  /// Append text (no newline) to the declarations section.
+  emit_declaration : (fn(self : *(Self), c : str) -> unit)(
+    self.*.declarations.push_str(c)
+  ),
+
+  /// Append a raw `String` value (no newline) to the declarations section.
+  emit_declaration_string : (fn(self : *(Self), c : String) -> unit)(
+    self.*.declarations.push_string(c)
+  ),
+
   /// Append a raw `String` value + newline to the declarations section.
   emit_declaration_string_line : (fn(self : *(Self), c : String) -> unit)({
     self.*.declarations.push_string(c);
@@ -63,6 +73,12 @@ impl(Emitter,
   emit_string : (fn(self : *(Self), c : String) -> unit)(
     self.*.code.push_string(c)
   ),
+
+  /// Append a raw `String` value + newline to the code section.
+  emit_string_line : (fn(self : *(Self), c : String) -> unit)({
+    self.*.code.push_string(c);
+    self.*.code.push_str("\n");
+  }),
 
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(self : *(Self)) -> String)({

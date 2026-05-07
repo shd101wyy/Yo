@@ -33,24 +33,41 @@ function emitLoopBodyDropsBeforeExit(
       totalCount - baselineCount
     );
     const exitToken = expr?.token;
+    const exitEnv = expr?.$?.env;
     for (const dropExpr of dropsToEmit) {
-      // Skip drops whose target variable is declared LATER in source order
-      // than the current break/continue. The enclosing begin block populates
-      // pendingDeferredDrops with all of its drops up-front, but the
-      // corresponding C declarations are emitted statement-by-statement.
-      // Emitting a drop for a not-yet-declared variable produces a
-      // "use of undeclared identifier" C error.
+      // Skip drops for variables not yet in scope at the break/continue point.
       //
-      // We look up the target variable in the drop expression's own
-      // environment to find its `initializedAtToken` — that token marks
-      // where the C declaration is emitted. Comparing positions tells us
-      // whether the variable is live at the exit point.
+      // When the exit expression's env is available, use it for precise
+      // liveness checking (same approach as generatePendingDeferredDrops for
+      // return). A variable not found in the exit env hasn't been declared
+      // yet, so its C declaration comes after this exit point.
       //
-      // NOTE: don't use `consumedAtToken` — the deferred drop synthesis
-      // itself marks variables as consumed when generating ___drop()
-      // expressions. The consumed token is a sentinel, not a reliable
-      // liveness signal.
-      if (exitToken && exitToken.modulePath) {
+      // This correctly handles the pattern:
+      //   while ..., {
+      //     x := match(..., .None => { break; }, .Some(v) => v);
+      //     use(x);  // x is declared *after* the match switch in C
+      //   }
+      // At the break point, `x` is not yet in scope (the match is still
+      // being evaluated), so we must not emit a drop for it.
+      if (exitEnv) {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        if (varName) {
+          const variables = getVariablesFromEnv(exitEnv, varName);
+          if (variables.length === 0) continue; // not in scope at exit
+          const latestVar = variables[variables.length - 1]!;
+          if (!latestVar.initializedAtToken) continue; // declared but not yet initialized in C
+        }
+      } else if (exitToken && exitToken.modulePath) {
+        // Fallback: position-based filter when no env info is available.
+        // The enclosing begin block populates pendingDeferredDrops up-front,
+        // but C declarations are emitted statement-by-statement. Comparing
+        // the variable's initializedAtToken position against the exit token
+        // tells us (roughly) whether the C declaration has been emitted.
+        //
+        // NOTE: don't use `consumedAtToken` — the deferred drop synthesis
+        // itself marks variables as consumed when generating ___drop()
+        // expressions. The consumed token is a sentinel, not a reliable
+        // liveness signal.
         const varName = getDeferredDropTargetAtomName(dropExpr);
         const dropEnv = dropExpr.$?.env;
         if (varName && dropEnv) {

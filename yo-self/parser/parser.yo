@@ -10,7 +10,7 @@ open import "std/error";
 { TokenKind, Token, find_matching_bracket } :: import "../lexer/token.yo";
 { tokenize } :: import "../lexer/lexer.yo";
 {
-  AstExpr, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT,
+  AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT,
   make_err_expr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call,
   ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_token
 } :: import "../expr/expr.yo";
@@ -104,7 +104,8 @@ Parser :: struct(
   module_path         : String,
   tokens              : ArrayList(Token),
   program             : ArrayList(AstExpr),
-  has_template_string : bool
+  has_template_string : bool,
+  next_expr_id        : usize
 );
 
 impl(Parser,
@@ -119,8 +120,17 @@ impl(Parser,
       module_path:         module_path,
       tokens:              toks,
       program:             ArrayList(AstExpr).new(),
-      has_template_string: false
+      has_template_string: false,
+      next_expr_id:        usize(0)
     )
+  }),
+
+  get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
+
+  alloc_id : (fn(self : *(Self)) -> ExprId)({
+    id := self.next_expr_id;
+    self.next_expr_id = (self.next_expr_id + usize(1));
+    id
   }),
 
   make_syn_tok : (fn(self : *(Self), kind : TokenKind, value : String) -> Token)(
@@ -145,7 +155,7 @@ impl(Parser,
       module_path: ref_tok.module_path,
       input:       ref_tok.input
     );
-    .FnCall(box(.Atom(unit_tok)), ArrayList(AstExpr).new(), false, unit_tok)
+    .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok)
   }),
 
   skip_ws_fwd : (fn(self : *(Self), index : usize) -> usize)({
@@ -380,9 +390,9 @@ impl(Parser,
     make_ts_call :: (fn(e: AstExpr, d_tok: Token, ts_tok: Token, outer_tok: Token) -> AstExpr)({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e);
-      prop_args.push(.Atom(ts_tok));
-      (prop : AstExpr) = .FnCall(box(.Atom(d_tok)), prop_args, true, d_tok);
-      .FnCall(box(prop), ArrayList(AstExpr).new(), false, outer_tok)
+      prop_args.push(.Atom(usize(0), ts_tok));
+      (prop : AstExpr) = .FnCall(usize(0), box(.Atom(usize(0), d_tok)), prop_args, true, d_tok);
+      .FnCall(usize(0), box(prop), ArrayList(AstExpr).new(), false, outer_tok)
     });
 
     num_parts := part_content.len();
@@ -420,7 +430,7 @@ impl(Parser,
             module_path: tok.module_path,
             input:       tok.input
           );
-          make_ts_call(.Atom(str_tok), dot_tok, to_str_tok, tok)
+          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok)
         }
       );
 
@@ -430,11 +440,11 @@ impl(Parser,
           // prev.(+)(part_expr)
           prop_args := ArrayList(AstExpr).new();
           prop_args.push(prev);
-          prop_args.push(.Atom(plus_tok));
-          (prop : AstExpr) = .FnCall(box(.Atom(dot_tok)), prop_args, true, dot_tok);
+          prop_args.push(.Atom(self.alloc_id(), plus_tok));
+          (prop : AstExpr) = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_tok)), prop_args, true, dot_tok);
           call_args := ArrayList(AstExpr).new();
           call_args.push(part_expr);
-          Option(AstExpr).Some(.FnCall(box(prop), call_args, false, tok))
+          Option(AstExpr).Some(.FnCall(self.alloc_id(), box(prop), call_args, false, tok))
         }
       );
 
@@ -513,7 +523,7 @@ impl(Parser,
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, using(exn));
     ParseResult(
-      expr:  .FnCall(box(func), fa.args, false, fn_tok),
+      expr:  .FnCall(self.alloc_id(), box(func), fa.args, false, fn_tok),
       index: fa.index
     )
   })
@@ -543,7 +553,7 @@ impl(Parser,
         input:       tok.input
       );
       return ParseResult(
-        expr:  .FnCall(box(.Atom(unit_tok)), ArrayList(AstExpr).new(), false, unit_tok),
+        expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok),
         index: (index + usize(2))
       );
     });
@@ -631,7 +641,7 @@ impl(Parser,
     );
 
     ParseResult(
-      expr:  .FnCall(box(.Atom(func_tok)), args, false, func_tok),
+      expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), func_tok)), args, false, func_tok),
       index: (idx + usize(1))
     )
   })
@@ -723,7 +733,7 @@ impl(Parser,
     );
 
     ParseResult(
-      expr:  .FnCall(box(.Atom(func_tok)), args, false, func_tok),
+      expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), func_tok)), args, false, func_tok),
       index: (idx + usize(1))
     )
   })
@@ -805,7 +815,7 @@ impl(Parser,
             module_path: last_tok.module_path,
             input:       last_tok.input
           );
-          args.push(.FnCall(box(.Atom(unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
+          args.push(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
         });
         break;
       });
@@ -842,7 +852,7 @@ impl(Parser,
                     input:       tok.input
                   );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
-                  .FnCall(box(.Atom(colon_tok)), array_list(arg, arg_copy), true, colon_tok)
+                  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), colon_tok)), array_list(arg, arg_copy), true, colon_tok)
                 },
                 true => arg
               );
@@ -861,7 +871,7 @@ impl(Parser,
           input:       tok.input
         );
         ParseResult(
-          expr:  .FnCall(box(.Atom(anon_tok)), final_args, false, tok),
+          expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), anon_tok)), final_args, false, tok),
           index: (idx + usize(1))
         )
       },
@@ -877,7 +887,7 @@ impl(Parser,
           input:       tok.input
         );
         ParseResult(
-          expr:  .FnCall(box(.Atom(begin_tok)), args, false, begin_tok),
+          expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), begin_tok)), args, false, begin_tok),
           index: (idx + usize(1))
         )
       }
@@ -893,63 +903,63 @@ impl(Parser,
     using(exn : Exception)
   ) -> ParseResult)({
     rhs_is_infix_non_dot := match(rhs,
-      .FnCall(rfb, rargs, ris_infix, _) => cond(
+      .FnCall(_, rfb, rargs, ris_infix, _) => cond(
         (ris_infix == false) => false,
         (rargs.len() != usize(2)) => false,
         true => match(rfb.*,
-          .Atom(ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
-          .FnCall(_, _, _, _) => false
+          .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+          .FnCall(_, _, _, _, _) => false
         )
       ),
-      .Atom(_) => false
+      .Atom(_, _) => false
     );
     is_dot_func := match(rhs,
-      .FnCall(rfb, _, _, _) => match(rfb.*,
-        .Atom(ft) => (ft.kind == TokenKind.Dot),
-        .FnCall(_, _, _, _) => false
+      .FnCall(_, rfb, _, _, _) => match(rfb.*,
+        .Atom(_, ft) => (ft.kind == TokenKind.Dot),
+        .FnCall(_, _, _, _, _) => false
       ),
-      .Atom(_) => false
+      .Atom(_, _) => false
     );
 
     if((rhs_is_infix_non_dot && (is_dot_func == false)), {
       (left_operand : AstExpr) = match(rhs,
-        .FnCall(_, rargs, _, _) => match(rargs.get(usize(0)),
+        .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),
           .Some(a) => a,
           .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing left arg in rhs`))
         ),
-        .Atom(_) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
+        .Atom(_, _) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
       );
       (right_operand : AstExpr) = match(rhs,
-        .FnCall(_, rargs, _, _) => match(rargs.get(usize(1)),
+        .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(1)),
           .Some(a) => a,
           .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing right arg in rhs`))
         ),
-        .Atom(_) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
+        .Atom(_, _) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
       );
       rhs_func_tok := match(rhs,
-        .FnCall(rfb, _, _, _) => match(rfb.*,
-          .Atom(ft) => ft,
-          .FnCall(_, _, _, ft) => ft
+        .FnCall(_, rfb, _, _, _) => match(rfb.*,
+          .Atom(_, ft) => ft,
+          .FnCall(_, _, _, _, ft) => ft
         ),
-        .Atom(t) => t
+        .Atom(_, t) => t
       );
 
       left_side_args := ArrayList(AstExpr).new();
       left_side_args.push(primary);
       left_side_args.push(left_operand);
-      (left_side : AstExpr) = .FnCall(box(.Atom(op_tok)), left_side_args, true, op_tok);
+      (left_side : AstExpr) = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), left_side_args, true, op_tok);
 
       new_args := ArrayList(AstExpr).new();
       new_args.push(left_side);
       new_args.push(right_operand);
-      (new_primary : AstExpr) = .FnCall(box(.Atom(rhs_func_tok)), new_args, true, rhs_func_tok);
+      (new_primary : AstExpr) = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), rhs_func_tok)), new_args, true, rhs_func_tok);
 
       self.parse_primary_end(new_primary, index, using(exn))
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
       simple_args.push(rhs);
-      self.parse_primary_end(.FnCall(box(.Atom(op_tok)), simple_args, true, op_tok), index, using(exn))
+      self.parse_primary_end(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), simple_args, true, op_tok), index, using(exn))
     })
   })
 ,
@@ -969,13 +979,13 @@ impl(Parser,
         || (tok.kind == TokenKind.Float))
         || (tok.kind == TokenKind.StringLit))
         || (tok.kind == TokenKind.CharLit)) => 
-        ParseResult(expr: .Atom(tok), index: (idx + usize(1)))
+        ParseResult(expr: .Atom(self.alloc_id(), tok), index: (idx + usize(1)))
       ,
 
       (tok.kind == TokenKind.LParen)         => self.parse_paren_expr(idx, using(exn)),
       (tok.kind == TokenKind.LBracket)        => self.parse_array_expr(idx, using(exn)),
       (tok.kind == TokenKind.LCurlyBracket)   => self.parse_curly_bracket_expr(idx, using(exn)),
-      (tok.kind == TokenKind.Dot)             => ParseResult(expr: .Atom(tok), index: (idx + usize(1))),
+      (tok.kind == TokenKind.Dot)             => ParseResult(expr: .Atom(self.alloc_id(), tok), index: (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString)  => self.parse_template_string(tok, idx, using(exn)),
 
       true => exn.throw(dyn make_parse_error(tok, `unexpected token: ${tok.value}`))
@@ -1010,8 +1020,8 @@ impl(Parser,
     });
 
     primary_is_dot := match(primary_expr,
-      .Atom(pt) => (pt.kind == TokenKind.Dot),
-      .FnCall(_, _, _, _) => false
+      .Atom(_, pt) => (pt.kind == TokenKind.Dot),
+      .FnCall(_, _, _, _, _) => false
     );
 
     // Dot at start of new line (method chaining across lines)
@@ -1058,7 +1068,7 @@ impl(Parser,
 
         dot_fn_tok := cond(
           primary_is_dot =>
-            match(primary_expr, .Atom(pt) => pt, .FnCall(_, _, _, pt) => pt),
+            match(primary_expr, .Atom(_, pt) => pt, .FnCall(_, _, _, _, pt) => pt),
           true => dot_tok
         );
         init_args := cond(
@@ -1068,7 +1078,7 @@ impl(Parser,
         init_infix := (primary_is_dot == false);
 
         // Accumulate further immediate dot-chains (no whitespace)
-        (cur_expr : AstExpr) = .FnCall(box(.Atom(dot_fn_tok)), init_args, init_infix, dot_fn_tok);
+        (cur_expr : AstExpr) = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_fn_tok)), init_args, init_infix, dot_fn_tok);
         cur_idx := rhs_idx;
 
         while runtime(true), {
@@ -1078,7 +1088,7 @@ impl(Parser,
               if((next_dot.kind != TokenKind.Dot), { break; });
               chain_pr := self.parse_primary((cur_idx + usize(1)), using(exn));
               chain_args := array_list(cur_expr, chain_pr.expr);
-              cur_expr = .FnCall(box(.Atom(dot_tok)), chain_args, true, dot_tok);
+              cur_expr = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_tok)), chain_args, true, dot_tok);
               cur_idx = chain_pr.index;
             }
           );
@@ -1102,22 +1112,22 @@ impl(Parser,
 
         // Check if rhs is an infix (non-dot) expression
         rhs_is_infix := match(rhs,
-          .FnCall(rfb, rargs, ris_infix, _) => cond(
+          .FnCall(_, rfb, rargs, ris_infix, _) => cond(
             (ris_infix == false) => false,
             (rargs.len() != usize(2)) => false,
             true => match(rfb.*,
-              .Atom(ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
-              .FnCall(_, _, _, _) => false
+              .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+              .FnCall(_, _, _, _, _) => false
             )
           ),
-          .Atom(_) => false
+          .Atom(_, _) => false
         );
         rhs_is_dot := match(rhs,
-          .FnCall(rfb, _, _, _) => match(rfb.*,
-            .Atom(ft) => (ft.kind == TokenKind.Dot),
-            .FnCall(_, _, _, _) => false
+          .FnCall(_, rfb, _, _, _) => match(rfb.*,
+            .Atom(_, ft) => (ft.kind == TokenKind.Dot),
+            .FnCall(_, _, _, _, _) => false
           ),
-          .Atom(_) => false
+          .Atom(_, _) => false
         );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, (rhs_end - usize(1)));
 
@@ -1132,7 +1142,7 @@ impl(Parser,
               rhs_args.push(primary_expr);
               rhs_args.push(rhs);
               recur(self, 
-                .FnCall(box(.Atom(tok)), rhs_args, true, tok),
+                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
                 rhs_end,
                 using(exn)
               )
@@ -1142,7 +1152,7 @@ impl(Parser,
               rhs_args.push(primary_expr);
               rhs_args.push(rhs);
               recur(self, 
-                .FnCall(box(.Atom(tok)), rhs_args, true, tok),
+                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
                 rhs_end,
                 using(exn)
               )
@@ -1157,7 +1167,7 @@ impl(Parser,
           rhs_args.push(primary_expr);
           rhs_args.push(rhs);
           recur(self, 
-            .FnCall(box(.Atom(tok)), rhs_args, true, tok),
+            .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
             rhs_end,
             using(exn)
           )
@@ -1228,7 +1238,7 @@ impl(Parser,
               module_path: last_tok.module_path,
               input:       last_tok.input
             );
-            exprs.push(.FnCall(box(.Atom(unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
+            exprs.push(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
           });
         }
       );
@@ -1259,9 +1269,9 @@ impl(Parser,
         module_path: self.module_path,
         input:       self.input_string
       );
-      (import_atom : AstExpr) = .Atom(import_tok);
-      (str_atom : AstExpr) = .Atom(str_tok);
-      (import_expr : AstExpr) = .FnCall(
+      (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
+      (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
+      (import_expr : AstExpr) = .FnCall(self.alloc_id(), 
         box(import_atom),
         array_list(str_atom),
         false,
@@ -1297,5 +1307,41 @@ parse :: (fn(
   p.get_program(using(exn))
 });
 
+/// Parse a single Yo expression from a code string and return it.
+/// Expects exactly one expression in `code`.
+/// Mirrors `generateExprFromCode` in `src/parser.ts`.
+generate_expr_from_code :: (fn(
+  code      : str,
+  using(exn : Exception)
+) -> AstExpr)({
+  module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
+  exprs := parse(String.from(code), module_path, using(exn));
+  n := exprs.len();
+  cond(
+    (n == usize(1)) => match(exprs.get(usize(0)),
+      .Some(e) => e,
+      .None    => make_err_expr()
+    ),
+    true => {
+      exn.throw(dyn make_parse_error_raw(
+        String.from(""),
+        String.from("generate_expr_from_code: expected exactly 1 expression from parsed code, got: ") + n.to_string()
+      ));
+      make_err_expr()
+    }
+  )
+});
+
+/// Parse all Yo expressions from a code string and return them.
+/// Mirrors `generateExprsFromCode` in `src/parser.ts`.
+generate_exprs_from_code :: (fn(
+  code      : str,
+  using(exn : Exception)
+) -> ArrayList(AstExpr))({
+  module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
+  parse(String.from(code), module_path, using(exn))
+});
+
 export ParseResult, FnArgsResult, ParseError, Parser, parse;
 export extract_source_line, make_parse_error, make_parse_error_raw;
+export generate_expr_from_code, generate_exprs_from_code;

@@ -1,0 +1,179 @@
+//! Error types and formatting utilities for the Yo compiler.
+//!
+//! Mirrors `src/error.ts`.
+
+open import "std/string";
+open import "std/fmt";
+open import "std/error";
+{ ArrayList } :: import "std/collections/array_list";
+{ Token }     :: import "../lexer/token.yo";
+
+/// The kind of a compiler error.
+///
+/// Mirrors `ErrorKind` in `src/error.ts`.
+ErrorKind :: enum(
+  Overflow
+);
+derive(ErrorKind, Clone, Eq(ErrorKind), ToString);
+
+/// A token paired with an error message for error reporting.
+///
+/// Mirrors `TokenAndError` in `src/error.ts`.
+TokenAndError :: struct(
+  token         : Token,
+  error_message : String
+);
+derive(TokenAndError, Clone);
+
+/// A token paired with a warning message for warning reporting.
+///
+/// Mirrors the inline `{ token; warningMessage }` type in `formatWarningMessages`.
+TokenAndWarning :: struct(
+  token           : Token,
+  warning_message : String
+);
+derive(TokenAndWarning, Clone);
+
+/// Get the source line at the token's position with a caret indicator.
+///
+/// Mirrors `getLineAtToken` in `src/error.ts`.
+get_line_at_token :: (fn(token : Token) -> String)({
+  lines     := token.input.split(String.from("\n"));
+  row_line  := match(lines.get(token.row),
+    .Some(line) => line,
+    .None       => String.new()
+  );
+  caret_col := (token.column + (token.value.len() / usize(2)));
+  spaces    := String.from(" ").repeat(caret_col);
+  row_plus1 := (token.row + usize(1));
+  col_plus1 := (token.column + usize(1));
+  `${token.module_path}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
+});
+
+/// Get the source line at a given position with a caret indicator.
+///
+/// Mirrors `getLineAtPosition` in `src/error.ts`.
+get_line_at_position :: (fn(module_path : String, input_string : String, row : usize, column : usize) -> String)({
+  lines    := input_string.split(String.from("\n"));
+  row_line := match(lines.get(row),
+    .Some(line) => line,
+    .None       => String.new()
+  );
+  spaces    := String.from(" ").repeat(column);
+  row_plus1 := (row + usize(1));
+  col_plus1 := (column + usize(1));
+  `${module_path}:${row_plus1}:${col_plus1}:\n  \n${row_line}\n${spaces}^`
+});
+
+/// Lexer error with character index, message, and row.
+///
+/// Mirrors `YoLexerError` in `src/error.ts`.
+YoLexerError :: object(
+  character_index : usize,
+  message         : String,
+  row             : usize
+);
+
+impl(YoLexerError, ToString(
+  to_string : (fn(self : *(Self)) -> String)({
+    row_plus1 := (self.row + usize(1));
+    `Lexer Error at row ${row_plus1}: ${self.message}`
+  })
+));
+
+impl(YoLexerError, Error());
+
+/// Compiler error with a list of token + error message pairs.
+///
+/// Mirrors `YoError` in `src/error.ts`.
+YoError :: object(
+  token_and_error_list : ArrayList(TokenAndError),
+  is_assertion_error   : bool,
+  kind                 : Option(ErrorKind)
+);
+
+impl(YoError, ToString(
+  to_string : (fn(self : *(Self)) -> String)({
+    parts := ArrayList(String).new();
+    n     := self.token_and_error_list.len();
+    (i : usize) = usize(0);
+    while runtime((i < n)), {
+      match(self.token_and_error_list.get(i),
+        .Some(entry) => {
+          line := get_line_at_token(entry.token);
+          parts.push(`Error: ${entry.error_message}\n${line}`);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    };
+    sep := String.from("\n\n");
+    sep.join(parts)
+  })
+));
+
+impl(YoError, Error());
+
+/// Create a `YoError` from a single token and error message.
+///
+/// Mirrors `formatErrorMessage` in `src/error.ts`.
+format_error_message :: (fn(token : Token, error_message : String, is_assertion_error : bool, kind : Option(ErrorKind)) -> YoError)({
+  line         := get_line_at_token(token);
+  trimmed      := error_message.trim();
+  full_message := `${trimmed}\n\n${line}`;
+  entries      := ArrayList(TokenAndError).new();
+  entries.push(TokenAndError(token : token, error_message : full_message));
+  YoError(
+    token_and_error_list : entries,
+    is_assertion_error   : is_assertion_error,
+    kind                 : kind
+  )
+});
+
+/// Create a `YoError` from a list of token + error message pairs.
+///
+/// Mirrors `formatErrorMessages` in `src/error.ts`.
+format_error_messages :: (fn(token_and_error_list : ArrayList(TokenAndError), is_assertion_error : bool, kind : Option(ErrorKind)) -> YoError)({
+  assert((token_and_error_list.len() > usize(0)), "token_and_error_list must not be empty");
+  YoError(
+    token_and_error_list : token_and_error_list,
+    is_assertion_error   : is_assertion_error,
+    kind                 : kind
+  )
+});
+
+/// Format warning messages into a single string.
+///
+/// Mirrors `formatWarningMessages` in `src/error.ts`.
+format_warning_messages :: (fn(warning_message : Option(String), token_and_warning_list : ArrayList(TokenAndWarning)) -> String)({
+  parts := ArrayList(String).new();
+  n     := token_and_warning_list.len();
+  (i : usize) = usize(0);
+  while runtime((i < n)), {
+    match(token_and_warning_list.get(i),
+      .Some(entry) => {
+        line := get_line_at_token(entry.token);
+        parts.push(`Warning: ${entry.warning_message}\n${line}`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  sep      := String.from("\n\n");
+  warnings := sep.join(parts);
+  match(warning_message,
+    .Some(msg) => `Warning: ${msg}\n${warnings}`,
+    .None      => warnings
+  )
+});
+
+/// Print a `YoError` to stderr.
+///
+/// Mirrors `printYoError` in `src/error.ts`.
+print_yo_error :: (fn(error : *(YoError)) -> unit)(
+  eprintln(error.to_string())
+);
+
+export ErrorKind, TokenAndError, TokenAndWarning, YoLexerError, YoError;
+export get_line_at_token, get_line_at_position;
+export format_error_message, format_error_messages, format_warning_messages, print_yo_error;

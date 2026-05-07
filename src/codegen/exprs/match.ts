@@ -45,7 +45,9 @@ function isControlFlowCode(code: string): boolean {
     code === "break" ||
     code === "continue" ||
     code.startsWith("goto") ||
-    code.includes("return")
+    // Use word boundary to avoid matching identifiers like `return_flag`
+    // inside struct-literal field names (issue: struct-literal-in-match-arm-not-assigned).
+    /\breturn\b/.test(code)
   );
 }
 

@@ -1,0 +1,244 @@
+//! evaluator/calls/closure_type — closure value creation.
+//!
+//! Phase 3 implementation of `try_to_implement_closure_by_fn_module_type`.
+//! 1:1 port of `src/evaluator/calls/closure-type.ts`.
+//!
+//! Given `WrapperType(closureBody)` where `WrapperType` is `SomeT` or `DynT`
+//! containing a `FnTraitT`, this function:
+//!   1. Validates the argument count.
+//!   2. Pushes a new env frame and adds the FnTrait parameters to it.
+//!   3. Creates a `FuncVal` for the closure.
+//!   4. Evaluates the closure body.
+//!   5. Checks that the body's return type matches the declared return type.
+//!   6. Pops the env frame.
+//!   7. Enriches captured variables.
+//!   8. Creates the capture struct type.
+//!   9. Sets ExprInfo on the expression and returns it.
+//!
+//! Phase 3 simplifications:
+//!   - Where-clause re-application skipped (deferred to Phase 4).
+//!   - No `wrapperType.resolvedConcreteType` mutation (no such field in yo-self).
+//!   - No `deferredDupExpressions` / ARC dup (deferred to Phase 4).
+//!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
+
+open import "std/string";
+{ ArrayList }   :: import "std/collections/array_list";
+{ HashMap }     :: import "std/collections/hash_map";
+
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
+                :: import "../../expr/expr.yo";
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get }
+                :: import "../../expr/expr_info.yo";
+{ Token }       :: import "../../lexer/token.yo";
+{
+  Environment,
+  add_variable_to_env,
+  synthetic_token
+}               :: import "../../env/env.yo";
+{ TypeValue, t_unit }
+                :: import "../../types/type.yo";
+{ are_types_compatible }
+                :: import "../../types/compatibility.yo";
+{
+  EvalValue
+}               :: import "../value.yo";
+{
+  EvalContext,
+  CapturedVarInfo
+}               :: import "../context.yo";
+{ Variable }    :: import "../../env/env.yo";
+{ format_error_message }
+                :: import "../../error/error.yo";
+{ Exception }   :: import "std/error";
+{ random_id }   :: import "../utils.yo";
+{
+  create_function_body_evaluation_context
+}               :: import "./function_type.yo";
+{
+  evaluate_begin_expression
+}               :: import "../exprs/begin.yo";
+{
+  enrich_captured_variables,
+  create_capture_type_and_value,
+  FuncCapturedVarInfo
+}               :: import "../utils/closure.yo";
+
+/// Convert a closure body expression into a typed closure value against
+/// `fn_module_type` (an FnTrait type) wrapped in `wrapper_type` (Some or Dyn).
+///
+/// Mirrors `tryToImplementClosureByFnModuleType` in `src/evaluator/calls/closure-type.ts`.
+try_to_implement_closure_by_fn_module_type :: (fn(
+  expr            : AstExpr,
+  fn_module_type  : TypeValue,
+  wrapper_type    : TypeValue,
+  caller_env      : Environment,
+  ctx             : *(EvalContext),
+  using(exn       : Exception)
+) -> Option(AstExpr))({
+  tok      := ast_expr_token(expr);
+  arg_list := match(expr,
+    .FnCall(_, _, args, _, _) => args,
+    .Atom(_, _)               => ArrayList(AstExpr).new()
+  );
+
+  // Validate: FnTrait types expect exactly 1 argument (the closure body).
+  if((arg_list.len() != usize(1)), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Fn module type expects exactly 1 argument (the closure body), got ${arg_list.len()}`,
+      false,
+      .None
+    ));
+  });
+
+  closure_body_expr := match(arg_list.get(usize(0)),
+    .Some(a) => a,
+    .None    => make_err_expr()
+  );
+  // Clone the body so we can use it twice (once in FuncVal box, once for evaluation).
+  closure_body_for_eval := (&closure_body_expr).clone();
+
+  // Extract param names and types from the FnTraitT.
+  param_labels := match(fn_module_type,
+    .FnTraitT(_, pls, _, _, _, _, _) => pls,
+    _                       => ArrayList(String).new()
+  );
+  param_types := match(fn_module_type,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    _                       => ArrayList(TypeValue).new()
+  );
+  result_type := match(fn_module_type,
+    .FnTraitT(_, _, _, rt_box, _, _, _) => rt_box.*,
+    _                          => t_unit()
+  );
+
+  // Push a new env frame for the closure parameters.
+  (env : Environment) = caller_env;
+  _fr := env.push_frame(false);
+
+  // Add each FnTrait parameter as a runtime variable to the new frame.
+  n_params := param_labels.len();
+  (pi : usize) = usize(0);
+  while runtime((pi < n_params)), {
+    p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
+    p_type  := match(param_types.get(pi),  .Some(t) => t, .None => t_unit());
+    p_tok   := synthetic_token(String.from(p_label.as_str()), env.module_path);
+    _ := add_variable_to_env(
+      &(env),
+      String.from(p_label.as_str()),
+      p_type,
+      Option(EvalValue).None,  // runtime value — unknown at definition time
+      false,                   // not compile-time-only
+      false,                   // not reassignable
+      false,                   // not owning RC
+      false,                   // not implicit
+      p_tok
+    );
+    pi = (pi + usize(1));
+  };
+
+  // Build a synthetic Func type for create_function_body_evaluation_context.
+  // This is needed because create_function_body_evaluation_context expects a Func type
+  // to extract the return type for the expected-type context.
+  result_type_copy := (&result_type).clone();
+  synthetic_func_ty := TypeValue.Func(
+    ArrayList(String).new(),       // forall_labels
+    ArrayList(TypeValue).new(),    // forall_types
+    (&param_labels).clone(),
+    (&param_types).clone(),
+    ArrayList(String).new(),       // implicit_labels
+    ArrayList(TypeValue).new(),    // implicit_types
+    ArrayList(bool).new(),         // implicit_spreads
+    ArrayList(TypeValue).new(),    // where_types
+    box(result_type_copy)
+  );
+
+  // Build a preliminary FuncVal for the evaluation context.
+  closure_id   := `closure_${random_id(env.module_path)}`;
+  func_val_pre := EvalValue.FuncVal(
+    ArrayList(String).new(),   // forall_names
+    param_labels,
+    ArrayList(String).new(),   // param_type_names (filled below)
+    ArrayList(String).new(),   // evidence_params
+    box(closure_body_expr),
+    ArrayList(String).new(),   // cap_names (filled after body evaluation)
+    ArrayList(TypeValue).new(),// cap_tys
+    ArrayList(EvalValue).new(),// cap_vals
+    String.from(closure_id.as_str())
+  );
+
+  // Create the function body evaluation context.
+  eval_ctx := create_function_body_evaluation_context(
+    synthetic_func_ty,
+    func_val_pre,
+    env,
+    ctx
+  );
+
+  // Evaluate the closure body.
+  evaluated_body := evaluate_begin_expression(
+    closure_body_for_eval,
+    env,
+    &(eval_ctx),
+    ArrayList(Variable).new(),
+    true,
+    using(exn)
+  );
+
+  // Update env from the evaluated body.
+  body_info_opt := expr_info_table_get(eval_ctx.expr_info_table, ast_expr_id(evaluated_body));
+  match(body_info_opt,
+    .Some(bi) => { env = bi.env; },
+    .None     => ()
+  );
+
+  // Check return type compatibility.
+  body_ty := match(body_info_opt,
+    .Some(bi) => bi.ty,
+    .None     => t_unit()
+  );
+  if((!(are_types_compatible(body_ty, result_type))), {
+    exn.throw(dyn format_error_message(
+      tok,
+      `Incompatible closure return type`,
+      false,
+      .None
+    ));
+  });
+
+  // Pop the env frame.
+  env.pop_frame();
+
+  // Capture variable enrichment.
+  captured_vars_opt := eval_ctx.captured_variables;
+  captured_vars_with_values_opt := match(captured_vars_opt,
+    .None     => Option(HashMap(String, FuncCapturedVarInfo)).None,
+    .Some(cv) =>
+      if((cv.len() > usize(0)), {
+        enriched := enrich_captured_variables(cv, caller_env);
+        Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
+      }, Option(HashMap(String, FuncCapturedVarInfo)).None)
+  );
+
+  // Create the capture struct type.
+  cap_result := create_capture_type_and_value(
+    Option(TypeValue).None,
+    captured_vars_with_values_opt,
+    env,
+    tok
+  );
+  capture_ty := cap_result.capture_type;
+
+  // Determine the final type (use wrapper_type).
+  final_ty := wrapper_type;
+
+  // Build the ExprInfo for this closure expression.
+  info := new_expr_info(env, final_ty);
+  info.capture_type              = capture_ty;
+  info.closure_function_value    = Option(EvalValue).Some(func_val_pre);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+
+  Option(AstExpr).Some(expr)
+});
+
+export try_to_implement_closure_by_fn_module_type;

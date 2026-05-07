@@ -11,6 +11,7 @@ import {
   ExprTag,
   type FnCallExpr,
 } from "../../expr";
+import type { Token } from "../../token";
 import { isUnitType } from "../../types/guards";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -18,6 +19,7 @@ import {
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
+  isDeferredDropForClosureCapture,
   sanitizeForCIdentifier,
 } from "../utils";
 import { emitAsyncFutureCompletion } from "./async-completion";
@@ -123,6 +125,85 @@ function getDeferredDropTargetCName(dropExpr: Expr): string | undefined {
   return undefined;
 }
 
+function tokensAreComparable(left: Token, right: Token): boolean {
+  return (
+    left.modulePath === right.modulePath &&
+    left.inputString === right.inputString
+  );
+}
+
+function tokenIsAtOrBefore(left: Token, right: Token): boolean {
+  if (!tokensAreComparable(left, right)) return false;
+  return left.position.character <= right.position.character;
+}
+
+function getLastComparableTokenInExpr(expr: Expr, reference: Token): Token {
+  let last = expr.token;
+  if (!tokensAreComparable(last, reference)) {
+    last = reference;
+  }
+
+  const visit = (node: Expr): void => {
+    if (
+      tokensAreComparable(node.token, reference) &&
+      node.token.position.character > last.position.character
+    ) {
+      last = node.token;
+    }
+
+    if (exprIsFunctionCall(node)) {
+      visit(node.func);
+      for (const arg of node.args) {
+        visit(arg);
+      }
+    }
+  };
+
+  visit(expr);
+  return last;
+}
+
+function variableWasConsumedBeforeCleanupPoint(
+  consumedAtToken: Token,
+  cleanupExpr: Expr
+): boolean {
+  if (!tokensAreComparable(consumedAtToken, cleanupExpr.token)) {
+    return false;
+  }
+
+  const cleanupPoint = getLastComparableTokenInExpr(
+    cleanupExpr,
+    consumedAtToken
+  );
+  return tokenIsAtOrBefore(consumedAtToken, cleanupPoint);
+}
+
+function generateEarlyReturnOnlyDeferredDropExpressions(
+  expr: Expr,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const earlyDrops = expr.$?.earlyReturnOnlyDeferredDropExpressions;
+  if (!earlyDrops || earlyDrops.length === 0) return;
+
+  const functionContext = context as FunctionGenerationContext;
+  for (const dropExpr of earlyDrops) {
+    if (
+      isDeferredDropForClosureCapture(
+        dropExpr,
+        functionContext.currentClosureCaptures
+      )
+    ) {
+      continue;
+    }
+
+    const dropCode = generateExpr(dropExpr, indent, context);
+    if (dropCode) {
+      context.emitter.emitLine(`${indent}${dropCode};`);
+    }
+  }
+}
+
 /**
  * Helper: Generate pending deferred drops from enclosing begin blocks.
  * Only drops variables that have been declared before the early return.
@@ -160,6 +241,17 @@ export function generatePendingDeferredDrops(
         }
       }
     }
+    if (
+      !skipAlreadyDroppedCheck &&
+      expr.$?.earlyReturnOnlyDeferredDropExpressions
+    ) {
+      for (const dropExpr of expr.$.earlyReturnOnlyDeferredDropExpressions) {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        if (varName) {
+          alreadyDroppedVars.add(varName);
+        }
+      }
+    }
 
     // SM-consumed arg C names: for escape handlers, some pending drop targets
     // have their ownership transferred to the SM. The handler param drops already
@@ -171,14 +263,30 @@ export function generatePendingDeferredDrops(
         ? context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
+            if (
+              isDeferredDropForClosureCapture(
+                dropExpr,
+                context.currentClosureCaptures
+              )
+            ) {
+              return false;
+            }
             if (alreadyDroppedVars.has(varName)) return false;
             if (additionalSkipVarNames?.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
             if (variables.length === 0) return false;
-            // Skip drops for variables that have been consumed (moved/dropped)
-            // in the current path — the value is no longer owned by this variable.
+            // Skip drops only for variables consumed before this cleanup point.
+            // A later consume in another branch must not suppress this return's drop.
             const latestVar = variables[variables.length - 1]!;
-            if (latestVar.consumedAtToken) return false;
+            if (
+              latestVar.consumedAtToken &&
+              variableWasConsumedBeforeCleanupPoint(
+                latestVar.consumedAtToken,
+                expr
+              )
+            ) {
+              return false;
+            }
             // Skip drops for variables that are declared but not yet
             // initialized — they exist in the env (e.g., the LHS of the
             // currently-evaluating assignment was added by `evaluateBinding`
@@ -191,6 +299,14 @@ export function generatePendingDeferredDrops(
         : context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
+            if (
+              isDeferredDropForClosureCapture(
+                dropExpr,
+                context.currentClosureCaptures
+              )
+            ) {
+              return false;
+            }
             if (alreadyDroppedVars.has(varName)) return false;
             if (additionalSkipVarNames?.has(varName)) return false;
             if (consumedArgCNames && consumedArgCNames.size > 0) {
@@ -425,6 +541,7 @@ export function generateReturn(
     if (expr.$.deferredDropExpressions) {
       generateDeferredDropExpressions(expr, indent, context);
     }
+    generateEarlyReturnOnlyDeferredDropExpressions(expr, indent, context);
 
     // Check if we're in an async state machine - if so, complete the Future instead of returning
     if (functionContext.inAsyncStateMachine) {
@@ -511,6 +628,7 @@ export function generateReturn(
     if (expr.$?.deferredDropExpressions) {
       generateDeferredDropExpressions(expr, indent, context);
     }
+    generateEarlyReturnOnlyDeferredDropExpressions(expr, indent, context);
 
     // Check if we're in an async state machine - if so, complete the Future instead of returning
     if (functionContext.inAsyncStateMachine) {

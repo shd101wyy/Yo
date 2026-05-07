@@ -118,8 +118,8 @@ type_to_string :: (fn(t : TypeValue) -> String)(
       using_suffix := if((ibody.len() > usize(0)), ` using(${ibody})`, String.from(""));
       `fn(${forall_prefix}${body}) -> ${recur(ret.*)}${using_suffix}`
     },
-    .Struct(name, _, _)  => name,
-    .EnumT(name, _, _)   => name,
+    .Struct(_, name, _, _, _, _, _)  => name,
+    .EnumT(_, name, _, _, _, _, _)   => name,
     .Union(name, _, _)   => name,
     .TraitT(name: n, field_labels: fls, field_types: fts) => {
       if((fls.len() == usize(0)), { return n; });
@@ -165,6 +165,76 @@ type_to_string :: (fn(t : TypeValue) -> String)(
         ii = (ii + usize(1));
       };
       `${n} : (${body})`
+    },
+    .ExprT => `Expr`,
+    .ComptimeListT(child) => `ComptimeList(${recur(child.*)})`,
+    .EffectsRowT(implicit_labels: labels, implicit_types: types) => {
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < labels.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        lbl := match(labels.get(i), .Some(s) => s, .None => ``);
+        ts  := match(types.get(i),  .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${lbl} : ${ts}`;
+        i = (i + usize(1));
+      };
+      `EffectsRow(${body})`
+    },
+    .TypeAppT(constructor, args) => {
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < args.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        ts := match(args.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${ts}`;
+        i = (i + usize(1));
+      };
+      `TypeApp(${recur(constructor.*)}, [${body}])`
+    },
+    .IsoT(child) => `iso(${recur(child.*)})`,
+    .DynT(required_trait_types: rtt, required_trait_levels: _, negative_trait_types: ntt, negative_trait_levels: _) => {
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < rtt.len())), {
+        if((i > usize(0)), { body = `${body} + `; });
+        ts := match(rtt.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${ts}`;
+        i = (i + usize(1));
+      };
+      ii := usize(0);
+      while runtime((ii < ntt.len())), {
+        if((body.len() > usize(0)), { body = `${body} + `; });
+        ts := match(ntt.get(ii), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}!(${ts})`;
+        ii = (ii + usize(1));
+      };
+      `dyn(${body})`
+    },
+    .FnTraitT(base_name: bn, call_param_labels: _, call_param_types: cpts, call_result: cr) => {
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < cpts.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        ts := match(cpts.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${ts}`;
+        i = (i + usize(1));
+      };
+      `${bn}(${body}) -> ${recur(cr.*)}`
+    },
+    .FutureTraitT(base_name: bn, output: out, effect_labels: els, effect_types: ets, effect_spreads: _) => {
+      body := String.from("");
+      i := usize(0);
+      while runtime((i < ets.len())), {
+        if((i > usize(0)), { body = `${body}, `; });
+        el := match(els.get(i), .Some(s) => s, .None => ``);
+        ts := match(ets.get(i), .Some(t2) => recur(t2), .None => `?`);
+        body = `${body}${el} : ${ts}`;
+        i = (i + usize(1));
+      };
+      cond(
+        (body.len() > usize(0)) => `Future[${bn}](${recur(out.*)}) using(${body})`,
+        true                    => `Future[${bn}](${recur(out.*)})`
+      )
     }
   )
 );

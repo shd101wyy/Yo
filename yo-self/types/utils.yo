@@ -1,0 +1,693 @@
+//! Type utilities — pure subset of `src/types/utils.ts`.
+//!
+//! This file ports only the evaluator-independent functions from utils.ts.
+//! Functions requiring `EvaluatorContext`, `typeImplementsFuture`, `SomeType.resolvedConcreteType`,
+//! or `StructType.isReferenceSemantics` are deferred to Phase 3.
+//!
+//! Ported functions (Phase 2a):
+//!   * Target pointer size config (`set_target_pointer_size`, `get_target_pointer_size_bits`, …)
+//!   * `get_integer_type_bits`
+//!   * `get_integer_type_range`
+//!   * `can_comptime_int_cast_to`
+//!   * `can_comptime_float_cast_to`
+//!
+//! Ported functions (Phase 2u):
+//!   * `prohibit_void_type` — throws on Void type
+//!   * `type_requires_comptime_modifier` — implemented (uses type_is_comptime_only tag fast-path)
+//!   * `type_prohibits_comptime_modifier` — implemented (uses tag fast-path for runtime-only types)
+//!   * `type_contains_rc_type` — stub (needs isRcType / typeImplementsFuture, Phase 3)
+//!
+//! Ported functions (Phase 2ac):
+//!   * `type_contains_some_type` — partial (top-level SomeT/TypeAppT only, Phase 3 for recursive)
+//!
+//! Ported functions (Phase 2ao):
+//!   * `get_size_of_type` — primitive/pointer/array cases; Struct/Enum/Union return `.None`
+//!   * `get_alignment_of_type` — primitive/pointer/array cases; Struct/Enum/Union return `.None`
+//!
+//! Deferred to Phase 3 (require evaluator context or missing TypeValue flags):
+//!   * `is_comptime_only_type` / `is_runtime_only_type` — need `typeImplementsComptime`/`typeImplementsRuntime`
+//!   * full `type_contains_rc_type` — needs `typeImplementsFuture`, `isRcType`
+//!   * full `get_size_of_type` / `get_alignment_of_type` — Struct/EnumT/Union cases need `isReferenceSemantics`, `isNewtype`
+//!   * `can_type_form_rc_cycle` — needs `typeImplementsAcyclic`
+//!   * `type_contains_self_type_for_dynamic_dispatch_check` — needs `SomeType.resolvedConcreteType`
+
+open import "std/string";
+open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list";
+{ TypeValue, t_i32, t_f64, type_value_tag } :: import "./type.yo";
+{ TypeTag } :: import "./tags.yo";
+{ is_integer_type, is_float_type, is_comptime_int_type, is_comptime_float_type,
+  is_comptime_string_type, is_some_type, is_rc_type }
+  :: import "./guards.yo";
+{ Variable, Environment, get_variables_from_env } :: import "../env/env.yo";
+{ EvalValue } :: import "../evaluator/value.yo";
+{ Token } :: import "../lexer/token.yo";
+{ format_error_message, YoError } :: import "../error/error.yo";
+{ Exception } :: import "std/error";
+
+// ---------------------------------------------------------------------------
+// Target pointer size — mirrors `let targetPointerSizeBits = 64` in utils.ts
+// ---------------------------------------------------------------------------
+
+(g_target_pointer_size_bits : u32) = u32(64);
+
+/// Set the target pointer size in bits. Must be positive and divisible by 8.
+/// Mirrors `setTargetPointerSize` in `src/types/utils.ts`.
+set_target_pointer_size :: (fn(bits : u32) -> unit)(
+  if(
+    ((bits == u32(0)) || (!(((bits % u32(8)) == u32(0))))),
+    (), // invalid pointer size: silently ignore
+    {
+      g_target_pointer_size_bits = bits;
+    }
+  )
+);
+
+/// Return the configured target pointer size in bits (default: 64).
+/// Mirrors `getTargetPointerSizeBits` in `src/types/utils.ts`.
+get_target_pointer_size_bits :: (fn() -> u32)(
+  g_target_pointer_size_bits
+);
+
+/// Return the configured target pointer size in bytes (default: 8).
+/// Mirrors `getTargetPointerSizeBytes` in `src/types/utils.ts`.
+get_target_pointer_size_bytes :: (fn() -> u32)(
+  (g_target_pointer_size_bits / u32(8))
+);
+
+// ---------------------------------------------------------------------------
+// Integer range result type
+// ---------------------------------------------------------------------------
+
+/// Integer value range: `min` (signed) and `max` (unsigned).
+/// Mirrors `{ min: bigint; max: bigint }` from `getIntegerTypeRange` in utils.ts.
+IntRange :: object(min : i64, max : u64);
+
+// ---------------------------------------------------------------------------
+// Integer utilities
+// ---------------------------------------------------------------------------
+
+/// Return the bit-width of an integer type.
+/// Returns `.None` for non-integer types.
+/// Mirrors `getIntegerTypeBits` in `src/types/utils.ts`.
+get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
+  match(ty,
+    .Int(bits: b, _)  => .Some(u32(b)),
+    .Usize            => .Some(g_target_pointer_size_bits),
+    .Isize            => .Some(g_target_pointer_size_bits),
+    _                 => .None
+  )
+);
+
+/// Return the value range of an integer type as an `IntRange`.
+/// Returns `.None` for non-integer types.
+/// Uses a precomputed table to avoid overflow from runtime bit-shifts.
+/// Mirrors `getIntegerTypeRange` in `src/types/utils.ts`.
+get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
+  match(ty,
+    .Int(bits: b, signed: s) => cond(
+      // signed variants
+      ((s) && (b == u8(8)))  => .Some({min: i64(-128),                max: u64(127)}),
+      ((s) && (b == u8(16))) => .Some({min: i64(-32768),              max: u64(32767)}),
+      ((s) && (b == u8(32))) => .Some({min: i64(-2147483648),         max: u64(2147483647)}),
+      ((s) && (b == u8(64))) => .Some({min: i64(-9223372036854775808), max: u64(9223372036854775807)}),
+      // unsigned variants
+      (!(s) && (b == u8(8)))  => .Some({min: i64(0), max: u64(255)}),
+      (!(s) && (b == u8(16))) => .Some({min: i64(0), max: u64(65535)}),
+      (!(s) && (b == u8(32))) => .Some({min: i64(0), max: u64(4294967295)}),
+      (!(s) && (b == u8(64))) => .Some({min: i64(0), max: u64(18446744073709551615)}),
+      true                    => .None
+    ),
+    .Usize => .Some({min: i64(0), max: u64(18446744073709551615)}),
+    .Isize => .Some({min: i64(-9223372036854775808), max: u64(9223372036854775807)}),
+    _      => .None
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Comptime cast checks
+// ---------------------------------------------------------------------------
+
+/// Check whether a `comptime_int` value can be cast to `target_type`.
+/// Mirrors `canComptimeIntCastTo` in `src/types/utils.ts`.
+can_comptime_int_cast_to :: (fn(target_type : TypeValue) -> bool)(
+  (is_integer_type(target_type) || is_comptime_int_type(target_type))
+);
+
+/// Check whether a `comptime_float` value can be cast to `target_type`.
+/// Mirrors `canComptimeFloatCastTo` in `src/types/utils.ts`.
+can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
+  (is_float_type(target_type) || is_comptime_float_type(target_type))
+);
+
+/// Look up the prelude `str` type in the given environment.
+/// Mirrors `createStrType(env)` in `src/types/creators.ts`.
+/// Throws (panics) if `str` is not present in the env.
+create_str_type :: (fn(env : Environment) -> TypeValue)({
+  vars := get_variables_from_env(env, String.from("str"));
+  (i : usize) = usize(0);
+  (found : Option(TypeValue)) = .None;
+  (n : usize) = vars.len();
+  while runtime((i < n)), {
+    match(vars.get(i),
+      .Some(v) => match(v.value,
+        .Some(ev) => match(ev,
+          .TypeVal(ty) => { found = .Some(ty.*); },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  };
+  match(found,
+    .Some(t) => t,
+    .None    => t_i32() // fallback (should not happen if prelude is loaded)
+  )
+});
+
+/// Convert a comptime type to its runtime equivalent.
+/// Mirrors `convertComptimeTypeToRuntimeType` in `src/types/utils.ts`,
+/// in the simplified form used by the `runtime(_)` builtin
+/// (i.e., `expectedType = undefined`).
+///
+///   * `comptime_int`    → `i32`
+///   * `comptime_float`  → `f64`
+///   * `comptime_string` → `str` (looked up in `env`)
+///   * otherwise        → unchanged
+convert_comptime_type_to_runtime_type :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
+  cond(
+    is_comptime_int_type(ty)    => t_i32(),
+    is_comptime_float_type(ty)  => t_f64(),
+    is_comptime_string_type(ty) => create_str_type(env),
+    true                        => ty
+  )
+);
+
+// ---------------------------------------------------------------------------
+// Phase 2u additions — mirrors functions from src/types/utils.ts
+// ---------------------------------------------------------------------------
+
+/// Throw if `ty` is the `Void` type.
+/// Mirrors `prohibitVoidType` in `src/types/utils.ts`.
+prohibit_void_type :: (fn(ty : TypeValue, token : Token, using(exn : Exception)) -> unit)(
+  match(ty,
+    .Void => {
+      exn.throw(dyn format_error_message(
+        token,
+        `Void type is not allowed here. Void is only usable as a function return type.`,
+        false,
+        .None
+      ));
+    },
+    _ => ()
+  )
+);
+
+/// Best-effort `typeIsComptimeOnly`. The TS implementation also walks
+/// the type recursively for compound types; here we use the tag-only
+/// fast path. Returns true only when we *know* the type is
+/// comptime-only.
+///
+/// Mirrors `isComptimeOnlyType` in `src/types/utils.ts`.
+type_is_comptime_only :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+  match(type_value_tag(ty),
+    .TComptimeInt    => true,
+    .TComptimeFloat  => true,
+    .TComptimeString => true,
+    .TType           => true,
+    .TModule         => true,
+    .TTrait          => true,
+    .TExpr           => true,
+    .TComptimeList   => true,
+    _                => false
+  )
+);
+
+/// Return `true` if the type requires a `comptime` modifier.
+/// A type requires comptime when it is comptime-only (never runtime).
+///
+/// Mirrors `typeRequiresComptimeModifier` in `src/types/utils.ts`.
+type_requires_comptime_modifier :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  type_is_comptime_only(ty, env)
+);
+
+/// Return `true` if the type prohibits a `comptime` modifier.
+/// A type prohibits comptime when it is runtime-only (never comptime).
+///
+/// Mirrors `typeProhibitsComptimeModifier` in `src/types/utils.ts`.
+type_prohibits_comptime_modifier :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+  // A type is runtime-only when it implements Runtime but NOT Comptime.
+  // Use the tag fast path: these types are definitively runtime-only.
+  match(type_value_tag(ty),
+    .TIso         => true,
+    .TDyn         => true,
+    .TVoid        => true,
+    .TUnion       => true,
+    .TCChar       => true,
+    .TCShort      => true,
+    .TCUShort     => true,
+    .TCInt        => true,
+    .TCUInt       => true,
+    .TCLong       => true,
+    .TCULong      => true,
+    .TCLongLong   => true,
+    .TCULongLong  => true,
+    .TCLongDouble => true,
+    _             => false
+  )
+);
+
+/// Tag-only fast path mirroring `typeImplementsRuntimeBuiltin` in
+/// `src/evaluator/trait-checking.ts`. Returns:
+///   * `Some(true)`  — type definitely implements Runtime
+///   * `Some(false)` — type definitely does NOT implement Runtime
+///   * `.None`       — undecided at the tag level (caller must check the
+///                     `Runtime` trait in the env, which is Phase 3 work)
+///
+/// Note: `TStruct` with reference semantics ("object types") would also
+/// return `Some(true)` in TS but we don't yet carry that flag on
+/// `Struct` in yo-self — it falls into the undecided bucket here.
+type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(type_value_tag(ty),
+    // Comptime-only — never Runtime
+    .TComptimeInt    => .Some(false),
+    .TComptimeFloat  => .Some(false),
+    .TComptimeString => .Some(false),
+    .TType           => .Some(false),
+    .TModule         => .Some(false),
+    .TTrait          => .Some(false),
+    .TExpr           => .Some(false),
+    .TComptimeList   => .Some(false),
+
+    // Runtime-only
+    .TIso            => .Some(true),
+    .TDyn            => .Some(true),
+    .TVoid           => .Some(true),
+    .TCChar          => .Some(true),
+    .TCShort         => .Some(true),
+    .TCUShort        => .Some(true),
+    .TCInt           => .Some(true),
+    .TCUInt          => .Some(true),
+    .TCLong          => .Some(true),
+    .TCULong         => .Some(true),
+    .TCLongLong      => .Some(true),
+    .TCULongLong     => .Some(true),
+    .TCLongDouble    => .Some(true),
+
+    // Available in both
+    .TUnit           => .Some(true),
+    .TBool           => .Some(true),
+    .TUsize          => .Some(true),
+    .TIsize          => .Some(true),
+    .TU8             => .Some(true),
+    .TI8             => .Some(true),
+    .TU16            => .Some(true),
+    .TI16            => .Some(true),
+    .TU32            => .Some(true),
+    .TI32            => .Some(true),
+    .TU64            => .Some(true),
+    .TI64            => .Some(true),
+    .TF32            => .Some(true),
+    .TF64            => .Some(true),
+    .TFunction       => .Some(true),
+    .TUnion          => .Some(true),
+
+    // Undecided — would need the env / Runtime trait to settle.
+    _                => .None
+  )
+);
+
+/// Best-effort `typeImplementsRuntime`. Uses the tag fast path; for
+/// undecided cases it conservatively returns `false` (Phase 3 will
+/// consult the `Runtime` trait in `env`). Mirrors the contract of
+/// `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
+type_implements_runtime :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+  match(type_implements_runtime_builtin(ty),
+    .Some(b) => b,
+    .None    => false
+  )
+);
+
+/// Private depth-limited recursive helper for type_contains_rc_type.
+/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+/// Uses a depth limit instead of a checkedTypes set to prevent infinite
+/// recursion on self-referential types (e.g. recursive enums).
+_type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+  cond(
+    // Depth limit — conservative: return false at max depth
+    (depth > u32(8)) => false,
+    // Direct RC type
+    (is_rc_type(ty)) => true,
+    true => match(ty,
+      // Array — recurse on element type
+      .Array(element: elem, length: _) =>
+        recur(elem.*, (depth + u32(1))),
+
+      // Slice — recurse on element type
+      .Slice(element: elem) =>
+        recur(elem.*, (depth + u32(1))),
+
+      // Tuple — check all field types
+      .Tuple(field_labels: _, field_types: fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // Union — check all field types
+      .Union(name: _, field_labels: _, field_types: fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // Struct — check all field types
+      .Struct(id: _, name: _, field_labels: _, field_types: fields, is_reference_semantics: _, is_atomic_rc: _, is_newtype: _) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while runtime(((i < fields.len()) && !(found))), {
+          match(fields.get(i),
+            .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+            .None => ()
+          );
+          i = (i + usize(1));
+        };
+        found
+      },
+
+      // EnumT — check all variant fields
+      .EnumT(id: _, name: _, variant_names: _, variant_fields: all_fields, selected_variant_name: _, variant_field_labels: _, variant_discriminants: _) => {
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while runtime(((vi < all_fields.len()) && !(found))), {
+          match(all_fields.get(vi),
+            .Some(v_fields) => {
+              (fi : usize) = usize(0);
+              while runtime(((fi < v_fields.len()) && !(found))), {
+                match(v_fields.get(fi),
+                  .Some(ft) => { if(recur(ft, (depth + u32(1))), { found = true; }); },
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              };
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        };
+        found
+      },
+
+      // Iso — check child type
+      .IsoT(child: child) => recur(child.*, (depth + u32(1))),
+
+      // SomeT — conservatively true (unresolved generic)
+      .SomeT(required_trait_types: _) => true,
+
+      // Module — false (modules don't own references)
+      .ModuleT(id: _, name: _, field_labels: _, field_types: _) => false,
+
+      // Function — false (functions are not reference types)
+      .Func(forall_labels: _) => false,
+
+      // Everything else — false
+      _ => false
+    )
+  )
+);
+
+/// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
+///
+/// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
+/// Uses a depth limit to handle self-referential types safely.
+///
+/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
+  _type_contains_rc_inner(ty, u32(0))
+);
+
+/// Return `true` if the type can form an RC reference cycle.
+/// Full implementation needs `typeImplementsAcyclic` (Phase 3).
+/// Stub: always returns `false` — conservative.
+can_type_form_rc_cycle :: (fn(_ty : TypeValue) -> bool)(false);
+
+/// Return `true` if `ty` contains any unresolved generic type variable
+/// (`SomeT` / `TypeAppT`).
+///
+/// Phase 2 partial port: checks top-level variant only.
+/// Full recursive traversal is Phase 3.
+///
+/// Mirrors `typeContainsSomeType` in `src/types/utils.ts`.
+type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
+  match(ty,
+    .SomeT(name: _)          => true,
+    .TypeAppT(constructor: _) => true,
+    _                         => false
+  )
+);
+
+/// Internal helper: recursively collect all SomeT instances from `ty` into `acc`.
+/// Phase 3: no cycle detection (safe for acyclic TypeValue trees).
+_collect_some_types_into :: (fn(
+  ty  : TypeValue,
+  acc : *(ArrayList(TypeValue))
+) -> unit)(
+  match(ty,
+    .SomeT(_, _, _, _, _, _, _, _, _) => {
+      acc.*.push(ty);
+    },
+    .TypeAppT(constructor: con, args: args_list) => {
+      recur(con.*, acc);
+      (i : usize) = usize(0);
+      n := args_list.len();
+      while runtime((i < n)), {
+        match(args_list.get(i), .Some(a) => recur(a, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .Array(element: el, _)  => { recur(el.*, acc); },
+    .Slice(element: el)     => { recur(el.*, acc); },
+    .Pointer(pointee: pt)   => { recur(pt.*, acc); },
+    .IsoT(child: ch)        => { recur(ch.*, acc); },
+    .Func(forall_types: ftys, param_types: ptys, result: res) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+      (j : usize) = usize(0);
+      while runtime((j < ptys.len())), {
+        match(ptys.get(j), .Some(pt) => recur(pt, acc), .None => ());
+        j = (j + usize(1));
+      };
+      recur(res.*, acc);
+    },
+    .Tuple(_, field_types: ftys) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .Struct(_, _, _, field_types: ftys, _, _, _) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    .EnumT(_, _, _, variant_fields: vfs, _, _, _) => {
+      (vi : usize) = usize(0);
+      while runtime((vi < vfs.len())), {
+        match(vfs.get(vi),
+          .Some(field_list) => {
+            (fi : usize) = usize(0);
+            while runtime((fi < field_list.len())), {
+              match(field_list.get(fi), .Some(ft) => recur(ft, acc), .None => ());
+              fi = (fi + usize(1));
+            };
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      };
+    },
+    .ModuleT(_, _, _, field_types: ftys) => {
+      (i : usize) = usize(0);
+      while runtime((i < ftys.len())), {
+        match(ftys.get(i), .Some(ft) => recur(ft, acc), .None => ());
+        i = (i + usize(1));
+      };
+    },
+    _ => ()
+  )
+);
+
+/// Collect all SomeT (generic type variable) instances found anywhere in `ty`.
+/// Returns an ArrayList containing each SomeT found (in pre-order traversal).
+/// Phase 3: does not track visited types (safe for acyclic TypeValue trees).
+/// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
+get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
+  acc := ArrayList(TypeValue).new();
+  _collect_some_types_into(ty, &acc);
+  acc
+});
+
+// ---------------------------------------------------------------------------
+// Size and alignment utilities
+// ---------------------------------------------------------------------------
+//
+// Mirrors `getSizeOfType` and `getAlignmentOfType` in `src/types/utils.ts`.
+//
+// Phase 2ao partial port: primitive and pointer types are fully handled.
+// Complex types (Struct, EnumT, Union) return `.None` because
+// `Struct.isReferenceSemantics` and `Struct.isNewtype` are not yet in
+// yo-self's TypeValue representation (deferred to Phase 3).
+//
+// Return values:
+//   get_size_of_type      → size in **bits** (`.None` = unknown)
+//   get_alignment_of_type → alignment in **bytes** (`.None` = unknown)
+
+/// Return the size of `ty` in bits, or `.None` if not statically known.
+/// Mirrors `getSizeOfType` in `src/types/utils.ts`.
+get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+  match(ty,
+    // comptime-only / zero-size types
+    .Unit         => .Some(usize(0)),
+    .ComptimeInt  => .Some(usize(0)),
+    .ComptimeFloat => .Some(usize(0)),
+    .ComptimeString => .Some(usize(0)),
+    .Void         => .Some(usize(0)),
+    .TypeUni(_)   => .Some(usize(0)),
+
+    // Bool: 1 byte = 8 bits
+    .BoolT => .Some(usize(8)),
+
+    // Platform-sized integers
+    .Usize => .Some(usize(get_target_pointer_size_bits())),
+    .Isize => .Some(usize(get_target_pointer_size_bits())),
+
+    // Fixed-width integers
+    .Int(bits: b, _) => .Some(usize(b)),
+
+    // Floating-point
+    .Float(bits: b) => .Some(usize(b)),
+
+    // C platform-dependent integers — return `.None` (platform-specific)
+    .CChar    => .None,
+    .CShort   => .None,
+    .CUShort  => .None,
+    .CInt     => .None,
+    .CUInt    => .None,
+    .CLong    => .None,
+    .CULong   => .None,
+    .CLongLong  => .None,
+    .CULongLong => .None,
+    .CLongDouble => .None,
+
+    // Pointer and function types are pointer-sized
+    .Pointer(_) => .Some(usize(get_target_pointer_size_bits())),
+    .Func(_, _, _, _, _, _, _, _, _) => .Some(usize(get_target_pointer_size_bits())),
+
+    // Array: element size × length
+    .Array(element: el, length: n) => match(recur(el.*),
+      .Some(elem_bits) => .Some((elem_bits * n)),
+      .None            => .None
+    ),
+
+    // Slice: fat pointer (pointer + length) = 2 × pointer size
+    .Slice(_) => .Some(usize((u32(2) * get_target_pointer_size_bits()))),
+
+    // Complex types: Struct / EnumT / Union / Tuple require is_newtype /
+    // is_reference_semantics — return `.None` until Phase 3.
+    _ => .None
+  )
+);
+
+/// Return the alignment of `ty` in bytes, or `.None` if not statically known.
+/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`.
+get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+  match(ty,
+    // comptime-only types have minimal alignment
+    .Unit         => .Some(usize(1)),
+    .ComptimeInt  => .Some(usize(1)),
+    .ComptimeFloat => .Some(usize(1)),
+    .ComptimeString => .Some(usize(1)),
+    .Void         => .Some(usize(1)),
+    .TypeUni(_)   => .Some(usize(1)),
+
+    // Bool: 1 byte aligned
+    .BoolT => .Some(usize(1)),
+
+    // Platform-sized integers: pointer-aligned
+    .Usize => .Some(usize(get_target_pointer_size_bytes())),
+    .Isize => .Some(usize(get_target_pointer_size_bytes())),
+
+    // Fixed-width integers: bits/8 bytes
+    .Int(bits: b, _) => .Some(usize((u32(b) / u32(8)))),
+
+    // Floating-point: bits/8 bytes
+    .Float(bits: b) => .Some(usize((u32(b) / u32(8)))),
+
+    // C platform-dependent integers — return `.None`
+    .CChar    => .None,
+    .CShort   => .None,
+    .CUShort  => .None,
+    .CInt     => .None,
+    .CUInt    => .None,
+    .CLong    => .None,
+    .CULong   => .None,
+    .CLongLong  => .None,
+    .CULongLong => .None,
+    .CLongDouble => .None,
+
+    // Pointer and function types: pointer-aligned
+    .Pointer(_) => .Some(usize(get_target_pointer_size_bytes())),
+    .Func(_, _, _, _, _, _, _, _, _) => .Some(usize(get_target_pointer_size_bytes())),
+
+    // Array: element alignment
+    .Array(element: el, _) => recur(el.*),
+
+    // Slice: pointer-aligned (fat pointer)
+    .Slice(_) => .Some(usize(get_target_pointer_size_bytes())),
+
+    // Complex types: return `.None` until Phase 3
+    _ => .None
+  )
+);
+
+
+export set_target_pointer_size;
+export get_target_pointer_size_bits;
+export get_target_pointer_size_bytes;
+export get_integer_type_bits;
+export IntRange;
+export get_integer_type_range;
+export can_comptime_int_cast_to;
+export can_comptime_float_cast_to;
+export create_str_type;
+export convert_comptime_type_to_runtime_type;
+export prohibit_void_type;
+export type_requires_comptime_modifier, type_prohibits_comptime_modifier;
+export type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only;
+export type_contains_rc_type;
+export can_type_form_rc_cycle;
+export type_contains_some_type;
+export get_all_some_types;
+export get_size_of_type, get_alignment_of_type;
