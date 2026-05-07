@@ -12,7 +12,7 @@ import {
 import { areTypesCompatible } from "../../types/compatibility";
 import type { Type, TypeField } from "../../types/definitions";
 import {
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -163,7 +163,7 @@ export function evaluateTypeField({
     if (
       isTupleType(expectedType) ||
       isStructType(expectedType) ||
-      isModuleType(expectedType) ||
+      isSourceNamespaceType(expectedType) ||
       isTraitType(expectedType)
     ) {
       const tupleElement = expectedType.fields[tupleFieldIndex];

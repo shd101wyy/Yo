@@ -661,7 +661,7 @@ Escape is the exceptional path and replaces what would otherwise be `longjmp`, `
 Each `using(name : EffectType)` in a function signature adds:
 
 - **Function-type effect**: 1 pointer parameter (8 bytes on x86-64/ARM64)
-- **Module-type effect**: 1 pointer per module member function
+- **Struct-record effect**: 1 pointer per effect record member function
 - **Nested struct effect record**: flattened — 1 pointer per leaf function
 
 Parameters are passed in registers (up to 6 on x86-64 SysV, 8 on ARM64), so most single-effect functions pay zero stack overhead.

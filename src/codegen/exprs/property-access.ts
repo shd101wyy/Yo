@@ -3,7 +3,7 @@ import type { TraitType, Type } from "../../types/definitions";
 import {
   isDynType,
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -56,7 +56,7 @@ export function generateFieldAccess(
     const fieldName = fieldExpr.token.value;
 
     // Evidence passing: if we're in a function with evidence params,
-    // module field accesses that match evidence params should resolve to
+    // evidence field accesses that match evidence params should resolve to
     // the evidence fn ptr parameter, not the resolved handler function.
     const functionContext = context as FunctionGenerationContext;
     if (functionContext.currentEvidenceParams && exprIsAtom(objectExpr)) {
@@ -203,7 +203,7 @@ export function generateFieldAccess(
     // Module namespace field access (e.g. fcntl_io.O_NONBLOCK)
     // Modules are compile-time values and have no runtime C representation.
     // The field access should resolve directly to the field value/identifier.
-    if (isModuleType(objectType) || isStructValue(objectValue)) {
+    if (isSourceNamespaceType(objectType) || isStructValue(objectValue)) {
       const fieldValue = expr.$?.value;
 
       if (fieldValue) {

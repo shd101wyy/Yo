@@ -24,7 +24,7 @@ import {
   isBoxedType,
   isEnumType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSliceType,
   isStructType,
@@ -991,14 +991,14 @@ function collectTypeMembers(
         kind: CompletionItemKind.Field,
       });
     }
-  } else if (isModuleType(fieldAccessType)) {
+  } else if (isSourceNamespaceType(fieldAccessType)) {
     for (const field of fieldAccessType.fields) {
       if (!field.label) continue;
       if (field.label.startsWith("___") || field.label.startsWith("__yo_"))
         continue;
       const kind = isFunctionType(field.type)
         ? CompletionItemKind.Function
-        : isModuleType(field.type)
+        : isSourceNamespaceType(field.type)
           ? CompletionItemKind.Module
           : isTypeHierarchyType(field.type)
             ? CompletionItemKind.Class
@@ -1027,7 +1027,7 @@ function collectTypeMembers(
         continue;
       const kind = isFunctionType(field.type)
         ? CompletionItemKind.Method
-        : isModuleType(field.type)
+        : isSourceNamespaceType(field.type)
           ? CompletionItemKind.Module
           : isTypeHierarchyType(field.type)
             ? CompletionItemKind.Class
@@ -1464,7 +1464,7 @@ function addAllMethods(
         addMethod(f.label, f.type, f.docComment);
       }
       // Module-typed fields
-      else if (f.label && isModuleType(f.type)) {
+      else if (f.label && isSourceNamespaceType(f.type)) {
         addMethod(f.label, f.type, f.docComment);
       }
       // Named trait impl entries (stored with label="" and TraitValue assignedValue)

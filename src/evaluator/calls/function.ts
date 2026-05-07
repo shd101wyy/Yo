@@ -51,7 +51,7 @@ import {
   isEnumType,
   isFunctionType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPtrType,
   isSliceType,
@@ -94,7 +94,7 @@ import { extractFnTraitFromType } from "../trait-checking";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
 import { evaluateAnonymousStructValue } from "../values/anonymous-struct";
 import { tryToImplementArrayByArrayType } from "./array-type";
-import { tryToImplementClosureByFnModuleType } from "./closure-type";
+import { tryToImplementClosureByFnTraitType } from "./closure-type";
 import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-type";
 import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
@@ -515,20 +515,20 @@ export function evaluateFunctionCall({
           });
         }
 
-        // Check if func is a module value,
+        // Check if func is a struct value,
         // If yes, then we extract the Self from it.
-        if (isModuleType(functionToCall.$.type)) {
-          const moduleType = functionToCall.$.type;
-          const selfIndex = moduleType.fields.findIndex(
+        if (isSourceNamespaceType(functionToCall.$.type)) {
+          const sourceNamespaceType = functionToCall.$.type;
+          const selfIndex = sourceNamespaceType.fields.findIndex(
             (e) => e.label === "Call"
           );
           if (selfIndex < 0) {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value which does not have "Call" element is not allowed.`,
+              errorMessage: `Calling a struct record value which does not have "Call" element is not allowed.`,
             });
           }
-          const selfType = moduleType.fields[selfIndex]!;
+          const selfType = sourceNamespaceType.fields[selfIndex]!;
           if (selfType.assignedValue) {
             const selfValue = selfType.assignedValue;
             if (isTupleValue(selfValue)) {
@@ -549,7 +549,7 @@ export function evaluateFunctionCall({
           } else {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value whose "Call" element doesn't have assigned value is not allowed.`,
+              errorMessage: `Calling a struct record value whose "Call" element doesn't have assigned value is not allowed.`,
             });
           }
         } else {
@@ -861,10 +861,7 @@ export function evaluateFunctionCall({
           extractFnTraitFromType(functionToCall.type, env)
         ) {
           // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-          const fnModuleType = extractFnTraitFromType(
-            functionToCall.type,
-            env
-          )!;
+          const fnTraitType = extractFnTraitFromType(functionToCall.type, env)!;
           try {
             // NOTE: We need to pass the cloneExpr expr and argExprs here because
             // we might modify the expressions during the tryToCallFunctionWithArguments
@@ -877,7 +874,7 @@ export function evaluateFunctionCall({
             // We set isInFunctionCallCheckingPhase: true so nested function calls also skip CTFE execution.
             const result = tryToCallFunctionWithArguments({
               functionValue: extractFunctionValue(functionToCall.value),
-              functionType: fnModuleType.isFn.callType,
+              functionType: fnTraitType.isFn.callType,
               expr: cloneExpr(expr),
               functionCalleeExpr: func,
               argExprs: argsToUse.map((arg) => cloneExpr(arg)),
@@ -1039,13 +1036,13 @@ export function evaluateFunctionCall({
               };
             }
           }
-          // module value
-          else if (isTypeValue(value) && isModuleType(value.value)) {
-            const moduleType = value.value;
+          // struct value
+          else if (isTypeValue(value) && isSourceNamespaceType(value.value)) {
+            const sourceNamespaceType = value.value;
             try {
               const result = tryToImplementRecordWithArgumentsByRecordType({
                 moduleExpr: func,
-                moduleType: moduleType,
+                sourceNamespaceType: sourceNamespaceType,
                 argExprs: argsToUse,
                 callerEnv: env,
                 context: { ...context },
@@ -1216,12 +1213,12 @@ export function evaluateFunctionCall({
             (isSomeType(value.value) || isDynType(value.value))
           ) {
             const wrapperType = value.value;
-            const fnModuleType = extractFnTraitFromType(wrapperType, env);
-            if (fnModuleType) {
+            const fnTraitType = extractFnTraitFromType(wrapperType, env);
+            if (fnTraitType) {
               try {
-                tryToImplementClosureByFnModuleType({
+                tryToImplementClosureByFnTraitType({
                   expr: expr,
-                  fnModuleType: fnModuleType,
+                  fnTraitType: fnTraitType,
                   wrapperType: wrapperType,
                   callerEnv: env,
                   context: { ...context },
@@ -2143,7 +2140,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
     extractFnTraitFromType(functionToCall.type, env)
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-    const fnModuleType = extractFnTraitFromType(functionToCall.type, env)!;
+    const fnTraitType = extractFnTraitFromType(functionToCall.type, env)!;
 
     // Re-call tryToCallFunctionWithArguments with the ORIGINAL args (not clones).
     // The checking phase used cloned args (which get $ annotations but are discarded),
@@ -2161,7 +2158,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       deferredDropExpressions,
     } = tryToCallFunctionWithArguments({
       functionValue: extractFunctionValue(functionToCall.value),
-      functionType: fnModuleType.isFn.callType,
+      functionType: fnTraitType.isFn.callType,
       expr: expr,
       functionCalleeExpr: func,
       argExprs: functionToCall.args ?? args,
@@ -2174,7 +2171,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
 
     // Check if it's a macro function call,
     // if yes, then we continue to evaluate the returnValue which should be an Expr value.
-    if (fnModuleType.isFn.callType.return.isUnquote) {
+    if (fnTraitType.isFn.callType.return.isUnquote) {
       if (isExprValue(returnValue)) {
         const expandedExpr = evaluateExpression({
           expr: returnValue.value,
@@ -2402,10 +2399,10 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       };
       return expr;
     }
-    // module value
+    // struct value
     else if (
       isTypeValue(functionToCallValue) &&
-      isModuleType(functionToCallValue.value)
+      isSourceNamespaceType(functionToCallValue.value)
     ) {
       const { moduleValue, callerEnv } =
         getRecordTypeCallResult(functionToCall);

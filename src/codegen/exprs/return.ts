@@ -547,8 +547,8 @@ export function generateReturn(
     if (functionContext.inAsyncStateMachine) {
       // Async state machine return - complete the Future and clean up
       const futureType = functionContext.inAsyncStateMachine!.futureType;
-      const futureModuleType = extractFutureTraitFromType(futureType)!;
-      const childType = futureModuleType.isFuture.outputType;
+      const futureTraitType = extractFutureTraitFromType(futureType)!;
+      const childType = futureTraitType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
 
       generatePendingDeferredDrops(indent, functionContext, expr, true);
@@ -633,8 +633,8 @@ export function generateReturn(
     // Check if we're in an async state machine - if so, complete the Future instead of returning
     if (functionContext.inAsyncStateMachine) {
       const futureType = functionContext.inAsyncStateMachine!.futureType;
-      const futureModuleType = extractFutureTraitFromType(futureType)!;
-      const childType = futureModuleType.isFuture.outputType;
+      const futureTraitType = extractFutureTraitFromType(futureType)!;
+      const childType = futureTraitType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
 
       generatePendingDeferredDrops(indent, functionContext, expr, true);

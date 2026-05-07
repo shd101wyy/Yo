@@ -1034,7 +1034,7 @@ export function evaluateTraitType({
         }
       }
 
-      // Don't add field to env - module fields are accessed via Self.XXX
+      // Don't add field to env - trait fields are accessed via Self.XXX
     }
   }
 

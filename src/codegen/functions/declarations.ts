@@ -7,7 +7,7 @@ import type { FuncValueId } from "../../function-value";
 import type {
   FunctionImplicitParameter,
   FunctionType,
-  ModuleType,
+  SourceNamespaceType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -16,7 +16,7 @@ import {
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isStructType,
 } from "../../types/guards";
@@ -128,14 +128,14 @@ export function generateFunctionDeclarations(
     // Skip the original (unspecialized) function when it has specialization caches.
     // The specialized versions handle codegen. The original body was evaluated
     // generically and sub-expressions may lack type annotations.
-    // Exception: isModuleEffectMember functions (e.g., Exception.throw forall handlers)
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
     // MUST still be emitted in their unspecialized form — their body is simple (escape)
     // and the unspecialized name is stored as a void* function pointer in async capture
     // structs by emitModuleEffectInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
       continue;
@@ -144,7 +144,7 @@ export function generateFunctionDeclarations(
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
       !isEffectfulFunction &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
@@ -173,7 +173,7 @@ export function generateFunctionDeclarations(
       !isUserMain &&
       !isEffectfulFunction &&
       !hasEvidenceParams &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -190,7 +190,7 @@ export function generateFunctionDeclarations(
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       !isEffectfulFunction &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
@@ -203,7 +203,7 @@ export function generateFunctionDeclarations(
 
     if (
       hasGenericParams ||
-      (hasGenericReturnType && !returnsPlainImpl && !value.isModuleEffectMember)
+      (hasGenericReturnType && !returnsPlainImpl && !value.isEffectRecordMember)
     ) {
       continue;
     }
@@ -213,10 +213,10 @@ export function generateFunctionDeclarations(
       cName,
       false,
       context,
-      // Don't pass body for module effect members — their body type (from escape())
+      // Don't pass body for effect record members — their body type (from escape())
       // may not match the function signature's return type. The signature type
       // (even if SomeType → void) is used consistently in both declaration and definition.
-      value.isModuleEffectMember ? undefined : value.body,
+      value.isEffectRecordMember ? undefined : value.body,
       // Pass original type so evidence params are detected when specialization
       // strips implicit parameters (e.g., for forall effects).
       // Only do this when specializedType has no evidence but the original does,
@@ -241,7 +241,7 @@ export function generateFunctionDeclarations(
 }
 
 /**
- * Evidence parameter — represents a module effect member that becomes
+ * Evidence parameter — representsan effect record member that becomes
  * an explicit C function pointer parameter via evidence passing.
  */
 export interface EvidenceParameter {
@@ -249,9 +249,9 @@ export interface EvidenceParameter {
   implicitLabel: string;
   /** The field label within the module (e.g., "raise" or "errors__raise" for nested) */
   fieldLabel: string;
-  /** Path of field labels for navigating nested module values (e.g., ["errors", "raise"]) */
+  /** Path of field labels for navigating nested evidence records (e.g., ["errors", "raise"]) */
   fieldPath: string[];
-  /** The function type of the module field */
+  /** The function type of the evidence field */
   fieldFunctionType: FunctionType;
   /** The C parameter name: sanitized "{implicitLabel}_{fieldLabel}" (e.g., "raise_mod__raise") */
   cParamName: string;
@@ -259,7 +259,7 @@ export interface EvidenceParameter {
 
 /**
  * Extract evidence parameters from a function type's implicit parameters.
- * For each implicit param of ModuleType, emits one EvidenceParameter per
+ * For each implicit param of SourceNamespaceType, emits one EvidenceParameter per
  * function-typed field in the module, recursing into nested modules.
  */
 export function getEvidenceParameters(
@@ -271,10 +271,10 @@ export function getEvidenceParameters(
   );
 
   for (const implicit of allImplicits) {
-    if (isModuleType(implicit.type) || isStructType(implicit.type)) {
-      collectEvidenceFromModule(
+    if (isSourceNamespaceType(implicit.type) || isStructType(implicit.type)) {
+      collectEvidenceFromRecord(
         implicit.label,
-        implicit.type as ModuleType,
+        implicit.type as SourceNamespaceType,
         [],
         result
       );
@@ -294,17 +294,17 @@ export function getEvidenceParameters(
 }
 
 /**
- * Recursively collect evidence parameters from a module type.
+ * Recursively collect evidence parameters from an effect record type.
  * For function-typed fields, creates an EvidenceParameter.
  * For record-typed fields, recurses into the nested record.
  */
-function collectEvidenceFromModule(
+function collectEvidenceFromRecord(
   implicitLabel: string,
-  moduleType: ModuleType,
+  effectRecordType: SourceNamespaceType,
   pathPrefix: string[],
   result: EvidenceParameter[]
 ): void {
-  for (const field of moduleType.fields) {
+  for (const field of effectRecordType.fields) {
     if (isFunctionType(field.type)) {
       // Forall function fields are passed as void* and cast at each call site
       const fieldPath = [...pathPrefix, field.label];
@@ -316,10 +316,10 @@ function collectEvidenceFromModule(
         fieldFunctionType: field.type,
         cParamName: sanitizeForCIdentifier(`${implicitLabel}__${fieldLabel}`),
       });
-    } else if (isModuleType(field.type) || isStructType(field.type)) {
-      collectEvidenceFromModule(
+    } else if (isSourceNamespaceType(field.type) || isStructType(field.type)) {
+      collectEvidenceFromRecord(
         implicitLabel,
-        field.type as ModuleType,
+        field.type as SourceNamespaceType,
         [...pathPrefix, field.label],
         result
       );

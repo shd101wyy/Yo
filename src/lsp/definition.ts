@@ -12,7 +12,7 @@ import { TokenType, type Token } from "../token";
 import type { EnumType, StructType } from "../types/definitions";
 import {
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isStructType,
   isTypeHierarchyType,
@@ -407,7 +407,7 @@ function findFieldDefinitionLocation(
   }
 
   // Check module fields
-  if (isModuleType(receiverType)) {
+  if (isSourceNamespaceType(receiverType)) {
     for (const field of receiverType.fields) {
       if (field.label === fieldName && field.exprs?.expr?.token) {
         const token = field.exprs.expr.token;

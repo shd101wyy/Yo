@@ -23,14 +23,14 @@ import {
 } from "../../expr";
 import type {
   FunctionImplicitParameter,
-  ModuleType,
+  SourceNamespaceType,
   StructType,
   Type,
 } from "../../types/definitions";
 import {
   isEffectsRowType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -399,10 +399,13 @@ function emitEffectInjection(
           functionContext
         );
       }
-    } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
       // Record-typed effect (e.g., IO). Inject each function member individually.
-      const moduleType = effect.type;
-      for (const field of moduleType.fields) {
+      const sourceNamespaceType = effect.type;
+      for (const field of sourceNamespaceType.fields) {
         if (!isFunctionType(field.type)) continue;
         let memberCode: string | undefined;
 
@@ -419,11 +422,11 @@ function emitEffectInjection(
           }
         }
 
-        // Resolve from using arg's module value (concrete module)
+        // Resolve from using arg's effect record value (concrete record)
         if (!memberCode) {
           const usingArgValue = usingArg.$?.value;
           if (usingArgValue && isStructValue(usingArgValue)) {
-            const fieldIndex = moduleType.fields.indexOf(field);
+            const fieldIndex = sourceNamespaceType.fields.indexOf(field);
             const memberValue = usingArgValue.fields[fieldIndex];
             if (memberValue && isFunctionValue(memberValue)) {
               const funcEntry = context.functions[memberValue.funcId];
@@ -446,9 +449,9 @@ function emitEffectInjection(
 
         // Resolve from given bindings in the call environment
         if (!memberCode) {
-          memberCode = resolveModuleFieldFromGivenBindingsForSpawn(
+          memberCode = resolveEvidenceFieldFromGivenBindingsForSpawn(
             field.label,
-            moduleType,
+            sourceNamespaceType,
             functionContext,
             expr
           );
@@ -470,12 +473,12 @@ function emitEffectInjection(
 }
 
 /**
- * Resolve a module effect field from given bindings in the call environment.
- * Mirrors resolveModuleFieldFromGivenBindings in await.ts.
+ * Resolvean effect record field from given bindings in the call environment.
+ * Mirrors resolveEvidenceFieldFromGivenBindings in await.ts.
  */
-function resolveModuleFieldFromGivenBindingsForSpawn(
+function resolveEvidenceFieldFromGivenBindingsForSpawn(
   fieldLabel: string,
-  moduleType: ModuleType | StructType,
+  sourceNamespaceType: SourceNamespaceType | StructType,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): string | undefined {
@@ -606,12 +609,12 @@ function generateEscape(
     return ``;
   }
 
-  // Module effect member function (e.g., Exception.throw handler):
+  // effect record member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
   // Also set for functions with evidence parameters (evidence passing),
   // so the caller can check the flag and propagate the escape.
   if (
-    functionContext.isModuleEffectMemberFunction ||
+    functionContext.isEffectRecordMemberFunction ||
     (functionContext.currentEvidenceParams &&
       functionContext.currentEvidenceParams.size > 0)
   ) {
@@ -710,12 +713,12 @@ function generateEscape(
     true
   );
   generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
-  // For module effect members or evidence-passing functions:
+  // For effect record members or evidence-passing functions:
   // store escape value in thread-local buffer for retrieval at handler
   // installation site, then return a dummy value.
   // The escape value type may differ from the handler's C return type.
   if (
-    (functionContext.isModuleEffectMemberFunction ||
+    (functionContext.isEffectRecordMemberFunction ||
       (functionContext.currentEvidenceParams &&
         functionContext.currentEvidenceParams.size > 0)) &&
     functionContext.currentFunctionType

@@ -124,7 +124,7 @@ export interface EvaluatorContext {
   SelfTraitType?: Type;
 
   /**
-   * The receiverType for implementing the module value.
+   * The receiverType for implementing the trait value.
    * Like:
    *
    * impl Point, Add(Point)(
@@ -138,7 +138,7 @@ export interface EvaluatorContext {
   /**
    * Whether we are currently evaluating a function type definition.
    * When true, implicit parameters dependencies are deferred and assumed to be satisfied.
-   * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Module)`
+   * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Type)`
    * without requiring all transitive dependencies to be resolved at type definition time.
    */
   isEvaluatingFunctionType?: boolean;
@@ -187,7 +187,7 @@ export interface EvaluatorContext {
   /**
    * Whether we are currently evaluating a where clause constraint.
    * When true, the LHS of `<:` must be a SomeType, and the constraint
-   * will be added to the SomeType's module rather than creating a new module type.
+   * will be added to the SomeType's trait constraints rather than creating a new trait type.
    */
   isInsideWhereClause?: boolean;
 

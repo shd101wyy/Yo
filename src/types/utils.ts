@@ -20,7 +20,7 @@ import type {
   FunctionParameter,
   FunctionType,
   IsoType,
-  ModuleField,
+  TypeField,
   PtrType,
   SliceType,
   SomeType,
@@ -29,7 +29,6 @@ import type {
   TupleType,
   Type,
   TypeApplicationType,
-  TypeField,
   UnionType,
 } from "./definitions";
 import {
@@ -55,7 +54,7 @@ import {
   isI8Type,
   isIntegerType,
   isIsizeType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPtrType,
   isRcType,
@@ -675,10 +674,10 @@ export function tupleFieldToString(
 }
 
 /**
- * Convert a module element to string representation.
+ * Convert a named type field to string representation.
  */
-function moduleElementToString(
-  element: ModuleField,
+function namedTypeFieldToString(
+  element: TypeField,
   visited: Set<string> = new Set()
 ): string {
   let label = element.label;
@@ -906,8 +905,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      if (structType.isModule) {
-        return `module(${structType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+      if (structType.isSourceNamespace) {
+        return `struct(${structType.fields.map((field) => namedTypeFieldToString(field, visited)).join(", ")})`;
       }
 
       return `${structType.isAtomicRc ? "atomic " : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
@@ -981,7 +980,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       } else {
         traitTypeString = `${
           traitType.typeName ? `(${traitType.typeName}) ` : ""
-        }trait(${traitType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+        }trait(${traitType.fields.map((field) => namedTypeFieldToString(field, visited)).join(", ")})`;
       }
 
       if (traitType.receiverType) {
@@ -1306,7 +1305,7 @@ export function getAlignmentOfType(type: Type): number | null {
     isComptimeFloatType(type) ||
     isComptimeStringType(type) ||
     isComptimeListType(type) ||
-    isModuleType(type) ||
+    isSourceNamespaceType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {
@@ -1414,7 +1413,7 @@ export function getSizeOfType(type: Type): number | null {
     isComptimeFloatType(type) ||
     isComptimeStringType(type) ||
     isComptimeListType(type) ||
-    isModuleType(type) ||
+    isSourceNamespaceType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {

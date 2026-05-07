@@ -209,8 +209,8 @@ export function collectRequiredFunctions(
 }
 
 /**
- * Recursively collect function values from a module value and its nested modules,
- * marking them as module effect members so they get compiled as standalone functions.
+ * Recursively collect function values from a struct namespace and its nested records,
+ * marking them as effect record members so they get compiled as standalone functions.
  */
 function collectModuleEffectMembers(
   mv: StructValue,
@@ -220,7 +220,7 @@ function collectModuleEffectMembers(
     const fieldValue = mv.fields[i];
     if (fieldValue && isFunctionValue(fieldValue)) {
       if (!context.functions[fieldValue.funcId]) {
-        fieldValue.isModuleEffectMember = true;
+        fieldValue.isEffectRecordMember = true;
         context.functions[fieldValue.funcId] = {
           value: fieldValue,
           cName: sanitizeForCIdentifier(fieldValue.funcId),
@@ -234,7 +234,7 @@ function collectModuleEffectMembers(
         for (const cache of fieldValue.specializedFunctionCaches) {
           const specialized = cache.specializedFunction;
           if (specialized && !context.functions[specialized.funcId]) {
-            specialized.isModuleEffectMember = true;
+            specialized.isEffectRecordMember = true;
             context.functions[specialized.funcId] = {
               value: specialized,
               cName: sanitizeForCIdentifier(specialized.funcId),
@@ -258,7 +258,7 @@ export function findFunctionCallsInExpr(
 ): void {
   // Collect function values inside StructValues that are bound to variables
   // used as effect handlers (e.g., given(exn) := Exception(throw : handler)).
-  // These functions live inside compile-time module values and are NOT represented
+  // These functions live inside compile-time struct namespace values and are NOT represented
   // as function call expressions in the AST, so the normal traversal misses them.
   if (expr.$?.value && isStructValue(expr.$.value)) {
     const mv = expr.$.value;
@@ -347,9 +347,8 @@ export function findFunctionCallsInExpr(
           ? valueType.fields[0]!.type
           : valueType;
 
-        // Store all module values in order
-        // We don't merge them anymore since we need to match module types with their values
-        // during wrapper function generation
+        // Store all trait values in order so wrapper generation can match
+        // trait requirements with their values.
 
         // Use ID-based key for now, will be fixed up later
         const implKey = `${concreteType.id}_${dynType.id}`;
@@ -549,7 +548,7 @@ export function findFunctionCallsInExpr(
     // (passed as fn ptr evidence args), they must be standalone C functions.
     // Collect them and mark as effect members so generateEscape sets the escape flag.
     if (isFunctionValue(functionValue) && functionValue.isControlFunction) {
-      functionValue.isModuleEffectMember = true;
+      functionValue.isEffectRecordMember = true;
       if (!context.functions[functionValue.funcId]) {
         context.functions[functionValue.funcId] = {
           value: functionValue,
@@ -561,7 +560,7 @@ export function findFunctionCallsInExpr(
         for (const cache of functionValue.specializedFunctionCaches) {
           const specialized = cache.specializedFunction;
           if (specialized && !context.functions[specialized.funcId]) {
-            specialized.isModuleEffectMember = true;
+            specialized.isEffectRecordMember = true;
             context.functions[specialized.funcId] = {
               value: specialized,
               cName: sanitizeForCIdentifier(specialized.funcId),
@@ -628,7 +627,7 @@ export function findFunctionCallsInExpr(
   // Check for dynCallTraitValues and collect their functions
   if (expr.$?.dynCallTraitValues) {
     for (const traitValue of expr.$.dynCallTraitValues) {
-      // Recursively collect functions from the dyn() module values
+      // Recursively collect functions from the dyn() trait values.
       collectRequiredFunctions(traitValue, context, false);
     }
   }

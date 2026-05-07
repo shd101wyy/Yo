@@ -13,7 +13,7 @@ import type { Token } from "../../token";
 import type { Type } from "../../types/definitions";
 import {
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -439,7 +439,9 @@ export function evaluateDestructuringAssignment({
 
   // Handle struct/union/module destructuring
   if (
-    (isStructType(rhsType) || isUnionType(rhsType) || isModuleType(rhsType)) &&
+    (isStructType(rhsType) ||
+      isUnionType(rhsType) ||
+      isSourceNamespaceType(rhsType)) &&
     exprIsFunctionCall(lhs)
   ) {
     return handleMemberDestructuring({
@@ -520,7 +522,7 @@ export function evaluateDestructuringAssignment({
       isTupleType(rhsType) ||
       isStructType(rhsType) ||
       isUnionType(rhsType) ||
-      isModuleType(rhsType)
+      isSourceNamespaceType(rhsType)
     )
   ) {
     throw formatErrorMessage({

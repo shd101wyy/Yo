@@ -269,27 +269,27 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // sub-expressions may lack type annotations, making codegen impossible.
     // This applies even when the function was marked effectful — the effectful
     // generation needs properly annotated sub-expressions too.
-    // Exception: isModuleEffectMember functions (e.g., Exception.throw forall handlers)
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
     // MUST still be emitted in their unspecialized form — their forall params are type-erased
     // (void), the body is just escape(), and the unspecialized name is stored as a void*
     // function pointer in async capture structs by emitModuleEffectInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
       continue;
     }
 
-    // For isModuleEffectMember functions that have specializations, the generic
+    // For isEffectRecordMember functions that have specializations, the generic
     // body lacks type annotations on sub-expressions (metadata is only filled in
     // during specialization). We must emit the unspecialized form because its name
     // is stored as a void* function pointer in async capture structs by
     // emitModuleEffectInjection (see await.ts). Emit a minimal stub: set the
     // effect-escaped flag and return a zero value matching the declared return type.
     if (
-      value.isModuleEffectMember &&
+      value.isEffectRecordMember &&
       (value.specializedFunctionCaches?.length ?? 0) > 0
     ) {
       const proto = generateFunctionPrototype(value.type, cName, context);
@@ -309,7 +309,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
       !isEffectfulFunction &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
@@ -339,7 +339,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Skip hard-generic or comptime-return functions with no specialization.
     // These exist only as compile-time templates — their unspecialized
     // bodies reference comptime bindings not available at runtime.
-    // Exception: effect handler functions (isModuleEffectMember) must be
+    // Exception: effect handler functions (isEffectRecordMember) must be
     // generated even when hard-generic — their forall params are erased
     // at runtime and they're stored as void* function pointers.
     // However, module members with comptime parameters MUST still be skipped —
@@ -361,7 +361,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     }
     if (
       !isUserMain &&
-      (!value.isModuleEffectMember || hasComptimeParams) &&
+      (!value.isEffectRecordMember || hasComptimeParams) &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       isFunctionTypeHardGeneric(value.type)
@@ -380,7 +380,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       !isUserMain &&
       !isEffectfulFunction &&
       !hasEvidenceParams &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -398,7 +398,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       !isEffectfulFunction &&
-      !value.isModuleEffectMember &&
+      !value.isEffectRecordMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
@@ -411,7 +411,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     if (
       hasGenericParams ||
-      (hasGenericReturnType && !returnsPlainImpl && !value.isModuleEffectMember)
+      (hasGenericReturnType && !returnsPlainImpl && !value.isEffectRecordMember)
     ) {
       continue;
     }
@@ -555,7 +555,7 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   }
 
   {
-    // Get evidence parameters for main function (e.g., IO module fields)
+    // Get evidence parameters for main function (e.g., IO effect record fields)
     const evidenceParams = getEvidenceParameters(mainFunctionValue.type);
     const evidenceArgs = evidenceParams.map(() => "NULL").join(", ");
     const mainCallArgs = evidenceArgs ? `(${evidenceArgs})` : "()";
@@ -775,7 +775,7 @@ export function generateFunction(
     isSomeType(functionType.return.type) &&
     !typeImplementsFuture(functionType.return.type) &&
     !functionValue.specializedType && // Don't override for specialized functions
-    !functionValue.isModuleEffectMember // Module effect handlers use SomeType → void consistently
+    !functionValue.isEffectRecordMember // effect record handlers use SomeType → void consistently
   ) {
     // The body should have the concrete return type
     if (functionValue.body.$?.type) {
@@ -871,14 +871,14 @@ export function generateFunction(
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
-  // Track if this is a module effect member function (for escape detection)
+  // Track if this isan effect record member function (for escape detection)
   const previousIsModuleEffectMemberFunction = (
     context as FunctionGenerationContext
-  ).isModuleEffectMemberFunction;
+  ).isEffectRecordMemberFunction;
   const previousOverrideReturnTypeStr = (context as FunctionGenerationContext)
     .overrideReturnTypeStr;
-  if (functionValue.isModuleEffectMember) {
-    (context as FunctionGenerationContext).isModuleEffectMemberFunction = true;
+  if (functionValue.isEffectRecordMember) {
+    (context as FunctionGenerationContext).isEffectRecordMemberFunction = true;
   }
   // Store override return type for escape codegen (when the C return type
   // differs from the SomeType-based return type in the function signature)
@@ -886,7 +886,7 @@ export function generateFunction(
     overrideReturnType;
 
   // Set up evidence parameters for module-based effect functions.
-  // This maps module field accesses (e.g., raise_mod.raise) to the evidence
+  // This maps evidence field accesses (e.g., raise_mod.raise) to the evidence
   // fn ptr parameter names so body codegen can resolve them.
   // Try the specialized type first (has expanded effect row spreads),
   // then fall back to the original type (retains implicit parameters
@@ -1007,7 +1007,7 @@ export function generateFunction(
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;
-  (context as FunctionGenerationContext).isModuleEffectMemberFunction =
+  (context as FunctionGenerationContext).isEffectRecordMemberFunction =
     previousIsModuleEffectMemberFunction;
   (context as FunctionGenerationContext).overrideReturnTypeStr =
     previousOverrideReturnTypeStr;
@@ -1374,9 +1374,9 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       continue;
     }
 
-    // Module effect member functions (e.g., specialized ctl handlers like throw_ctl_unit)
+    // effect record member functions (e.g., specialized ctl handlers like throw_ctl_unit)
     // are already generated in generateAllFunctions. Skip to avoid redefinition.
-    if (functionValue.isModuleEffectMember) {
+    if (functionValue.isEffectRecordMember) {
       continue;
     }
 
@@ -1474,7 +1474,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
 
   // Effect escape flag and value buffer (always needed)
   emitter.emitDeclarationLine(
-    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection`
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record escape detection`
   );
   emitter.emitDeclarationLine(
     `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
@@ -1583,7 +1583,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
   // Effect escape flag and value buffer are emitted in declaration section
   // (via emitDeclarationLine) so they're available to sync_fut_t resume functions.
   emitter.emitDeclarationLine(
-    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection`
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record escape detection`
   );
   emitter.emitDeclarationLine(
     `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`

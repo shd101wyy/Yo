@@ -32,7 +32,7 @@ import {
   isEffectsRowType,
   isFunctionType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isRcType,
   isSomeType,
@@ -87,9 +87,9 @@ export function generateAsyncBlock(
   }
 
   // Extract the FutureTraitType from Impl(Future(T)) or Dyn(Future(T))
-  const futureModuleType = extractFutureTraitFromType(futureType);
-  if (!futureModuleType) {
-    return `/* Error: Could not extract Future module type */`;
+  const futureTraitType = extractFutureTraitFromType(futureType);
+  if (!futureTraitType) {
+    return `/* Error: Could not extract Future trait type */`;
   }
 
   // The state machine struct name will be based on the async block ID
@@ -102,7 +102,7 @@ export function generateAsyncBlock(
   const setEffectFunctionName = `${asyncBlockId}_set_effect`;
 
   // Register this state machine struct as the concrete type for this specific async block's SomeType.
-  // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureModuleType.id because
+  // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureTraitType.id because
   // each async block creates its own fresh SomeType, but they may share the same FutureTraitType
   // (e.g., multiple async blocks returning Impl(Future(unit)) share the same Future(unit) module).
   // Using the SomeType's unique ID ensures each async block gets its own state machine struct.
@@ -121,7 +121,7 @@ export function generateAsyncBlock(
   }
 
   // Get the result type (T in Future(T))
-  let resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureTraitType.isFuture.outputType;
 
   // If outputType is an unresolved SomeType (type parameter T from forall),
   // resolve it to a concrete type. The evaluator may set resolvedConcreteType
@@ -204,7 +204,7 @@ export function generateAsyncBlock(
     disposeFunctionName,
     setEffectFunctionName,
     futureType: futureType,
-    futureModuleType: futureModuleType,
+    futureTraitType: futureTraitType,
     resultType: resultType,
     resultTypeCName: resultTypeCName,
     captureType: expr.$?.captureType,
@@ -382,7 +382,7 @@ function expandFutureEffects(
 }
 
 function getInjectableFutureEffectFieldMappings(
-  futureModuleType: FutureTraitType,
+  futureTraitType: FutureTraitType,
   captureType: StructType | undefined
 ): Array<{ effectLabel: string; captureLabel: string }> {
   if (!captureType) {
@@ -400,7 +400,7 @@ function getInjectableFutureEffectFieldMappings(
     }
   };
 
-  for (const effect of expandFutureEffects(futureModuleType.isFuture.effects)) {
+  for (const effect of expandFutureEffects(futureTraitType.isFuture.effects)) {
     if (isFunctionType(effect.type)) {
       const captureField =
         captureType.fields.find((field) => field.label === effect.label) ??
@@ -411,7 +411,10 @@ function getInjectableFutureEffectFieldMappings(
       if (captureField) {
         addMapping(effect.label, captureField.label);
       }
-    } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
       for (const field of effect.type.fields) {
         if (isFunctionType(field.type)) {
           const captureField =
@@ -434,12 +437,12 @@ function getInjectableFutureEffectFieldMappings(
 function generateFutureEffectSetter(
   structName: string,
   setEffectFunctionName: string,
-  futureModuleType: FutureTraitType,
+  futureTraitType: FutureTraitType,
   captureType: StructType | undefined,
   context: FunctionGenerationContext
 ): void {
   const mappings = getInjectableFutureEffectFieldMappings(
-    futureModuleType,
+    futureTraitType,
     captureType
   );
   const emitter = context.emitter;
@@ -635,12 +638,12 @@ function emitAsyncBlockStructDefinition(
         let awaitResultType = awaitPoint.resultType;
 
         if (awaitPoint.futureType) {
-          const futureModuleType = extractFutureTraitFromType(
+          const futureTraitType = extractFutureTraitFromType(
             awaitPoint.futureType
           );
-          if (futureModuleType) {
+          if (futureTraitType) {
             // Use the Future's output type as the await_result type
-            awaitResultType = futureModuleType.isFuture.outputType;
+            awaitResultType = futureTraitType.isFuture.outputType;
           }
         }
 
@@ -1220,7 +1223,7 @@ export function generateDeferredAsyncBlocks(
       disposeFunctionName,
       setEffectFunctionName,
       futureType,
-      futureModuleType,
+      futureTraitType,
       resultType,
       resultTypeCName,
       captureType,
@@ -1311,7 +1314,7 @@ export function generateDeferredAsyncBlocks(
     generateFutureEffectSetter(
       structName,
       setEffectFunctionName,
-      futureModuleType,
+      futureTraitType,
       captureType,
       context
     );
@@ -1441,8 +1444,8 @@ function preRegisterAsyncBlocksInExpr(
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
-        const futureModuleType = extractFutureTraitFromType(futureType);
-        if (futureModuleType) {
+        const futureTraitType = extractFutureTraitFromType(futureType);
+        if (futureTraitType) {
           const asyncBlockId =
             expr.$?.variableName || `async_block_${Date.now()}`;
           const structName = `${asyncBlockId}_state_t`;
@@ -1477,8 +1480,8 @@ function preRegisterAsyncBlocksInExpr(
     if (isIoAsyncCall(expr)) {
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
-        const futureModuleType = extractFutureTraitFromType(futureType);
-        if (futureModuleType) {
+        const futureTraitType = extractFutureTraitFromType(futureType);
+        if (futureTraitType) {
           const asyncBlockId =
             expr.$?.variableName || `io_async_block_${Date.now()}`;
           // Use _state_t for async closures (with await points), _sync_fut_t for sync
@@ -1565,12 +1568,12 @@ export function generateIoAsyncSyncCall(
     return `/* Error: io.async must return a Future type */`;
   }
 
-  const futureModuleType = extractFutureTraitFromType(futureType);
-  if (!futureModuleType) {
-    return `/* Error: Could not extract Future module type */`;
+  const futureTraitType = extractFutureTraitFromType(futureType);
+  if (!futureTraitType) {
+    return `/* Error: Could not extract Future trait type */`;
   }
 
-  let resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureTraitType.isFuture.outputType;
 
   // If outputType is an unresolved SomeType (type parameter T from forall),
   // resolve it to a concrete type. Same resolution chain as the state machine path.
@@ -1683,7 +1686,7 @@ export function generateIoAsyncSyncCall(
   generateFutureEffectSetter(
     structName,
     syncSetEffectFunctionName,
-    futureModuleType,
+    futureTraitType,
     syncCaptureType,
     context
   );

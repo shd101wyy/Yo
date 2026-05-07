@@ -10,12 +10,12 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { EnumType, ModuleField, TypeField } from "../../types/definitions";
+import type { EnumType, TypeField } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -593,8 +593,8 @@ export function evaluatePropertyAccess({
         return expr;
       }
     }
-    // Accessing module field
-    else if (isModuleType(typeValue.value)) {
+    // Accessing source namespace fields.
+    else if (isSourceNamespaceType(typeValue.value)) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
@@ -602,10 +602,10 @@ export function evaluatePropertyAccess({
         });
       }
       const propertyName = propertyExpr.token.value;
-      const moduleType = typeValue.value;
+      const sourceNamespaceType = typeValue.value;
 
       // Check if the type method exists in the module's own fields
-      const field = moduleType.fields.find(
+      const field = sourceNamespaceType.fields.find(
         (property) => property.label === propertyName
       );
       if (field) {
@@ -645,7 +645,7 @@ export function evaluatePropertyAccess({
       const propertyName = propertyExpr.token.value;
       const traitType = typeValue.value;
 
-      // Special case: If the ModuleType has a receiverType set (from a subtype expression like (T <: PrintSelf)),
+      // Special case: If the SourceNamespaceType has a receiverType set (from a subtype expression like (T <: PrintSelf)),
       // we need to look up the actual method implementation from the receiver type's trait.
       if (traitType.receiverType && traitType.receiverType.trait) {
         // Look for the impl'd trait that matches this trait type
@@ -847,10 +847,10 @@ export function evaluatePropertyAccess({
             (field) => field.label === label
           );
           if (tupleFieldIndex < 0) {
-            if (isModuleType(objectExpr.$?.type)) {
+            if (isSourceNamespaceType(objectExpr.$?.type)) {
               throw formatErrorMessage({
                 token: propertyExpr.token,
-                errorMessage: `Module field "${label}" not found in module type`,
+                errorMessage: `Record field "${label}" not found in source namespace type`,
               });
             }
 
@@ -950,8 +950,8 @@ export function evaluatePropertyAccess({
         }
       }
     }
-  } else if (isModuleType(objectType)) {
-    const fields: ModuleField[] = objectType.fields;
+  } else if (isSourceNamespaceType(objectType)) {
+    const fields: TypeField[] = objectType.fields;
     const objectExprValue = objectExpr.$!.value;
 
     // Check if it's accessing the tuple field by
@@ -960,7 +960,7 @@ export function evaluatePropertyAccess({
       if (propertyExpr.token.type === TokenType.Integer) {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Accessomg module field by index is not allowed, got:\n${exprToString(
+          errorMessage: `Accessing source namespace fields by index is not allowed, got:\n${exprToString(
             propertyExpr
           )}`,
         });
@@ -968,11 +968,11 @@ export function evaluatePropertyAccess({
         const label = propertyExpr.token.value;
 
         {
-          const moduleFieldIndex = fields.findIndex(
+          const recordFieldIndex = fields.findIndex(
             (field) => field.label === label
           );
-          if (moduleFieldIndex < 0) {
-            if (isModuleType(objectExpr.$?.type)) {
+          if (recordFieldIndex < 0) {
+            if (isSourceNamespaceType(objectExpr.$?.type)) {
               // Check if this module is still being evaluated (circular import).
               // If so, the field might exist but hasn't been exported yet.
               if (
@@ -987,7 +987,7 @@ export function evaluatePropertyAccess({
               }
               throw formatErrorMessage({
                 token: propertyExpr.token,
-                errorMessage: `Module field "${label}" not found in module type`,
+                errorMessage: `Record field "${label}" not found in source namespace type`,
               });
             }
 
@@ -995,7 +995,7 @@ export function evaluatePropertyAccess({
             expr.$ = undefined;
             return expr;
           }
-          const moduleField = fields[moduleFieldIndex]!;
+          const recordField = fields[recordFieldIndex]!;
           const modulePathCollection =
             objectExpr.$!.pathCollection &&
             objectExpr.$!.pathCollection.length > 0
@@ -1006,7 +1006,7 @@ export function evaluatePropertyAccess({
               : [[objectExpr.$!.variableName ?? "?", propertyExpr.token.value]];
           expr.$ = {
             env,
-            type: moduleField.type,
+            type: recordField.type,
             isAccessingProperty: true,
             pathCollection: modulePathCollection,
           };
@@ -1016,7 +1016,7 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              const fieldUnknown = createUnknownValue(moduleField.type, {
+              const fieldUnknown = createUnknownValue(recordField.type, {
                 env,
                 context,
               });
@@ -1033,9 +1033,9 @@ export function evaluatePropertyAccess({
                 values = objectExprValue.fields;
               }
 
-              let value = values?.[moduleFieldIndex];
+              let value = values?.[recordFieldIndex];
               if (!value) {
-                value = createUnknownValue(moduleField.type, { env, context });
+                value = createUnknownValue(recordField.type, { env, context });
               }
 
               expr.$.value = value;

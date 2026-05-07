@@ -287,7 +287,7 @@ export function generateDynWrapperFunctions(
       emitter.emitDeclarationLine("");
     }
 
-    // Regular dyn method wrappers (non-Fn modules)
+    // Regular dyn method wrappers (non-Fn traits)
     for (
       let moduleIndex = 0;
       moduleIndex < impl.dynType.requiredTraits.length;
@@ -308,11 +308,11 @@ export function generateDynWrapperFunctions(
         continue;
       }
 
-      const moduleType = moduleValue.type;
-      const moduleFields = moduleType.fields;
+      const sourceNamespaceType = moduleValue.type;
+      const recordFields = sourceNamespaceType.fields;
 
-      for (let i = 0; i < moduleFields.length; i++) {
-        const field = moduleFields[i]!;
+      for (let i = 0; i < recordFields.length; i++) {
+        const field = recordFields[i]!;
 
         if (field.label === "Self") {
           continue;

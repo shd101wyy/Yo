@@ -31,7 +31,7 @@ import {
   isFnTraitType,
   isFunctionType,
   isFutureTraitType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -93,8 +93,8 @@ function typeImplementsComptimeBuiltin(
     return false;
   }
 
-  // Module structs (formerly ModuleType) are always comptime-only.
-  if (isModuleType(type)) {
+  // Module structs (formerly SourceNamespaceType) are always comptime-only.
+  if (isSourceNamespaceType(type)) {
     return true;
   }
 
@@ -167,8 +167,8 @@ function typeImplementsRuntimeBuiltin(
     return true;
   }
 
-  // Module structs (formerly ModuleType) are always comptime-only, never runtime.
-  if (isModuleType(type)) {
+  // Module structs (formerly SourceNamespaceType) are always comptime-only, never runtime.
+  if (isSourceNamespaceType(type)) {
     return false;
   }
 

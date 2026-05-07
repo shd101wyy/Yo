@@ -18,7 +18,7 @@ import {
   isComptimeStringType,
   isDynType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPtrType,
   isSomeType,
@@ -207,7 +207,7 @@ export interface Variable {
   /**
    * Whether this variable is a module-level mutable variable (`:=` at module scope).
    * Module-level mutable variables are emitted as C file-scope static variables
-   * rather than function-local variables, so they can be accessed by all module functions.
+   * rather than function-local variables, so they can be accessed by all source module functions.
    */
   isModuleLevel?: boolean;
 
@@ -1157,8 +1157,8 @@ export function getReceiverMethodsByNameFromEnv({
         }
 
         methods.push({ type: method.type, value });
-      } else if (isModuleType(method.type)) {
-        // Find the module value
+      } else if (isSourceNamespaceType(method.type)) {
+        // Find the struct value
         const moduleValue_ = method.assignedValue;
         if (isStructValue(moduleValue_)) {
           checkModuleSelfCall(moduleValue_);
@@ -1530,11 +1530,11 @@ export function getReceiverMethodsByNameFromEnv({
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
-    // First check direct methods (can be FunctionType or ModuleType with Call)
+    // First check direct methods (can be FunctionType or SourceNamespaceType with Call)
     const directMethod = dereferencedReceiverType.trait.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type))
+        (isFunctionType(field.type) || isSourceNamespaceType(field.type))
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -1547,7 +1547,7 @@ export function getReceiverMethodsByNameFromEnv({
         });
       }
       methods.push({ type: directMethod.type, value });
-    } else if (directMethod && isModuleType(directMethod.type)) {
+    } else if (directMethod && isSourceNamespaceType(directMethod.type)) {
       // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
       const moduleValue_ = directMethod.assignedValue;
       if (isStructValue(moduleValue_)) {

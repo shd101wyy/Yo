@@ -10,7 +10,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { type FunctionType } from "../../types/definitions";
 import {
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -267,7 +267,7 @@ export function evaluateComptimeFunctionCall({
       isStructType(returnedType) ||
       isEnumType(returnedType) ||
       isUnionType(returnedType) ||
-      isModuleType(returnedType) ||
+      isSourceNamespaceType(returnedType) ||
       isTraitType(returnedType)
     ) {
       if (!returnedType.functionValue) {

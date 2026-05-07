@@ -586,7 +586,7 @@ function evaluateImplFieldList({
     ) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `impl receiverType, ... no longer accepts begin blocks. Use "impl { ... }" for anonymous modules.`,
+        errorMessage: `impl receiverType, ... no longer accepts begin blocks. Use "impl { ... }" for anonymous traits.`,
       });
     }
 
@@ -665,7 +665,7 @@ function evaluateImplFieldList({
         shell.definitionSiteEnclosingFunctionType =
           fieldValue.definitionSiteEnclosingFunctionType;
         shell.closureInfo = fieldValue.closureInfo;
-        shell.isModuleEffectMember = fieldValue.isModuleEffectMember;
+        shell.isEffectRecordMember = fieldValue.isEffectRecordMember;
         shell.isIoAsyncStateMachineClosure =
           fieldValue.isIoAsyncStateMachineClosure;
         shell.deriveRule = fieldValue.deriveRule;
@@ -1185,7 +1185,7 @@ export function findMethodsFromGenericImpls({
   const methodIsInherent: boolean[] = [];
 
   // Search through all trait types in the registry
-  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+  for (const [_traitTypeName, impls] of genericImplRegistry.entries()) {
     for (const impl of impls) {
       // Check if this impl matches the concrete type
       const match = tryMatchGenericImpl({
@@ -1626,7 +1626,7 @@ export function enumerateMethodNamesFromGenericImpls({
   const results: { name: string; type: FunctionType }[] = [];
   const seenNames = new Set<string>();
 
-  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+  for (const [_traitTypeName, impls] of genericImplRegistry.entries()) {
     for (const impl of impls) {
       let match: GenericImplMatchResult;
       try {
@@ -1716,7 +1716,7 @@ export function getGenericImplDocEntries({
   const concreteTypeName =
     "typeName" in concreteType ? concreteType.typeName : undefined;
 
-  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+  for (const [_traitTypeName, impls] of genericImplRegistry.entries()) {
     for (const impl of impls) {
       let matched = false;
       try {
@@ -2661,8 +2661,8 @@ function registerImpl(modulePath: string, traitType: TraitType): void {
 
 /**
  * Attach a trait value to a receiver type's trait.
- * For anonymous modules (begin blocks), flatten the fields directly.
- * For named modules, attach with an empty label for method lookup.
+ * For anonymous traits (begin blocks), flatten the fields directly.
+ * For named traits, attach with an empty label for method lookup.
  *
  * Note: clearImplsFromModule should be called before re-evaluating a trait
  * to remove old impls. This function just adds the new impl.
@@ -2677,7 +2677,7 @@ function attachTraitToReceiverType(
     return;
   }
 
-  // Check for duplicate impl (only for named modules, not anonymous ones)
+  // Check for duplicate impl (only for named traits, not anonymous ones)
   if (traitValue.type.typeName) {
     // Check orphan rule
     checkOrphanRule({
@@ -2778,7 +2778,7 @@ export function evaluateImplBlock({
     });
   }
 
-  // Anonymous module value
+  // Anonymous impl block.
   if (
     expr.args.length === 1 &&
     exprIsFunctionCall(expr.args[0]) &&
@@ -2786,7 +2786,7 @@ export function evaluateImplBlock({
   ) {
     const beginExprs = expr.args[0]!.args;
     const {
-      moduleType,
+      sourceNamespaceType,
       moduleValue,
       env: nextEnv,
     } = evaluateAnonymousModuleBeginExprs({
@@ -2801,10 +2801,10 @@ export function evaluateImplBlock({
     });
     env = nextEnv;
 
-    // Set the module value to the expr
+    // Set the generated trait record value to the expr.
     expr.$ = {
       env,
-      type: moduleType,
+      type: sourceNamespaceType,
       value: moduleValue,
       pathCollection: [],
     };
@@ -3109,14 +3109,14 @@ export function evaluateImplBlock({
 
   if (whereArg) {
     for (const constraintExpr of whereArg.args) {
-      // Each constraint must be of the form: T <: Module
+      // Each constraint must be of the form: T <: Trait
       if (
         !exprIsFunctionCall(constraintExpr) ||
         !exprIsFunctionCallOf(constraintExpr, "<:", 2)
       ) {
         throw formatErrorMessage({
           token: constraintExpr.token,
-          errorMessage: `Expected constraint in the form "T <: Module", got: ${exprToString(constraintExpr)}`,
+          errorMessage: `Expected constraint in the form "T <: Trait", got: ${exprToString(constraintExpr)}`,
         });
       }
 

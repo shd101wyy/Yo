@@ -56,7 +56,7 @@
       }
       const type = typeValue.value;
 
-      if (isModuleType(type)) {
+      if (isSourceNamespaceType(type)) {
         // Check if the interface is implemented
         if (!type.isImplemented) {
           expr.value = createBooleanValue(false);

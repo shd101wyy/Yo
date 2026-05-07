@@ -3,7 +3,7 @@ import { FunctionValue } from "../function-value";
 import type {
   ArrayType,
   ComptimeListType,
-  ConcreteModuleType,
+  ConcreteTraitType,
   DynType,
   EffectsRowType,
   EnumType,
@@ -11,7 +11,7 @@ import type {
   FunctionType,
   FutureTraitType,
   IsoType,
-  ModuleType,
+  SourceNamespaceType,
   PtrType,
   SliceType,
   SomeType,
@@ -160,7 +160,9 @@ export function isEnumType(type?: Type): type is EnumType {
 }
 
 export function isStructType(type?: Type): type is StructType {
-  return type?.tag === TypeTag.Struct && !(type as StructType).isModule;
+  return (
+    type?.tag === TypeTag.Struct && !(type as StructType).isSourceNamespace
+  );
 }
 
 export function isObjectType(
@@ -187,8 +189,13 @@ export function isNewtypeType(
   return type?.tag === TypeTag.Struct && (type as StructType).isNewtype;
 }
 
-export function isModuleType(type?: Type): type is ModuleType {
-  return type?.tag === TypeTag.Struct && (type as StructType).isModule === true;
+export function isSourceNamespaceType(
+  type?: Type
+): type is SourceNamespaceType {
+  return (
+    type?.tag === TypeTag.Struct &&
+    (type as StructType).isSourceNamespace === true
+  );
 }
 
 export function isTraitType(type?: Type): type is TraitType {
@@ -387,7 +394,7 @@ export function isFutureTraitType(type?: Type): type is FutureTraitType {
   return isTraitType(type) && type.isFuture !== undefined;
 }
 
-export function isConcreteTraitType(type?: Type): type is ConcreteModuleType {
+export function isConcreteTraitType(type?: Type): type is ConcreteTraitType {
   return isTraitType(type) && type.isConcrete !== undefined;
 }
 

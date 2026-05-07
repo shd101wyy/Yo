@@ -30,7 +30,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import {
   isDynType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSliceType,
   isArrayType,
@@ -57,7 +57,7 @@ import type {
   FnTraitType,
   FunctionImplicitParameter,
   FunctionType,
-  ModuleType,
+  SourceNamespaceType,
   SomeType,
   StructType,
   Type,
@@ -207,7 +207,7 @@ export function evaluateAnonymousFunctionImplementation({
   // Use `dyn (x) => expr` to get Dyn(Fn(...)) for dynamic dispatch
   let functionType: FunctionType;
   let isCreatingClosure = false;
-  let expectedFnModuleType: FnTraitType | undefined;
+  let expectedFnTraitType: FnTraitType | undefined;
   let wrapperType: SomeType | undefined;
 
   if (isFunctionType(expectedType)) {
@@ -219,13 +219,13 @@ export function evaluateAnonymousFunctionImplementation({
     // callerEnv`, so we must consult `context.expectedType?.env` (the calleeEnv)
     // when looking up where-clause constraints for SomeType `F`.
     const expectedTypeEnv = context.expectedType?.env ?? env;
-    const fnModuleFromWrapper = extractFnTraitFromType(
+    const fnTraitFromWrapper = extractFnTraitFromType(
       expectedType,
       expectedTypeEnv
     );
-    if (fnModuleFromWrapper) {
-      expectedFnModuleType = fnModuleFromWrapper;
-      functionType = fnModuleFromWrapper.isFn.callType;
+    if (fnTraitFromWrapper) {
+      expectedFnTraitType = fnTraitFromWrapper;
+      functionType = fnTraitFromWrapper.isFn.callType;
       isCreatingClosure = true;
       wrapperType = expectedType;
       // Substitute forall SomeTypes (e.g., `Acc`, `A` from a generic
@@ -751,10 +751,11 @@ Got:      "${paramName}"`,
       !isEffectParamInAsyncClosure &&
       context.isInsideIoAsyncCall &&
       isCreatingClosure &&
-      (isModuleType(expectedParam.type) || isStructType(expectedParam.type)) &&
+      (isSourceNamespaceType(expectedParam.type) ||
+        isStructType(expectedParam.type)) &&
       !resolvedHandlerValue;
     if (isRecordEffectInAsyncClosure) {
-      const recordType = expectedParam.type as ModuleType | StructType;
+      const recordType = expectedParam.type as SourceNamespaceType | StructType;
       for (const field of recordType.fields) {
         if (isFunctionType(field.type)) {
           effectParamEntries.push({
@@ -954,7 +955,7 @@ Got:      "${paramName}"`,
 
   // Evaluate the function body
   // A function is a closure if it's being used as an implementation of an Fn trait (FnTraitType)
-  const isClosureFunction = !!expectedFnModuleType;
+  const isClosureFunction = !!expectedFnTraitType;
 
   // Check if the function depends on generic type variables (forall parameters or SomeType in Self/params).
   // If so, we should NOT evaluate the body at definition time because we can't
@@ -1090,7 +1091,9 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // This enables the codegen to generate the function as a state machine.
   if (
     evaluatedBody.$ &&
-    (functionType.implicitParameters.some((p) => isModuleType(p.type)) ||
+    (functionType.implicitParameters.some((p) =>
+      isSourceNamespaceType(p.type)
+    ) ||
       context.isInsideIoAsyncCall)
   ) {
     const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
@@ -1241,7 +1244,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     }
   }
 
-  if (isCreatingClosure && expectedFnModuleType && wrapperType) {
+  if (isCreatingClosure && expectedFnTraitType && wrapperType) {
     // Create a closure type and closure value using helper function
     // We don't need the captureValue since closures are runtime-only
     const result = createCaptureTypeAndValue({
@@ -1305,11 +1308,11 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     // trait in requiredTraits, and set THAT as F's resolvedConcreteType. Codegen
     // sees the concrete capture struct via one extra unwrap.
     const wrapperHasFnInRequired = wrapperType.requiredTraits.some(
-      ({ traitType }) => traitType.id === expectedFnModuleType.id
+      ({ traitType }) => traitType.id === expectedFnTraitType.id
     );
     if (!wrapperHasFnInRequired && captureType) {
       const implFnWrapper = createSomeType(createType0(), "__impl_fn", {
-        requiredTraits: [expectedFnModuleType],
+        requiredTraits: [expectedFnTraitType],
         env,
         context,
       });

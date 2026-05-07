@@ -10,8 +10,8 @@ import {
   exprToString,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { ModuleField, Type } from "../../types/definitions";
-import { isFunctionType, isModuleType } from "../../types/guards";
+import type { TypeField, Type } from "../../types/definitions";
+import { isFunctionType, isSourceNamespaceType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
@@ -21,26 +21,26 @@ import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 /**
- * Evaluate the field in module rvalue
+ * Evaluate a field in a record type expression.
  *
  * type:
- * (x: i32) in module(x: i32, ...)
+ * (x: i32) in struct(x: i32, ...)
  *
- * All fields in module are compile-time only by default.
+ * Fields are compile-time only by default while defining a type.
  */
 export function evaluateRecordField({
   expr,
-  moduleFieldIndex,
+  recordFieldIndex,
   env,
   context,
-  isForEvaluatingModuleType,
+  isForEvaluatingRecordType,
 }: {
   expr: Expr;
-  moduleFieldIndex: number;
+  recordFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
-  isForEvaluatingModuleType: boolean;
-}): { field: ModuleField; env: Environment } {
+  isForEvaluatingRecordType: boolean;
+}): { field: TypeField; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -71,8 +71,8 @@ export function evaluateRecordField({
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot use "::" for module field. Use ":=" instead.
-All module fields are compile-time only by default.`,
+        errorMessage: `Cannot use "::" for record type field. Use ":=" instead.
+Record type fields are compile-time only by default.`,
       });
     }
 
@@ -84,7 +84,7 @@ All module fields are compile-time only by default.`,
   if (defaultValueExpr && assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot have both default value and required value for module field.`,
+      errorMessage: `Cannot have both default value and required value for record type field.`,
     });
   }
 
@@ -100,7 +100,7 @@ All module fields are compile-time only by default.`,
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "comptime" modifier. All module fields are compile-time only by default.`,
+        errorMessage: `No need to use "comptime" modifier. Record type fields are compile-time only by default.`,
       });
     }
 
@@ -117,12 +117,12 @@ All module fields are compile-time only by default.`,
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "comptime" modifier. All module fields are compile-time only by default.`,
+      errorMessage: `No need to use "comptime" modifier. Record type fields are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected label for module field, got ${exprToString(expr_)}`,
+      errorMessage: `Expected label for record type field, got ${exprToString(expr_)}`,
     });
   } else {
     //  eg:
@@ -132,13 +132,13 @@ All module fields are compile-time only by default.`,
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
+        errorMessage: `Expected identifier for record type field label, got ${exprToString(labelExpr)}`,
       });
     }
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
+        errorMessage: `Expected identifier for record type field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -146,18 +146,18 @@ All module fields are compile-time only by default.`,
 
   // Check expectedType
   const expectedType = context.expectedType?.type;
-  let expectedModuleFieldType: Type | undefined = undefined;
+  let expectedRecordFieldType: Type | undefined = undefined;
   if (expectedType) {
-    if (isModuleType(expectedType)) {
-      const moduleField = expectedType.fields[moduleFieldIndex];
-      if (!moduleField) {
+    if (isSourceNamespaceType(expectedType)) {
+      const recordField = expectedType.fields[recordFieldIndex];
+      if (!recordField) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${moduleFieldIndex}`,
+          errorMessage: `Failed to get the field at index ${recordFieldIndex}`,
         });
       }
 
-      expectedModuleFieldType = moduleField.type;
+      expectedRecordFieldType = recordField.type;
     } else {
       /*
         throw formatErrorMessage(
@@ -177,9 +177,9 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedModuleFieldType
+        expectedType: expectedRecordFieldType
           ? {
-              type: expectedModuleFieldType,
+              type: expectedRecordFieldType,
               env,
             }
           : undefined,
@@ -194,7 +194,7 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `Expected type for module field, got ${exprToString(typeExpr)}`,
+        errorMessage: `Expected type for record type field, got ${exprToString(typeExpr)}`,
       });
     }
     fieldType = typeValue.value;
@@ -204,9 +204,9 @@ ${typeToString(expectedType)}`
   if (assignedValueExpr) {
     const fieldExpectedType = fieldType
       ? { type: fieldType, env }
-      : expectedModuleFieldType
+      : expectedRecordFieldType
         ? {
-            type: expectedModuleFieldType,
+            type: expectedRecordFieldType,
             env,
           }
         : undefined;
@@ -265,9 +265,9 @@ Given type: ${typeToString(assignedValueType)}`,
   if (defaultValueExpr) {
     const fieldExpectedType = fieldType
       ? { type: fieldType, env }
-      : expectedModuleFieldType
+      : expectedRecordFieldType
         ? {
-            type: expectedModuleFieldType,
+            type: expectedRecordFieldType,
             env,
           }
         : undefined;
@@ -332,8 +332,8 @@ Given type: ${typeToString(defaultValueType)}`,
   // Validate that function type parameters have typeExpr for re-evaluation support
   // This is required because we re-evaluate type expressions instead of substituting types
   // for nominal types like Option(T) to get correct funcIds
-  if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
-    // Note: variadic function parameters are allowed in module fields for
+  if (isForEvaluatingRecordType && isFunctionType(fieldType)) {
+    // Note: variadic function parameters are allowed in record type fields for
     // builtin-intercepted functions. The type specialization
     // constraint doesn't apply because these calls are intercepted before
     // reaching the normal function call path.
@@ -341,8 +341,8 @@ Given type: ${typeToString(defaultValueType)}`,
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Function forall parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+          errorMessage: `Function forall parameter "${param.label}" in record type field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in record type fields to support proper type specialization.`,
         });
       }
     }
@@ -350,8 +350,8 @@ Type expressions are required for all function parameters in module fields to su
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Function parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+          errorMessage: `Function parameter "${param.label}" in record type field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in record type fields to support proper type specialization.`,
         });
       }
     }
@@ -359,19 +359,19 @@ Type expressions are required for all function parameters in module fields to su
     if (!fieldType.return.typeExpr) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Function in module field "${label ?? "unnamed"}" must have an explicit return type annotation.
-Type expressions are required for return types in module fields to support proper type specialization.`,
+        errorMessage: `Function in record type field "${label ?? "unnamed"}" must have an explicit return type annotation.
+Type expressions are required for return types in record type fields to support proper type specialization.`,
       });
     }
   }
 
   // Validate default value expression restrictions
-  if (isForEvaluatingModuleType && defaultValueExpr) {
+  if (isForEvaluatingRecordType && defaultValueExpr) {
     if (!isFunctionType(fieldType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
-        errorMessage: `Default values (?=) are only allowed for function type module elements (excluding closures).
-Module field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
+        errorMessage: `Default values (?=) are only allowed for function-typed record fields (excluding closures).
+Record field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
 
 To avoid circular dependency issues, please explicitly provide the value for this field.`,
       });

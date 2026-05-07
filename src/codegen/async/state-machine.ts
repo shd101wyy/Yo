@@ -33,7 +33,7 @@ import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
   FunctionImplicitParameter,
-  ModuleType,
+  SourceNamespaceType,
   SomeType,
   StructType,
   Type,
@@ -43,7 +43,7 @@ import {
   isDynType,
   isEffectsRowType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isStructType,
   isUnitType,
@@ -582,8 +582,8 @@ export function generateAsyncBlockResumeFunction(
 ): string[] {
   const emitter = context.emitter;
 
-  const futureModuleType = extractFutureTraitFromType(futureType)!;
-  const childType = futureModuleType.isFuture.outputType;
+  const futureTraitType = extractFutureTraitFromType(futureType)!;
+  const childType = futureTraitType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
   // Clear asyncCondBranchInfo and asyncWhileLoopInfo for this async block to prevent
@@ -2483,7 +2483,10 @@ function emitEffectInjectionForSM(
           indent,
           context
         );
-      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+      } else if (
+        isSourceNamespaceType(effect.type) ||
+        isStructType(effect.type)
+      ) {
         emitModuleEffectInjectionForSM(
           effect.type,
           futureArg.$.type,
@@ -2515,7 +2518,10 @@ function emitEffectInjectionForSM(
             context
           );
         }
-      } else if (isModuleType(effect.type) || isStructType(effect.type)) {
+      } else if (
+        isSourceNamespaceType(effect.type) ||
+        isStructType(effect.type)
+      ) {
         emitModuleEffectInjectionForSM(
           effect.type,
           futureArg.$.type,
@@ -2531,7 +2537,7 @@ function emitEffectInjectionForSM(
 }
 
 function emitModuleEffectInjectionForSM(
-  moduleType: ModuleType | StructType,
+  sourceNamespaceType: SourceNamespaceType | StructType,
   futureType: Type,
   futureAccess: string,
   indent: string,
@@ -2539,7 +2545,7 @@ function emitModuleEffectInjectionForSM(
   context: FunctionGenerationContext,
   expr: FnCallExpr
 ): void {
-  for (const field of moduleType.fields) {
+  for (const field of sourceNamespaceType.fields) {
     if (!isFunctionType(field.type)) continue;
     let memberCode: string | undefined;
 
@@ -2553,9 +2559,9 @@ function emitModuleEffectInjectionForSM(
       }
     }
 
-    // Resolve from explicit using arg's module value
+    // Resolve from explicit using arg's effect record value
     if (!memberCode && usingArgValue && isStructValue(usingArgValue)) {
-      const fieldIndex = moduleType.fields.indexOf(field);
+      const fieldIndex = sourceNamespaceType.fields.indexOf(field);
       const memberValue = usingArgValue.fields[fieldIndex];
       if (memberValue && isFunctionValue(memberValue)) {
         const funcEntry = context.functions[memberValue.funcId];

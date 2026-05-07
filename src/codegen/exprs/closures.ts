@@ -218,8 +218,8 @@ export function generateClosureConstruction(
     return `// Error: Missing closure metadata`;
   }
 
-  const fnModule = extractFnTraitFromType(expr.$.type)!;
-  const closureType = fnModule.isFn.callType;
+  const fnTrait = extractFnTraitFromType(expr.$.type)!;
+  const closureType = fnTrait.isFn.callType;
   const closureFunctionValue = expr.$.closureFunctionValue;
   const captureType = expr.$.captureType;
 
@@ -282,8 +282,8 @@ export function generateClosureConstruction(
       const captureKey = resolveSomeTypeToConcrete(captureType).id;
       context.implClosureCallMap.set(captureKey, {
         functionCName,
-        callTypeId: fnModule.isFn.callType.id,
-        callType: fnModule.isFn.callType,
+        callTypeId: fnTrait.isFn.callType.id,
+        callType: fnTrait.isFn.callType,
         consumedCaptures: closureFunctionValue.closureInfo?.consumedCaptures,
       });
       return captureTempVar;
@@ -302,8 +302,8 @@ export function generateClosureConstruction(
           const concreteFinal = resolveSomeTypeToConcrete(someType);
           context.implClosureCallMap.set(concreteFinal.id, {
             functionCName,
-            callTypeId: fnModule.isFn.callType.id,
-            callType: fnModule.isFn.callType,
+            callTypeId: fnTrait.isFn.callType.id,
+            callType: fnTrait.isFn.callType,
           });
 
           const concreteCName = getTypeString(

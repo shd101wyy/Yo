@@ -51,7 +51,7 @@ import type {
   FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
-  ModuleType,
+  SourceNamespaceType,
   SomeType,
   StructType,
   Type,
@@ -66,7 +66,7 @@ import {
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
@@ -125,12 +125,12 @@ function isEffectRecordValue(v: Value | undefined): v is EffectRecordValue {
   return isStructValue(v);
 }
 
-function isEffectRecordType(t: Type): t is ModuleType | StructType {
-  return isModuleType(t) || isStructType(t);
+function isEffectRecordType(t: Type): t is SourceNamespaceType | StructType {
+  return isSourceNamespaceType(t) || isStructType(t);
 }
 
 function effectRecordTypeContainsCtlField(
-  type: ModuleType | StructType,
+  type: SourceNamespaceType | StructType,
   recordVal?: EffectRecordValue
 ): boolean {
   for (let fi = 0; fi < type.fields.length; fi++) {
@@ -2332,7 +2332,7 @@ Please use explicit using() to disambiguate.`,
   // that need concrete type resolution from the call site.
   // This avoids unnecessary re-evaluation for functions where specialization
   // wouldn't produce a different result (just different SomeType IDs).
-  const hasOnlyModuleTypeUnknowns =
+  const hasOnlyRecordTypeUnknowns =
     hasUnknownImplicitArgs &&
     !argValues_.implicitArgs?.some(
       (arg) =>
@@ -2342,7 +2342,7 @@ Please use explicit using() to disambiguate.`,
     (arg) => arg.argType && isSomeType(arg.argType)
   );
   const shouldAllowModuleUnknowns =
-    hasOnlyModuleTypeUnknowns && hasRuntimeSomeTypeParams;
+    hasOnlyRecordTypeUnknowns && hasRuntimeSomeTypeParams;
 
   // Allow specialization when the only Unknown implicit args come from
   // effect row spread parameters (e.g., ...(E)). The function body may not
@@ -2378,9 +2378,9 @@ Please use explicit using() to disambiguate.`,
 
   // Skip specialization for functions that are only generic due to implicit
   // parameters (e.g., using(raise : Raise)) AND have evidence-passing-capable
-  // implicits (module fields that can be passed as fn ptrs). These use evidence
+  // implicits (record fields that can be passed as fn ptrs). These use evidence
   // passing instead of per-call-site specialization. Functions with forall-only
-  // module effects still need specialization (they use SM-inlining).
+  // effect records still need specialization (they use SM-inlining).
   const isGenericOnlyBecauseOfImplicits =
     isFunctionTypeGeneric(functionType) &&
     !isFunctionTypeHardGeneric(functionType);
@@ -2452,7 +2452,7 @@ Please use explicit using() to disambiguate.`,
     }
 
     // Filter runtimeArgExprsInOrder to exclude effectful function args.
-    // Functions with implicit parameters of function/module type (i.e., `using(...)` params)
+    // Functions with implicit parameters of function/record type (i.e., `using(...)` params)
     // are always resolved at compile time — they should not be passed as runtime function
     // pointers. They're treated as compile-time in the specialization (not in the C function
     // signature), so they must also be excluded from the caller's argument list.
@@ -2747,7 +2747,7 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Functions with implicit parameters of function/module type (i.e., using(...)
+      // Functions with implicit parameters of function/record type (i.e., using(...)
       // effects) must be treated as compile-time because they are compiled as state
       // machines or inlined, not as regular C functions. The concrete function value
       // is needed at compile time for effect call site generation.
@@ -2918,7 +2918,7 @@ function createSpecializedFunctionInline({
         (isFunctionValue(arg.value) && arg.value.isControlFunction) ||
         (isEffectRecordValue(arg.value) &&
           effectRecordTypeContainsCtlField(
-            arg.value.type as ModuleType | StructType,
+            arg.value.type as SourceNamespaceType | StructType,
             arg.value
           ))
     ) ?? false;
@@ -3091,7 +3091,7 @@ function createSpecializedFunctionInline({
               type: FunctionType;
             }> = [];
             const findCtlFieldsInEffectRecordSpread = (
-              recordType: ModuleType | StructType,
+              recordType: SourceNamespaceType | StructType,
               pathSoFar: string[],
               recordVal?: EffectRecordValue
             ) => {
@@ -3144,12 +3144,12 @@ function createSpecializedFunctionInline({
       }
     } else if (isEffectRecordType(implicitParam.type)) {
       // Effect-record-based effects: recursively find effect fields in possibly
-      // nested effect records (module or struct).
+      // nested effect records.
       // Check the handler VALUE's isControlFunction flag (set when a handler body uses escape).
       const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
       const handlerArg = argValues.implicitArgs?.[argOffset];
       const findCtlFieldsInEffectRecord = (
-        recordType: ModuleType | StructType,
+        recordType: SourceNamespaceType | StructType,
         pathSoFar: string[],
         recordVal?: EffectRecordValue
       ) => {

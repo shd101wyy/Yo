@@ -471,25 +471,25 @@ export function evaluateDynValue({
         const someTypeTraitTypes = boxedFieldType.requiredTraits.map(
           (e) => e.traitType
         );
-        for (const someTypeModule of someTypeTraitTypes) {
+        for (const someTypeTrait of someTypeTraitTypes) {
           if (
             areTypesCompatible(
               { type: requiredTraitType, env },
-              { type: someTypeModule, env }
+              { type: someTypeTrait, env }
             )
           ) {
             // Create a trait value from the SomeType's required trait
             const fields: (Value | undefined)[] = [];
             for (let i = 0; i < requiredTraitType.fields.length; i++) {
               const field = requiredTraitType.fields[i]!;
-              const someTypeModuleFieldIndex = someTypeModule.fields.findIndex(
+              const someTypeTraitFieldIndex = someTypeTrait.fields.findIndex(
                 (e) => e.label === field.label
               );
-              if (someTypeModuleFieldIndex === -1) {
+              if (someTypeTraitFieldIndex === -1) {
                 fields.push(undefined);
               } else {
                 fields.push(
-                  someTypeModule.fields[someTypeModuleFieldIndex]!.assignedValue
+                  someTypeTrait.fields[someTypeTraitFieldIndex]!.assignedValue
                 );
               }
             }

@@ -34,26 +34,26 @@ import { createFunctionBodyEvaluationContext } from "./function-type";
  * Handle calling a closure type to create a closure value.
  * expr should be: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnTraitType
  */
-export function tryToImplementClosureByFnModuleType({
+export function tryToImplementClosureByFnTraitType({
   expr,
-  fnModuleType,
+  fnTraitType,
   wrapperType,
   callerEnv,
   context,
 }: {
   expr: FnCallExpr;
-  fnModuleType: FnTraitType;
+  fnTraitType: FnTraitType;
   wrapperType: SomeType | DynType;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): Expr {
-  const fnModuleTypeExpr = expr.func;
+  const fnTraitTypeExpr = expr.func;
   const argExprs = expr.args;
 
   if (argExprs.length !== 1) {
     throw formatErrorMessage({
-      token: fnModuleTypeExpr.token,
-      errorMessage: `Fn module type expects exactly 1 argument (the closure body), got ${argExprs.length}`,
+      token: fnTraitTypeExpr.token,
+      errorMessage: `Fn trait type expects exactly 1 argument (the closure body), got ${argExprs.length}`,
     });
   }
 
@@ -62,12 +62,12 @@ export function tryToImplementClosureByFnModuleType({
 
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing
-  let env = pushEnvFrame(callerEnv, fnModuleType.isFn.callType.parametersFrame);
+  let env = pushEnvFrame(callerEnv, fnTraitType.isFn.callType.parametersFrame);
   // const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Re-apply where-clause constraints for this closure body evaluation.
-  if (fnModuleType.isFn.callType.whereClauseExprs?.length) {
-    const constraintExprs = fnModuleType.isFn.callType.whereClauseExprs.map(
+  if (fnTraitType.isFn.callType.whereClauseExprs?.length) {
+    const constraintExprs = fnTraitType.isFn.callType.whereClauseExprs.map(
       (whereClauseExpr) => cloneExpr(whereClauseExpr)
     );
     const result = applyWhereClauseConstraints({
@@ -84,7 +84,7 @@ export function tryToImplementClosureByFnModuleType({
   // Create the function value for the closure
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
-    type: fnModuleType.isFn.callType, // The function value uses the isFn type
+    type: fnTraitType.isFn.callType, // The function value uses the isFn type
     body: closureBodyExpr,
     frameLevel: env.frames.length - 1,
     funcName: undefined,
@@ -100,7 +100,7 @@ export function tryToImplementClosureByFnModuleType({
   // Create evaluation context using helper function
   const { evaluationContext } = createFunctionBodyEvaluationContext(
     context,
-    fnModuleType.isFn.callType,
+    fnTraitType.isFn.callType,
     functionValue,
     env
   );
@@ -129,24 +129,24 @@ export function tryToImplementClosureByFnModuleType({
   const closureBodyReturnType = evaluatedClosureBody.$.type;
   if (
     !areTypesCompatible(
-      { type: fnModuleType.isFn.callType.return.type, env },
+      { type: fnTraitType.isFn.callType.return.type, env },
       { type: closureBodyReturnType, env }
     )
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.callType.return.typeExpr.token,
+      token: fnTraitType.isFn.callType.return.typeExpr.token,
       errorMessage: `Incompatible closure return type:
-- Expected: ${typeToString(fnModuleType.isFn.callType.return.type)}
+- Expected: ${typeToString(fnTraitType.isFn.callType.return.type)}
 - Given  : ${typeToString(closureBodyReturnType)}`,
     });
   }
 
   if (
-    fnModuleType.isFn.callType.return.isCompileTimeOnly &&
+    fnTraitType.isFn.callType.return.isCompileTimeOnly &&
     !evaluatedClosureBody.$.value
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.callType.return.typeExpr.token,
+      token: fnTraitType.isFn.callType.return.typeExpr.token,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }
@@ -189,7 +189,7 @@ export function tryToImplementClosureByFnModuleType({
     ? Array.from(evaluationContext.ownConsumedCaptures)
     : undefined;
   functionValue.closureInfo = {
-    closureType: fnModuleType,
+    closureType: fnTraitType,
     captureType: inferredCaptureType,
     consumedCaptures: consumedCaptureNames?.length
       ? consumedCaptureNames
@@ -229,7 +229,7 @@ export function tryToImplementClosureByFnModuleType({
     finalType = wrapperType;
   } else {
     // Fallback (should not happen)
-    finalType = fnModuleType;
+    finalType = fnTraitType;
   }
 
   // Set the result with the wrapper type (SomeType or DynType)

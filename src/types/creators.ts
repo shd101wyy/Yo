@@ -28,7 +28,7 @@ import type {
   FunctionType,
   FutureTraitType,
   IsoType,
-  ModuleType,
+  SourceNamespaceType,
   PtrType,
   SliceType,
   SomeType,
@@ -753,7 +753,9 @@ export function createStructType(
   return structType;
 }
 
-export function createModuleType(env: Environment): ModuleType {
+export function createSourceNamespaceType(
+  env: Environment
+): SourceNamespaceType {
   const traitType: TraitType = {
     id: `trait_${randomId(env.modulePath)}`,
     tag: TypeTag.Trait,
@@ -761,18 +763,18 @@ export function createModuleType(env: Environment): ModuleType {
     env,
     trait: undefined,
   };
-  const moduleType: ModuleType = {
-    id: `module_${randomId(env.modulePath)}`,
+  const sourceNamespaceType: SourceNamespaceType = {
+    id: `source_namespace_${randomId(env.modulePath)}`,
     tag: TypeTag.Struct,
-    isModule: true,
+    isSourceNamespace: true,
     isReferenceSemantics: false,
     isNewtype: false,
     fields: [],
     env,
     trait: traitType,
   };
-  traitType.receiverType = moduleType;
-  return moduleType;
+  traitType.receiverType = sourceNamespaceType;
+  return sourceNamespaceType;
 }
 
 export function createTraitType(env: Environment): TraitType {
@@ -1117,7 +1119,7 @@ export function createFnTraitType(
 
 /**
  * Creates a FutureTraitType (future/async type).
- * This is a ModuleType with isFuture set to the child type.
+ * This is a TraitType with isFuture set to the child type.
  */
 // Global counter for unique FutureTraitType IDs
 // Each async block gets its own FutureTraitType with a unique ID
@@ -1142,7 +1144,7 @@ export function createFutureTraitType(
 }
 
 /**
- * Create a canonical signature for a module type based on its structure, not its unique ID.
+ * Create a canonical signature for a trait type based on its structure, not its unique ID.
  * This ensures that Dyn types with the same module structure get the same ID.
  */
 function createTraitSignature(traitType: TraitType): string {
@@ -1183,14 +1185,14 @@ export function createDynType({
 }): DynType {
   const trait = createTraitType(env);
 
-  // Create a canonical ID based on module structure, not unique IDs
-  const moduleSignatures = requiredTraits
+  // Create a canonical ID based on trait structure, not unique IDs
+  const traitSignatures = requiredTraits
     .map((m) => createTraitSignature(m))
     .join("__");
   const negativeSignatures = negativeTraits
     ? negativeTraits.map((m) => createTraitSignature(m)).join("__")
     : "";
-  const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
+  const canonicalId = `dyn_${hashString(traitSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
 
   const requiredTraitsWithLevel: {
     traitType: TraitType;
@@ -1211,51 +1213,6 @@ export function createDynType({
   };
 
   trait.receiverType = dynType;
-
-  /*
-  // QUESTION: From the C codegen, it seems like only the ___dispose is used for the wrapped object
-  // So do we still need to have ___dup and ___drop in the module type for the wrapped object?
-  // Create a module type that defines the ARC interface for the wrapped object
-  // This will be used to call ___dup, ___drop, ___dispose on the inner data
-  const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`
-  module(
-    Self : Type,
-    /// ___dup :
-    ///   fn(self: Self) -> Self,
-    /// ___drop :
-    ///   fn(self: Self) -> unit,
-    ___dispose :
-      fn(self: Self) -> unit
-  )
-  `);
-  const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({
-    expr: wrappedObjectARCModuleTypeExpr,
-    env,
-    context: {
-      SelfType: dynType,
-      stdPath: "",
-    },
-  });
-  /// get its type value, which should be a ModuleType
-  const wrappedObjectARCModuleTypeValue =
-    evaluatedWrappedObjectARCModuleTypeExpr.$?.value;
-  if (!isTypeValue(wrappedObjectARCModuleTypeValue)) {
-    throw new Error(
-      `Expected a type value for wrapped object ARC module type.`
-    );
-  }
-  if (!isModuleType(wrappedObjectARCModuleTypeValue.value)) {
-    throw new Error(
-      `Expected a module type for wrapped object ARC module type.`
-    );
-  }
-  const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
-
-  dynType.requiredTraits = [
-    wrappedObjectARCModuleType,
-    ...dynType.requiredTraits,
-  ];
-  */
 
   return dynType;
 }

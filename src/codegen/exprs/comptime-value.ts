@@ -341,5 +341,5 @@ export function generateComptimeValue(
     return `/* Error: Cannot generate pointer value ${valueToString(value)} */`;
   }
 
-  return `/* skip generating: ${valueToString(value)} */`; // No need to generate. It might be module value, etc
+  return `/* skip generating: ${valueToString(value)} */`; // No need to generate. It might be an effect record value, etc
 }

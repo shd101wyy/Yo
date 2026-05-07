@@ -661,7 +661,7 @@ Escape 是异常路径，替换了否则会是 `longjmp`、`throw` 或等效机�
 函数签名中的每个 `using(name : EffectType)` 添加：
 
 - **Function-type effect**：1 个指针参数（x86-64/ARM64 上 8 字节）
-- **Module-type effect**：每个模块成员函数 1 个指针
+- **结构体记录效应**：每个效应记录成员函数 1 个指针
 - **Nested struct effect record**：展平——每个叶函数 1 个指针
 
 参数在寄存器中传递（x86-64 SysV 最多 6 个，ARM64 上 8 个），所以大多数单效应函数支付零栈开销。

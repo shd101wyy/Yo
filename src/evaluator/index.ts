@@ -10,7 +10,7 @@ import {
 import type { Expr } from "../expr";
 import Parser from "../parser";
 import { TokenType, type Token } from "../token";
-import { isModuleType } from "../types/guards";
+import { isSourceNamespaceType } from "../types/guards";
 import type { StructValue } from "../value";
 import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
@@ -149,7 +149,7 @@ export default class Evaluator {
       }
 
       // Inject prelude exports into the environment
-      if (preludeValue && isModuleType(preludeValue.type)) {
+      if (preludeValue && isSourceNamespaceType(preludeValue.type)) {
         // Push a new frame for prelude exports
         env = pushEnvFrame(env);
 

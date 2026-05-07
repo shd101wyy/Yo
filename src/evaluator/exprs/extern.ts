@@ -8,7 +8,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import type { ExternLanguage, ModuleField } from "../../types/definitions";
+import type { ExternLanguage, TypeField } from "../../types/definitions";
 import {
   isFunctionType,
   isStructType,
@@ -83,18 +83,18 @@ export function evaluateExtern({
     }
   }
 
-  const fields: ModuleField[] = [];
+  const fields: TypeField[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     const { field: field, env: nextEnv } = evaluateRecordField({
       expr: arg,
       env,
-      moduleFieldIndex: i,
+      recordFieldIndex: i,
       context: {
         ...context,
         SelfType: undefined, // No SelfType in module context
       },
-      isForEvaluatingModuleType: false,
+      isForEvaluatingRecordType: false,
     });
 
     // Check if there is duplicate labels

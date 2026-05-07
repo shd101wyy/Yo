@@ -133,12 +133,12 @@ export type FunctionValue = {
    * will be stored as a void* function pointer for evidence passing.
    *
    * Set in two places:
-   * - Module effect members: fields of a module value used as an effect handler
+   * - effect record members: fields of an effect record value used as an effect handler
    *   (set in codegen collection via collectModuleEffectMembers)
    * - Bare function-type effect handlers: function values assigned via `given`
    *   bindings (set in evaluator initialization-assignment)
    */
-  isModuleEffectMember?: boolean;
+  isEffectRecordMember?: boolean;
 
   /**
    * When true, this closure's body is handled by an io.async state machine.

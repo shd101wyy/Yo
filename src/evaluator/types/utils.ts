@@ -12,7 +12,7 @@ import type {
   DynType,
   EnumType,
   IsoType,
-  ModuleField,
+  TypeField,
   SomeType,
   StructType,
   TraitField,
@@ -230,7 +230,7 @@ export function addFunctionSignatureToSelfTypeModule({
       const functionType = functionExpr.$.value.value;
 
       // Add the drop function to the struct's trait fields
-      const moduleField: ModuleField = {
+      const recordField: TypeField = {
         label: label,
         type: functionType,
         assignedValue: undefined, // NOTE: We have to use the `undefined` here.
@@ -247,11 +247,11 @@ export function addFunctionSignatureToSelfTypeModule({
           (el) => el.label === label
         );
         if (index >= 0) {
-          SelfType.trait.fields[index] = moduleField;
+          SelfType.trait.fields[index] = recordField;
           // return env; // No need to update. Don't throw error.
         } else {
           // Add new field
-          SelfType.trait.fields.push(moduleField);
+          SelfType.trait.fields.push(recordField);
         }
       }
     }
@@ -297,7 +297,7 @@ export function addFunctionCodeToSelfTypeModule({
       functionExpr.$.value.funcName = label;
 
       // Add the drop function to the struct's trait fields
-      const moduleField: ModuleField = {
+      const recordField: TypeField = {
         label: label,
         type: functionExpr.$.type,
         assignedValue: functionExpr.$.value,
@@ -315,10 +315,10 @@ export function addFunctionCodeToSelfTypeModule({
         );
         if (index >= 0) {
           // Replace existing field
-          SelfType.trait.fields[index] = moduleField;
+          SelfType.trait.fields[index] = recordField;
         } else {
           // Add new field
-          SelfType.trait.fields.push(moduleField);
+          SelfType.trait.fields.push(recordField);
         }
       }
     }
@@ -1271,7 +1271,7 @@ export function attachTraitToReceiverType(
 }
 
 /**
- * Auto-derive Copy, Send marker modules for a struct type.
+ * Auto-derive Copy and Send marker traits for a struct type.
  *
  * For struct (value semantics):
  * - Auto-derive Send if all fields implement Send.
@@ -1330,7 +1330,7 @@ export function autoDeriveRcForStructType({
 }
 
 /**
- * Auto-derive Copy, Send marker modules for an enum type.
+ * Auto-derive Copy and Send marker traits for an enum type.
  *
  * - Auto-derive Send if all variant fields implement Send
  */
@@ -1359,7 +1359,7 @@ export function autoDeriveSendForEnumType({
 }
 
 /**
- * Auto-derive Send marker modules for a union type.
+ * Auto-derive Send marker traits for a union type.
  *
  * - Auto-derive Send if all fields implement Send
  */

@@ -21,7 +21,7 @@ import {
   isFunctionType,
   isFutureTraitType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSliceType,
   isSomeType,
@@ -137,7 +137,7 @@ function occursCheck(
     return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
   }
 
-  if (isModuleType(type)) {
+  if (isSourceNamespaceType(type)) {
     return type.fields.some((f) => occursCheck(someTypeId, f.type, visited));
   }
 
@@ -695,8 +695,8 @@ export function synthesizeTypes(
       )}" and "${typeToString(given.type)}"`
     );
   } else if (
-    isModuleType(expected.type) &&
-    isModuleType(given.type) &&
+    isSourceNamespaceType(expected.type) &&
+    isSourceNamespaceType(given.type) &&
     expected.type.functionValue &&
     given.type.functionValue &&
     expected.type.functionValue === given.type.functionValue
@@ -933,17 +933,17 @@ export function synthesizeTypes(
     );
   } else if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
     // Synthesize FnTraitType types - match the function types (isFn)
-    const expectedFnModule = expected.type;
-    const givenFnModule = given.type;
+    const expectedFnTrait = expected.type;
+    const givenFnTrait = given.type;
 
     // Synthesize the function types (isFn)
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expectedFnModule.isFn.callType,
+        type: expectedFnTrait.isFn.callType,
         env: expected.env,
       },
       {
-        type: givenFnModule.isFn.callType,
+        type: givenFnTrait.isFn.callType,
         env: given.env,
       },
       checkedTypePairs,

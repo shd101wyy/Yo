@@ -13,7 +13,7 @@ import {
   type FnCallExpr,
   type RuntimeDestructuring,
 } from "../../expr";
-import { isModuleType, isStructType } from "../../types/guards";
+import { isSourceNamespaceType, isStructType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isStructValue, type Value } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -82,7 +82,7 @@ export function evaluateOpen({
 
   let runtimeDestructurings: RuntimeDestructuring[] | undefined = undefined;
 
-  if (isStructType(argType) || isModuleType(argType)) {
+  if (isStructType(argType) || isSourceNamespaceType(argType)) {
     const structValue = isStructValue(argValue) ? argValue : undefined;
     const structType = argType;
     runtimeDestructurings = [];

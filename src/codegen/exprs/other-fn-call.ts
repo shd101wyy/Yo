@@ -590,15 +590,15 @@ export function generateOtherFunctionCall(
           functionValue.specializedType ?? functionValue.type;
 
         // Evidence passing: if we're inside a function with evidence params and
-        // this call is to a module effect member, call through the evidence fn ptr
+        // this call is toan effect record member, call through the evidence fn ptr
         // instead of inlining the handler body.
         const functionContext = context as FunctionGenerationContext;
         if (
           functionContext.currentEvidenceParams &&
-          functionValue.isModuleEffectMember
+          functionValue.isEffectRecordMember
         ) {
           // Find the matching evidence parameter for this function value by
-          // navigating each evidence param's module field path in the given
+          // navigating each evidence param's evidence field path in the given
           // binding environment and comparing funcIds.
           let matchedEp: EvidenceParameter | undefined;
           const callEnv = expr.func.$?.env ?? expr.$?.env;
@@ -761,12 +761,12 @@ export function generateOtherFunctionCall(
           }
 
           // Determine if this call might trigger an effect escape.
-          // Control functions / module effect members set __yo_effect_escaped.
+          // Control functions / effect record members set __yo_effect_escaped.
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
           const callMayEscape =
             functionValue.isControlFunction ||
-            functionValue.isModuleEffectMember ||
+            functionValue.isEffectRecordMember ||
             functionValue.body?.$?.effectAnalysis?.hasEffects;
 
           // For specialized effectful functions, check if this is the handler
@@ -776,7 +776,7 @@ export function generateOtherFunctionCall(
           if (callMayEscape) {
             if (
               functionValue.isControlFunction ||
-              functionValue.isModuleEffectMember
+              functionValue.isEffectRecordMember
             ) {
               // Direct call to a control/handler function.
               // Check if the function was bound via `given` in a begin-block
@@ -1036,14 +1036,14 @@ export function generateOtherFunctionCall(
             }
           }
 
-          // Detect module effect member calls in async SM context
+          // Detect effect record member calls in async SM context
           // (e.g., sm->__capture.throw(arg) — handler may escape)
           const functionContext = context as FunctionGenerationContext;
-          const isModuleEffectCapture =
+          const isEffectRecordCapture =
             funcCode.includes("__capture.") &&
             !!functionContext.inAsyncStateMachine;
 
-          if (isModuleEffectCapture) {
+          if (isEffectRecordCapture) {
             context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
           }
 
@@ -1061,7 +1061,7 @@ export function generateOtherFunctionCall(
               generateDeferredDropExpressions(expr, indent, context);
             }
 
-            if (isModuleEffectCapture) {
+            if (isEffectRecordCapture) {
               context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
               // Drop RC-typed arguments that won't be dropped by the escaped handler
               if (runtimeArgExprs) {
@@ -1131,7 +1131,7 @@ export function generateOtherFunctionCall(
                 generateDeferredDropExpressions(expr, indent, context);
               }
 
-              if (isModuleEffectCapture) {
+              if (isEffectRecordCapture) {
                 context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
                 // Drop RC-typed arguments that won't be dropped by the escaped handler
                 if (runtimeArgExprs) {
@@ -1184,14 +1184,11 @@ export function generateOtherFunctionCall(
       extractFnTraitFromType(functionType, expr.func.$?.env))
   ) {
     const closureValueType = functionType;
-    const fnModule = extractFnTraitFromType(
-      closureValueType,
-      expr.func.$?.env
-    )!;
+    const fnTrait = extractFnTraitFromType(closureValueType, expr.func.$?.env)!;
     // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
     const isDynClosure = isDynType(closureValueType);
     {
-      const callSig = fnModule.isFn.callType;
+      const callSig = fnTrait.isFn.callType;
       // Handle closure calls with dynamic dispatch through vtable
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
@@ -2180,7 +2177,7 @@ function emitEffectEscapeCheck(
 
 /**
  * Generate a call through an evidence fn ptr parameter.
- * Used inside functions with evidence passing when calling module effect members.
+ * Used inside functions with evidence passing when calling effect record members.
  *
  * Generates:
  *   result = evidence_fn_ptr(args);
@@ -2362,7 +2359,7 @@ function generateEvidenceFnPtrCall(
       }
 
       // When the handler has a forall/SomeType return type, it's compiled as
-      // void in C (isModuleEffectMember). We must NOT assign the handler's
+      // void in C (isEffectRecordMember). We must NOT assign the handler's
       // (void) "return value" to a typed temp — that's undefined behavior and
       // crashes on WASM. Instead: declare the temp var zero-initialized before
       // the call (so escape-path drops reference a valid variable), call as void,
@@ -2477,7 +2474,7 @@ function generateEvidenceFnPtrCall(
  * Resolution order for each evidence param:
  * 1. Transitive: if caller has matching evidence params, forward them
  * 2. From effectAnalysis: look up handler function values (escape or resume)
- * 3. From given binding: look up the module value in the call environment
+ * 3. From given binding: look up the effect record value in the call environment
  */
 function resolveEvidenceArgsForCallSite(
   calleeEvidenceParams: EvidenceParameter[],

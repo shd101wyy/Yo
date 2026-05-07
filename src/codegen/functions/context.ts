@@ -42,8 +42,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // When set, atom.ts redirects SM variable lookups to the existing await_future field.
   stateMachineFieldAliases?: Map<string, string>;
   inEffectStateMachine?: unknown; // Legacy — no longer used (effects use evidence passing)
-  // Set when generating code for a module effect member function (e.g., Exception.throw handler)
-  isModuleEffectMemberFunction?: boolean;
+  // Set when generating code foran effect record member function (e.g., Exception.throw handler)
+  isEffectRecordMemberFunction?: boolean;
   // Evidence parameters for the current function — maps "implicitLabel.fieldLabel"
   // (e.g., "raise_mod.raise") to the C parameter name (e.g., "raise_mod__raise").
   // Set when generating a function body that uses effect-record evidence passing.
@@ -83,7 +83,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     disposeFunctionName: string;
     setEffectFunctionName: string;
     futureType: SomeType | DynType;
-    futureModuleType: FutureTraitType;
+    futureTraitType: FutureTraitType;
     resultType: Type;
     resultTypeCName: string;
     captureType: StructType | undefined;
@@ -195,7 +195,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // emitted before break/continue (which would otherwise skip end-of-body drops).
   loopBodyDropsBaselineCount?: number;
   // Override C return type string for functions where the declaration uses a
-  // body-derived type (e.g., module effect member handlers with SomeType return).
+  // body-derived type (e.g., effect record member handlers with SomeType return).
   // Used by escape codegen to emit correct dummy return values.
   overrideReturnTypeStr?: string;
   // Set to true when any io.async, io.await, or io.spawn call is encountered.

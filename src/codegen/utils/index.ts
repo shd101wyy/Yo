@@ -739,7 +739,7 @@ export function getTypeString(
     }
 
     // Future type
-    // OUTDATED - Future is now a module type
+    // OUTDATED - Future is now a trait type
     /// case TypeTag.Future: {
     ///   // Use the registered C type name
     ///   const cTypeName = context.types[type.id]?.cName;

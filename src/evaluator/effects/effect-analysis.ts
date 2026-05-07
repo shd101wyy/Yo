@@ -14,7 +14,7 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEffectsRowType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
@@ -278,7 +278,8 @@ function isTransitiveEffectCall(
     for (const implicitParam of funcType.implicitParameters) {
       if (
         implicitParam.label === effectParameterName &&
-        (isFunctionType(implicitParam.type) || isModuleType(implicitParam.type))
+        (isFunctionType(implicitParam.type) ||
+          isSourceNamespaceType(implicitParam.type))
       ) {
         return { matched: true, viaClosure: false };
       }
@@ -307,7 +308,7 @@ function isTransitiveEffectCall(
         if (
           implicitParam.label === effectParameterName &&
           (isFunctionType(implicitParam.type) ||
-            isModuleType(implicitParam.type))
+            isSourceNamespaceType(implicitParam.type))
         ) {
           return { matched: true, viaClosure: true };
         }
@@ -368,7 +369,8 @@ function hasEffectInSpread(
     for (const innerParam of effectsRowType.implicitParameters) {
       if (
         innerParam.label === effectParameterName &&
-        (isFunctionType(innerParam.type) || isModuleType(innerParam.type))
+        (isFunctionType(innerParam.type) ||
+          isSourceNamespaceType(innerParam.type))
       ) {
         return true;
       }

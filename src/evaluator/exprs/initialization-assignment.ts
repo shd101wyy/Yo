@@ -280,7 +280,7 @@ ${exprToString(expr)}`,
         (isStructType(rhsValue.value) ||
           isEnumType(rhsValue.value) ||
           isUnionType(rhsValue.value) ||
-          isModuleType(rhsValue.value)) &&
+          isSourceNamespaceType(rhsValue.value)) &&
         */
       !rhsValue.value.typeName &&
       rhsValue.value !== context.SelfType
@@ -302,7 +302,7 @@ ${exprToString(expr)}`,
     // mark it as an effect member so its body is generated as a concrete
     // C function for evidence passing (even if it has forall parameters).
     if (isImplicit && isFunctionValue(rhsValue)) {
-      rhsValue.isModuleEffectMember = true;
+      rhsValue.isEffectRecordMember = true;
     }
 
     // No consumption logic needed

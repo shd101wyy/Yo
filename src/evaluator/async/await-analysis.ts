@@ -53,10 +53,10 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
 
         const futureType = awaitArg.$?.type;
         if (futureType && typeImplementsFuture(futureType)) {
-          const futureModuleType = extractFutureTraitFromType(futureType);
-          if (!futureModuleType) return;
+          const futureTraitType = extractFutureTraitFromType(futureType);
+          if (!futureTraitType) return;
 
-          const resultType = futureModuleType.isFuture.outputType;
+          const resultType = futureTraitType.isFuture.outputType;
 
           let futureVariableId: string | undefined;
           if (
@@ -85,7 +85,7 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
             index: points.length,
             expr,
             resultType,
-            futureType: futureModuleType,
+            futureType: futureTraitType,
             targetVariableId,
             futureVariableId,
           });

@@ -77,7 +77,7 @@ export interface Type {
 
   /**
    * Marks this type as an IO module builtin function.
-   * Set on IO module field types so that io.async and io.await
+   * Set on IO effect record field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
   ioBuiltin?:
@@ -486,10 +486,10 @@ export interface StructType extends Type {
   isNewtype: boolean;
 
   /**
-   * Whether this struct represents a module (formerly ModuleType).
-   * When true, this struct is a structural, comptime-only module type.
+   * Whether this struct is the namespace value for an imported source file.
+   * Source namespaces are compile-time values with import-only metadata.
    */
-  isModule?: true;
+  isSourceNamespace?: true;
 
   /**
    * The function that returns the struct.
@@ -519,12 +519,6 @@ export interface StructType extends Type {
 }
 
 /**
- * ModuleField is an alias for TypeField.
- * Modules use the same field shape as structs.
- */
-export type ModuleField = TypeField;
-
-/**
  * TraitField extends TypeField with additional support for associated types.
  * When a trait field is declared as `Error : Type` (a type field without assigned value),
  * we create a SomeType placeholder that represents the associated type.
@@ -539,12 +533,11 @@ export interface TraitField extends TypeField {
 }
 
 /**
- * ModuleType is an alias for StructType with isModule: true.
- * Module structs are comptime-only structural types that represent modules.
- * This alias preserves backward compatibility during migration from the former
- * ModuleType interface to unified StructType.
+ * SourceNamespaceType is an alias for StructType with isSourceNamespace: true.
+ * Imported source files use this marker for namespace-only behavior while
+ * remaining ordinary StructType values.
  */
-export type ModuleType = StructType & { isModule: true };
+export type SourceNamespaceType = StructType & { isSourceNamespace: true };
 
 /**
  * TraitType is a nominal type that represents a trait.
@@ -554,13 +547,7 @@ export type ModuleType = StructType & { isModule: true };
 export interface TraitType extends Type {
   tag: TypeTag.Trait;
   /**
-   * The function that returns the module.
-   * eg:
-   *   Container :
-   *     fn(comptime(T): Type)-> comptime(Type)
-   *       trait(x: T, y: T)
-   * ;
-   * "Container" is the function that returns the trait.
+   * The function that returns the trait.
    */
   functionValue?: FunctionValue;
 
@@ -597,28 +584,14 @@ export interface TraitType extends Type {
   /**
    * The constraints on Self from where clauses.
    * These are TraitTypes that Self must implement.
-   * eg:
-   *
-   *   Id :: module(
-   *     where(Self <: Copy),
-   *     id : (fn(x : Self) -> Self)
-   *   );
-   *
-   * selfConstraints would contain [Copy]
+   * A trait with `where(Self <: Copy)` records Copy here.
    */
   selfConstraints?: TraitType[];
 
   /**
    * The negative constraints on Self from where clauses.
    * These are TraitTypes that Self must NOT implement.
-   * eg:
-   *
-   *   Gc :: module(
-   *     where(Self <: !(Copy)),
-   *     ...
-   *   );
-   *
-   * negativeSelfConstraints would contain [Copy]
+   * A trait with `where(Self <: !(Copy))` records Copy here.
    */
   negativeSelfConstraints?: TraitType[];
 
@@ -695,14 +668,14 @@ export type FutureTraitType = TraitType & {
 };
 
 /**
- * ConcreteModuleType is a marker module that specifies the concrete type for Impl.
+ * ConcreteTraitType is a marker trait that specifies the concrete type for Impl.
  * Used with extern types to explicitly set resolvedConcreteType.
  *
  * Examples:
  * - Concrete(yo_io_future): marker that the concrete type is yo_io_future
  * - Impl(Concrete(yo_io_future), Future(i32)): Future with explicit C type
  */
-export type ConcreteModuleType = TraitType & {
+export type ConcreteTraitType = TraitType & {
   isConcrete: { concreteType: Type };
 };
 
@@ -909,7 +882,7 @@ export interface FunctionType extends Type {
   /**
    * Whether this function type represents a closure.
    * Closures capture variables from the defining environment.
-   * It's usually defined from Fn module types, like:
+   * It's usually defined from Fn trait types, like:
    *
    *   Impl(Fn(x : i32) -> i32)
    *   Dyn(Fn(x : i32) -> i32)

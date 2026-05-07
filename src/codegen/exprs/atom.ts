@@ -198,8 +198,8 @@ export function generateAtom(
     if (functionContext.inAsyncStateMachine) {
       const emitter = context.emitter;
       const futureType = functionContext.inAsyncStateMachine.futureType;
-      const futureModuleType = extractFutureTraitFromType(futureType)!;
-      const childType = futureModuleType.isFuture.outputType;
+      const futureTraitType = extractFutureTraitFromType(futureType)!;
+      const childType = futureTraitType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
 
       // Generate deferred drops, but only those that resolve to state machine fields

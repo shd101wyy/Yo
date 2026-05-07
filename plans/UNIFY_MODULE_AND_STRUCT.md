@@ -306,7 +306,7 @@ log.
 - `./yo-cli test --bail` green on native + WASM (with existing `--target
 wasm-wasi` and `--cc emcc` runs).
 
-### Phase 5 — Bootstrap (`yo-self`) port — best-effort, non-gating
+### Phase 5 — Bootstrap (`yo-self`) port — assessed follow-up, non-gating
 
 `yo-self` is still WIP and is **not** a gating criterion for this rollout.
 
@@ -317,9 +317,16 @@ wasm-wasi` and `--cc emcc` runs).
 - `./yo-cli test ./yo-self/tests/` is informational only — known failures
   there do not block landing the change.
 
-**Status: PARTIAL.** The self-hosted compiler still has a distinct
-`TypeValue.ModuleT`/`TypeTag.TModule` variant, but the Phase 1/4 runtime
-semantics have been mirrored where they are low-risk:
+**Status: ASSESSED, non-gating follow-up.** The self-hosted compiler still has
+a distinct `TypeValue.ModuleT`/`TypeTag.TModule` variant and broad `ModuleVal`
+test coverage. A targeted audit for `SelfModule`, `ModuleVal`, `ModuleT`,
+`TModule`, `ModuleType`, and related helpers shows this is a large bootstrap
+port rather than a safe cleanup: hits span `yo-self/types/`, evaluator call/type
+helpers, effect analysis, and many evaluator regression splits. The production
+TypeScript compiler no longer depends on these bootstrap-only representations.
+
+The Phase 1/4 runtime semantics have still been mirrored where they are
+low-risk:
 
 - `yo-self/evaluator/types/struct.yo` now feeds only explicit runtime fields
   into struct auto-derive checks, while the `TypeValue.Struct` still records
@@ -332,7 +339,7 @@ semantics have been mirrored where they are low-risk:
 - Added self-hosted regressions in `yo-self/tests/codegen.test.yo` and
   `yo-self/tests/effect_analysis.test.yo`.
 
-Verification: `bun run build`,
+Verification from the partial bootstrap mirror: `bun run build`,
 `yo-self/tests/codegen.test.yo`,
 `yo-self/tests/effect_analysis.test.yo`,
 `yo-self/tests/types_compound.test.yo`, and
@@ -346,12 +353,13 @@ Verification: `bun run build`,
 - Update `docs/en-US/` and `docs/zh-CN/` chapters that mention `module(...)`.
 - Update `plans/ALGEBRAIC_EFFECTS.md` to describe the runtime evidence model.
 - Delete or archive `module.ts` evaluator/codegen leftovers.
-- Final `git grep -i "ModuleType\|moduleType\|module("` audit.
+- Final `git grep -i "ModuleType\|moduleType\|module("` audit, excluding
+  real source/build-module APIs.
 
-**Status: PARTIAL, with surface keywords removed.** User-facing docs and
+**Status: COMPLETE for the production compiler.** User-facing docs and
 instructions now describe struct-based effect records and runtime evidence
-passing. Source cleanup has also moved evaluator terminology away from
-"module" for generic record/impl handling:
+passing. Source cleanup has also moved evaluator/codegen terminology away from
+"module" for generic record/impl/effect handling:
 
 - `docs/en-US/ALGEBRAIC_EFFECTS.md` and `docs/zh-CN/ALGEBRAIC_EFFECTS.md`
   use `struct(...)` effect records, explain nominal struct evidence, and
@@ -361,8 +369,7 @@ passing. Source cleanup has also moved evaluator terminology away from
 - `docs/*/TYPE_REFLECTION.md` and `docs/*/DESIGN.md` no longer document a
   distinct `Module`/`is_module()` type reflection variant.
 - `.github/instructions/c-codegen.instructions.md` describes struct-record
-  evidence; remaining `isModuleEffectMember` mentions are explicitly called
-  out as legacy flag names.
+  evidence.
 - `.github/skills/yo-async-effects/async-effects-recipes.md` now uses
   struct-record effect examples and terminology.
 - Internal evaluator helpers now use record-oriented names
@@ -390,6 +397,12 @@ passing. Source cleanup has also moved evaluator terminology away from
   regressions as struct-record tests instead of module-effect tests.
 - `tests/module_struct_unification.test.yo` includes a Phase 6 regression that
   asserts both `module(...)` and bare `Module` are compile-time errors.
+- Internal compatibility names have been removed from `src/**/*.ts`:
+  `ModuleType`, `isModuleType`, `createModuleType`, `ModuleField`,
+  `moduleType`, `ConcreteModuleType`, `futureModuleType`, Fn-module variable
+  names, and `isModuleEffectMember` are gone. The remaining `module(...)`
+  matches in `src/` are build-system/source-module APIs such as
+  `build.module()` and `dep.module()`, not the removed type syntax.
 
 ## Files Most Affected (per phase)
 

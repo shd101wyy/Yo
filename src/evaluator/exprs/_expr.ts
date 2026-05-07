@@ -275,7 +275,7 @@ ${exprToString(expr)}`,
         });
       }
 
-      // Fn module type (trait for callable types)
+      // Fn trait type (trait for callable types)
       // Fn(x : i32) -> i32
       if (
         exprIsFunctionCall(expr.args[0]) &&
@@ -447,7 +447,7 @@ ${exprToString(expr)}`,
       // Impl constraint type
       return evaluateImplConstraint({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
-      // module value implementation
+      // struct record value implementation
       return evaluateImplBlock({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeof)) {
       // typeof

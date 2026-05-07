@@ -23,7 +23,7 @@ import {
   isDynType,
   isEnumType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSliceType,
   isSomeType,
@@ -228,7 +228,7 @@ export function collectTypesFromExpr(
         cName: `__yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
       };
 
-      // Now collect the capture type's nested types and module functions (___drop, etc.)
+      // Now collect the capture type's nested types and struct functions (___drop, etc.)
       // This is crucial for generating Rc functions for the capture struct
       // Recursively collect types from struct fields
       for (const field of captureType.fields) {
@@ -302,9 +302,9 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // Fallback: if concrete type is not resolved (shouldn't happen for Impl closures
     // at codegen time), keep the old behavior to avoid crashing.
-    const fnModule = extractFnTraitFromType(type);
-    if (fnModule) {
-      collectType(fnModule, context);
+    const fnTrait = extractFnTraitFromType(type);
+    if (fnTrait) {
+      collectType(fnTrait, context);
     }
     return;
   }
@@ -348,7 +348,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isEnumType(type) ||
     isTupleType(type) ||
     isDynType(type) ||
-    isModuleType(type) ||
+    isSourceNamespaceType(type) ||
     isTraitType(type) ||
     isSliceType(type) ||
     isIsoType(type)
@@ -400,10 +400,10 @@ export function collectType(type: Type, context: CodeGenContext): void {
     //   collectTypesFromFunctionType(closureType.callType, context);
     // }
 
-    // For dynamic dispatch types, collect the module types
+    // For dynamic dispatch types, collect the required traits.
     if (isDynType(type)) {
       const dynType = type as DynType;
-      // Collect all module types that this dynamic dispatch can handle
+      // Collect all traits that this dynamic dispatch can handle.
       for (const entry of dynType.requiredTraits) {
         collectType(entry.traitType, context);
       }
@@ -433,15 +433,14 @@ export function collectType(type: Type, context: CodeGenContext): void {
       collectType(sliceType.childType, context);
     }
 
-    // For module types, collect types and functions from the module's fields directly
-    // (module types don't have a .module field - they ARE the module)
-    if (isModuleType(type) || isTraitType(type)) {
-      // First, collect types from all module fields (like struct does)
+    // For source namespace and trait types, collect types and functions from fields directly.
+    if (isSourceNamespaceType(type) || isTraitType(type)) {
+      // First, collect types from all fields (like struct does).
       for (const field of type.fields) {
         collectType(field.type, context);
       }
 
-      // Then, collect functions from the module's fields
+      // Then, collect functions from the fields.
       for (const field of type.fields) {
         if (field.assignedValue && isFunctionValue(field.assignedValue)) {
           const functionValue = field.assignedValue;
@@ -465,7 +464,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
             // Collect types from the function signature (parameters and return type)
             collectTypesFromFunctionType(functionValue.type, context);
 
-            // Recursively collect functions called by this module function
+            // Recursively collect functions called by this struct function
             findFunctionCallsInExpr(functionValue.body, context);
           }
         } else if (
@@ -473,7 +472,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
           (isStructValue(field.assignedValue) ||
             isTraitValue(field.assignedValue))
         ) {
-          // Module field has a module value - recursively collect its functions
+          // Struct field has an effect record value - recursively collect its functions.
           const moduleValue = field.assignedValue;
           collectRequiredFunctions(moduleValue, context, false);
         }
