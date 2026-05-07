@@ -56,6 +56,7 @@ import {
   type CodeGenContext,
   findReturnedAsyncBlock,
   getEnumVariantCName,
+  getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
   isComptimeFunction,
@@ -1118,7 +1119,23 @@ export function generateFunctionBody(
             emitter.emitLine(
               `${indent}${returnType} ${tempVarName} = ${resultCode};`
             );
-            generateDeferredDropExpressions(expr, indent, context);
+            const resultVarName = lastExpr.$?.variableName;
+            if (resultVarName) {
+              const originalDrops = expr.$.deferredDropExpressions;
+              const filteredExpr: Expr = {
+                ...expr,
+                $: {
+                  ...expr.$,
+                  deferredDropExpressions: originalDrops.filter(
+                    (dropExpr) =>
+                      getDeferredDropTargetAtomName(dropExpr) !== resultVarName
+                  ),
+                },
+              };
+              generateDeferredDropExpressions(filteredExpr, indent, context);
+            } else {
+              generateDeferredDropExpressions(expr, indent, context);
+            }
             emitter.emitLine(`${indent}return ${tempVarName};`);
           } else {
             emitter.emitLine(`${indent}return ${resultCode};`);

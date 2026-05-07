@@ -1039,6 +1039,17 @@ export function getDeferredDropTargetAtomName(
   return firstArg.token.value;
 }
 
+export function isDeferredDropForClosureCapture(
+  dropExpr: Expr,
+  currentClosureCaptures: readonly string[] | undefined
+): boolean {
+  const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+  return (
+    targetVarName !== undefined &&
+    currentClosureCaptures?.includes(targetVarName) === true
+  );
+}
+
 /**
  * Find async blocks in an expression that might be returned.
  * Returns the first async block found in the function body.

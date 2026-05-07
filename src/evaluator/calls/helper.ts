@@ -143,6 +143,13 @@ function moduleTypeContainsCtlField(
   return false;
 }
 
+function variableIsCapturedByCurrentFunction(
+  variable: Variable,
+  context: EvaluatorContext
+): boolean {
+  return context.capturedVariables?.has(variable.name) === true;
+}
+
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
  *
@@ -2526,7 +2533,9 @@ Please use explicit using() to disambiguate.`,
 
   // Handle automatic drop insertion for RAII before returning from function call
   // Get variables that need drop calls from the caller environment (function arguments)
-  const variablesNeedingDrop = getVariablesNeedingDrop(callerEnv);
+  const variablesNeedingDrop = getVariablesNeedingDrop(callerEnv).filter(
+    (variable) => !variableIsCapturedByCurrentFunction(variable, context)
+  );
 
   // Generate deferred drop expressions for all variables that need cleanup
   let deferredDropExpressions: Expr[] | undefined = undefined;

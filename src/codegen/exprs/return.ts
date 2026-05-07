@@ -19,6 +19,7 @@ import {
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
+  isDeferredDropForClosureCapture,
   sanitizeForCIdentifier,
 } from "../utils";
 import { emitAsyncFutureCompletion } from "./async-completion";
@@ -185,7 +186,17 @@ function generateEarlyReturnOnlyDeferredDropExpressions(
   const earlyDrops = expr.$?.earlyReturnOnlyDeferredDropExpressions;
   if (!earlyDrops || earlyDrops.length === 0) return;
 
+  const functionContext = context as FunctionGenerationContext;
   for (const dropExpr of earlyDrops) {
+    if (
+      isDeferredDropForClosureCapture(
+        dropExpr,
+        functionContext.currentClosureCaptures
+      )
+    ) {
+      continue;
+    }
+
     const dropCode = generateExpr(dropExpr, indent, context);
     if (dropCode) {
       context.emitter.emitLine(`${indent}${dropCode};`);
@@ -252,6 +263,14 @@ export function generatePendingDeferredDrops(
         ? context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
+            if (
+              isDeferredDropForClosureCapture(
+                dropExpr,
+                context.currentClosureCaptures
+              )
+            ) {
+              return false;
+            }
             if (alreadyDroppedVars.has(varName)) return false;
             if (additionalSkipVarNames?.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
@@ -280,6 +299,14 @@ export function generatePendingDeferredDrops(
         : context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
+            if (
+              isDeferredDropForClosureCapture(
+                dropExpr,
+                context.currentClosureCaptures
+              )
+            ) {
+              return false;
+            }
             if (alreadyDroppedVars.has(varName)) return false;
             if (additionalSkipVarNames?.has(varName)) return false;
             if (consumedArgCNames && consumedArgCNames.size > 0) {

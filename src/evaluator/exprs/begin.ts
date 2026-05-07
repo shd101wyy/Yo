@@ -68,6 +68,13 @@ function tokenIsBefore(left: Token, right: Token): boolean {
   return left.position.character < right.position.character;
 }
 
+function variableIsCapturedByCurrentFunction(
+  variable: Variable,
+  context: EvaluatorContext
+): boolean {
+  return context.capturedVariables?.has(variable.name) === true;
+}
+
 function getLastComparableTokenInExpr(expr: Expr, reference: Token): Token {
   let last = expr.token;
   if (!tokensAreComparable(last, reference)) {
@@ -1562,7 +1569,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const variables = getVariablesFromEnv(env, returnValueExprVariableName);
     if (variables.length) {
       const variable = variables[variables.length - 1]!;
-      returnVariable = variable;
+      if (
+        returnValueExpr?.$?.type &&
+        areTypesCompatible(
+          { type: variable.type, env },
+          { type: returnValueExpr.$.type, env }
+        )
+      ) {
+        returnVariable = variable;
+      }
     }
   }
 
@@ -1632,6 +1647,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       ];
     }
 
+    variablesNeedingDrop = variablesNeedingDrop.filter(
+      (variable) => !variableIsCapturedByCurrentFunction(variable, context)
+    );
     // Loop traversal borrow chain optimization:
     // Detect linked-list traversal patterns where a variable is initialized from a
     // parameter and reassigned inside a while-match loop from a field of itself.
@@ -1885,6 +1903,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     for (const variable of currentFrameForEarlyReturns.variables) {
       if (!variable.consumedAtToken) continue;
       if (!variable.initializedAtToken) continue;
+      if (!tokenIsAtOrBefore(expr.token, variable.initializedAtToken)) continue;
+      if (variableIsCapturedByCurrentFunction(variable, context)) continue;
       if (variable.token.modulePath.startsWith("auto-generated://")) continue;
       if (regularDropIds.has(variable.id)) continue;
       if (!variableCanNeedDropIgnoringConsumed(variable)) continue;

@@ -11,6 +11,7 @@ import {
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
+  isDeferredDropForClosureCapture,
 } from "../utils";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
@@ -138,6 +139,15 @@ export function generateBegin(
     // Generate deferred drop expressions before closing the block
     if (expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
+        if (
+          isDeferredDropForClosureCapture(
+            dropExpr,
+            functionContext.currentClosureCaptures
+          )
+        ) {
+          continue;
+        }
+
         // Skip drops already emitted inside short-circuit conditional branches
         if (functionContext.shortCircuitHandledDropVarNames) {
           const targetVarName = getDeferredDropTargetAtomName(dropExpr);
@@ -198,6 +208,15 @@ export function generateBegin(
     // Generate deferred drop expressions before closing the block
     if (expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
+        if (
+          isDeferredDropForClosureCapture(
+            dropExpr,
+            functionContext.currentClosureCaptures
+          )
+        ) {
+          continue;
+        }
+
         // Skip drops already emitted inside short-circuit conditional branches
         if (functionContext.shortCircuitHandledDropVarNames) {
           const targetVarName = getDeferredDropTargetAtomName(dropExpr);
