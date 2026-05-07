@@ -31,6 +31,7 @@ import {
   isFnTraitType,
   isFunctionType,
   isFutureTraitType,
+  isModuleType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -92,13 +93,17 @@ function typeImplementsComptimeBuiltin(
     return false;
   }
 
+  // Module structs (formerly ModuleType) are always comptime-only.
+  if (isModuleType(type)) {
+    return true;
+  }
+
   switch (type.tag) {
     // Comptime-only types - always return true
     case TypeTag.ComptimeInt:
     case TypeTag.ComptimeFloat:
     case TypeTag.ComptimeString:
     case TypeTag.Type:
-    case TypeTag.Module:
     case TypeTag.Trait:
     case TypeTag.Expr:
     case TypeTag.ComptimeList: {
@@ -162,13 +167,17 @@ function typeImplementsRuntimeBuiltin(
     return true;
   }
 
+  // Module structs (formerly ModuleType) are always comptime-only, never runtime.
+  if (isModuleType(type)) {
+    return false;
+  }
+
   switch (type.tag) {
     // Comptime-only types - do NOT implement Runtime
     case TypeTag.ComptimeInt:
     case TypeTag.ComptimeFloat:
     case TypeTag.ComptimeString:
     case TypeTag.Type:
-    case TypeTag.Module:
     case TypeTag.Trait:
     case TypeTag.Expr:
     case TypeTag.ComptimeList: {

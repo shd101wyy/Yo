@@ -754,13 +754,24 @@ export function createStructType(
 }
 
 export function createModuleType(env: Environment): ModuleType {
-  const moduleType: ModuleType = {
-    id: `module_${randomId(env.modulePath)}`,
-    tag: TypeTag.Module,
+  const traitType: TraitType = {
+    id: `trait_${randomId(env.modulePath)}`,
+    tag: TypeTag.Trait,
     fields: [],
     env,
     trait: undefined,
   };
+  const moduleType: ModuleType = {
+    id: `module_${randomId(env.modulePath)}`,
+    tag: TypeTag.Struct,
+    isModule: true,
+    isReferenceSemantics: false,
+    isNewtype: false,
+    fields: [],
+    env,
+    trait: traitType,
+  };
+  traitType.receiverType = moduleType;
   return moduleType;
 }
 

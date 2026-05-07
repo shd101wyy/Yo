@@ -1,0 +1,113 @@
+// Baseline tests for the Module/Struct unification (plans/UNIFY_MODULE_AND_STRUCT.md).
+//
+// These tests pin the surface behavior at the Module/Struct boundary that
+// must keep working across every phase of the unification:
+//
+//   1. The `module(...)` type expression builds an effect record type
+//      that `given`/`using` can match nominally.
+//   2. A `given`/`using` exchange with a single-op `module(...)` effect
+//      type round-trips successfully (resume path).
+//
+// After Phase 3 the `module(...)` literals here will be migrated to
+// `struct(...)`. After Phase 4 (`given`/`using` becomes runtime) we add
+// runtime-evidence tests in tests/algebraic_effects.test.yo.
+//
+// Imports as comptime structs are exercised implicitly by every other
+// .test.yo file via top-level `import` — no dedicated case needed here.
+
+open import "std/string";
+open import "std/fmt";
+
+test "Baseline: module(...) builds a usable effect record type", {
+  Raise :: module(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
+    cond(
+      (y == 0) => r.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(r) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        escape ();
+      }
+  );
+
+  divide(10, 0);
+  assert(false, "should not reach here after escape");
+};
+
+test "Baseline: given/using round-trip with resume", {
+  Logger :: module(
+    log : (fn(msg : String) -> unit)
+  );
+
+  shout :: (fn(msg : String, using(l : Logger)) -> unit)(
+    l.log(msg)
+  );
+
+  (given(l) : Logger) = Logger(
+    log :
+      (msg) -> {
+        println(msg);
+        return ();
+      }
+  );
+
+  shout("hello-effect".to_string());
+  // If we reach here, the continuation resumed correctly.
+  assert(true, "logger resumed");
+};
+
+
+test "Baseline: module(...) builds a usable effect record type", {
+  Raise :: module(
+    raise : (fn(msg : String) -> i32)
+  );
+
+  divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
+    cond(
+      (y == 0) => r.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(r) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        escape ();
+      }
+  );
+
+  divide(10, 0);
+  assert(false, "should not reach here after escape");
+};
+
+test "Baseline: given/using round-trip with resume", {
+  Logger :: module(
+    log : (fn(msg : String) -> unit)
+  );
+
+  shout :: (fn(msg : String, using(l : Logger)) -> unit)(
+    l.log(msg)
+  );
+
+  count := 0;
+  (given(l) : Logger) = Logger(
+    log :
+      (msg) -> {
+        println(msg);
+        return ();
+      }
+  );
+
+  shout("hello-effect".to_string());
+  // If we reach here, the continuation resumed correctly.
+  assert(true, "logger resumed");
+};

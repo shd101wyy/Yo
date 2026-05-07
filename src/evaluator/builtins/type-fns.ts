@@ -31,7 +31,6 @@ import type {
   SomeType as SomeTypeT,
   TupleType,
   UnionType,
-  ModuleType,
   TypeHierarchyType,
   ComptimeListType,
   TypeField,
@@ -797,7 +796,7 @@ export function evaluateYoTypeGetInfo({
       break;
     }
 
-    // === Struct(fields, kind) ===
+    // === Struct(fields, kind) / Module(fields) ===
     case TypeTag.Struct: {
       const structType = type as StructType;
       const fieldListTmp = bindTempTypeFieldList(
@@ -806,6 +805,11 @@ export function evaluateYoTypeGetInfo({
         context
       );
       evalEnv = fieldListTmp.env;
+
+      if (structType.isModule) {
+        code = `TypeInfo.Module(${fieldListTmp.name})`;
+        break;
+      }
 
       let kindStr: string;
       if (structType.isNewtype) {
@@ -867,19 +871,6 @@ export function evaluateYoTypeGetInfo({
       const infoTmp = bindTempFunctionInfo(evalEnv, fnType, context);
       evalEnv = infoTmp.env;
       code = `TypeInfo.Function(${infoTmp.name})`;
-      break;
-    }
-
-    // === Module(fields) ===
-    case TypeTag.Module: {
-      const modType = type as ModuleType;
-      const fieldListTmp = bindTempTypeFieldListFromModuleFields(
-        evalEnv,
-        modType.fields,
-        context
-      );
-      evalEnv = fieldListTmp.env;
-      code = `TypeInfo.Module(${fieldListTmp.name})`;
       break;
     }
 
@@ -1257,21 +1248,6 @@ function bindTempImplicitParamInfoList(
   }
 
   return bindComptimeList(env, values, "ImplicitParamInfo", "ipl", context);
-}
-
-/**
- * Helper: build a ComptimeList(TypeFieldInfo) from ModuleField[] and bind to temp var.
- */
-function bindTempTypeFieldListFromModuleFields(
-  env: Environment,
-  fields: { type: Type; label: string }[],
-  context: EvaluatorContext
-): { name: string; env: Environment } {
-  const typeFields = fields.map((f) => ({
-    type: f.type,
-    label: f.label,
-  })) as TypeField[];
-  return bindTempTypeFieldList(env, typeFields, context);
 }
 
 /**

@@ -160,7 +160,7 @@ export function isEnumType(type?: Type): type is EnumType {
 }
 
 export function isStructType(type?: Type): type is StructType {
-  return type?.tag === TypeTag.Struct;
+  return type?.tag === TypeTag.Struct && !(type as StructType).isModule;
 }
 
 export function isObjectType(
@@ -188,7 +188,7 @@ export function isNewtypeType(
 }
 
 export function isModuleType(type?: Type): type is ModuleType {
-  return type?.tag === TypeTag.Module;
+  return type?.tag === TypeTag.Struct && (type as StructType).isModule === true;
 }
 
 export function isTraitType(type?: Type): type is TraitType {

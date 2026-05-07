@@ -69,6 +69,7 @@ export enum TypeTag {
   // Literal = "Literal",
 
   // Module
+  /** @deprecated Use StructType with isModule: true instead. TypeTag.Module is no longer emitted. */
   Module = "Module",
 
   // Trait

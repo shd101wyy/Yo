@@ -365,6 +365,11 @@ export interface TypeField {
   // io.spawn/io.await time with the concrete handler from using(...).
   isEffectParam?: boolean;
 
+  // The module path that added this field via `impl`.
+  // Used to clean up impls when re-evaluating a module.
+  // Only set for fields with empty label (impl'd modules).
+  sourceModulePath?: string;
+
   // Doc comment extracted from `///` comments preceding this field definition.
   docComment?: string;
 }
@@ -475,6 +480,12 @@ export interface StructType extends Type {
   isNewtype: boolean;
 
   /**
+   * Whether this struct represents a module (formerly ModuleType).
+   * When true, this struct is a structural, comptime-only module type.
+   */
+  isModule?: true;
+
+  /**
    * The function that returns the struct.
    * eg:
    *   Point :: struct(x: i32, y: i32)
@@ -501,33 +512,18 @@ export interface StructType extends Type {
   env: Environment;
 }
 
-export interface ModuleField {
-  type: Type;
-  label: string;
-
-  /**
-   * The module path that added this field via `impl`.
-   * Used to clean up impls when re-evaluating a module.
-   * Only set for fields with empty label (impl'd modules).
-   */
-  sourceModulePath?: string;
-
-  // The default value and assigned value are compile-time known.
-  defaultValue?: Value;
-  assignedValue?: Value;
-
-  exprs: FieldExprs;
-
-  // Doc comment extracted from `///` comments preceding this field definition.
-  docComment?: string;
-}
+/**
+ * ModuleField is an alias for TypeField.
+ * Modules use the same field shape as structs.
+ */
+export type ModuleField = TypeField;
 
 /**
- * TraitField extends ModuleField with additional support for associated types.
+ * TraitField extends TypeField with additional support for associated types.
  * When a trait field is declared as `Error : Type` (a type field without assigned value),
  * we create a SomeType placeholder that represents the associated type.
  */
-export interface TraitField extends ModuleField {
+export interface TraitField extends TypeField {
   /**
    * For associated types (fields declared as `X : Type` without an assigned value),
    * this holds a SomeType placeholder that represents the associated type.
@@ -537,41 +533,12 @@ export interface TraitField extends ModuleField {
 }
 
 /**
- * ModuleType is a ~~nominal~~structural type that represents a module.
- * Modules are compared by their unique id, not by their structure.
- * FnTraitType and FutureTraitType are exceptions that use structural comparison.
+ * ModuleType is an alias for StructType with isModule: true.
+ * Module structs are comptime-only structural types that represent modules.
+ * This alias preserves backward compatibility during migration from the
+ * former ModuleType interface (tag: TypeTag.Module) to unified StructType.
  */
-export interface ModuleType extends Type {
-  tag: TypeTag.Module;
-
-  /**
-   * The function that returns the module.
-   * eg:
-   *   Container :
-   *     fn(comptime(T): Type)-> comptime(Type)
-   *       module(x: T, y: T)
-   * ;
-   * "Container" is the function that returns the module.
-   */
-  functionValue?: FunctionValue;
-
-  /**
-   * The fields of the module.
-   */
-  fields: ModuleField[];
-
-  /**
-   * ModuleType doesn't have a trait field because modules are not traits.
-   * This is different from StructType/EnumType/UnionType which have a separate trait.
-   */
-  trait: undefined;
-
-  /**
-   * The env when the module type is created.
-   * The env is also useful to show the frame level at which the module is defined.
-   */
-  env: Environment;
-}
+export type ModuleType = StructType & { isModule: true };
 
 /**
  * TraitType is a nominal type that represents a trait.
