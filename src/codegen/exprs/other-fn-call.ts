@@ -2594,10 +2594,14 @@ function resolveEvidenceArgsForCallSite(
         // Phase 4b: runtime struct given binding — emit a C field access
         // through the runtime variable (e.g. `c.next`). This applies when
         // the given variable holds a runtime struct value (no comptime
-        // FunctionValue/ModuleValue/StructValue available).
+        // FunctionValue/ModuleValue/StructValue available). Requires
+        // isCompileTimeOnly===false to distinguish runtime given(struct)
+        // bindings from compile-time using(struct) parameters that are
+        // lowered to flat evidence params at the C level.
         if (
           !resolved &&
           givenVar &&
+          givenVar.isCompileTimeOnly === false &&
           isStructType(givenVar.type) &&
           (!givenValue || !isModuleValue(givenValue)) &&
           (!givenValue || !isFunctionValue(givenValue))

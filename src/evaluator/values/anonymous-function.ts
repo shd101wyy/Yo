@@ -36,6 +36,7 @@ import {
   isArrayType,
   isIsoType,
   isSomeType,
+  isStructType,
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -742,18 +743,19 @@ Got:      "${paramName}"`,
       });
     }
 
-    // Handle module-typed effects (e.g., Exception :: module(throw : fn(...)))
-    // in async closures. Module effects need their function members decomposed
-    // and captured individually for runtime injection at io.spawn/io.await.
-    const isModuleEffectInAsyncClosure =
+    // Handle module-typed and struct-typed effects (e.g., Exception :: module(throw : fn(...))
+    // or IO :: struct(async : fn(...))) in async closures. Effect records need
+    // their function members decomposed and captured individually for runtime
+    // injection at io.spawn/io.await.
+    const isRecordEffectInAsyncClosure =
       !isEffectParamInAsyncClosure &&
       context.isInsideIoAsyncCall &&
       isCreatingClosure &&
-      isModuleType(expectedParam.type) &&
+      (isModuleType(expectedParam.type) || isStructType(expectedParam.type)) &&
       !resolvedHandlerValue;
-    if (isModuleEffectInAsyncClosure) {
-      const moduleType = expectedParam.type as ModuleType;
-      for (const field of moduleType.fields) {
+    if (isRecordEffectInAsyncClosure) {
+      const recordType = expectedParam.type as ModuleType | StructType;
+      for (const field of recordType.fields) {
         if (isFunctionType(field.type)) {
           effectParamEntries.push({
             name: field.label,
