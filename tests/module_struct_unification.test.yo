@@ -111,3 +111,51 @@ test "Baseline: given/using round-trip with resume (struct)", {
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
 };
+
+// ----------------------------------------------------------------------
+// Phase 4 progress tests: runtime-built `given` evidence with structs.
+//
+// These pin behavior that ALREADY works in the current evaluator/codegen
+// because the given value is fully comptime-resolved per call site
+// (specialized away). Phase 4 will extend this to genuinely runtime
+// evidence (e.g. struct value computed by a non-comptime function call),
+// which currently fails with "given variable has no compile-time value".
+// ----------------------------------------------------------------------
+
+test "Phase 4a: given(struct) inside a runtime branch", {
+  Tag :: struct(
+    name : (fn() -> str)
+  );
+
+  speak :: (fn(using(t : Tag)) -> str)(
+    t.name()
+  );
+
+  flag := true;
+  if(flag, {
+    (given(t) : Tag) = Tag(name : (() -> "alpha"));
+    assert((speak() == "alpha"), "branch-true picked alpha");
+  }, {
+    (given(t) : Tag) = Tag(name : (() -> "beta"));
+    assert((speak() == "beta"), "branch-false picked beta");
+  });
+};
+
+test "Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
+  Counter :: struct(
+    next : (fn() -> i32)
+  );
+
+  step :: (fn(using(c : Counter)) -> i32)(
+    c.next()
+  );
+
+  i := Box(i32)(0);
+  sum := Box(i32)(0);
+  while runtime(i.* < 3), {
+    (given(c) : Counter) = Counter(next : (() -> i32(7)));
+    sum.* = (sum.* + step());
+    i.* = (i.* + 1);
+  };
+  assert((sum.* == 21), "3 iterations × 7 = 21");
+};

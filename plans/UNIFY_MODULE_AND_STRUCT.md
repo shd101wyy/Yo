@@ -184,27 +184,99 @@ under `std/`, `tests/`, `yo-self/`, `docs/`. Full suite green.
 This is the payoff phase. It is itself broken into sub-steps because it
 touches the call-site lowering.
 
-1. **Type-checking change.** In `src/evaluator/calls/helper.ts`, drop the
-   "implicit param must be comptime" rule for `using(...)` when the param
-   type is a runtime-capable struct. Continue to require **nominal type
-   equality** between the `given` value and the `using` parameter.
-2. **Evidence-parameter lowering.** Add an "effect evidence parameter" to
-   any function with `using(...)`. The C signature gains one extra parameter
-   per `using` clause. Codegen path: `src/codegen/effects/`.
-3. **Resolution.** At each call site, the compiler still picks (at compile
-   time) which in-scope `given` binding satisfies each `using`, but emits a
-   runtime argument expression that produces the evidence struct value.
-4. **Effect dispatch.** `effectFieldPath` walking becomes a sequence of C
-   field accesses on the runtime evidence value (it already is, modulo the
-   value being comptime-erased today).
-5. **Drop `isStructuralLegacy`.** All effect records must now be named
-   nominal types. Add an evaluator error pointing users at the migration.
+**Status: Phase 4a in progress.**
 
-**Exit criteria:**
+#### Phase 4a — Pin current behavior, identify the precise gap (DONE)
 
-- New tests in `tests/algebraic_effects.test.yo` exercising `given`/`using`
-  inside loops, behind runtime branches, and with effect records constructed
-  at runtime.
+Existing evaluator/codegen already supports `given`/`using` with struct
+effect records, including:
+
+- `given(t) : Tag = Tag(...)` inside an `if` branch.
+- `given(c) : Counter = Counter(...)` inside a `while` loop, re-bound per
+  iteration.
+
+In all cases the struct's field values (functions, etc.) are
+comptime-known, so the `using` parameter is **fully specialized away** —
+the C signature for `step :: (fn(using(c : Counter)) -> i32)` is emitted
+as `int32_t step()` and the field call inlined as a direct call to the
+field's C function. There is no runtime evidence parameter today.
+
+Tests pinning this baseline live in
+`tests/module_struct_unification.test.yo` (Phase 4a tests).
+
+The first case that genuinely needs runtime evidence:
+
+```rust
+make_counter :: (fn(use_a : bool) -> Counter)(...);
+(given(c) : Counter) = make_counter(true);
+step();   // Error: The "given" variable "c" has no compile-time value.
+```
+
+Error site: `src/evaluator/calls/helper.ts:2140` — the resolution path
+for `using(...)` parameters reads `givenVar.value?.[0]`, and erroring
+when it's absent. This guards against the codegen path, which currently
+reads the comptime `givenValue.fields[i]` to pick a C function name for
+each evidence parameter (see `src/codegen/exprs/other-fn-call.ts:2570+`).
+
+#### Phase 4b — Runtime evidence parameter lowering (NEXT)
+
+Switch the C signature of any function with `using(s : SomeStruct)` to
+take an extra parameter per evidence "field" used inside the body. Two
+viable shapes:
+
+- **(b1) Function-pointer evidence params.** For each `(implicitLabel,
+fieldPath)` actually consumed by the body, add one parameter (a
+  function pointer with the field's signature). This matches the current
+  resolution model used by control-functions and minimizes per-call
+  overhead.
+- **(b2) Whole-struct evidence params.** Pass the entire struct value
+  per `using(...)` clause and read fields at the call site
+  (`evidence.fieldName(...)`). Simpler conceptually, but bloats the C
+  ABI when only a few fields are used and breaks the existing
+  `effectFieldPath` / handler-installation tracking.
+
+**Recommendation:** start with (b1) so the existing evidence-param
+plumbing in `src/codegen/exprs/other-fn-call.ts` (`getEvidenceParameters`,
+`currentEvidenceParams`) extends naturally. (b2) can be revisited if a
+later use case (e.g. effect records with non-function fields) demands it.
+
+Sub-tasks for 4b:
+
+1. Detect "evidence is non-comptime" in `helper.ts:2090-2148`; instead
+   of erroring, push a placeholder `implicitArgValues` entry that marks
+   the value as runtime-only and remembers the source variable.
+2. In the codegen path that resolves each evidence param
+   (`other-fn-call.ts:2480+`), add a 4th branch: when the given binding
+   has no comptime value but is a runtime struct of the right type,
+   emit `givenVar_cName.fieldName` (a C struct field access) as the
+   evidence argument.
+3. Make sure the function gets specialized-without-comptime-evidence:
+   the specialization key should include "evidence is runtime" but not
+   the per-field function identities. This avoids re-specialization per
+   call site for genuinely runtime evidence.
+4. Update codegen for `using` in the callee body so calls like
+   `c.next()` go through the C parameter rather than inlining the
+   field's function.
+5. Drop the `isCompileTimeOnly: true` marker on implicit params when
+   they are runtime-typed structs; keep it for module-typed implicits
+   so existing comptime paths are unaffected.
+
+#### Phase 4c — Drop `isStructuralLegacy`, finalize semantics
+
+Once 4b lands and is green:
+
+- All effect records must be named nominal types. Drop the
+  `isStructuralLegacy` escape hatch in `helper.ts`.
+- Add an evaluator error pointing users at named-struct migration when
+  they try to pass an anonymous module-typed value to `using(...)`.
+
+**Exit criteria (full Phase 4):**
+
+- `make_counter`-style runtime evidence test passes (see
+  `tmp/p4_returned.yo` for the failing case).
+- New tests in `tests/algebraic_effects.test.yo` exercising
+  `given`/`using` with effect records constructed by non-comptime
+  functions.
 - `./yo-cli test --bail` green on native + WASM (with existing `--target
 wasm-wasi` and `--cc emcc` runs).
 
