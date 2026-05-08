@@ -24,8 +24,7 @@ PrimaryExpression ::=
 PrimaryEnd ::=
   | FieldAccess           ;; obj.field or .variant
   | InfixOperator         ;; expr + expr, expr `add` expr
-  | FunctionCall          ;; func(args) or func args
-  | FunctionApplication   ;; func arg1 arg2 (whitespace-separated)
+  | FunctionCall          ;; func(args), with no whitespace before '('
 ```
 
 ## Atoms
@@ -155,10 +154,9 @@ InfixOperator ::=
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; Backtick infix: a `add` b
 
 ;; Function Call
-;; Two forms based on whitespace between function and arguments
+;; Calls must use parentheses, and there must be no whitespace before '('.
 FunctionCall ::=
-  | Expression '(' ArgumentList ')'                   ;; No space: func(arg1, arg2)
-  | Expression Whitespace+ ArgumentList               ;; With space: func arg1, arg2
+  | Expression '(' ArgumentList ')'                   ;; func(arg1, arg2)
 
 ArgumentList ::= [Expression (',' Expression)*]
 ```
@@ -187,10 +185,11 @@ Separator ::= ',' | ';'
    - Valid: `obj.field`, `person.name`
    - Invalid: `obj . field`, `obj .field`
 
-2. **Function calls**: Whitespace determines call style
+2. **Function calls**: Calls require immediate parentheses
 
-   - No space: `func(arg1, arg2)` - parenthesized call
-   - With space: `func arg1, arg2` - space-separated arguments
+   - Valid: `func(arg1, arg2)`
+   - Invalid: `func (arg1, arg2)` or `func arg1, arg2`
+   - Prefix operators are calls too: write `&(x)`, `!(ready)`, `return(value)`, `return()`, `escape(value)`, or `escape()`
 
 3. **Infix operators**: Whitespace affects precedence
    - Operators at line start have left associativity

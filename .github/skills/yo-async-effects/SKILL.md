@@ -26,8 +26,8 @@ Use this skill when you need to:
 2. Add the necessary `using(...)` parameters to function signatures and call sites.
 3. Use the [async and effects recipes](./async-effects-recipes.md) for working patterns.
 4. Re-check handler semantics before finalizing:
-   - `return value` resumes the continuation
-   - `escape expr` discards it
+   - `return(value)` resumes the continuation
+   - `escape(expr)` discards it
 
 ## High-signal rules
 
@@ -38,8 +38,8 @@ Use this skill when you need to:
 - Future types include their effects: `Future(ResultType, IO, Effect...)`.
 - Effects are matched by type, not variable name.
 - `using(name : Type)` declares an implicit effect parameter; `given(name) := Type(...)` installs the handler.
-- `return value` inside a handler resumes the continuation; `escape expr` discards it.
-- `Exception` — non-resumable; handler calls `escape` to exit. `ResumableException(T)` — handler calls `return` to resume.
+- `return(value)` inside a handler resumes the continuation; `escape(expr)` discards it.
+- `Exception` — non-resumable; handler calls `escape(...)` to exit. `ResumableException(T)` — handler calls `return(...)` to resume.
 - Effect handlers are standalone, not closures; pass state explicitly.
 - Yo async is single-threaded concurrency, not multithreaded parallelism.
 

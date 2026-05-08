@@ -67,7 +67,7 @@ yo doc --document-private        # Include non-exported items
 In `build.yo`, use `build.doc()` to add a documentation generation step:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 docs :: build.doc({ name: "docs", root: "./src" });
 doc_step :: build.step("doc", "Generate documentation");

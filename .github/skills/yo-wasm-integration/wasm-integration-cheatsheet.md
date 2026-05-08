@@ -16,7 +16,7 @@ Export C-compatible functions that operate on linear memory:
 
 ```rust
 // src/wasm_api.yo
-open import "std/string";
+open(import("std/string"));
 
 // Allocate WASM memory for the caller
 wasm_alloc :: (fn(size : usize) -> *(u8))(
@@ -89,7 +89,7 @@ The `Executable` struct accepts: `name`, `root`, `target`, `optimize`, `allocato
 Emscripten-specific flags go in `add_c_flags(...)` after creating the step.
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 wasm_api :: build.executable({
   name: "my_lib_wasm_api",
@@ -242,7 +242,7 @@ cd npm && node -e "const m = require('.'); m.createRenderer().render('hello').th
 - **Memory leaks**: Always `_wasm_free` every `_wasm_alloc` on the JavaScript side.
 - **String encoding**: WASM only sees bytes — use `TextEncoder`/`TextDecoder` for UTF-8.
 - **Errno differences**: WASI errno values differ from POSIX. Use `std/libc/errno` constants.
-- **No `main` needed**: Library WASM modules don't need `main` or `export main;` — just export the API functions.
+- **No `main` needed**: Library WASM modules don't need `main` or `export(main);` — just export the API functions.
 - **Emscripten environment**: Set `-sENVIRONMENT='web,node'` to support both contexts, or `'node'` for Node.js only.
 - **Module initialization is async**: Emscripten's `createModule()` returns a Promise. Initialize once and reuse.
 - **WASM memory growth**: Always use `-sALLOW_MEMORY_GROWTH=1` for dynamic allocations.

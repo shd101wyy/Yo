@@ -24,8 +24,7 @@ PrimaryExpression ::=
 PrimaryEnd ::=
   | FieldAccess           ;; obj.field 或 .variant
   | InfixOperator         ;; expr + expr, expr `add` expr
-  | FunctionCall          ;; func(args) 或 func args
-  | FunctionApplication   ;; func arg1 arg2（空格分隔）
+  | FunctionCall          ;; func(args)，且 '(' 前不能有空白
 ```
 
 ## 原子
@@ -155,10 +154,9 @@ InfixOperator ::=
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; 反引号中缀：a `add` b
 
 ;; 函数调用
-;; 两种形式，取决于函数名和参数之间是否有空格
+;; 调用必须使用括号，且 '(' 前不能有空白。
 FunctionCall ::=
-  | Expression '(' ArgumentList ')'                   ;; 无空格：func(arg1, arg2)
-  | Expression Whitespace+ ArgumentList               ;; 有空格：func arg1, arg2
+  | Expression '(' ArgumentList ')'                   ;; func(arg1, arg2)
 
 ArgumentList ::= [Expression (',' Expression)*]
 ```
@@ -187,10 +185,11 @@ Separator ::= ',' | ';'
    - 有效：`obj.field`、`person.name`
    - 无效：`obj . field`、`obj .field`
 
-2. **函数调用**：空格决定调用方式
+2. **函数调用**：调用必须紧跟括号
 
-   - 无空格：`func(arg1, arg2)` — 带括号的调用
-   - 有空格：`func arg1, arg2` — 空格分隔的参数
+   - 有效：`func(arg1, arg2)`
+   - 无效：`func (arg1, arg2)` 或 `func arg1, arg2`
+   - 前缀运算符也是调用：请写 `&(x)`、`!(ready)`、`return(value)`、`return()`、`escape(value)` 或 `escape()`
 
 3. **中缀运算符**：空格影响优先级
    - 行首的运算符具有左结合性

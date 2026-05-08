@@ -119,9 +119,9 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 
 ## Important constraints
 
-- You **cannot** `./yo-cli compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export main;` at the end.
+- You **cannot** `./yo-cli compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export(main);` at the end.
 - Always save test log output: `./yo-cli test src/tests/fixme.test.yo --bail --verbose &> test_output.txt`
-- If a `main` linker error appears (`undefined reference to 'main'`), add `export main;` at the end of the `.yo` file.
+- If a `main` linker error appears (`undefined reference to 'main'`), add `export(main);` at the end of the `.yo` file.
 
 ## File creation rules
 
@@ -134,20 +134,20 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
 
 ```rust
-test "my test", {
+test("my test", {
   assert(true, "ok");
-};
+});
 ```
 
 **`io : IO` is automatically injected** into every test body — no `using` clause is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
 ```rust
-test "Async test", {
+test("Async test", {
   task := io.async((using(io : IO))=> {
     io.await(yield());
   });
   io.await(task);
-};
+});
 ```
 
 > **Note:** The old `test "name", using(io : IO), { body }` 3-argument form is no longer supported.
@@ -173,11 +173,11 @@ assert(false, "unexpected");
 When testing functions that require `using(exn : Exception)`, provide the effect with `given`:
 
 ```rust
-test "my test", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+test("my test", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(); }));
   result := my_function_that_throws(using(exn));
   // ...
-};
+});
 ```
 
 This is the standard pattern from `yo-self/tests/parser.test.yo`.
@@ -217,7 +217,7 @@ When running a single large file, use `--test-name-pattern` to target individual
 - Use `// @skip_wasm32-wasi` to skip a test file on the standalone WASI target.
 - Use `// @skip_wasm` to skip a test file on ALL WASM targets (generic catch-all).
 - A file can have both target-specific directives, or the generic one.
-- For per-test skips, add `{ arch, Arch } :: import "std/process";` and use `if((arch == Arch.Wasm32), return ())` at the top of the test body.
+- For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
 - When adding new tests, verify they pass on native (`./yo-cli test ...`), Emscripten (`./yo-cli test ... --cc emcc`), and WASI (`./yo-cli test ... --target wasm-wasi`), or add appropriate skip directives.

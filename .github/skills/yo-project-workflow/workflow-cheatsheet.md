@@ -48,7 +48,7 @@ my-project/
 ## Minimal `build.yo`
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
@@ -106,22 +106,22 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 ### Writing tests in Yo
 
 ```rust
-test "Basic assertion", {
+test("Basic assertion", {
   assert(((i32(1) + i32(1)) == i32(2)), "1+1 should be 2");
-};
+});
 
-test "Compile-time check", {
+test("Compile-time check", {
   comptime_assert((2 + 2) == 4);
   comptime_expect_error({ x :: (1 / 0); });
-};
+});
 
-test "Async test", {
-  { yield } :: import "std/async";
+test("Async test", {
+  { yield } :: import("std/async");
   io.await(yield());
-};
+});
 ```
 
-- `test "name", { body }` defines a test — `io : IO` is automatically available
+- `test("name", { body })` defines a test — `io : IO` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — always include a message string
 - `comptime_assert(expr)` — verified at compile time
@@ -147,7 +147,7 @@ yo test ./tests/main.test.yo --target wasm-wasi
 For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Emscripten` and `add_c_flags(...)` for Emscripten settings:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 wasm_api :: build.executable({
   name: "my_lib_wasm_api",
@@ -191,7 +191,7 @@ yo doc --document-private            # Include non-exported items
 In `build.yo`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 docs :: build.doc({ name: "docs", root: "./src" });
 doc_step :: build.step("doc", "Generate documentation");

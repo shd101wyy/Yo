@@ -106,25 +106,25 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 
 // 处理效应——不带 resume（通过 `escape` 丢弃 continuation）
-raise_const :: (fn() -> i64) {
+raise_const :: (fn() -> i64)({
   (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    escape i64(42); // escape 用此值从 enclosing 函数返回
+    escape(i64(42)); // escape 用此值从 enclosing 函数返回
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
-};
+});
 // 返回 42 —— continuation 被丢弃
 
 // 处理效应——带 resume（通过 `return` 调用 continuation）
-raise_resume :: (fn() -> i64) {
+raise_resume :: (fn() -> i64)({
   (given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({
     println(msg);
     println(msg2);
-    return i32(42); // return(value) 用值恢复 continuation
+    return(i32(42)); // return(value) 用值恢复 continuation
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
-};
+});
 // 返回 60 —— return(42) 在 raise 调用点之后继续
 ```
 
@@ -135,9 +135,9 @@ raise_resume :: (fn() -> i64) {
 - 处理器体接收效应的参数（例如，`msg`、`msg2`）。
 - 在处理器体内：
   - **`return(value)`** —— 用 `value` 作为效应调用的结果恢复捕获的 continuation。
-  - **`escape expr`** —— 完全丢弃 continuation 并用 `expr` 从安装处理器的 enclosing 函数返回。
+  - **`escape(expr)`** —— 完全丢弃 continuation 并用 `expr` 从安装处理器的 enclosing 函数返回。
 - 两种处理器形式：
-  - **匿名函数处理器**（无 resume）：`(given(raise) : Raise) = ((msg, msg2) -> { escape expr; });`
+  - **匿名函数处理器**（无 resume）：`(given(raise) : Raise) = ((msg, msg2) -> { escape(expr); });`
   - **fn-typed 处理器**（带 resume）：`(given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ return(value); });`
 - Continuations 是**一次性**的——`return` 最多只能调用一次（语法上强制为最后一个表达式；运行时双重 resume 检查已计划但尚未实现）。
 - 效应操作与 `using` 组合——效应是通过 `given` 解析的隐式参数。
@@ -155,10 +155,10 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(...);
 // 2. 传播它（在其自己的签名中添加 `using(raise : Raise)`）
 
 // 选项 1：处理
-handler :: (fn() -> i32) {
+handler :: (fn() -> i32)({
   given(raise) : Raise = ...;
   safe_divide(10, 0)
-};
+});
 
 // 选项 2：传播
 wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -182,7 +182,7 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 
 1. **效应调用**（调用 `raise(...)`）= 通过证据参数的 fn ptr 调用
 2. **`return(value)`** = 处理器函数正常返回；调用者使用该值
-3. **`escape expr`** = 处理器函数设置 `__yo_effect_escaped = 1`，将值存储在线程本地 `__yo_effect_escape_value`，返回 dummy；调用者检查标志并传播
+3. **`escape(expr)`** = 处理器函数设置 `__yo_effect_escaped = 1`，将值存储在线程本地 `__yo_effect_escape_value`，返回 dummy；调用者检查标志并传播
 
 调用链中的中间函数简单地转发 fn ptr 参数：
 
@@ -225,15 +225,16 @@ traverse :: (fn(
   arr : Array(i32, S),
   callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
   using(...(E))
-  ) -> unit) {
+  ) -> unit)({
     i := usize(0);
-    while i < S, i = (i + 1), {
+    while((i < S), {
       callback(arr(i));
-    };
-  };
+      i = (i + 1);
+    });
+  });
 
 // 设置处理器
-(given(yield) : Yield) = (v) -> { return v; };
+(given(yield) : Yield) = (v) -> { return(v); };
 (given(log)   : Log)   = (v) -> { println(v); };
 
 arr := Array(i32, 5)(0, 1, 2, 3, 4);
@@ -283,10 +284,10 @@ traverse(arr, (v, using(_yield, _log)) => {
 ```rust
 Logger :: (fn(msg : String) -> unit);
 
-program :: (fn(using(info : Logger, error : Logger)) -> unit) {
+program :: (fn(using(info : Logger, error : Logger)) -> unit)({
   info("starting");
   error("something went wrong");
-};
+});
 
 program(using(info_logger, error_logger));
 ```
@@ -314,7 +315,7 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
 // 用 `given` 安装基于结构体记录的处理器：
 given(exn) := MyException(i32)(
   throw : ((val, resume_val) -> {
-    return resume_val;  // 用提供的恢复值 resume
+    return(resume_val);  // 用提供的恢复值 resume
   })
 );
 
@@ -335,11 +336,11 @@ result := safe_divide(10, 0);  // 处理器用 0 resume
 GetValue :: (fn() -> i32);
 
 (given(get_value) : GetValue) = (() -> {
-  return i32(1);
+  return(i32(1));
 });
 
 // break、continue 和提前返回在效应 resume 后都工作
-while runtime(true), {
+while(runtime(true), {
   result := get_value();  // 效应调用（挂起点）
 
   cond(
@@ -347,13 +348,13 @@ while runtime(true), {
     (result == 0) => { continue; },     // 效应 resume 后 continue
     true => ()
   );
-};
+});
 ```
 
 效应也与 tagged union `match` arms 一起工作：
 
 ```rust
-while runtime(true), {
+while(runtime(true), {
   get_value();  // 效应调用
 
   opt := Option(i32).Some(counter.*);
@@ -362,7 +363,7 @@ while runtime(true), {
     .Some(v) => v,
     .None => break    // 效应 resume 后在 match arm 内 break
   );
-};
+});
 ```
 
 ### 传递效应传播（Transitive Effect Propagation）
@@ -372,22 +373,22 @@ while runtime(true), {
 ```rust
 Yield :: (fn(v : i32) -> i32);
 
-apply_effect :: (fn(forall(...(E)), n : i32, using(...(E))) -> i32) {
+apply_effect :: (fn(forall(...(E)), n : i32, using(...(E))) -> i32)({
   counter := Box(i32)(0);
   result := Box(i32)(0);
 
-  while runtime(counter.* < n), {
+  while(runtime((counter.* < n)), {
     counter.* = (counter.* + 1);
     cond(
       (counter.* > i32(3)) => { break; },
       true => ()
     );
-  };
+  });
 
-  return counter.*;
-};
+  return(counter.*);
+});
 
-(given(yield) : Yield) = ((v) -> { return v; });
+(given(yield) : Yield) = ((v) -> { return(v); });
 result := apply_effect(i32(10));
 ```
 
@@ -399,7 +400,7 @@ result := apply_effect(i32(10));
 // 错误——处理器引用外部变量 `threshold`，编译错误：
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
-  escape (threshold * i32(2));  // ERROR: threshold 不在作用域内
+  escape((threshold * i32(2)));  // ERROR: threshold 不在作用域内
 });
 
 // 正确——通过效应函数本身传递状态作为显式参数：
@@ -409,7 +410,7 @@ check :: (fn(x : i32, threshold : i32, using(raise : Raise)) -> i32)(
     true => x
   )
 );
-(given(raise) : Raise) = ((msg) -> { escape i32(-1); });
+(given(raise) : Raise) = ((msg) -> { escape(i32(-1)); });
 result := check(i32(15), i32(10));
 ```
 
@@ -549,7 +550,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 
 ### Resume handling
 
-当处理器调用 `return value`：
+当处理器调用 `return(value)`：
 
 1. 处理器函数正常返回 `value`（不设置 `__yo_effect_escaped`）
 2. 调用者从 fn ptr 调用接收返回值
@@ -565,8 +566,8 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 ```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
-    (msg == `recoverable`) => return i32(0),  // resume with 0
-    true => escape i32(-1)                    // escape with -1
+    (msg == `recoverable`) => return(i32(0)), // resume with 0
+    true => escape(i32(-1))                   // escape with -1
   )
 );
 ```
@@ -616,12 +617,12 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 
 **Additional behaviors：**
 
-- **Handler doesn't use the forall type**（例如，`escape ()`）：生成未特化的函数并直接传递
+- **Handler doesn't use the forall type**（例如，`escape()`）：生成未特化的函数并直接传递
 - **Transitive forwarding**：`void*` 证据在调用者和被调用者之间原样转发
 
 ### Escape value propagation
 
-Escape values（包括非-unit 值）通过线程本地 `__yo_escape_value` 机制传播。当在处理器内调用 `escape expr` 时，escape 值存储在线程本地，并可以在处理器安装站点（`given`）检索。
+Escape values（包括非-unit 值）通过线程本地 `__yo_escape_value` 机制传播。当在处理器内调用 `escape(expr)` 时，escape 值存储在线程本地，并可以在处理器安装站点（`given`）检索。
 
 ---
 

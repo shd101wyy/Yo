@@ -40,7 +40,7 @@ Use this skill when you need to:
 - Use `derive(Type, Eq, Hash, Clone, Ord, ToString)` to auto-generate common trait impls.
 - Custom error types implement `ToString` + `Error`; wrap with `dyn(...)` into `AnyError`.
 - Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.
-- Use `for collection.iter(), (item) => { ... }` for iteration.
+- Use `for(collection.iter(), (item) => { ... })` for iteration.
 - Indexed modules import cleanly as `std/url`, `std/regex`, `std/http`, `std/log`, and `std/glob`; multi-module families use explicit submodules.
 
 ## Resource

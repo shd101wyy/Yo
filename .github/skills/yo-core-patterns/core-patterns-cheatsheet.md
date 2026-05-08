@@ -5,8 +5,8 @@ These patterns are aimed at everyday Yo application and library code.
 ## Strings and output
 
 ```rust
-open import "std/fmt";
-open import "std/string";
+open(import("std/fmt"));
+open(import("std/string"));
 
 (name : str) = "yo";
 greeting := `Hello ${name}`;
@@ -38,13 +38,13 @@ Key rules:
 ## Import patterns
 
 ```rust
-{ LocalType } :: import "./local_type.yo";
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap } :: import "std/collections/hash_map";
-{ Url } :: import "std/url";
-{ Regex } :: import "std/regex";
-{ fetch, HttpRequest } :: import "std/http";
+{ LocalType } :: import("./local_type.yo");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Url } :: import("std/url");
+{ Regex } :: import("std/regex");
+{ fetch, HttpRequest } :: import("std/http");
 ```
 
 | Need                           | Import pattern                                                                       |
@@ -60,7 +60,7 @@ Do not import `std/prelude`; it is already available.
 ## Option and Result
 
 ```rust
-open import "std/string";
+open(import("std/string"));
 
 (value : Option(i32)) = .Some(i32(21));
 doubled := value.map((x) => (x * i32(2)));
@@ -81,9 +81,9 @@ text := match(parsed,
 ## Collections
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap } :: import "std/collections/hash_map";
-open import "std/string";
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+open(import("std/string"));
 
 numbers := ArrayList(i32).new();
 numbers.push(i32(1));
@@ -161,7 +161,7 @@ parent := Node(value: i32(1), next: Option(Box(Node)).Some(child));
 ## Unicode and platform checks
 
 ```rust
-{ Platform, platform } :: import "std/process";
+{ Platform, platform } :: import("std/process");
 
 separator := cond(
   (platform == Platform.Windows) => `\\`,
@@ -285,7 +285,7 @@ node_eq :: (fn(a : Node, b : Node) -> bool)(
             true => {
               (i : usize) = usize(0);
               (ok : bool) = true;
-              while runtime(((i < acs.len()) && ok)), {
+              while(runtime(((i < acs.len()) && ok)), {
                 match(acs.get(i),
                   .Some(ac) => match(bcs.get(i),
                     .Some(bc) => { ok = recur(ac, bc); },
@@ -294,7 +294,7 @@ node_eq :: (fn(a : Node, b : Node) -> bool)(
                   .None => { ok = false; }
                 );
                 i = (i + usize(1));
-              };
+              });
               ok
             }
           )
@@ -324,15 +324,15 @@ derived or implemented. For **tag-only equality** (checking which variant), use 
 if(my_type != t_unit(), { ... });
 
 // CORRECT — compare tags instead
-{ type_value_tag } :: import "../../types/type.yo";
-{ TypeTag }        :: import "../../types/tags.yo";
+{ type_value_tag } :: import("../../types/type.yo");
+{ TypeTag }        :: import("../../types/tags.yo");
 if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
 ```
 
 ## Error handling
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 DivError :: enum(DivByZero);
 impl(DivError, ToString(to_string : ((self) -> `division by zero`)));
@@ -358,9 +358,9 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 result := inc(i32(5));
 
 transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for values.iter(), (ptr) => {
+  for(values.iter(), (ptr) => {
     ptr.* = f(ptr.*);
-  };
+  });
 });
 ```
 
@@ -372,19 +372,19 @@ transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)
 ## Iterator and for loop
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-for list.iter(), (ptr) => {
+for(list.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
-for list.into_iter(), (value) => {
+for(list.into_iter(), (value) => {
   println(value);
-};
+});
 ```
 
 | Method         | Yields | Semantics                           |

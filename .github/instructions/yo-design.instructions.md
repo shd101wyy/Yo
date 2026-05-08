@@ -142,20 +142,20 @@ Functions that only execute at compile time (e.g., build system functions, macro
 
 ```rust
 // WRONG — unit return without comptime means runtime:
-register_module :: (fn(comptime(config) : ModuleConfig) -> unit) {
+register_module :: (fn(comptime(config) : ModuleConfig) -> unit)({
   __yo_build_module(config);
-};
+});
 
 // CORRECT — comptime(unit) signals compile-time only:
-register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit)) {
+register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit))({
   __yo_build_module(config);
-};
+});
 
 // CORRECT — comptime(Step) for functions returning compile-time values:
-executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
+executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   __yo_build_executable(config.name, config.root, ...);
   Step(name: config.name, kind: StepKind.Executable)
-};
+});
 ```
 
 This applies to all parameters and return types in comptime-only APIs:
@@ -166,8 +166,8 @@ This applies to all parameters and return types in comptime-only APIs:
 ## Algebraic effects
 
 - Effects are matched by **type**, not by name. A `given(raise) : Raise` handler matches any `using(my_raise : Raise)` parameter regardless of the variable name — the match is on the `Raise` type.
-- `return expr` inside an effect handler **resumes** the continuation.
-- `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
+- `return(expr)` inside an effect handler **resumes** the continuation.
+- `escape(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
 - Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
 - **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
@@ -185,7 +185,7 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
   task := io.async((using(io)) => {
     .Ok(i32(42))
   });
-  return task;
+  return(task);
 });
 
 // CORRECT — return io.async directly:
@@ -272,14 +272,14 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
-  return self.get_number();  // Dispatches to T1.get_number → returns x
-};
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+  return(self.get_number());  // Dispatches to T1.get_number -> returns x
+});
 
 // Explicit dispatch — (T <: T2).get_number accesses T2's method directly
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
-  return (T <: T2).get_number(self);  // Dispatches to T2.get_number → returns y
-};
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+  return((T <: T2).get_number(self));  // Dispatches to T2.get_number -> returns y
+});
 ```
 
 **Implementation details:**
@@ -486,9 +486,9 @@ Only create `index.yo` when the directory contains a **single public module file
 ```rust
 // std/url/url.yo → std/url/index.yo
 // Users write:
-{ Url } :: import "std/url";
+{ Url } :: import("std/url");
 // Instead of the redundant:
-{ Url } :: import "std/url/url";
+{ Url } :: import("std/url/url");
 ```
 
 Modules that follow this pattern: `std/url`, `std/regex`, `std/glob`, `std/log`.
@@ -513,13 +513,13 @@ Do **not** create `index.yo` re-export files for directories with multiple disti
 
 ```rust
 // CORRECT — explicit submodule imports:
-{ TcpStream } :: import "std/net/tcp";
-{ HashMap } :: import "std/collections/hash_map";
-open import "std/fs/file";
+{ TcpStream } :: import("std/net/tcp");
+{ HashMap } :: import("std/collections/hash_map");
+open(import("std/fs/file"));
 
 // WRONG — don't create catch-all index.yo for these:
-// open import "std/net";   // which module? tcp? udp? dns?
-// open import "std/fs";    // which module? file? dir? walker?
+// open(import("std/net")); // which module? tcp? udp? dns?
+// open(import("std/fs"));  // which module? file? dir? walker?
 ```
 
 Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/os`, `std/io`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
@@ -531,12 +531,12 @@ When a directory has a primary public file matching the directory name **plus** 
 ```rust
 // std/http/ has http.yo (types) + client.yo (async fetch)
 // std/http/index.yo re-exports both:
-_http :: import "./http.yo";
-_client :: import "./client.yo";
-export ...(_http), ...(_client);
+_http :: import("./http.yo");
+_client :: import("./client.yo");
+export(...(_http), ...(_client));
 
 // Users write:
-{ HttpRequest, fetch } :: import "std/http";
+{ HttpRequest, fetch } :: import("std/http");
 ```
 
 ## Index trait (unified indexing)
