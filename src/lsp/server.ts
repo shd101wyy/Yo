@@ -19,6 +19,7 @@ import { handleReferences } from "./references";
 import { handleRename, handlePrepareRename } from "./rename";
 import { handleSignatureHelp } from "./signature-help";
 import { handleFoldingRange } from "./folding";
+import { handleDocumentFormatting } from "./formatting";
 
 // Explicitly use stdio transport
 const connection = createConnection(
@@ -72,6 +73,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         triggerCharacters: ["(", ","],
       },
       foldingRangeProvider: true,
+      documentFormattingProvider: true,
     },
   };
 });
@@ -151,6 +153,12 @@ connection.onSignatureHelp((params) => {
 
 connection.onFoldingRanges((params) => {
   return handleFoldingRange(params.textDocument.uri, docManager);
+});
+
+connection.onDocumentFormatting((params) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  return handleDocumentFormatting(params.textDocument.uri, document.getText());
 });
 
 // Listen for document events
