@@ -9,6 +9,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 
 - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
 - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
+- Struct literal fields use spaces around `:` and infix field values must stay grouped: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
 - **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
 

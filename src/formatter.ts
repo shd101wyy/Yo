@@ -74,12 +74,16 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
     (token) => token.type !== TokenType.Whitespace
   );
   const inlineCurlyIndices = findInlineCurlyIndices(significantTokens);
+  const skippedParenIndices =
+    findRedundantGroupingParenIndices(significantTokens);
   const rawValues = significantTokens.map((token, index) =>
     rawTokenValue(input, significantTokens, index)
   );
 
   let result = "";
   let indentLevel = 0;
+  let bracketDepth = 0;
+  let inlineCurlyDepth = 0;
   let atLineStart = true;
   let previousToken: Token | undefined;
 
@@ -138,8 +142,12 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
 
   for (let index = 0; index < significantTokens.length; index++) {
     const token = significantTokens[index]!;
+    if (skippedParenIndices.has(index)) {
+      continue;
+    }
+
     const previous = previousToken;
-    const next = significantTokens[index + 1];
+    const next = nextToken(significantTokens, skippedParenIndices, index);
     const raw = rawValues[index]!;
 
     if (COMMENT_TOKEN_TYPES.has(token.type)) {
@@ -160,6 +168,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       case TokenType.LCurlyBracket: {
         if (inlineCurlyIndices.has(index)) {
           write("{");
+          inlineCurlyDepth++;
           if (next && next.type !== TokenType.RCurlyBracket) {
             ensureSpace();
           }
@@ -172,6 +181,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       }
       case TokenType.RCurlyBracket: {
         if (inlineCurlyIndices.has(index)) {
+          inlineCurlyDepth = Math.max(0, inlineCurlyDepth - 1);
           trimTrailingHorizontalWhitespace();
           if (previous && previous.type !== TokenType.LCurlyBracket) {
             ensureSpace();
@@ -188,12 +198,18 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       }
       case TokenType.LParen:
       case TokenType.LBracket: {
+        if (token.type === TokenType.LBracket) {
+          bracketDepth++;
+        }
         write(token.value);
         break;
       }
       case TokenType.RParen:
       case TokenType.RBracket: {
         trimTrailingHorizontalWhitespace();
+        if (token.type === TokenType.RBracket) {
+          bracketDepth = Math.max(0, bracketDepth - 1);
+        }
         write(token.value);
         break;
       }
@@ -211,10 +227,22 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.Semicolon: {
-        trimTrailingHorizontalWhitespace();
-        write(";");
-        if (next && !COMMENT_TOKEN_TYPES.has(next.type)) {
-          newline();
+        if (
+          bracketDepth > 0 &&
+          next &&
+          next.type !== TokenType.RBracket &&
+          !COMMENT_TOKEN_TYPES.has(next.type)
+        ) {
+          trimTrailingHorizontalWhitespace();
+          ensureSpace();
+          write(";");
+          ensureSpace();
+        } else {
+          trimTrailingHorizontalWhitespace();
+          write(";");
+          if (next && !COMMENT_TOKEN_TYPES.has(next.type)) {
+            newline();
+          }
         }
         break;
       }
@@ -224,8 +252,17 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.Operator: {
-        if (isTightlyBoundOperator(token, previous, next)) {
+        if (token.value === ":" && inlineCurlyDepth > 0) {
           trimTrailingHorizontalWhitespace();
+          ensureSpace();
+          write(":");
+          ensureSpace();
+        } else if (isTightlyBoundOperator(token, previous, next)) {
+          if (prefixOperatorNeedsLeadingSpace(previous)) {
+            ensureSpace();
+          } else {
+            trimTrailingHorizontalWhitespace();
+          }
           write(token.value);
         } else {
           trimTrailingHorizontalWhitespace();
@@ -324,15 +361,329 @@ function collectYoFiles(targetPath: string, files: Set<string>): void {
   }
 }
 
+function nextToken(
+  tokens: Token[],
+  skippedIndices: Set<number>,
+  index: number
+): Token | undefined {
+  for (let nextIndex = index + 1; nextIndex < tokens.length; nextIndex++) {
+    if (!skippedIndices.has(nextIndex)) {
+      return tokens[nextIndex];
+    }
+  }
+  return undefined;
+}
+
+function findRedundantGroupingParenIndices(tokens: Token[]): Set<number> {
+  const skippedIndices = new Set<number>();
+  const matchingParens = findMatchingParenIndices(tokens);
+  const parentParens = findParentParenIndices(tokens);
+  const candidateLeftIndices = new Set<number>();
+
+  for (const [leftIndex, rightIndex] of matchingParens) {
+    if (isRedundantGroupingParen(tokens, leftIndex, rightIndex)) {
+      candidateLeftIndices.add(leftIndex);
+    }
+  }
+
+  for (const leftIndex of candidateLeftIndices) {
+    const rightIndex = matchingParens.get(leftIndex)!;
+    if (
+      parenRemovalWouldExposeStructFieldInfix(
+        tokens,
+        leftIndex,
+        rightIndex,
+        parentParens,
+        candidateLeftIndices
+      )
+    ) {
+      continue;
+    }
+    skippedIndices.add(leftIndex);
+    skippedIndices.add(rightIndex);
+  }
+
+  return skippedIndices;
+}
+
+function findParentParenIndices(tokens: Token[]): Map<number, number> {
+  const parents = new Map<number, number>();
+  const stack: number[] = [];
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === TokenType.LParen) {
+      const parent = stack[stack.length - 1];
+      if (parent !== undefined) {
+        parents.set(index, parent);
+      }
+      stack.push(index);
+    } else if (token.type === TokenType.RParen) {
+      stack.pop();
+    }
+  }
+
+  return parents;
+}
+
+function parenRemovalWouldExposeStructFieldInfix(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  parentParens: Map<number, number>,
+  candidateLeftIndices: Set<number>
+): boolean {
+  const previous = previousMeaningfulToken(tokens, leftIndex);
+  if (previous?.type === TokenType.Operator && previous.value === ":") {
+    return hasTopLevelOperator(tokens, leftIndex, rightIndex);
+  }
+
+  const parentLeftIndex = parentParens.get(leftIndex);
+  if (
+    parentLeftIndex === undefined ||
+    !candidateLeftIndices.has(parentLeftIndex)
+  ) {
+    return false;
+  }
+
+  const parentPrevious = previousMeaningfulToken(tokens, parentLeftIndex);
+  return (
+    parentPrevious?.type === TokenType.Operator &&
+    parentPrevious.value === ":" &&
+    hasTopLevelOperator(tokens, leftIndex, rightIndex)
+  );
+}
+
+function hasTopLevelOperator(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number
+): boolean {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let curlyDepth = 0;
+
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+    if (
+      token.type === TokenType.Operator &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      curlyDepth === 0
+    ) {
+      return true;
+    }
+
+    if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (token.type === TokenType.LCurlyBracket) {
+      curlyDepth++;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      curlyDepth = Math.max(0, curlyDepth - 1);
+    }
+  }
+
+  return false;
+}
+
+function findMatchingParenIndices(tokens: Token[]): Map<number, number> {
+  const pairs = new Map<number, number>();
+  const stack: number[] = [];
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === TokenType.LParen) {
+      stack.push(index);
+    } else if (token.type === TokenType.RParen) {
+      const leftIndex = stack.pop();
+      if (leftIndex !== undefined) {
+        pairs.set(leftIndex, index);
+      }
+    }
+  }
+
+  return pairs;
+}
+
+function isRedundantGroupingParen(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number
+): boolean {
+  if (rightIndex === leftIndex + 1) {
+    return false;
+  }
+
+  const previous = previousMeaningfulToken(tokens, leftIndex);
+  const next = nextMeaningfulToken(tokens, rightIndex);
+  const firstInner = nextMeaningfulToken(tokens, leftIndex, rightIndex);
+
+  if (!firstInner || tokenRangeHasComment(tokens, leftIndex + 1, rightIndex)) {
+    return false;
+  }
+  if (parenIsCallDelimiter(previous)) {
+    return false;
+  }
+  if (
+    previous?.type === TokenType.Operator &&
+    !operatorAllowsUngroupedRhs(previous.value)
+  ) {
+    return false;
+  }
+  if (next?.type === TokenType.Operator || next?.type === TokenType.LParen) {
+    return false;
+  }
+  if (
+    firstInner.type === TokenType.Identifier &&
+    isFunctionTypeKeyword(firstInner.value)
+  ) {
+    return false;
+  }
+  if (hasTopLevelToken(tokens, leftIndex, rightIndex, TokenType.Comma)) {
+    return false;
+  }
+  if (hasTopLevelToken(tokens, leftIndex, rightIndex, TokenType.Semicolon)) {
+    return false;
+  }
+
+  return true;
+}
+
+function previousMeaningfulToken(
+  tokens: Token[],
+  index: number
+): Token | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const token = tokens[i]!;
+    if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function nextMeaningfulToken(
+  tokens: Token[],
+  index: number,
+  endExclusive = tokens.length
+): Token | undefined {
+  for (let i = index + 1; i < endExclusive; i++) {
+    const token = tokens[i]!;
+    if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function tokenRangeHasComment(
+  tokens: Token[],
+  startInclusive: number,
+  endExclusive: number
+): boolean {
+  for (let index = startInclusive; index < endExclusive; index++) {
+    if (COMMENT_TOKEN_TYPES.has(tokens[index]!.type)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function parenIsCallDelimiter(previous: Token | undefined): boolean {
+  return (
+    previous !== undefined &&
+    (ATOM_LIKE_TOKEN_TYPES.has(previous.type) ||
+      previous.type === TokenType.RParen ||
+      previous.type === TokenType.RBracket ||
+      previous.type === TokenType.RCurlyBracket)
+  );
+}
+
+function operatorAllowsUngroupedRhs(operator: string): boolean {
+  return [":=", "::", "=", ":", "=>", "->"].includes(operator);
+}
+
+function isFunctionTypeKeyword(value: string): boolean {
+  return value === "fn" || value === "unsafe_fn";
+}
+
+function hasTopLevelToken(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  tokenType: TokenType
+): boolean {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let curlyDepth = 0;
+
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+    if (
+      token.type === tokenType &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      curlyDepth === 0
+    ) {
+      return true;
+    }
+
+    if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (token.type === TokenType.LCurlyBracket) {
+      curlyDepth++;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      curlyDepth = Math.max(0, curlyDepth - 1);
+    }
+  }
+
+  return false;
+}
+
 function findInlineCurlyIndices(tokens: Token[]): Set<number> {
   const inlineIndices = new Set<number>();
-  const stack: Array<{ index: number; hasTopLevelSemicolon: boolean }> = [];
+  const stack: Array<{
+    index: number;
+    parenDepth: number;
+    bracketDepth: number;
+    hasTopLevelSemicolon: boolean;
+  }> = [];
+  let parenDepth = 0;
+  let bracketDepth = 0;
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!;
     if (token.type === TokenType.LCurlyBracket) {
-      stack.push({ index, hasTopLevelSemicolon: false });
-    } else if (token.type === TokenType.Semicolon && stack.length > 0) {
+      stack.push({
+        index,
+        parenDepth,
+        bracketDepth,
+        hasTopLevelSemicolon: false,
+      });
+    } else if (
+      token.type === TokenType.Semicolon &&
+      stack.length > 0 &&
+      stack[stack.length - 1]!.parenDepth === parenDepth &&
+      stack[stack.length - 1]!.bracketDepth === bracketDepth
+    ) {
       stack[stack.length - 1]!.hasTopLevelSemicolon = true;
     } else if (token.type === TokenType.RCurlyBracket) {
       const frame = stack.pop();
@@ -340,6 +691,14 @@ function findInlineCurlyIndices(tokens: Token[]): Set<number> {
         inlineIndices.add(frame.index);
         inlineIndices.add(index);
       }
+    } else if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
     }
   }
 
@@ -395,6 +754,14 @@ function isTightlyBoundOperator(
   }
   return (
     PREFIX_OPERATOR_VALUES.has(token.value) && next?.type === TokenType.LParen
+  );
+}
+
+function prefixOperatorNeedsLeadingSpace(previous: Token | undefined): boolean {
+  return (
+    previous?.type === TokenType.Comma ||
+    (previous?.type === TokenType.Operator &&
+      operatorAllowsUngroupedRhs(previous.value))
   );
 }
 

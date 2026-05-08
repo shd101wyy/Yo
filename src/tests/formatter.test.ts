@@ -44,6 +44,44 @@ main :: (fn() -> unit)({
       "message :: `hello ${name}\\n`;\nexport(message);\n"
     );
   });
+
+  test("removes redundant grouping parentheses around expressions", () => {
+    const source = `main::(fn()->i32)({
+return((1 + 2));
+});`;
+
+    expect(formatYoSource(source)).toBe(`main :: (fn() -> i32)({
+  return(1 + 2);
+});
+`);
+  });
+
+  test("preserves delimiter syntax that is not redundant grouping", () => {
+    const source = `main::(fn()->unit)({
+pair:=((1, 2));
+single:=(value,);
+point:={x: ((1 + 2)), y: 3};
+arr_type::[i32; 10];
+slice_type::[i32];
+ptr := &((value));
+value:=add((1 + 2), i32(3));
+make_fn:=(fn()->unit)({return();});
+});`;
+
+    expect(formatYoSource(source)).toBe(`main :: (fn() -> unit)({
+  pair := (1, 2);
+  single := (value,);
+  point := { x : (1 + 2), y : 3 };
+  arr_type :: [i32 ; 10];
+  slice_type :: [i32];
+  ptr := &(value);
+  value := add(1 + 2, i32(3));
+  make_fn := (fn() -> unit)({
+    return();
+  });
+});
+`);
+  });
 });
 
 describe("formatYoFiles", () => {

@@ -34,11 +34,11 @@ export(main);
 
 ## Blocks and expressions
 
-| Goal              | Write                      | Avoid                      |
-| ----------------- | -------------------------- | -------------------------- |
-| Single expression | `cond(...)`                | `{ cond(...) }`            |
-| Begin block       | `{ x := i32(1); x }`       | `{ x := i32(1), x }`       |
-| Struct literal    | `{ name: "yo", ok: true }` | `{ name: "yo"; ok: true }` |
+| Goal              | Write                        | Avoid                        |
+| ----------------- | ---------------------------- | ---------------------------- |
+| Single expression | `cond(...)`                  | `{ cond(...) }`              |
+| Begin block       | `{ x := i32(1); x }`         | `{ x := i32(1), x }`         |
+| Struct literal    | `{ name : "yo", ok : true }` | `{ name : "yo"; ok : true }` |
 
 ```rust
 result := cond(
@@ -53,6 +53,8 @@ total := {
 ```
 
 Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
+
+In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 
 ## Control flow
 
