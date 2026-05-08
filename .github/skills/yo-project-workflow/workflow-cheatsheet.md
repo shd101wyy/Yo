@@ -118,10 +118,11 @@ yo fmt --check
 - Pass files or directories to limit the scope
 - `yo fmt --check` reports files that need formatting without writing changes
 - Formatting is intentionally fixed: 2-space indentation and no configuration
+- Formatting must be idempotent: a second `yo fmt` run on the same files should report no changes and must not produce parser errors
 - The formatter removes redundant grouping parentheses, e.g. `return((1 + 2))` → `return(1 + 2)`
 - Infix-like separators keep spaces on both sides, including `{ x : value }` fields and `[T ; N]` array type sugar
 - It preserves delimiter syntax whose meaning is not just grouping: tuples, `{...}` struct/begin forms, `[T ; N]` arrays, `[T]` slices, call parentheses, function body calls, and prefix-operator operands
-- It preserves grouping where removing it would expose ambiguous infix syntax, e.g. `{ x : (1 + 2), y : 3 }`
+- It preserves grouping or operator line breaks where removing them would expose ambiguous infix syntax, e.g. `{ x : (1 + 2), y : 3 }`, `true => (x / y)`, `(ptr &+ 1).*`, and line-leading `|` chains
 
 ### Writing tests in Yo
 

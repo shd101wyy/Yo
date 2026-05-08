@@ -212,6 +212,26 @@ Every binary operation must be explicitly parenthesized. When chaining the same 
 (((A | B) | C) | D)
 ```
 
+Newlines around operators can also be semantically significant because they disambiguate right-associative parses. Do not collapse line-leading operators or a newline after `:` into a single line unless you add equivalent parentheses:
+
+```rust
+// Valid because each `|` stays line-leading:
+(4
+| 5
+| 6)
+
+// Valid because newline after `:` confirms the RHS:
+raise :
+  (msg) -> {
+    escape(());
+  }
+
+// Also valid: explicit grouping on the RHS.
+raise : ((msg) -> {
+  escape(());
+})
+```
+
 This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
 
 ```rust
@@ -225,6 +245,8 @@ next : (fn(self : *(Self)) -> Option(Self.Item))
 next :
   fn(self : *(Self)) -> Option(Self.Item)
 ```
+
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <:!(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <:! (Runtime)`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 

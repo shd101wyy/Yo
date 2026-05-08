@@ -38,6 +38,9 @@ const PREFIX_OPERATOR_VALUES = new Set<string>([
   "*",
   "^",
   "...",
+  "#",
+  "?*",
+  "<:!",
 ]);
 
 const IGNORED_FORMAT_DIRS = new Set<string>([
@@ -76,6 +79,10 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
   const inlineCurlyIndices = findInlineCurlyIndices(significantTokens);
   const skippedParenIndices =
     findRedundantGroupingParenIndices(significantTokens);
+  const multilineParenIndices = findMultilineParenIndices(
+    significantTokens,
+    skippedParenIndices
+  );
   const rawValues = significantTokens.map((token, index) =>
     rawTokenValue(input, significantTokens, index)
   );
@@ -86,6 +93,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
   let inlineCurlyDepth = 0;
   let atLineStart = true;
   let previousToken: Token | undefined;
+  const parenStack: Array<{ index: number; multiline: boolean }> = [];
 
   const trimTrailingHorizontalWhitespace = (): void => {
     result = result.replace(/[ \t]+$/u, "");
@@ -125,9 +133,9 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       if (!atLineStart) {
         newline();
       }
-      const lines = raw.split("\n");
+      const lines = normalizeMultilineBlockComment(raw);
       for (const line of lines) {
-        write(line.trimEnd());
+        write(line);
         newline();
       }
       return;
@@ -151,6 +159,13 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
     const raw = rawValues[index]!;
 
     if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      if (
+        previous &&
+        token.position.row > previous.position.row &&
+        !atLineStart
+      ) {
+        newline();
+      }
       if (LINE_COMMENT_TOKEN_TYPES.has(token.type)) {
         if (!atLineStart) {
           ensureSpace();
@@ -197,6 +212,18 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.LParen:
+        if (multilineParenIndices.has(index)) {
+          write("(");
+          parenStack.push({ index, multiline: true });
+          indentLevel++;
+          if (next && next.type !== TokenType.RParen) {
+            newline();
+          }
+        } else {
+          write("(");
+          parenStack.push({ index, multiline: false });
+        }
+        break;
       case TokenType.LBracket: {
         if (token.type === TokenType.LBracket) {
           bracketDepth++;
@@ -205,6 +232,20 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.RParen:
+        {
+          const frame = parenStack.pop();
+          if (frame?.multiline) {
+            if (!atLineStart) {
+              newline();
+            }
+            indentLevel = Math.max(0, indentLevel - 1);
+            write(")");
+          } else {
+            trimTrailingHorizontalWhitespace();
+            write(")");
+          }
+        }
+        break;
       case TokenType.RBracket: {
         trimTrailingHorizontalWhitespace();
         if (token.type === TokenType.RBracket) {
@@ -222,7 +263,11 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           next.type !== TokenType.RBracket &&
           next.type !== TokenType.RCurlyBracket
         ) {
-          ensureSpace();
+          if (parenStack[parenStack.length - 1]?.multiline === true) {
+            newline();
+          } else {
+            ensureSpace();
+          }
         }
         break;
       }
@@ -240,7 +285,11 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         } else {
           trimTrailingHorizontalWhitespace();
           write(";");
-          if (next && !COMMENT_TOKEN_TYPES.has(next.type)) {
+          if (
+            next &&
+            (!COMMENT_TOKEN_TYPES.has(next.type) ||
+              next.position.row > token.position.row)
+          ) {
             newline();
           }
         }
@@ -256,9 +305,13 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           trimTrailingHorizontalWhitespace();
           ensureSpace();
           write(":");
-          ensureSpace();
+          if (next && next.position.row > token.position.row) {
+            newline();
+          } else {
+            ensureSpace();
+          }
         } else if (isTightlyBoundOperator(token, previous, next)) {
-          if (prefixOperatorNeedsLeadingSpace(previous)) {
+          if (prefixOperatorNeedsLeadingSpace(token, previous)) {
             ensureSpace();
           } else {
             trimTrailingHorizontalWhitespace();
@@ -266,9 +319,17 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           write(token.value);
         } else {
           trimTrailingHorizontalWhitespace();
-          ensureSpace();
+          if (previous && token.position.row > previous.position.row) {
+            newline();
+          } else {
+            ensureSpace();
+          }
           write(token.value);
-          ensureSpace();
+          if (next && next.position.row > token.position.row) {
+            newline();
+          } else {
+            ensureSpace();
+          }
         }
         break;
       }
@@ -389,7 +450,7 @@ function findRedundantGroupingParenIndices(tokens: Token[]): Set<number> {
   for (const leftIndex of candidateLeftIndices) {
     const rightIndex = matchingParens.get(leftIndex)!;
     if (
-      parenRemovalWouldExposeStructFieldInfix(
+      parenRemovalWouldExposeOperatorRhsInfix(
         tokens,
         leftIndex,
         rightIndex,
@@ -426,7 +487,7 @@ function findParentParenIndices(tokens: Token[]): Map<number, number> {
   return parents;
 }
 
-function parenRemovalWouldExposeStructFieldInfix(
+function parenRemovalWouldExposeOperatorRhsInfix(
   tokens: Token[],
   leftIndex: number,
   rightIndex: number,
@@ -434,7 +495,7 @@ function parenRemovalWouldExposeStructFieldInfix(
   candidateLeftIndices: Set<number>
 ): boolean {
   const previous = previousMeaningfulToken(tokens, leftIndex);
-  if (previous?.type === TokenType.Operator && previous.value === ":") {
+  if (previous?.type === TokenType.Operator) {
     return hasTopLevelOperator(tokens, leftIndex, rightIndex);
   }
 
@@ -449,7 +510,6 @@ function parenRemovalWouldExposeStructFieldInfix(
   const parentPrevious = previousMeaningfulToken(tokens, parentLeftIndex);
   return (
     parentPrevious?.type === TokenType.Operator &&
-    parentPrevious.value === ":" &&
     hasTopLevelOperator(tokens, leftIndex, rightIndex)
   );
 }
@@ -514,6 +574,257 @@ function findMatchingParenIndices(tokens: Token[]): Map<number, number> {
   return pairs;
 }
 
+function findMultilineParenIndices(
+  tokens: Token[],
+  skippedIndices: Set<number>
+): Set<number> {
+  const multilineIndices = new Set<number>();
+  const matchingParens = findMatchingParenIndices(tokens);
+
+  for (const [leftIndex, rightIndex] of matchingParens) {
+    if (skippedIndices.has(leftIndex) || skippedIndices.has(rightIndex)) {
+      continue;
+    }
+    const previous = previousMeaningfulToken(tokens, leftIndex);
+    const forceMultiline =
+      shouldForceControlFlowMultiline(
+        tokens,
+        leftIndex,
+        rightIndex,
+        previous
+      ) ||
+      hasTopLevelFieldBlock(tokens, leftIndex, rightIndex) ||
+      shouldForceOperatorRhsBlock(tokens, leftIndex, rightIndex, previous);
+    if (
+      !forceMultiline &&
+      tokens[rightIndex]!.position.row <= tokens[leftIndex]!.position.row
+    ) {
+      continue;
+    }
+
+    const firstInner = nextMeaningfulToken(tokens, leftIndex, rightIndex);
+    if (
+      firstInner?.type === TokenType.LCurlyBracket ||
+      hasTopLevelCurlyArgument(tokens, leftIndex, rightIndex) ||
+      (parenIsCallDelimiter(previous) &&
+        hasDirectTopLevelClosureArgument(
+          tokens,
+          leftIndex,
+          rightIndex,
+          previous
+        ))
+    ) {
+      continue;
+    }
+
+    multilineIndices.add(leftIndex);
+    multilineIndices.add(rightIndex);
+  }
+
+  return multilineIndices;
+}
+
+function shouldForceOperatorRhsBlock(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  previous: Token | undefined
+): boolean {
+  return (
+    previous?.type === TokenType.Operator &&
+    hasAnyToken(tokens, leftIndex, rightIndex, TokenType.LCurlyBracket)
+  );
+}
+
+function hasAnyToken(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  tokenType: TokenType
+): boolean {
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    if (tokens[index]!.type === tokenType) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldForceControlFlowMultiline(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  previous: Token | undefined
+): boolean {
+  return (
+    previous?.type === TokenType.Identifier &&
+    (previous.value === "cond" ||
+      previous.value === "if" ||
+      previous.value === "match") &&
+    hasTopLevelToken(tokens, leftIndex, rightIndex, TokenType.LCurlyBracket)
+  );
+}
+
+function hasTopLevelCurlyArgument(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number
+): boolean {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let curlyDepth = 0;
+  let previousTopLevel: Token | undefined;
+
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+
+    const atTopLevel =
+      parenDepth === 0 && bracketDepth === 0 && curlyDepth === 0;
+    if (
+      token.type === TokenType.LCurlyBracket &&
+      atTopLevel &&
+      previousTopLevel?.type === TokenType.Comma
+    ) {
+      return true;
+    }
+
+    if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (token.type === TokenType.LCurlyBracket) {
+      curlyDepth++;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      curlyDepth = Math.max(0, curlyDepth - 1);
+    }
+
+    if (atTopLevel) {
+      previousTopLevel = token;
+    }
+  }
+
+  return false;
+}
+
+function hasTopLevelFieldBlock(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number
+): boolean {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let curlyDepth = 0;
+  let sawTopLevelColon = false;
+
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+
+    const atTopLevel =
+      parenDepth === 0 && bracketDepth === 0 && curlyDepth === 0;
+    if (
+      token.type === TokenType.Operator &&
+      token.value === ":" &&
+      atTopLevel
+    ) {
+      sawTopLevelColon = true;
+    } else if (
+      token.type === TokenType.LCurlyBracket &&
+      bracketDepth === 0 &&
+      sawTopLevelColon
+    ) {
+      return true;
+    }
+
+    if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (token.type === TokenType.LCurlyBracket) {
+      curlyDepth++;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      curlyDepth = Math.max(0, curlyDepth - 1);
+    }
+  }
+
+  return false;
+}
+
+function hasDirectTopLevelClosureArgument(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number,
+  previous: Token | undefined
+): boolean {
+  if (
+    previous?.type === TokenType.Identifier &&
+    ["cond", "if", "match", "test", "while"].includes(previous.value)
+  ) {
+    return false;
+  }
+
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let curlyDepth = 0;
+  let sawTopLevelColon = false;
+  let sawClosureOperator = false;
+
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+
+    const atTopLevel =
+      parenDepth === 0 && bracketDepth === 0 && curlyDepth === 0;
+    if (token.type === TokenType.Operator && atTopLevel) {
+      if (token.value === ":") {
+        sawTopLevelColon = true;
+      } else if (
+        !sawTopLevelColon &&
+        (token.value === "=>" || token.value === "->")
+      ) {
+        sawClosureOperator = true;
+      }
+    } else if (
+      token.type === TokenType.LCurlyBracket &&
+      atTopLevel &&
+      sawClosureOperator
+    ) {
+      return true;
+    }
+
+    if (token.type === TokenType.LParen) {
+      parenDepth++;
+    } else if (token.type === TokenType.RParen) {
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (token.type === TokenType.LBracket) {
+      bracketDepth++;
+    } else if (token.type === TokenType.RBracket) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (token.type === TokenType.LCurlyBracket) {
+      curlyDepth++;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      curlyDepth = Math.max(0, curlyDepth - 1);
+    }
+  }
+
+  return false;
+}
+
 function isRedundantGroupingParen(
   tokens: Token[],
   leftIndex: number,
@@ -539,7 +850,11 @@ function isRedundantGroupingParen(
   ) {
     return false;
   }
-  if (next?.type === TokenType.Operator || next?.type === TokenType.LParen) {
+  if (
+    next?.type === TokenType.Operator ||
+    next?.type === TokenType.Dot ||
+    next?.type === TokenType.LParen
+  ) {
     return false;
   }
   if (
@@ -757,9 +1072,14 @@ function isTightlyBoundOperator(
   );
 }
 
-function prefixOperatorNeedsLeadingSpace(previous: Token | undefined): boolean {
+function prefixOperatorNeedsLeadingSpace(
+  token: Token,
+  previous: Token | undefined
+): boolean {
   return (
     previous?.type === TokenType.Comma ||
+    (token.value === "<:!" && previous !== undefined) ||
+    (token.value === "-" && previous?.type === TokenType.Operator) ||
     (previous?.type === TokenType.Operator &&
       operatorAllowsUngroupedRhs(previous.value))
   );
@@ -775,4 +1095,35 @@ function needsSpaceBeforeAtom(previous: Token | undefined): boolean {
     previous.type === TokenType.RBracket ||
     previous.type === TokenType.RCurlyBracket
   );
+}
+
+function normalizeMultilineBlockComment(raw: string): string[] {
+  const lines = raw.split("\n").map((line) => line.trimEnd());
+  const indentedLines = lines.slice(1);
+  let commonIndent: number | undefined;
+
+  for (const line of indentedLines) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+    const indent = leadingWhitespaceLength(line);
+    commonIndent =
+      commonIndent === undefined ? indent : Math.min(commonIndent, indent);
+  }
+
+  if (!commonIndent) {
+    return lines;
+  }
+
+  return [
+    lines[0]!,
+    ...indentedLines.map((line) =>
+      line.trim().length === 0 ? "" : line.slice(commonIndent)
+    ),
+  ];
+}
+
+function leadingWhitespaceLength(line: string): number {
+  const match = line.match(/^[ \t]*/u);
+  return match ? match[0].length : 0;
 }

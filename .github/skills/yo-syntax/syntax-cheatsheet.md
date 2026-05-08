@@ -109,7 +109,10 @@ masked := ((A | B) | C);
 - Calls require immediate parentheses: `func(arg1, arg2)`
 - `func arg1, arg2` and `func (arg1, arg2)` are invalid
 - Yo has no operator precedence; fully parenthesize binary expressions
+- Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
+- Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
+- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <:!(Runtime)`
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
 - **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
