@@ -69,18 +69,6 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // Module
-  else if (identifier === "Module") {
-    const value = createTypeValue(createTypeHierarchy(1));
-    expr.$ = {
-      env,
-      type: value.type,
-      value: value,
-
-      pathCollection: [],
-    };
-    return expr;
-  }
   // Trait
   else if (identifier === "Trait") {
     const value = createTypeValue(createTypeHierarchy(1));
@@ -472,20 +460,6 @@ export function evaluateIdentifierAndOperator({
   // Only available inside trait(...) definitions
   else if (identifier === "SelfTrait" && context.SelfTraitType) {
     const typeValue = createTypeValue(context.SelfTraitType);
-
-    expr.$ = {
-      env,
-      type: typeValue.type,
-      value: typeValue,
-
-      pathCollection: [],
-    };
-    return expr;
-  }
-  // SelfModule - refers to the module type currently being defined
-  // Only available inside module(...) definitions
-  else if (identifier === "SelfModule" && context.SelfModuleType) {
-    const typeValue = createTypeValue(context.SelfModuleType);
 
     expr.$ = {
       env,

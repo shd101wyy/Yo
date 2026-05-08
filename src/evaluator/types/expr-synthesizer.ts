@@ -11,7 +11,7 @@ import {
 import type { Type } from "../../types/definitions";
 import {
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isStructType,
   isTraitType,
   isTupleType,
@@ -88,7 +88,7 @@ export function synthesizeExprAndType({
     if (
       isStructType(type) ||
       isUnionType(type) ||
-      isModuleType(type) ||
+      isSourceNamespaceType(type) ||
       isTraitType(type)
     ) {
       const funcCallExpr = evaluateFunctionCall({

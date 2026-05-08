@@ -39,7 +39,7 @@ import { typeContainsRcType } from "../../types/utils";
 import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
@@ -56,6 +56,7 @@ import {
   canOptimizeAsSimpleEnum,
   getDeferredDupTargetAtomName,
   getEnumVariantCName,
+  getRuntimeStructFields,
   getTypeString,
   getVariableNameForCodegen,
   getVariableTypeString,
@@ -589,15 +590,15 @@ export function generateOtherFunctionCall(
           functionValue.specializedType ?? functionValue.type;
 
         // Evidence passing: if we're inside a function with evidence params and
-        // this call is to a module effect member, call through the evidence fn ptr
+        // this call is toan effect record member, call through the evidence fn ptr
         // instead of inlining the handler body.
         const functionContext = context as FunctionGenerationContext;
         if (
           functionContext.currentEvidenceParams &&
-          functionValue.isModuleEffectMember
+          functionValue.isEffectRecordMember
         ) {
           // Find the matching evidence parameter for this function value by
-          // navigating each evidence param's module field path in the given
+          // navigating each evidence param's evidence field path in the given
           // binding environment and comparing funcIds.
           let matchedEp: EvidenceParameter | undefined;
           const callEnv = expr.func.$?.env ?? expr.$?.env;
@@ -605,24 +606,24 @@ export function generateOtherFunctionCall(
             for (const ep of functionContext.currentEvidenceParams.values()) {
               const givenVars = getVariablesFromEnv(callEnv, ep.implicitLabel);
               const givenVar = givenVars[givenVars.length - 1];
-              const moduleVal = givenVar?.value?.[0];
-              if (moduleVal && isModuleValue(moduleVal)) {
-                // Navigate fieldPath through potentially nested modules
-                let currentModule = moduleVal;
+              const recordVal = givenVar?.value?.[0];
+              if (recordVal && isStructValue(recordVal)) {
+                // Navigate fieldPath through potentially nested effect records
+                let currentRecord = recordVal;
                 let navigated = true;
                 for (let i = 0; i < ep.fieldPath.length - 1; i++) {
                   const pathSegment = ep.fieldPath[i]!;
-                  const idx = currentModule.type.fields.findIndex(
+                  const idx = currentRecord.type.fields.findIndex(
                     (f) => f.label === pathSegment
                   );
-                  if (
-                    idx >= 0 &&
-                    currentModule.fields[idx] &&
-                    isModuleValue(currentModule.fields[idx])
-                  ) {
-                    currentModule = currentModule.fields[
-                      idx
-                    ] as import("../../value").ModuleValue;
+                  if (idx >= 0 && currentRecord.fields[idx]) {
+                    const nextVal = currentRecord.fields[idx]!;
+                    if (isStructValue(nextVal)) {
+                      currentRecord = nextVal;
+                    } else {
+                      navigated = false;
+                      break;
+                    }
                   } else {
                     navigated = false;
                     break;
@@ -630,11 +631,11 @@ export function generateOtherFunctionCall(
                 }
                 if (navigated) {
                   const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
-                  const fieldIdx = currentModule.type.fields.findIndex(
+                  const fieldIdx = currentRecord.type.fields.findIndex(
                     (f) => f.label === lastLabel
                   );
                   if (fieldIdx >= 0) {
-                    const fieldVal = currentModule.fields[fieldIdx];
+                    const fieldVal = currentRecord.fields[fieldIdx];
                     if (
                       fieldVal &&
                       isFunctionValue(fieldVal) &&
@@ -711,7 +712,7 @@ export function generateOtherFunctionCall(
                 .join(", ");
             }
           }
-          // Evidence passing call site: callee has module-type implicit params
+          // Evidence passing call site: callee has effect-record implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
           // otherwise fall back to original type for forall evidence params (void* cast).
@@ -760,12 +761,12 @@ export function generateOtherFunctionCall(
           }
 
           // Determine if this call might trigger an effect escape.
-          // Control functions / module effect members set __yo_effect_escaped.
+          // Control functions / effect record members set __yo_effect_escaped.
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
           const callMayEscape =
             functionValue.isControlFunction ||
-            functionValue.isModuleEffectMember ||
+            functionValue.isEffectRecordMember ||
             functionValue.body?.$?.effectAnalysis?.hasEffects;
 
           // For specialized effectful functions, check if this is the handler
@@ -775,7 +776,7 @@ export function generateOtherFunctionCall(
           if (callMayEscape) {
             if (
               functionValue.isControlFunction ||
-              functionValue.isModuleEffectMember
+              functionValue.isEffectRecordMember
             ) {
               // Direct call to a control/handler function.
               // Check if the function was bound via `given` in a begin-block
@@ -1035,14 +1036,14 @@ export function generateOtherFunctionCall(
             }
           }
 
-          // Detect module effect member calls in async SM context
+          // Detect effect record member calls in async SM context
           // (e.g., sm->__capture.throw(arg) — handler may escape)
           const functionContext = context as FunctionGenerationContext;
-          const isModuleEffectCapture =
+          const isEffectRecordCapture =
             funcCode.includes("__capture.") &&
             !!functionContext.inAsyncStateMachine;
 
-          if (isModuleEffectCapture) {
+          if (isEffectRecordCapture) {
             context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
           }
 
@@ -1060,7 +1061,7 @@ export function generateOtherFunctionCall(
               generateDeferredDropExpressions(expr, indent, context);
             }
 
-            if (isModuleEffectCapture) {
+            if (isEffectRecordCapture) {
               context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
               // Drop RC-typed arguments that won't be dropped by the escaped handler
               if (runtimeArgExprs) {
@@ -1130,7 +1131,7 @@ export function generateOtherFunctionCall(
                 generateDeferredDropExpressions(expr, indent, context);
               }
 
-              if (isModuleEffectCapture) {
+              if (isEffectRecordCapture) {
                 context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
                 // Drop RC-typed arguments that won't be dropped by the escaped handler
                 if (runtimeArgExprs) {
@@ -1183,14 +1184,11 @@ export function generateOtherFunctionCall(
       extractFnTraitFromType(functionType, expr.func.$?.env))
   ) {
     const closureValueType = functionType;
-    const fnModule = extractFnTraitFromType(
-      closureValueType,
-      expr.func.$?.env
-    )!;
+    const fnTrait = extractFnTraitFromType(closureValueType, expr.func.$?.env)!;
     // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
     const isDynClosure = isDynType(closureValueType);
     {
-      const callSig = fnModule.isFn.callType;
+      const callSig = fnTrait.isFn.callType;
       // Handle closure calls with dynamic dispatch through vtable
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
@@ -1506,13 +1504,25 @@ export function generateOtherFunctionCall(
       const structType = functionValue.value;
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       const cName = context.types[structType.id]?.cName;
-      const labels = structType.fields.map((field) => field.label);
+      const runtimeFieldEntries = runtimeArgExprs
+        ? structType.fields
+            .map((field, index) => ({
+              field,
+              arg: runtimeArgExprs[index],
+            }))
+            .filter(({ field }) =>
+              getRuntimeStructFields(structType).some(
+                (runtimeField) => runtimeField === field
+              )
+            )
+        : undefined;
       const tempVar = expr.$?.variableName;
 
       if (
         runtimeArgExprs &&
         cName &&
-        labels.length === runtimeArgExprs.length
+        runtimeFieldEntries &&
+        runtimeFieldEntries.every(({ arg }) => arg !== undefined)
       ) {
         // Handle newtype as zero-cost abstraction
         if (structType.isNewtype && structType.fields.length === 1) {
@@ -1582,8 +1592,9 @@ export function generateOtherFunctionCall(
           // For object, call the constructor function
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
-            .map((arg) => {
+          const argsList = runtimeFieldEntries
+            .map(({ arg }) => {
+              arg = arg!;
               const argCode = generateExpr(arg, indent, context);
 
               // Handle deferred dup expressions for constructor arguments
@@ -1647,15 +1658,16 @@ export function generateOtherFunctionCall(
           // For regular struct, generate struct initialization as before
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
-            .map((arg, index) => {
+          const argsList = runtimeFieldEntries
+            .map(({ field, arg }, index) => {
+              arg = arg!;
               const argCode = generateExpr(arg, indent, context);
               // For tuples, always use numeric field names _0, _1, _2...
               // For regular structs, use the actual field labels
               const fieldName = isTupleType(structType)
                 ? `_${index}`
                 : sanitizeForCIdentifier(
-                    labels[index]!,
+                    field.label,
                     structType.isExtern === "c"
                   );
 
@@ -2165,7 +2177,7 @@ function emitEffectEscapeCheck(
 
 /**
  * Generate a call through an evidence fn ptr parameter.
- * Used inside functions with evidence passing when calling module effect members.
+ * Used inside functions with evidence passing when calling effect record members.
  *
  * Generates:
  *   result = evidence_fn_ptr(args);
@@ -2347,7 +2359,7 @@ function generateEvidenceFnPtrCall(
       }
 
       // When the handler has a forall/SomeType return type, it's compiled as
-      // void in C (isModuleEffectMember). We must NOT assign the handler's
+      // void in C (isEffectRecordMember). We must NOT assign the handler's
       // (void) "return value" to a typed temp — that's undefined behavior and
       // crashes on WASM. Instead: declare the temp var zero-initialized before
       // the call (so escape-path drops reference a valid variable), call as void,
@@ -2462,7 +2474,7 @@ function generateEvidenceFnPtrCall(
  * Resolution order for each evidence param:
  * 1. Transitive: if caller has matching evidence params, forward them
  * 2. From effectAnalysis: look up handler function values (escape or resume)
- * 3. From given binding: look up the module value in the call environment
+ * 3. From given binding: look up the effect record value in the call environment
  */
 function resolveEvidenceArgsForCallSite(
   calleeEvidenceParams: EvidenceParameter[],
@@ -2586,8 +2598,44 @@ function resolveEvidenceArgsForCallSite(
         const givenVar =
           typeVar && typeVar !== labelVar ? typeVar : (labelVar ?? typeVar);
         const givenValue = givenVar?.value?.[0];
-        if (givenValue && isModuleValue(givenValue)) {
-          // Navigate the field path through potentially nested modules
+
+        // Phase 4b: runtime struct given binding — emit a C field access
+        // through the runtime variable (e.g. `c.next`). This applies when
+        // the given variable holds a runtime struct value (no comptime
+        // FunctionValue/StructValue available). Requires
+        // isCompileTimeOnly===false to distinguish runtime given(struct)
+        // bindings from compile-time using(struct) parameters that are
+        // lowered to flat evidence params at the C level.
+        if (
+          !resolved &&
+          givenVar &&
+          givenVar.isCompileTimeOnly === false &&
+          isStructType(givenVar.type) &&
+          (!givenValue || !isStructValue(givenValue)) &&
+          (!givenValue || !isFunctionValue(givenValue))
+        ) {
+          const callEnvForName = expr.func.$?.env ?? expr.$?.env;
+          const cName = getVariableNameForCodegen(
+            givenVar.name,
+            callEnvForName
+          );
+          // ep.fieldPath starts with the implicit label; drop it because
+          // the implicit label maps to the C variable name itself.
+          const fieldPath = ep.fieldPath.slice(
+            ep.fieldPath[0] === ep.implicitLabel ? 1 : 0
+          );
+          if (fieldPath.length > 0) {
+            result.push(`${cName}.${fieldPath.join(".")}`);
+          } else {
+            result.push(cName);
+          }
+          resolved = true;
+          isHandlerInstallation = true;
+          continue;
+        }
+
+        if (givenValue && isStructValue(givenValue)) {
+          // Navigate the field path through potentially nested struct records
           let currentModule = givenValue;
           let navigated = true;
           for (let i = 0; i < ep.fieldPath.length - 1; i++) {
@@ -2595,14 +2643,9 @@ function resolveEvidenceArgsForCallSite(
             const idx = currentModule.type.fields.findIndex(
               (f) => f.label === pathSegment
             );
-            if (
-              idx >= 0 &&
-              currentModule.fields[idx] &&
-              isModuleValue(currentModule.fields[idx])
-            ) {
-              currentModule = currentModule.fields[
-                idx
-              ] as import("../../value").ModuleValue;
+            const nextRecord = idx >= 0 ? currentModule.fields[idx] : undefined;
+            if (nextRecord && isStructValue(nextRecord)) {
+              currentModule = nextRecord;
             } else {
               navigated = false;
               break;

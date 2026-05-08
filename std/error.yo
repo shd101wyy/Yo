@@ -19,18 +19,18 @@ export AnyError;
 /// Allows using `String` directly as an error type.
 impl(String, Error());
 
-/// Non-resumable exception handling effect module.
+/// Non-resumable exception handling effect record.
 /// Use `throw` to raise an `AnyError` and abort the current computation.
-Exception :: module(
+Exception :: struct(
   throw : (fn(forall(ResumeType : Type), error : AnyError) -> ResumeType)
 );
 export Exception;
 
 
-/// Creates a resumable exception module parameterized by the resume type.
+/// Creates a resumable exception effect record parameterized by the resume type.
 /// Unlike `Exception`, the handler can return a value to resume the computation.
-ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Module))(
-  module(
+ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
+  struct(
     throw : (fn(error : AnyError) -> ResumeType)
   )
 );

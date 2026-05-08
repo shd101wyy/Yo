@@ -15,6 +15,7 @@
 open import "std/string";
 { ArrayList } :: import "std/collections/array_list";
 { TypeValue } :: import "../types/type.yo";
+{ get_struct_fields } :: import "../evaluator/types/field.yo";
 { CodegenContext } :: import "./context.yo";
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,7 @@ type_value_to_c_field :: (fn(t : TypeValue) -> Option(String))(
 /// Fields whose types cannot be mapped are silently skipped.
 /// Returns the C name for the struct type (for use as a field type elsewhere).
 generate_struct_decl :: (fn(
+  struct_id    : String,
   name         : String,
   field_labels : ArrayList(String),
   field_types  : ArrayList(TypeValue),
@@ -117,6 +119,7 @@ generate_struct_decl :: (fn(
   ctx          : *(CodegenContext)
 ) -> String)({
   c_name := struct_c_name(module_id, type_id);
+  registered_fields := get_struct_fields(struct_id);
 
   // Forward declaration: typedef struct __yo_struct_..._struct __yo_struct_...;
   fwd := String.from("typedef struct ");
@@ -140,25 +143,34 @@ generate_struct_decl :: (fn(
   );
   (i : usize) = usize(0);
   while runtime((i < n)), {
+    skip_field := match(registered_fields,
+      .Some(fields) => match(fields.get(i),
+        .Some(field) => field.is_comptime,
+        .None => false
+      ),
+      .None => false
+    );
     label_opt := field_labels.get(i);
     ty_opt    := field_types.get(i);
-    match(label_opt,
-      .None => (),
-      .Some(label) => match(ty_opt,
+    if(!(skip_field), {
+      match(label_opt,
         .None => (),
-        .Some(ty) => match(type_value_to_c_field(ty),
-          .None     => (),
-          .Some(c_ty) => {
-            field_line := String.from("  ");
-            field_line.push_string(c_ty);
-            field_line.push_str(" ");
-            field_line.push_string(label);
-            field_line.push_str(";");
-            ctx.*.emitter.emit_declaration_string_line(field_line);
-          }
+        .Some(label) => match(ty_opt,
+          .None => (),
+          .Some(ty) => match(type_value_to_c_field(ty),
+            .None     => (),
+            .Some(c_ty) => {
+              field_line := String.from("  ");
+              field_line.push_string(c_ty);
+              field_line.push_str(" ");
+              field_line.push_string(label);
+              field_line.push_str(";");
+              ctx.*.emitter.emit_declaration_string_line(field_line);
+            }
+          )
         )
-      )
-    );
+      );
+    });
     i = (i + usize(1));
   };
 
@@ -402,8 +414,8 @@ generate_type_decl :: (fn(
   ctx       : *(CodegenContext)
 ) -> Option(String))(
   match(type_val,
-    .Struct(_, name, field_labels, field_types, _, _, _) =>
-      .Some(generate_struct_decl(name, field_labels, field_types, module_id, type_id, ctx)),
+    .Struct(id, name, field_labels, field_types, _, _, _) =>
+      .Some(generate_struct_decl(id, name, field_labels, field_types, module_id, type_id, ctx)),
 
     .EnumT(_, name, variant_names, variant_fields, _, _, discs) => cond(
       all_unit_variants(variant_fields) =>

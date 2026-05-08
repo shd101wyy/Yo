@@ -5,6 +5,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { isStructType } from "../../types/guards";
 import { type CodeGenContext, getVariableTypeString } from "../utils";
 
 /**
@@ -28,7 +29,20 @@ export function generateBinding(
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
   ) {
-    // given (implicit) variable — compile-time only, skip in codegen
+    // Phase 4b: nominal struct given bindings are runtime values; emit a
+    // C variable so the assignment can write into it. Module/non-struct
+    // given bindings remain compile-time only and emit nothing.
+    const innerLhs = lhs.args[0]!;
+    if (innerLhs.$?.type && isStructType(innerLhs.$.type)) {
+      const varName = innerLhs.token.value;
+      const varTypeAndName = getVariableTypeString(
+        innerLhs.$.type,
+        varName,
+        context
+      );
+      context.emitter.emitLine(`${indent}${varTypeAndName};`);
+      return "";
+    }
     return "";
   }
 

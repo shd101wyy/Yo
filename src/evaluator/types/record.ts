@@ -10,41 +10,36 @@ import {
   exprToString,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { Type, TypeField } from "../../types/definitions";
-import {
-  isSourceNamespaceType,
-  isSomeType,
-  isStructType,
-  isTraitType,
-  isTupleType,
-} from "../../types/guards";
-import { prohibitVoidType, typeToString } from "../../types/utils";
-import { typeImplementsFn } from "../trait-checking";
+import type { TypeField, Type } from "../../types/definitions";
+import { isFunctionType, isSourceNamespaceType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isTypeValue, type Value } from "../../value";
+import { randomId } from "../../utils";
+import { createUnknownValue, isTypeValue, type Value } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 /**
- * Evaluate the element in rvalue
+ * Evaluate a field in a record type expression.
  *
  * type:
- * i32 in (i32, ...)
- * (x: i32) in (x: i32, ...)
+ * (x: i32) in struct(x: i32, ...)
+ *
+ * Fields are compile-time only by default while defining a type.
  */
-export function evaluateTypeField({
+export function evaluateRecordField({
   expr,
-  tupleFieldIndex,
+  recordFieldIndex,
   env,
   context,
-  forType,
+  isForEvaluatingRecordType,
 }: {
   expr: Expr;
-  tupleFieldIndex: number;
+  recordFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
-  forType: "tuple" | "struct" | "enum" | "union";
+  isForEvaluatingRecordType: boolean;
 }): { field: TypeField; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
@@ -58,8 +53,6 @@ export function evaluateTypeField({
   let assignedValueExpr: Expr | undefined = undefined;
   let assignedValue: Value | undefined = undefined;
 
-  let isCompileTimeOnly = false;
-
   let fieldType: Type | undefined = undefined;
 
   // Check the default value
@@ -72,20 +65,15 @@ export function evaluateTypeField({
   if (
     exprIsFunctionCall(expr_) &&
     (exprIsFunctionCallOf(expr_, "=", 2) ||
-      exprIsFunctionCallOf(expr_, "::", 2))
+      exprIsFunctionCallOf(expr_, "::", 2) ||
+      exprIsFunctionCallOf(expr_, ":=", 2))
   ) {
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
-      isCompileTimeOnly = true;
-
-      labelExpr = expr_.args[0]!;
-
-      if (!isValidVariableName(labelExpr)) {
-        throw formatErrorMessage({
-          token: labelExpr.token,
-          errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
-        });
-      }
-      label = labelExpr.token.value;
+      throw formatErrorMessage({
+        token: expr_.token,
+        errorMessage: `Cannot use "::" for record type field. Use ":=" instead.
+Record type fields are compile-time only by default.`,
+      });
     }
 
     assignedValueExpr = expr_.args[1]!;
@@ -96,11 +84,11 @@ export function evaluateTypeField({
   if (defaultValueExpr && assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot have both default value and required value for element.`,
+      errorMessage: `Cannot have both default value and required value for record type field.`,
     });
   }
 
-  // Parse the lhs expr
+  // Parse the lhs expr (skip if we already got label from using(name) syntax)
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
     labelExpr = expr_.args[0]!;
     typeExpr = expr_.args[1]!;
@@ -110,20 +98,16 @@ export function evaluateTypeField({
       exprIsFunctionCall(labelExpr) &&
       exprIsFunctionCallOf(labelExpr, BuiltinKeywords.comptime, 1)
     ) {
-      if (isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: labelExpr.token,
-          errorMessage: `Cannot combine the use of "comptime"  with ::`,
-        });
-      }
-      isCompileTimeOnly = true;
-      labelExpr = labelExpr.args[0]!;
-    }
-
-    if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
+        errorMessage: `No need to use "comptime" modifier. Record type fields are compile-time only by default.`,
+      });
+    }
+
+    if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Expected identifier for tuple field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -131,57 +115,56 @@ export function evaluateTypeField({
     exprIsFunctionCall(expr_) &&
     exprIsFunctionCallOf(expr_, BuiltinKeywords.comptime, 1)
   ) {
-    if (isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: expr_.token,
-        errorMessage: `Cannot combine the use of "comptime"  with "::"`,
-      });
-    }
+    throw formatErrorMessage({
+      token: expr_.token,
+      errorMessage: `No need to use "comptime" modifier. Record type fields are compile-time only by default.`,
+    });
+  } else if (!defaultValueExpr && !assignedValueExpr) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected label for record type field, got ${exprToString(expr_)}`,
+    });
+  } else {
+    //  eg:
+    //    Output ?= Self
+    labelExpr = expr_;
 
-    isCompileTimeOnly = true;
-    labelExpr = expr_.args[0]!;
-
-    // Check if labelExpr is an atom
-    if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
+    if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
+        errorMessage: `Expected identifier for record type field label, got ${exprToString(labelExpr)}`,
+      });
+    }
+    if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Expected identifier for record type field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
-  } else if (!defaultValueExpr && !assignedValueExpr) {
-    // Prevent the case such as:
-    //   Self :: i32
-    // typeExpr shouldn't be "Self"
-    typeExpr = expr_;
   }
 
   // Check expectedType
   const expectedType = context.expectedType?.type;
-  let expectedTupleElementType: Type | undefined = undefined;
+  let expectedRecordFieldType: Type | undefined = undefined;
   if (expectedType) {
-    if (
-      isTupleType(expectedType) ||
-      isStructType(expectedType) ||
-      isSourceNamespaceType(expectedType) ||
-      isTraitType(expectedType)
-    ) {
-      const tupleElement = expectedType.fields[tupleFieldIndex];
-      if (!tupleElement) {
+    if (isSourceNamespaceType(expectedType)) {
+      const recordField = expectedType.fields[recordFieldIndex];
+      if (!recordField) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${tupleFieldIndex}`,
+          errorMessage: `Failed to get the field at index ${recordFieldIndex}`,
         });
       }
 
-      expectedTupleElementType = tupleElement.type;
+      expectedRecordFieldType = recordField.type;
     } else {
       /*
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `(1) Failed to evaluate the tuple fields. Expected type to be:
+        throw formatErrorMessage(
+          expr.token,
+          `(1) Failed to evaluate the tuple fields. Expected type to be:
 ${typeToString(expectedType)}`
-        });
+        );
         */
       // NOTE: Don't throw error here
     }
@@ -194,9 +177,9 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedTupleElementType
+        expectedType: expectedRecordFieldType
           ? {
-              type: expectedTupleElementType,
+              type: expectedRecordFieldType,
               env,
             }
           : undefined,
@@ -211,7 +194,7 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `(1) Expected type for element, got ${exprToString(typeExpr)}`,
+        errorMessage: `Expected type for record type field, got ${exprToString(typeExpr)}`,
       });
     }
     fieldType = typeValue.value;
@@ -219,36 +202,20 @@ ${typeToString(expectedType)}`
 
   // Evaluate assignedValueExpr if it exists
   if (assignedValueExpr) {
-    // Assigned value only works for compile-time only
-    if (!isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: assignedValueExpr.token,
-        errorMessage: `Assigned value expression is only allowed for compile-time only.
-Please consider adding "comptime"  modifier to the field label.`,
-      });
-    }
-
     const fieldExpectedType = fieldType
       ? { type: fieldType, env }
-      : expectedTupleElementType
+      : expectedRecordFieldType
         ? {
-            type: expectedTupleElementType,
+            type: expectedRecordFieldType,
             env,
           }
         : undefined;
-
     const evaluatedAssignedValueExpr = evaluateExpression({
       expr: assignedValueExpr,
       env,
       context: {
         ...context,
         expectedType: fieldExpectedType,
-        // Don't propagate forceCompileTimeBindings when evaluating type field values.
-        // The field value itself is compile-time (it's a constant method/value),
-        // but its internal parameters/body should not be forced to compile-time.
-        // For example, `is_some :: (fn(self: Self) -> bool)(...)` - the `self` parameter
-        // should be a runtime parameter, not compile-time.
-        forceCompileTimeBindings: undefined,
       },
     });
     if (!evaluatedAssignedValueExpr.$) {
@@ -298,9 +265,9 @@ Given type: ${typeToString(assignedValueType)}`,
   if (defaultValueExpr) {
     const fieldExpectedType = fieldType
       ? { type: fieldType, env }
-      : expectedTupleElementType
+      : expectedRecordFieldType
         ? {
-            type: expectedTupleElementType,
+            type: expectedRecordFieldType,
             env,
           }
         : undefined;
@@ -358,39 +325,67 @@ Given type: ${typeToString(defaultValueType)}`,
   if (!fieldType) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Failed to infer the element type`,
+      errorMessage: `Failed to infer the field type`,
     });
   }
 
-  // New availability-based validation:
-  // - If isCompileTimeOnly = true: the type MUST be available at compile-time
-  // - If isCompileTimeOnly = false: no validation - the field contributes to struct availability
+  // Validate that function type parameters have typeExpr for re-evaluation support
+  // This is required because we re-evaluate type expressions instead of substituting types
+  // for nominal types like Option(T) to get correct funcIds
+  if (isForEvaluatingRecordType && isFunctionType(fieldType)) {
+    // Note: variadic function parameters are allowed in record type fields for
+    // builtin-intercepted functions. The type specialization
+    // constraint doesn't apply because these calls are intercepted before
+    // reaching the normal function call path.
+    for (const param of fieldType.forallParameters) {
+      if (!param.exprs.typeExpr) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Function forall parameter "${param.label}" in record type field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in record type fields to support proper type specialization.`,
+        });
+      }
+    }
+    for (const param of fieldType.parameters) {
+      if (!param.exprs.typeExpr) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Function parameter "${param.label}" in record type field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in record type fields to support proper type specialization.`,
+        });
+      }
+    }
+    // Also validate return type has typeExpr
+    if (!fieldType.return.typeExpr) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Function in record type field "${label ?? "unnamed"}" must have an explicit return type annotation.
+Type expressions are required for return types in record type fields to support proper type specialization.`,
+      });
+    }
+  }
 
-  // if (isCompileTimeOnly && !typeImplementsComptime(fieldType, env)) {
-  //   // Field is marked as compile-time-only but type is runtime-only
-  //   throw formatErrorMessage({
-  //     token: labelExpr?.token ?? expr.token,
-  //     errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "comptime" modifier or :: syntax.`,
-  //   });
-  // }
+  // Validate default value expression restrictions
+  if (isForEvaluatingRecordType && defaultValueExpr) {
+    if (!isFunctionType(fieldType)) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Default values (?=) are only allowed for function-typed record fields (excluding closures).
+Record field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
 
-  if (forType !== "tuple" && !labelExpr) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected label for ${forType} field, got ${exprToString(expr_)}`,
-    });
+To avoid circular dependency issues, please explicitly provide the value for this field.`,
+      });
+    }
   }
 
   if (labelExpr) {
-    const fieldDocComment = context.docCommentLookup?.get(
-      getDocCommentLookupKey(labelExpr.token)
-    );
     labelExpr.$ = {
       env,
       type: fieldType,
-      value: assignedValue ?? defaultValue ?? undefined,
+      value:
+        assignedValue ??
+        createUnknownValue(fieldType, { variableName: label, env, context }),
       pathCollection: [],
-      docComment: fieldDocComment,
     };
   }
 
@@ -403,58 +398,23 @@ Given type: ${typeToString(defaultValueType)}`,
     };
   }
 
-  // Prohibit void type
-  prohibitVoidType(fieldType, expr.token);
-
-  // Prohibit Impl(Fn(...)) in struct/object/newtype/union/enum field types.
-  // The runtime size of `Impl(Fn(...))` depends on the concrete capture struct
-  // of whichever closure value is assigned, so it cannot live in a fixed-size
-  // field. This matches Rust, which rejects `impl Trait` in field positions.
-  // Use `Dyn(Fn(...))` (boxed closure) for a fixed-size erased closure, or
-  // make the type generic over a type parameter `F` constrained to `Fn(...)`.
-  if (
-    (forType === "struct" || forType === "enum" || forType === "union") &&
-    isSomeType(fieldType) &&
-    typeImplementsFn(fieldType) &&
-    // Only reject syntactically-written `Impl(...)` field types. Generic
-    // substitution (e.g., `Box(V)` instantiated with `V = Impl(Fn(...))`)
-    // is allowed — the user wrote a bare type variable, not `Impl(...)`.
-    typeExpr !== undefined &&
-    exprIsFunctionCallOf(typeExpr, BuiltinKeywords.Impl)
-  ) {
-    throw formatErrorMessage({
-      token: typeExpr?.token ?? expr.token,
-      errorMessage:
-        `Cannot use Impl(Fn(...)) as a field type:\n  ${typeToString(fieldType)}\n\n` +
-        `Each closure has a unique anonymous type with a capture-dependent size, ` +
-        `so an Impl(Fn(...)) field has no fixed runtime size.\n\n` +
-        `Options:\n` +
-        `  - Use Dyn(Fn(...)) for a heap-allocated, type-erased closure (and wrap the value with dyn(...)).\n` +
-        `  - Make the containing type generic over a closure type parameter, e.g.\n` +
-        `      MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`,
-    });
-  }
-
-  const field: TypeField = {
-    label: label ?? `${tupleFieldIndex}`,
-    type: fieldType,
-    isCompileTimeOnly,
-    exprs: {
-      expr,
-      labelExpr,
-      typeExpr,
-      defaultValueExpr,
-      assignedValueExpr,
-    },
-    defaultValue,
-    assignedValue,
-    docComment: labelExpr
-      ? context.docCommentLookup?.get(getDocCommentLookupKey(labelExpr.token))
-      : undefined,
-  };
-
   return {
-    field: field,
+    field: {
+      label: label ?? `__field_${randomId(env.modulePath)}`,
+      type: fieldType,
+      exprs: {
+        expr,
+        labelExpr,
+        typeExpr,
+        defaultValueExpr,
+        assignedValueExpr,
+      },
+      defaultValue,
+      assignedValue,
+      docComment: labelExpr
+        ? context.docCommentLookup?.get(getDocCommentLookupKey(labelExpr.token))
+        : undefined,
+    },
     env,
   };
 }

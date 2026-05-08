@@ -46,7 +46,6 @@ TypeInfo :: enum(
   Dyn(required_traits : ComptimeList(TraitInfo), negative_traits : ComptimeList(TraitInfo)),
 
   // === Meta types ===
-  Module(fields : ComptimeList(TypeFieldInfo)),
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),
   Type(level : comptime_int),
   Some(name : comptime_string, required_traits : ComptimeList(TraitInfo),
@@ -78,7 +77,6 @@ info.is_slice()      // matches .Slice(_)
 info.is_function()   // matches .Function(_)
 info.is_pointer()    // matches .Ptr(_)
 info.is_trait()      // matches .Trait(_, _)
-info.is_module()     // matches .Module(_)
 info.is_void()       // matches .Void
 
 // Numeric guards

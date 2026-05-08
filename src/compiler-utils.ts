@@ -1,5 +1,6 @@
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 /**
@@ -85,8 +86,68 @@ export function findAvailableCompiler(): string | null {
   return null;
 }
 
+let _asanUsable: boolean | undefined;
+
 /**
- * Get the compiler flags needed to enable a sanitizer
+ * Smoke test: compile and run a minimal C program with ASAN to verify
+ * the compiler and ASAN runtime are compatible. Caches the result so
+ * the test runs at most once per process.
+ */
+function asanRuntimeIsUsable(): boolean {
+  if (_asanUsable !== undefined) return _asanUsable;
+
+  const tmpDir = os.tmpdir();
+  const srcPath = path.join(tmpDir, `.yo_asan_test_${process.pid}.c`);
+  const outPath = path.join(tmpDir, `.yo_asan_test_${process.pid}`);
+
+  try {
+    fs.writeFileSync(srcPath, "int main(void) { return 0; }\n");
+
+    const compileResult = spawnSync(
+      "cc",
+      ["-x", "c", "-std=c11", "-fsanitize=address", "-o", outPath, srcPath],
+      { timeout: 15000, encoding: "utf-8" }
+    );
+
+    if (compileResult.status !== 0 || compileResult.error) {
+      _asanUsable = false;
+      return false;
+    }
+
+    const runResult = spawnSync(outPath, [], {
+      timeout: 3000,
+      encoding: "utf-8",
+      env: { ...process.env, ASAN_OPTIONS: "detect_leaks=0" },
+    });
+
+    // Exit code 0 or timing out (killed by signal) both indicate issues.
+    // A healthy ASAN program exits quickly with code 0.
+    if (runResult.error || runResult.signal || runResult.status !== 0) {
+      _asanUsable = false;
+      return false;
+    }
+
+    _asanUsable = true;
+    return true;
+  } catch {
+    _asanUsable = false;
+    return false;
+  } finally {
+    try {
+      fs.unlinkSync(srcPath);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.unlinkSync(outPath);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Get the sanitizer flags for compilation.
  */
 export function getSanitizerFlags(options: SanitizerOptions): SanitizerFlags {
   const { sanitize, compilerInfo } = options;
@@ -107,6 +168,16 @@ export function getSanitizerFlags(options: SanitizerOptions): SanitizerFlags {
           "AddressSanitizer is not supported by MinGW GCC on Windows. Use Clang (--cc clang) instead for sanitizer support.",
       };
     } else {
+      // Smoke test: compile and run a minimal ASAN program to detect
+      // clang/ASAN runtime mismatches (e.g., Nix clang 21 + Xcode ASAN 17).
+      // If the test binary hangs, skip ASAN with a warning.
+      if (!asanRuntimeIsUsable()) {
+        return {
+          flags: [],
+          warning:
+            "AddressSanitizer is not functional with this compiler setup (likely a version mismatch between clang and the ASAN runtime library). Skipping sanitizer. Install a matching ASAN runtime or use --cc with a compatible compiler.",
+        };
+      }
       const flags = ["-fsanitize=address", "-fno-omit-frame-pointer"];
       // On Windows with Clang, the ASAN DLL needs to be in PATH at runtime
       // (handled separately when running the executable)

@@ -29,7 +29,7 @@ import {
   isFunctionType,
   isFutureTraitType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isNewtypeType,
   isPrimitiveType,
   isPtrType,
@@ -481,15 +481,18 @@ export function areTypesCompatible(
     return true;
   }
 
-  // Module type is now structural type
-  if (isModuleType(expected.type) && isModuleType(given.type)) {
-    // Modules must have same fields and compatible types
+  // Imported source namespaces are structural structs.
+  if (
+    isSourceNamespaceType(expected.type) &&
+    isSourceNamespaceType(given.type)
+  ) {
+    // Source namespaces must have the same fields and compatible types.
     for (const expectedField of expected.type.fields) {
       const givenField = given.type.fields.find(
         (f) => f.label === expectedField.label
       );
       if (!givenField) {
-        return false; // Field not found in given module
+        return false; // Field not found in given source namespace.
       }
       if (
         !areTypesCompatible(
@@ -778,15 +781,15 @@ export function areTypesCompatible(
       );
       const givenTraits = getEffectiveRequiredTraitTypes(given.env, given.type);
 
-      // For exact matching (e.g., cache comparisons), require same number of modules
+      // For exact matching (e.g., cache comparisons), require same number of traits.
       if (requireExactMatch && expectedTraits.length !== givenTraits.length) {
         return false;
       }
 
-      // Check that all expected modules are present in given modules
+      // Check that all expected traits are present in given traits.
       for (const expectedTrait of expectedTraits) {
         const matchingGivenTrait = givenTraits.find((givenTrait) => {
-          // Compare by module type compatibility
+          // Compare by trait compatibility.
           return areTypesCompatible(
             { type: expectedTrait, env: expected.env },
             { type: givenTrait, env: given.env },

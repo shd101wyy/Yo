@@ -3,7 +3,8 @@ import type { TraitType, Type } from "../../types/definitions";
 import {
   isDynType,
   isEnumType,
-  isModuleType,
+  isFunctionType,
+  isSourceNamespaceType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -13,7 +14,7 @@ import {
 } from "../../types/guards";
 import {
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTraitValue,
   isTypeValue,
   isUnknownValue,
@@ -56,7 +57,7 @@ export function generateFieldAccess(
     const fieldName = fieldExpr.token.value;
 
     // Evidence passing: if we're in a function with evidence params,
-    // module field accesses that match evidence params should resolve to
+    // evidence field accesses that match evidence params should resolve to
     // the evidence fn ptr parameter, not the resolved handler function.
     const functionContext = context as FunctionGenerationContext;
     if (functionContext.currentEvidenceParams && exprIsAtom(objectExpr)) {
@@ -65,6 +66,33 @@ export function generateFieldAccess(
       const ep = functionContext.currentEvidenceParams.get(key);
       if (ep) {
         return ep.cParamName;
+      }
+    }
+
+    // State machine capture: when inside an async or effect state machine,
+    // evidence record member fields (e.g., exn.throw, io.await) are stored
+    // in the state machine's __capture struct rather than as flat C params.
+    // Resolve the field access through sm->__capture.<fieldName>.
+    if (
+      exprIsAtom(objectExpr) &&
+      (functionContext.inAsyncStateMachine ||
+        functionContext.inEffectStateMachine) &&
+      objectType &&
+      (isStructType(objectType) || isSourceNamespaceType(objectType))
+    ) {
+      // Check if this is a known evidence field whose value was not
+      // resolved at compile time (i.e., is a runtime using/given param).
+      const isUnresolvedEvidence =
+        !objectValue ||
+        isUnknownValue(
+          Array.isArray(objectValue) ? objectValue[0] : objectValue
+        );
+      if (isUnresolvedEvidence) {
+        const objFields = objectType.fields;
+        const matchingField = objFields.find((f) => f.label === fieldName);
+        if (matchingField && isFunctionType(matchingField.type)) {
+          return `sm->__capture.${fieldName}`;
+        }
       }
     }
 
@@ -203,7 +231,7 @@ export function generateFieldAccess(
     // Module namespace field access (e.g. fcntl_io.O_NONBLOCK)
     // Modules are compile-time values and have no runtime C representation.
     // The field access should resolve directly to the field value/identifier.
-    if (isModuleType(objectType) || isModuleValue(objectValue)) {
+    if (isSourceNamespaceType(objectType) || isStructValue(objectValue)) {
       const fieldValue = expr.$?.value;
 
       if (fieldValue) {
@@ -233,7 +261,7 @@ export function generateFieldAccess(
               }
             }
           }
-        } else if (!isModuleValue(fieldValue)) {
+        } else if (!isStructValue(fieldValue)) {
           return generateComptimeValue(fieldValue, context, expr);
         }
       }

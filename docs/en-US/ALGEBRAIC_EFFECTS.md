@@ -4,7 +4,7 @@
 
 Yo supports **algebraic effects** — a mechanism for implicit parameter passing and one-shot delimited continuations. The system is built on two features:
 
-1. **Implicit Parameters (`using` / `given`)** — contextual parameter passing, resolved at compile time
+1. **Implicit Parameters (`using` / `given`)** — contextual parameter passing, resolved statically and passed at runtime
 2. **Effect Handlers (`return` / `escape`)** — one-shot delimited continuations for control flow effects
 
 The code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters, following the approach described in [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf). All effect types are handled this way, including forall effects (passed as `void*` and cast to typed fn ptr at each call site).
@@ -67,11 +67,11 @@ result4 := add_numbers(7, 8, using(undefined));
 - At call sites, the caller can omit implicit arguments. The compiler resolves them by searching the environment for a `given` binding whose type matches.
 - The caller can also provide implicit arguments explicitly via `using(...)`: `add_numbers(3, 4, using(my_custom_add))`.
 - `using(undefined)` at call site means: skip explicit value for this contextual slot and fallback to `given` lookup.
-- `given` bindings are lexically scoped:
+- `given` bindings are lexically scoped runtime evidence values:
   - exactly one compatible `given` required,
   - zero matches => compile-time error,
   - multiple matches => compile-time ambiguity error (must disambiguate with explicit `using(...)`).
-- Resolution is by **structural type matching** (the function signature must match), not by name.
+- Function-typed evidence is resolved by **structural type matching** (the function signature must match), not by name. Struct-typed effect records are nominal: use one named `struct(...)` type and import it at every use site.
 - Function signatures allow only one `using(...)` clause; calls allow only one `using(...)` argument expression.
 - Inner scope `given` shadows outer scope `given` of same type; ambiguity only for same-frame conflicts.
 
@@ -293,13 +293,13 @@ program(using(info_logger, error_logger));
 
 No special language support needed — this falls out of the existing `using`/`given` mechanism.
 
-### Module-Based Effects
+### Struct-Based Effect Records
 
-Effects can be organized into modules using Yo's module system. This is especially useful for grouping related effect operations:
+Effects can be organized into named `struct(...)` records. This is especially useful for grouping related effect operations:
 
 ```rust
-MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-  module(
+MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+  struct(
     throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
   )
 );
@@ -311,7 +311,7 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
   )
 );
 
-// Install a module-based handler with `given`:
+// Install a struct-based handler with `given`:
 given(exn) := MyException(i32)(
   throw : ((val, resume_val) -> {
     return resume_val;  // resume with the provided recovery value
@@ -321,11 +321,11 @@ given(exn) := MyException(i32)(
 result := safe_divide(10, 0);  // handler resumes with 0
 ```
 
-Module effects support:
+Struct effect records support:
 
 - **`forall` parameters** in effect operations (e.g., `forall(ResumeType : Type)`)
-- **Nested modules** — modules containing other modules with effects
-- **Labeled `using(name : ModuleType)`** — auto-destructuring of module fields into implicit parameters
+- **Nested structs** — structs containing other structs with effects
+- **Labeled `using(name : EffectStruct)`** — auto-destructuring of struct fields into implicit parameters
 
 ### Control Flow with Effects
 
@@ -429,22 +429,22 @@ See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive sync examples
 | Effect propagation (1-level, 2-level, 3-level) | 5     |
 | Handler shadowing                              | 2     |
 | Effect polymorphism (forall spread)            | 2     |
-| Module-type effects                            | 6     |
+| Struct effect records                          | 6     |
 | Multiple effect row spreads                    | 2     |
 | Closures with effects                          | 2     |
 | Effect row polymorphism                        | 2     |
 | Mixed escape+return handler                    | 1     |
 | Transitive SM (break/continue/return)          | 5     |
-| Module forall handlers                         | 5     |
+| Struct-record forall handlers                  | 5     |
 | Option match + effects                         | 3     |
-| Module non-unit escape value                   | 1     |
-| Multi-member module effects                    | 1     |
-| Multiple module effects in scope               | 1     |
+| Struct-record non-unit escape value            | 1     |
+| Multi-member struct effect records             | 1     |
+| Multiple struct effect records in scope        | 1     |
 | Conditional resume/escape                      | 1     |
 | Recursive functions + effects                  | 2     |
 | Effect with enum return type                   | 1     |
-| Module effect polymorphism                     | 1     |
-| Transitive SM + module effects                 | 1     |
+| Struct-record effect polymorphism              | 1     |
+| Transitive SM + struct effect records          | 1     |
 
 See `tests/async_await.test.yo` (9 async+effects tests) for async integration:
 
@@ -481,7 +481,7 @@ Async/await uses state machine infrastructure (`src/codegen/shared/suspension-an
 
 The compiler generates C code for effect handlers using **evidence passing** — effect handler function pointers are passed as extra C parameters.
 
-**When**: All effect types — module-based effects, bare function-type effects, effect row spreads (`...(E)`), and forall effects (via `void*` parameter casting).
+**When**: All effect types — struct-based effect records, bare function-type effects, effect row spreads (`...(E)`), and forall effects (via `void*` parameter casting).
 
 **How**: The effect handler function pointer is passed as an extra C parameter. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward. Based on [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf).
 
@@ -493,16 +493,16 @@ Evidence passing compiles effect handlers as **ordinary C function pointer param
 
 ### Key principle: effects ≡ function pointers
 
-At runtime, all effects reduce to function pointers. Modules are a compile-time grouping — at the C level, each field becomes a separate fn ptr parameter:
+At runtime, all effects reduce to function pointers. Struct effect records are evidence records — at the C level, each function field becomes a separate fn ptr parameter:
 
-- `using(exn : Exception)` where `Exception :: module(throw : fn(...))` → passes the `throw` function pointer
-- `using(raise : Raise)` where `Raise :: module(raise : fn(msg : String) -> i32)` → passes the `raise` function pointer
+- `using(exn : Exception)` where `Exception :: struct(throw : fn(...))` → passes the `throw` function pointer
+- `using(raise : Raise)` where `Raise :: struct(raise : fn(msg : String) -> i32)` → passes the `raise` function pointer
 - `using(raise : (fn(msg : String) -> i32))` → passes `raise` directly as a fn ptr parameter
 - `using(...(E))` effect row spread → expanded at specialization time into concrete fn ptr parameters
 
 ### Generated C
 
-For a function with module effect:
+For a function with struct-record effect:
 
 ```rust
 safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
@@ -534,7 +534,7 @@ At each call site, the compiler resolves evidence arguments in this order:
 
 1. **Transitive forwarding** — if the caller has matching evidence params, forward them directly
 2. **From effect analysis** — if the call site has a handler (`given` binding with handler info), use the handler's C function address
-3. **From `given` binding** — look up the module value in the call environment, extract the function field, and use its C name
+3. **From `given` binding** — look up the struct evidence value in the call environment, extract the function field, and use its C name
 4. **From async SM capture** — if inside an async state machine, resolve from `sm->__capture.fieldName`
 
 ### Escape handling
@@ -661,8 +661,8 @@ Escape is the exceptional path and replaces what would otherwise be `longjmp`, `
 Each `using(name : EffectType)` in a function signature adds:
 
 - **Function-type effect**: 1 pointer parameter (8 bytes on x86-64/ARM64)
-- **Module-type effect**: 1 pointer per module member function
-- **Nested module effect**: flattened — 1 pointer per leaf function
+- **Struct-record effect**: 1 pointer per effect record member function
+- **Nested struct effect record**: flattened — 1 pointer per leaf function
 
 Parameters are passed in registers (up to 6 on x86-64 SysV, 8 on ARM64), so most single-effect functions pay zero stack overhead.
 

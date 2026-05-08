@@ -20,8 +20,7 @@ import type {
   FunctionParameter,
   FunctionType,
   IsoType,
-  ModuleField,
-  ModuleType,
+  TypeField,
   PtrType,
   SliceType,
   SomeType,
@@ -30,7 +29,6 @@ import type {
   TupleType,
   Type,
   TypeApplicationType,
-  TypeField,
   UnionType,
 } from "./definitions";
 import {
@@ -56,7 +54,7 @@ import {
   isI8Type,
   isIntegerType,
   isIsizeType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPtrType,
   isRcType,
@@ -181,8 +179,6 @@ export function typeContainsRcType(
     case TypeTag.Iso:
       // Iso itself is GC type (atomic RC), check inner type
       return typeContainsRcType((type as IsoType).childType, checkedTypes);
-    case TypeTag.Module:
-      return false; // Modules do not own references
     case TypeTag.Function: {
       return false; // Regular functions are not reference types
     }
@@ -295,10 +291,6 @@ export function typeContainsSomeType(
         typeContainsSomeType(functionType.return.type, checkedTypes)
       );
     }
-    case TypeTag.Module:
-      return (type as ModuleType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
-      );
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
     case TypeTag.Slice:
@@ -402,9 +394,6 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
       case TypeTag.Union:
         (t as UnionType).fields.forEach((field) => helper(field.type));
         break;
-      case TypeTag.Module:
-        (t as ModuleType).fields.forEach((field) => helper(field.type));
-        break;
       case TypeTag.Ptr:
         helper((t as PtrType).childType);
         break;
@@ -452,10 +441,6 @@ export function typeRequiresInference(type?: Type): boolean {
       return (type as UnionType).elements.some((element) =>
         typeRequiresInference(element.type)
       );
-    case TypeTag.Module:
-      return (type as ModuleType).elements.some((element) =>
-        typeRequiresInference(element.type)
-      );
     case TypeTag.Function: {
       const functionType = type as FunctionType;
       return (
@@ -486,9 +471,6 @@ export function typeRequiresInference(type?: Type): boolean {
     case TypeTag.SomeType:
       // SomeType represents unknown/inferable types
       return true;
-    case TypeTag.Module: {
-      return false;
-    }
     case TypeTag.Trait: {
       // For FnTraitType, check if the function signature requires inference
       const traitType = type as TraitType;
@@ -692,10 +674,10 @@ export function tupleFieldToString(
 }
 
 /**
- * Convert a module element to string representation.
+ * Convert a named type field to string representation.
  */
-function moduleElementToString(
-  element: ModuleField,
+function namedTypeFieldToString(
+  element: TypeField,
   visited: Set<string> = new Set()
 ): string {
   let label = element.label;
@@ -923,7 +905,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isAtomicRc ? "atomic " : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
+      if (structType.isSourceNamespace) {
+        return `struct(${structType.fields.map((field) => namedTypeFieldToString(field, visited)).join(", ")})`;
+      }
+
+      return `${structType.isAtomicRc ? "atomic " : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -966,21 +952,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
-    case TypeTag.Module: {
-      const moduleType = type as ModuleType;
-
-      let moduleTypeString: string;
-      if (moduleType.typeName) {
-        moduleTypeString = moduleType.typeName;
-      } else {
-        moduleTypeString = `${
-          moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-        }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
-      }
-
-      return moduleTypeString;
-    }
-
     case TypeTag.Trait: {
       const traitType = type as TraitType;
 
@@ -1009,7 +980,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       } else {
         traitTypeString = `${
           traitType.typeName ? `(${traitType.typeName}) ` : ""
-        }trait(${traitType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+        }trait(${traitType.fields.map((field) => namedTypeFieldToString(field, visited)).join(", ")})`;
       }
 
       if (traitType.receiverType) {
@@ -1334,7 +1305,7 @@ export function getAlignmentOfType(type: Type): number | null {
     isComptimeFloatType(type) ||
     isComptimeStringType(type) ||
     isComptimeListType(type) ||
-    isModuleType(type) ||
+    isSourceNamespaceType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {
@@ -1442,7 +1413,7 @@ export function getSizeOfType(type: Type): number | null {
     isComptimeFloatType(type) ||
     isComptimeStringType(type) ||
     isComptimeListType(type) ||
-    isModuleType(type) ||
+    isSourceNamespaceType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {

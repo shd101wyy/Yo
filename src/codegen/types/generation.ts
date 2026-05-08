@@ -3,6 +3,7 @@ import { isTargetMacos, isTargetWindows } from "../../target";
 import type {
   EnumType,
   FunctionType,
+  FutureTraitType,
   PtrType,
   StructType,
   TupleType,
@@ -25,6 +26,7 @@ import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
+  getRuntimeStructFields,
   getEnumVariantCName,
   getTypeString,
   sanitizeForCIdentifier,
@@ -721,14 +723,43 @@ typedef struct __yo_io_future_t {
       generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
+    } else if (isFutureTraitType(type)) {
+      generateFutureTraitDeclaration(type, cName, context);
     }
     // Note: Tuples are now handled in the topologically sorted third pass
-    // FIXME: Handle FutureTraitType declarations if needed
-    // else if (isFutureTraitType(type)) {
-    //   generateFutureDeclaration(type, cName, context);
-    // }
     // Note: isEnumType and isStructType are handled in the passes above
   }
+}
+
+function generateFutureTraitDeclaration(
+  type: FutureTraitType,
+  cName: string,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+  const resultType = type.isFuture.outputType;
+  const resultTypeCName = getTypeString(resultType, context);
+
+  emitter.emitDeclarationLine(
+    `struct ${cName}_struct { // Generic Future interface for ${typeToString(type)}`
+  );
+  emitter.emitDeclarationLine(`  __yo_ref_header_t header;`);
+  emitter.emitDeclarationLine(
+    `  int state;  // 0 = cold, -1 = completed, -2 = aborted`
+  );
+  if (isUnitType(resultType)) {
+    emitter.emitDeclarationLine(`  uint8_t result;`);
+  } else {
+    emitter.emitDeclarationLine(`  ${resultTypeCName} result;`);
+  }
+  emitter.emitDeclarationLine(`  void (*continuation_fn)(void*);`);
+  emitter.emitDeclarationLine(`  void* continuation_sm;`);
+  emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
+  emitter.emitDeclarationLine(
+    `  void (*__yo_set_effect_fn)(void*, const char*, void*);`
+  );
+  emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine("");
 }
 
 /**
@@ -1062,6 +1093,7 @@ export function generateStructDeclaration(
   }
 
   if (structType.isReferenceSemantics) {
+    const runtimeFields = getRuntimeStructFields(structType);
     // For object, generate a struct with the common reference header
     const atomicTag = structType.isAtomicRc ? " atomic" : "";
     emitter.emitDeclarationLine(
@@ -1071,7 +1103,7 @@ export function generateStructDeclaration(
       `  __yo_ref_header_t header; // ${atomicTag ? "Atomic r" : "R"}eference count header`
     );
 
-    for (const field of structType.fields) {
+    for (const field of runtimeFields) {
       const fieldTypeStr = getTypeString(field.type, context);
       const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
@@ -1079,12 +1111,13 @@ export function generateStructDeclaration(
 
     emitter.emitDeclarationLine(`};`);
   } else {
+    const runtimeFields = getRuntimeStructFields(structType);
     // For regular struct, generate as before
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`
     );
 
-    for (const field of structType.fields) {
+    for (const field of runtimeFields) {
       const fieldTypeStr = getTypeString(field.type, context);
       const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);

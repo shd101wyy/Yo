@@ -20,6 +20,8 @@ import {
 } from "../../expr";
 import type {
   DynType,
+  FunctionImplicitParameter,
+  FutureTraitType,
   SomeType,
   StructType,
   Type,
@@ -27,10 +29,14 @@ import type {
 import {
   isAtomicObjectType,
   isDynType,
+  isEffectsRowType,
+  isFunctionType,
   isIsoType,
+  isSourceNamespaceType,
   isObjectType,
   isRcType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
@@ -81,9 +87,9 @@ export function generateAsyncBlock(
   }
 
   // Extract the FutureTraitType from Impl(Future(T)) or Dyn(Future(T))
-  const futureModuleType = extractFutureTraitFromType(futureType);
-  if (!futureModuleType) {
-    return `/* Error: Could not extract Future module type */`;
+  const futureTraitType = extractFutureTraitFromType(futureType);
+  if (!futureTraitType) {
+    return `/* Error: Could not extract Future trait type */`;
   }
 
   // The state machine struct name will be based on the async block ID
@@ -93,9 +99,10 @@ export function generateAsyncBlock(
   const resumeFunctionName = `${asyncBlockId}_resume`;
   const constructorName = `__yo_new_${asyncBlockId}`;
   const disposeFunctionName = `${asyncBlockId}_state_dispose`;
+  const setEffectFunctionName = `${asyncBlockId}_set_effect`;
 
   // Register this state machine struct as the concrete type for this specific async block's SomeType.
-  // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureModuleType.id because
+  // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureTraitType.id because
   // each async block creates its own fresh SomeType, but they may share the same FutureTraitType
   // (e.g., multiple async blocks returning Impl(Future(unit)) share the same Future(unit) module).
   // Using the SomeType's unique ID ensures each async block gets its own state machine struct.
@@ -114,7 +121,7 @@ export function generateAsyncBlock(
   }
 
   // Get the result type (T in Future(T))
-  let resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureTraitType.isFuture.outputType;
 
   // If outputType is an unresolved SomeType (type parameter T from forall),
   // resolve it to a concrete type. The evaluator may set resolvedConcreteType
@@ -160,6 +167,10 @@ export function generateAsyncBlock(
   // Generate forward declaration for resume function
   emitter.emitDeclarationLine(`void ${resumeFunctionName}(${structName}* sm);`);
   emitter.emitDeclarationLine(``);
+  emitter.emitDeclarationLine(
+    `void ${setEffectFunctionName}(void* ptr, const char* field, void* value);`
+  );
+  emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for constructor function
   // Constructor returns the state machine struct by value (not a pointer)
@@ -191,8 +202,9 @@ export function generateAsyncBlock(
     resumeFunctionName,
     constructorName,
     disposeFunctionName,
+    setEffectFunctionName,
     futureType: futureType,
-    futureModuleType: futureModuleType,
+    futureTraitType: futureTraitType,
     resultType: resultType,
     resultTypeCName: resultTypeCName,
     captureType: expr.$?.captureType,
@@ -349,6 +361,130 @@ export function generateAsyncBlock(
   }
 }
 
+function expandFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread) {
+      let effectsRow = effect.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(effect);
+    }
+  }
+  return result;
+}
+
+function getInjectableFutureEffectFieldMappings(
+  futureTraitType: FutureTraitType,
+  captureType: StructType | undefined
+): Array<{ effectLabel: string; captureLabel: string }> {
+  if (!captureType) {
+    return [];
+  }
+
+  const mappings: Array<{ effectLabel: string; captureLabel: string }> = [];
+  const addMapping = (effectLabel: string, captureLabel: string) => {
+    if (
+      !mappings.some(
+        (m) => m.effectLabel === effectLabel && m.captureLabel === captureLabel
+      )
+    ) {
+      mappings.push({ effectLabel, captureLabel });
+    }
+  };
+
+  for (const effect of expandFutureEffects(futureTraitType.isFuture.effects)) {
+    if (isFunctionType(effect.type)) {
+      const captureField =
+        captureType.fields.find((field) => field.label === effect.label) ??
+        captureType.fields.find(
+          (field) => field.label.toLowerCase() === effect.label.toLowerCase()
+        ) ??
+        captureType.fields.find((field) => field.type.id === effect.type.id);
+      if (captureField) {
+        addMapping(effect.label, captureField.label);
+      }
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
+      for (const field of effect.type.fields) {
+        if (isFunctionType(field.type)) {
+          const captureField =
+            captureType.fields.find((f) => f.label === field.label) ??
+            captureType.fields.find(
+              (f) => f.label.toLowerCase() === field.label.toLowerCase()
+            ) ??
+            captureType.fields.find((f) => f.type.id === field.type.id);
+          if (captureField) {
+            addMapping(field.label, captureField.label);
+          }
+        }
+      }
+    }
+  }
+
+  return mappings;
+}
+
+function generateFutureEffectSetter(
+  structName: string,
+  setEffectFunctionName: string,
+  futureTraitType: FutureTraitType,
+  captureType: StructType | undefined,
+  context: FunctionGenerationContext
+): void {
+  const mappings = getInjectableFutureEffectFieldMappings(
+    futureTraitType,
+    captureType
+  );
+  const emitter = context.emitter;
+
+  emitter.emitDeclarationLine(
+    `void ${setEffectFunctionName}(void* ptr, const char* field, void* value) {`
+  );
+  emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+  if (mappings.length === 0) {
+    emitter.emitDeclarationLine(`  (void)sm;`);
+    emitter.emitDeclarationLine(`  (void)field;`);
+    emitter.emitDeclarationLine(`  (void)value;`);
+  } else {
+    mappings.forEach(({ effectLabel, captureLabel }, index) => {
+      const keyword = index === 0 ? "if" : "else if";
+      const capitalizedEffectLabel =
+        effectLabel.length > 0
+          ? `${effectLabel[0]!.toUpperCase()}${effectLabel.slice(1)}`
+          : effectLabel;
+      const capitalizedCaptureLabel =
+        captureLabel.length > 0
+          ? `${captureLabel[0]!.toUpperCase()}${captureLabel.slice(1)}`
+          : captureLabel;
+      const aliases = [
+        ...new Set([
+          effectLabel,
+          captureLabel,
+          capitalizedEffectLabel,
+          capitalizedCaptureLabel,
+        ]),
+      ];
+      const condition = aliases
+        .map((alias) => `strcmp(field, ${JSON.stringify(alias)}) == 0`)
+        .join(" || ");
+      emitter.emitDeclarationLine(`  ${keyword} (${condition}) {`);
+      emitter.emitDeclarationLine(`    sm->__capture.${captureLabel} = value;`);
+      emitter.emitDeclarationLine(`  }`);
+    });
+  }
+  emitter.emitDeclarationLine(`}`);
+}
+
 function emitAsyncBlockStructDefinition(
   asyncBlockInfo: {
     asyncBlockId: string;
@@ -416,6 +552,9 @@ function emitAsyncBlockStructDefinition(
   // Resume function pointer for lazy start at await
   emitter.emitDeclarationLine(
     `  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/spawn)`
+  );
+  emitter.emitDeclarationLine(
+    `  void (*__yo_set_effect_fn)(void*, const char*, void*);`
   );
   emitter.emitDeclarationLine(``);
 
@@ -499,12 +638,12 @@ function emitAsyncBlockStructDefinition(
         let awaitResultType = awaitPoint.resultType;
 
         if (awaitPoint.futureType) {
-          const futureModuleType = extractFutureTraitFromType(
+          const futureTraitType = extractFutureTraitFromType(
             awaitPoint.futureType
           );
-          if (futureModuleType) {
+          if (futureTraitType) {
             // Use the Future's output type as the await_result type
-            awaitResultType = futureModuleType.isFuture.outputType;
+            awaitResultType = futureTraitType.isFuture.outputType;
           }
         }
 
@@ -933,6 +1072,7 @@ function generateAsyncBlockConstructor(
   resumeFunctionName: string,
   constructorName: string,
   disposeFunctionName: string,
+  setEffectFunctionName: string,
   futureType: SomeType | DynType,
   resultType: Type,
   resultTypeCName: string,
@@ -1035,6 +1175,7 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  sm->__yo_resume_fn = (void(*)(void*))${resumeFunctionName};`
   );
+  emitter.emitLine(`  sm->__yo_set_effect_fn = ${setEffectFunctionName};`);
   emitter.emitLine(``);
 
   emitter.emitLine(`  return sm;`);
@@ -1080,8 +1221,9 @@ export function generateDeferredAsyncBlocks(
       resumeFunctionName,
       constructorName,
       disposeFunctionName,
+      setEffectFunctionName,
       futureType,
-      //      futureModuleType,
+      futureTraitType,
       resultType,
       resultTypeCName,
       captureType,
@@ -1169,6 +1311,16 @@ export function generateDeferredAsyncBlocks(
 
     emitter.emitLine(``);
 
+    generateFutureEffectSetter(
+      structName,
+      setEffectFunctionName,
+      futureTraitType,
+      captureType,
+      context
+    );
+
+    emitter.emitLine(``);
+
     // Generate state machine dispose function
     generateAsyncBlockStateDisposeFunction(
       asyncBlockId,
@@ -1192,6 +1344,7 @@ export function generateDeferredAsyncBlocks(
       resumeFunctionName,
       constructorName,
       disposeFunctionName,
+      setEffectFunctionName,
       futureType,
       resultType,
       resultTypeCName,
@@ -1291,8 +1444,8 @@ function preRegisterAsyncBlocksInExpr(
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
-        const futureModuleType = extractFutureTraitFromType(futureType);
-        if (futureModuleType) {
+        const futureTraitType = extractFutureTraitFromType(futureType);
+        if (futureTraitType) {
           const asyncBlockId =
             expr.$?.variableName || `async_block_${Date.now()}`;
           const structName = `${asyncBlockId}_state_t`;
@@ -1327,8 +1480,8 @@ function preRegisterAsyncBlocksInExpr(
     if (isIoAsyncCall(expr)) {
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
-        const futureModuleType = extractFutureTraitFromType(futureType);
-        if (futureModuleType) {
+        const futureTraitType = extractFutureTraitFromType(futureType);
+        if (futureTraitType) {
           const asyncBlockId =
             expr.$?.variableName || `io_async_block_${Date.now()}`;
           // Use _state_t for async closures (with await points), _sync_fut_t for sync
@@ -1415,12 +1568,12 @@ export function generateIoAsyncSyncCall(
     return `/* Error: io.async must return a Future type */`;
   }
 
-  const futureModuleType = extractFutureTraitFromType(futureType);
-  if (!futureModuleType) {
-    return `/* Error: Could not extract Future module type */`;
+  const futureTraitType = extractFutureTraitFromType(futureType);
+  if (!futureTraitType) {
+    return `/* Error: Could not extract Future trait type */`;
   }
 
-  let resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureTraitType.isFuture.outputType;
 
   // If outputType is an unresolved SomeType (type parameter T from forall),
   // resolve it to a concrete type. Same resolution chain as the state machine path.
@@ -1505,6 +1658,9 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`  void (*continuation_fn)(void*);`);
   emitter.emitDeclarationLine(`  void* continuation_sm;`);
   emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
+  emitter.emitDeclarationLine(
+    `  void (*__yo_set_effect_fn)(void*, const char*, void*);`
+  );
   emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
@@ -1525,6 +1681,17 @@ export function generateIoAsyncSyncCall(
       break;
     }
   }
+  const syncSetEffectFunctionName = `${structName}_set_effect`;
+  const syncCaptureType = closureArgExpr.$.captureType;
+  generateFutureEffectSetter(
+    structName,
+    syncSetEffectFunctionName,
+    futureTraitType,
+    syncCaptureType,
+    context
+  );
+  emitter.emitDeclarationLine(``);
+
   // Emit resume function — calls the closure with the embedded capture data
   emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
   emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
@@ -1642,6 +1809,9 @@ export function generateIoAsyncSyncCall(
   emitter.emitLine(`${indent}${resultVar}->state = 0;`);
   emitter.emitLine(
     `${indent}${resultVar}->__yo_resume_fn = ${resumeFunctionName};`
+  );
+  emitter.emitLine(
+    `${indent}${resultVar}->__yo_set_effect_fn = ${syncSetEffectFunctionName};`
   );
   emitter.emitLine(`${indent}${resultVar}->continuation_fn = NULL;`);
   emitter.emitLine(`${indent}${resultVar}->continuation_sm = NULL;`);

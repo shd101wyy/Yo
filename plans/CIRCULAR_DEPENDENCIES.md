@@ -4,7 +4,7 @@
 
 Yo currently does **not** support circular imports between modules. When module A imports B and B imports A, the compiler enters infinite recursion and crashes with a stack overflow — no error message is shown.
 
-**Root cause**: `ModuleManager.loadModule()` evaluates modules eagerly. The `ModuleValue` is only created and cached **after** the entire module body has been evaluated. If B imports A while A is still evaluating, A is not yet in the cache, so a fresh evaluation of A starts — causing infinite recursion.
+**Root cause**: `ModuleManager.loadModule()` evaluated modules eagerly. The imported namespace `StructValue` was only created and cached **after** the entire module body had been evaluated. If B imported A while A was still evaluating, A was not yet in the cache, so a fresh evaluation of A started — causing infinite recursion.
 
 ## Goals
 
@@ -33,9 +33,9 @@ Both languages separate **module/name registration** from **type/value validatio
 
 Adapt Yo's existing architecture with minimal refactoring by splitting module loading into two phases:
 
-**Phase 1 — Registration**: Create an empty `ModuleValue` placeholder and cache it _before_ evaluation begins. Mark the module as "loading".
+**Phase 1 — Registration**: Create an empty namespace `StructValue` placeholder and cache it _before_ evaluation begins. Mark the module as "loading".
 
-**Phase 2 — Evaluation**: Evaluate the module body. As `export` statements are processed, populate the placeholder `ModuleValue` incrementally (not all at once at the end).
+**Phase 2 — Evaluation**: Evaluate the module body. As `export` statements are processed, populate the placeholder `StructValue` incrementally (not all at once at the end).
 
 When a circular import is encountered:
 
@@ -134,24 +134,24 @@ All steps are implemented and tested (6 tests passing).
 **File**: `src/module-manager.ts`
 
 - Add a `loadingModules: Set<string>` to track modules currently being evaluated.
-- Before calling `new Evaluator(...)`, add the module path to `loadingModules` and store a placeholder `ModuleValue` in the cache.
+- Before calling `new Evaluator(...)`, add the module path to `loadingModules` and store a placeholder `StructValue` in the cache.
 - After evaluation completes, remove from `loadingModules`.
 - When `loadModule()` finds a module in `loadingModules`, return the placeholder (partial module) instead of recursing.
 
-### 2. Incremental ModuleValue population
+### 2. Incremental StructValue population
 
 **File**: `src/evaluator/values/anonymous-module.ts`
 
-- Accept an optional pre-created `ModuleValue` reference.
-- When processing `export` statements, immediately push fields into the shared `ModuleValue` (not just into a local `moduleElementValues` array).
-- This makes exports visible to other modules that hold a reference to the same `ModuleValue` object.
+- Accept an optional pre-created `StructValue` reference.
+- When processing `export` statements, immediately push fields into the shared `StructValue` (not just into a local `moduleElementValues` array).
+- This makes exports visible to other modules that hold a reference to the same `StructValue` object.
 
 ### 3. Field access validation for loading modules
 
 **File**: `src/evaluator/exprs/property-access.ts`
 
 - When accessing a field on a module that is still in "loading" state:
-  - If the field exists in `ModuleType.fields` and has a value in `ModuleValue.fields`, allow it.
+  - If the field exists in `ModuleType.fields` and has a value in `StructValue.fields`, allow it.
   - If the field does not exist yet, throw a descriptive error:
     `"Field 'X' is not yet available from module 'Y'. In a circular import, only fields exported before the import statement are accessible. Move 'export X' before the import of the current module."`
 

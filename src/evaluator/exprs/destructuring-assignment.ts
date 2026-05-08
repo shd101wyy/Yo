@@ -13,7 +13,7 @@ import type { Token } from "../../token";
 import type { Type } from "../../types/definitions";
 import {
   isEnumType,
-  isModuleType,
+  isSourceNamespaceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -21,7 +21,6 @@ import {
 import { typeToString } from "../../types/utils";
 import {
   isEnumValue,
-  isModuleValue,
   isStructValue,
   isTupleValue,
   type Value,
@@ -84,7 +83,7 @@ export function handleMemberDestructuring({
   // Check if we have enough fields
   if (lhsFields.length > rhsFields.length) {
     // Check if the RHS is a module that is still being evaluated (circular import).
-    if (rhsValue && isModuleValue(rhsValue) && rhsValue.isLoading) {
+    if (rhsValue && isStructValue(rhsValue) && rhsValue.isLoading) {
       throw formatErrorMessage({
         token: lhs.token,
         errorMessage: `Cannot destructure from a module that is still being evaluated (circular import). The requested fields are not yet available. Reorder your exports or break the cycle.`,
@@ -153,7 +152,6 @@ export function handleMemberDestructuring({
         const _fieldValue =
           isTupleValue(rhsValue) ||
           isStructValue(rhsValue) ||
-          isModuleValue(rhsValue) ||
           isEnumValue(rhsValue)
             ? rhsValue.fields[j]
             : undefined;
@@ -228,7 +226,7 @@ export function handleMemberDestructuring({
       );
 
       if (matchingMemberIndex === -1) {
-        if (rhsValue && isModuleValue(rhsValue) && rhsValue.isLoading) {
+        if (rhsValue && isStructValue(rhsValue) && rhsValue.isLoading) {
           throw formatErrorMessage({
             token: lhsField.token,
             errorMessage: `Field "${label}" is not yet available — the module is still being evaluated (circular import). Reorder your exports so "${label}" is exported before the circular import occurs.`,
@@ -248,8 +246,6 @@ export function handleMemberDestructuring({
       if (isTupleValue(rhsValue)) {
         nestedValue = rhsValue.fields[fieldIndex];
       } else if (isStructValue(rhsValue)) {
-        nestedValue = rhsValue.fields[fieldIndex];
-      } else if (isModuleValue(rhsValue)) {
         nestedValue = rhsValue.fields[fieldIndex];
       } else if (isEnumValue(rhsValue)) {
         nestedValue = rhsValue.fields[fieldIndex];
@@ -328,8 +324,6 @@ export function handleMemberDestructuring({
       } else if (isStructValue(rhsValue)) {
         fieldValue = rhsValue.fields[fieldIndex];
       } else if (isEnumValue(rhsValue)) {
-        fieldValue = rhsValue.fields[fieldIndex];
-      } else if (isModuleValue(rhsValue)) {
         fieldValue = rhsValue.fields[fieldIndex];
       }
 
@@ -445,7 +439,9 @@ export function evaluateDestructuringAssignment({
 
   // Handle struct/union/module destructuring
   if (
-    (isStructType(rhsType) || isUnionType(rhsType) || isModuleType(rhsType)) &&
+    (isStructType(rhsType) ||
+      isUnionType(rhsType) ||
+      isSourceNamespaceType(rhsType)) &&
     exprIsFunctionCall(lhs)
   ) {
     return handleMemberDestructuring({
@@ -526,7 +522,7 @@ export function evaluateDestructuringAssignment({
       isTupleType(rhsType) ||
       isStructType(rhsType) ||
       isUnionType(rhsType) ||
-      isModuleType(rhsType)
+      isSourceNamespaceType(rhsType)
     )
   ) {
     throw formatErrorMessage({

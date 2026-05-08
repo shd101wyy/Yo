@@ -89,33 +89,32 @@ export function evaluateTest({
 
   // Inject `io : IO` as an implicit variable so test bodies can reference it.
   // At runtime, main has `using(io : IO)` and the body is inlined into main.
-  // The variable `IO` in the env is the module type definition:
-  //   IO :: module(async: ..., await: ..., spawn: ...)
-  // Its type is the metatype (Type), and its value is TypeValue(ModuleType).
-  // We need the actual ModuleType for the `io` parameter.
+  // The variable `IO` in the env is the effect record type definition:
+  //   IO :: struct(async: ..., await: ..., spawn: ...)
+  // Its type is the metatype (Type), and its value is TypeValue(StructType).
+  // We need the actual StructType for the `io` parameter.
   const ioVariables = getVariablesFromEnv(env, "IO");
-  const ioModuleVar = ioVariables[ioVariables.length - 1];
-  if (!ioModuleVar) {
+  const ioTypeVar = ioVariables[ioVariables.length - 1];
+  if (!ioTypeVar) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `IO module not found in environment. Is the prelude loaded?`,
     });
   }
 
-  // Extract the actual ModuleType from IO's TypeValue.
-  // IO :: module(...) means ioModuleVar.value is TypeValue(ModuleType(...)).
-  const ioRawValue = Array.isArray(ioModuleVar.value)
-    ? ioModuleVar.value[0]
-    : ioModuleVar.value;
-  const ioModuleType =
-    ioRawValue && isTypeValue(ioRawValue) ? ioRawValue.value : ioModuleVar.type;
+  // Extract the actual StructType from IO's TypeValue.
+  const ioRawValue = Array.isArray(ioTypeVar.value)
+    ? ioTypeVar.value[0]
+    : ioTypeVar.value;
+  const ioStructType =
+    ioRawValue && isTypeValue(ioRawValue) ? ioRawValue.value : ioTypeVar.type;
 
   // Push a frame for the implicit io parameter
   let bodyEnv = pushEnvFrame(env);
 
   // Create an UnknownValue for io — the actual value is provided at runtime.
   // Using parameters use [value] array format for given-variable resolution.
-  const ioUnknownValue = createUnknownValue(ioModuleType, {
+  const ioUnknownValue = createUnknownValue(ioStructType, {
     variableName: "io",
     env: bodyEnv,
     context,
@@ -123,7 +122,7 @@ export function evaluateTest({
 
   const ioVar: Omit<Variable, "id" | "frameLevel"> = {
     name: "io",
-    type: ioModuleType,
+    type: ioStructType,
     value: [ioUnknownValue],
     isCompileTimeOnly: true,
     isOwningTheRcValue: false,

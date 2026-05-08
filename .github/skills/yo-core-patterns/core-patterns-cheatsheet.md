@@ -190,6 +190,10 @@ TcpStream :: object(fd : i32, buffer : ArrayList(u8));
 
 - Use `newtype(...)` when the type has exactly one field
 - Use `object(...)` for types that need shared ownership
+- Source-file imports are namespace structs. The old `module(...)`, `Module`,
+  and `SelfModule` syntax is gone; use `struct(...)`, `Type`, and normal `Self`.
+- Fields written as `name :: value` or `comptime(name) : Type` are compile-time-only static fields/methods and have no runtime layout
+- A normal field with a compile-time-only type, such as `x : comptime_int`, is still a data field and makes the struct comptime-only
 
 ## Impl blocks and generics
 

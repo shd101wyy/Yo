@@ -29,6 +29,7 @@ import {
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
   getEnumVariantCName,
+  getRuntimeStructFields,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
@@ -243,24 +244,36 @@ export function generateComptimeValue(
 
       if (type.isReferenceSemantics) {
         // For object compile-time values, use constructor function
-        const fieldValues = value.fields.map((field) =>
-          generateComptimeValue(field, context)
-        );
+        const runtimeFieldValues = type.fields
+          .map((field, index) => ({ field, value: value.fields[index] }))
+          .filter(({ field }) =>
+            getRuntimeStructFields(type).some(
+              (runtimeField) => runtimeField === field
+            )
+          )
+          .map(({ value: fieldValue }) =>
+            generateComptimeValue(fieldValue!, context)
+          );
 
         const constructorName = `__yo_new_${cName}`;
-        return `${constructorName}(${fieldValues.join(", ")})`;
+        return `${constructorName}(${runtimeFieldValues.join(", ")})`;
       } else {
         // For regular struct compile-time values, generate as before
-        const fields = value.fields.map((field, index) => {
-          const fieldValue = field;
-          // For tuples, use numeric field names _0, _1, _2...
-          // For regular structs, use the actual field labels
-          const fieldName = isTupleType(type)
-            ? `_${index}`
-            : sanitizeForCIdentifier(type.fields[index]!.label);
-          const fieldCode = generateComptimeValue(fieldValue, context);
-          return `.${fieldName} = ${fieldCode}`;
-        });
+        const runtimeFields = getRuntimeStructFields(type);
+        const fields = type.fields
+          .map((field, index) => ({ field, value: value.fields[index] }))
+          .filter(({ field }) =>
+            runtimeFields.some((runtimeField) => runtimeField === field)
+          )
+          .map(({ field, value: fieldValue }, index) => {
+            // For tuples, use numeric field names _0, _1, _2...
+            // For regular structs, use the actual field labels
+            const fieldName = isTupleType(type)
+              ? `_${index}`
+              : sanitizeForCIdentifier(field.label);
+            const fieldCode = generateComptimeValue(fieldValue!, context);
+            return `.${fieldName} = ${fieldCode}`;
+          });
 
         return `(${cName}){ ${fields.join(", ")} }`;
       }
@@ -328,5 +341,5 @@ export function generateComptimeValue(
     return `/* Error: Cannot generate pointer value ${valueToString(value)} */`;
   }
 
-  return `/* skip generating: ${valueToString(value)} */`; // No need to generate. It might be module value, etc
+  return `/* skip generating: ${valueToString(value)} */`; // No need to generate. It might be an effect record value, etc
 }

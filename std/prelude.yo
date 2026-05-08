@@ -4228,9 +4228,6 @@ TypeInfo :: enum(
   ),
 
   // Meta types
-  Module(
-    fields : ComptimeList(TypeFieldInfo)
-  ),
   Trait(
     fields : ComptimeList(TraitFieldInfo),
     kind : TraitKind
@@ -4280,9 +4277,6 @@ impl(TypeInfo,
   ),
   is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Trait(_, _) => true, _ => false)
-  ),
-  is_module : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self, .Module(_) => true, _ => false)
   ),
   is_void : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Void => true, _ => false)
@@ -6190,7 +6184,7 @@ export JoinHandle;
 ///
 /// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
 /// Automatically injected into `main` when declared with `using(io : IO)`.
-IO :: module(
+IO :: struct(
   /// Create a new `Future` from an async closure.
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   /// Await a `Future`, suspending until its result is ready.

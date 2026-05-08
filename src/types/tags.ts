@@ -68,9 +68,6 @@ export enum TypeTag {
   // Value
   // Literal = "Literal",
 
-  // Module
-  Module = "Module",
-
   // Trait
   Trait = "Trait",
 

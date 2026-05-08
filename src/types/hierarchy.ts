@@ -21,7 +21,7 @@ import {
   isFunctionType,
   isFutureTraitType,
   isIsoType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPrimitiveType,
   isPtrType,
@@ -166,11 +166,11 @@ export function typeOfType(
   } else if (isUnionType(type)) {
     // For unions, check all member types
     return determineTypeUniverse(type, type.fields, checkedTupleElements);
-  } else if (isModuleType(type)) {
+  } else if (isSourceNamespaceType(type)) {
     return createTypeHierarchy(1, type);
     // Modules are treated as type hierarchies
     // It's the same level as Type(1)
-    // Module type itself has the same level as Type
+    // Trait type itself has the same level as Type.
   } else if (isTraitType(type)) {
     return createTypeHierarchy(1, type);
     // Traits are treated as type hierarchies

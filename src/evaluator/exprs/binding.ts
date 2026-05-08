@@ -13,6 +13,7 @@ import {
   isArrayType,
   isFunctionType,
   isFunctionTypeGeneric,
+  isStructType,
 } from "../../types/guards";
 import {
   prohibitVoidType,
@@ -113,7 +114,12 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
       });
     }
     isImplicit = true;
-    isCompileTimeOnly = true;
+    // Phase 4b: nominal struct effects can be runtime values; only force
+    // comptime for module/non-struct types so the legacy comptime path
+    // for effect records is preserved.
+    if (!isStructType(userDefinedType)) {
+      isCompileTimeOnly = true;
+    }
     lhs = lhs.args[0]!;
   }
 

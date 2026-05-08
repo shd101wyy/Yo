@@ -21,7 +21,7 @@ import { renderDocSite, destroyMarkdownRenderer } from "./doc/render-html";
 import { renderDocMarkdown } from "./doc/render-markdown";
 import { renderDocJson } from "./doc/render-json";
 import type { DocModel, DocModule } from "./doc/model";
-import type { ModuleValue } from "./value";
+import type { StructValue } from "./value";
 
 export type DocFormat = "html" | "markdown" | "json";
 
@@ -188,7 +188,7 @@ function documentFile(
   const extraction = extractDocComments(tokens);
 
   // Try to evaluate the module to get type information
-  let moduleValue: ModuleValue | undefined;
+  let moduleValue: StructValue | undefined;
 
   try {
     const result = moduleManager.loadModule(modulePath);

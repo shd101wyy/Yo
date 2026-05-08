@@ -18,9 +18,11 @@ open import "std/error";
   handle_dot_access,
   is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda } :: import "../codegen/exprs.yo";
 { generate_function } :: import "../codegen/functions.yo";
-{ TypeValue, t_i32, t_f32, t_usize, t_bool } :: import "../types/type.yo";
+{ TypeValue, t_i32, t_f32, t_usize, t_bool, t_comptime_string } :: import "../types/type.yo";
 { generate_type_decl, type_value_to_c_field,
   struct_c_name, enum_c_name, enum_tag_prefix } :: import "../codegen/types.yo";
+{ TypeField, register_struct_fields } :: import "../evaluator/types/field.yo";
+{ EvalValue } :: import "../evaluator/value.yo";
 { generate_rc_fns, generate_rc_fns_trivial,
   rc_dispose_name, rc_drop_name, rc_dup_name,
   RC_ATTR } :: import "../codegen/rc.yo";
@@ -920,6 +922,45 @@ test "generate_type_decl: simple struct Point with two i32 fields", {
   assert(output.contains(String.from("struct __yo_struct_yomod0001_id_2_struct")), "struct def");
   assert(output.contains(String.from("int32_t x;")), "field x");
   assert(output.contains(String.from("int32_t y;")), "field y");
+};
+
+test "generate_type_decl: skips explicit comptime-only struct fields", {
+  struct_id := String.from("static_struct");
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("tag"));
+  field_labels.push(String.from("value"));
+
+  field_types := ArrayList(TypeValue).new();
+  field_types.push(t_comptime_string());
+  field_types.push(t_i32());
+
+  fields := ArrayList(TypeField).new();
+  fields.push(TypeField(
+    label: String.from("tag"),
+    ty: t_comptime_string(),
+    is_comptime: true,
+    default_value: Option(EvalValue).None,
+    assigned_value: Option(EvalValue).None,
+    doc_comment: Option(String).None
+  ));
+  fields.push(TypeField(
+    label: String.from("value"),
+    ty: t_i32(),
+    is_comptime: false,
+    default_value: Option(EvalValue).None,
+    assigned_value: Option(EvalValue).None,
+    doc_comment: Option(String).None
+  ));
+  register_struct_fields(struct_id, fields);
+
+  tv := TypeValue.Struct(struct_id, String.from("StaticStruct"), field_labels, field_types, false, false, false);
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &ctx;
+  _ := generate_type_decl(tv, "yomod0001", usize(3), pctx);
+
+  output := ctx.emitter.print();
+  assert(!(output.contains(String.from(" tag;"))), "static field omitted");
+  assert(output.contains(String.from("int32_t value;")), "runtime field emitted");
 };
 
 test "generate_type_decl: simple enum Color (all unit variants)", {

@@ -153,7 +153,7 @@ Methods from generic `impl` blocks (e.g., `impl(forall(T), Option(T), ...)`) are
 Doc comments (`///`) are extracted during lexing, associated with declarations via `docCommentLookup`, and propagated through:
 
 - Struct field evaluation → `TypeField.docComment`
-- Module field evaluation → `ModuleField.docComment`
+- Module field evaluation → `TypeField.docComment`
 - Impl field evaluation → `TraitField.docComment`
 - `attachTraitToReceiverType()` → copies doc comments to receiver types
 

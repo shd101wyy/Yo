@@ -216,6 +216,32 @@ test "has_effect_in_spread_: direct EffectsRowT with matching name => true", {
   assert(result, "EffectsRowT with 'raise' should return true");
 };
 
+test "has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
+  labels := ArrayList(String).new();
+  labels.push(String.from("raise"));
+  types := ArrayList(TypeValue).new();
+  struct_labels := ArrayList(String).new();
+  struct_types := ArrayList(TypeValue).new();
+  types.push(TypeValue.Struct(
+    String.from("struct_raise"),
+    String.from("Raise"),
+    struct_labels,
+    struct_types,
+    false,
+    false,
+    false
+  ));
+  ert := TypeValue.EffectsRowT(labels, types);
+  env := make_empty_env();
+  result := has_effect_in_spread_(
+    String.from("effects"),
+    ert,
+    String.from("raise"),
+    env
+  );
+  assert(result, "EffectsRowT with struct evidence should return true");
+};
+
 test "has_effect_in_spread_: direct EffectsRowT with non-matching name => false", {
   ert := make_effects_row_with("other_effect");
   env := make_empty_env();

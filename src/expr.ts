@@ -26,10 +26,10 @@ import {
 import {
   type ArrayValue,
   type ComptimeListValue,
-  type StructValue,
-  type TupleValue,
   isTypeValue,
+  type StructValue,
   type TraitValue,
+  type TupleValue,
   type Value,
 } from "./value";
 import { ValueTag } from "./value-tag";
@@ -671,12 +671,10 @@ export const BuiltinKeywords = {
   newtype: ["newtype"],
   enum: ["enum"],
   union: ["union"],
-  module: ["module"],
   trait: ["trait"],
   impl: ["impl"],
   Impl: ["Impl"],
   begin: ["begin"],
-  module_begin: ["module_begin"],
   import: ["import"],
   export: ["export"],
   open: ["open"],
@@ -719,7 +717,6 @@ export const BuiltinKeywords = {
   Future: ["Future"],
   Concrete: ["Concrete"],
   Type: ["Type"],
-  Module: ["Module"],
   Trait: ["Trait"],
   ComptimeList: ["ComptimeList"],
 

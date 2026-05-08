@@ -2,7 +2,7 @@ import type { Expr } from "../expr";
 import { Emitter } from "../emitter";
 import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
-import type { ModuleValue } from "../value";
+import type { StructValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
 import { isStructType } from "../types/guards";
 import { canTypeFormRcCycle, typeContainsSomeType } from "../types/utils";
@@ -60,7 +60,7 @@ export class CodeGeneratorC {
    */
   public compileModule(
     modulePath: string,
-    moduleValue: ModuleValue,
+    moduleValue: StructValue,
     options: {
       debugGc?: boolean;
       debugParallelism?: boolean;

@@ -39,7 +39,7 @@ open import "std/string";
 } :: import "../../expr/expr.yo";
 { ExprInfo } :: import "../../expr/expr_info.yo";
 { TypeValue } :: import "../../types/type.yo";
-{ is_function_type, is_module_type, is_some_type, is_effects_row_type
+{ is_function_type, is_module_type, is_struct_type, is_some_type, is_effects_row_type
 } :: import "../../types/guards.yo";
 { Environment, Variable, get_variables_from_env } :: import "../../env/env.yo";
 { extract_fn_trait_from_type } :: import "../trait_checking.yo";
@@ -321,7 +321,7 @@ has_effect_in_spread_ :: (fn(
         while runtime((i < n)), {
           label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
           ty    := match(implicit_types.get(i),  .Some(t) => t, .None => TypeValue.Unit);
-          if(((label == effect_param_name) && (is_function_type((&ty).clone()) || is_module_type(ty))), {
+          if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type(ty))), {
             found = true;
             break;
           });
@@ -377,8 +377,8 @@ is_transitive_effect_call_ :: (fn(
           ty    := match(implicit_types.get(i),  .Some(t) => t, .None => TypeValue.Unit);
           is_spread := match(implicit_spreads.get(i), .Some(s) => s, .None => false);
 
-          // Direct match: label matches and type is Func or ModuleT
-          if(((label == effect_param_name) && (is_function_type((&ty).clone()) || is_module_type((&ty).clone()))), {
+          // Direct match: label matches and type is Func or effect record
+          if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type((&ty).clone()))), {
             found = Option(bool).Some(false);
             break;
           });
@@ -424,7 +424,7 @@ is_transitive_effect_call_ :: (fn(
             ty       := match(implicit_types.get(i2),   .Some(t) => t, .None => TypeValue.Unit);
             is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
 
-            if(((label == effect_param_name) && (is_function_type((&ty).clone()) || is_module_type((&ty).clone()))), {
+            if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type((&ty).clone()))), {
               return Option(bool).Some(true);
             });
 

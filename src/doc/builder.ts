@@ -2,7 +2,7 @@
 // to produce structured documentation.
 //
 // The builder takes:
-//   1. A ModuleValue from the evaluator (types + exported declarations)
+//   1. A StructValue from the evaluator (types + exported declarations)
 //   2. A DocExtractionResult from the extractor (doc comments)
 //   3. Tokens from the lexer (for position matching)
 // And produces a DocModule with fully resolved type signatures and doc text.
@@ -10,19 +10,18 @@
 import type { Token } from "../token";
 import { TokenType } from "../token";
 import type { Environment } from "../env";
-import type { ModuleValue } from "../value";
+import type { StructValue } from "../value";
 import { valueToString, isTypeValue } from "../value";
 import { ValueTag } from "../value-tag";
 import type { FunctionValue } from "../function-value";
 import type {
   EnumType,
   FunctionType,
-  ModuleField,
-  ModuleType,
+  TypeField,
+  SourceNamespaceType,
   StructType,
   TraitType,
   Type,
-  TypeField,
   UnionType,
 } from "../types/definitions";
 import { TypeTag } from "../types/tags";
@@ -31,7 +30,7 @@ import {
   isStructType,
   isEnumType,
   isTraitType,
-  isModuleType,
+  isSourceNamespaceType,
   isUnionType,
   isFunctionTypeAndIsTypeFunction,
   isTypeHierarchyType,
@@ -62,8 +61,8 @@ import type {
  * If the field is a plain type (not a type constructor function), returns it as-is.
  */
 function resolveInnerType(
-  field: ModuleField,
-  value: ModuleValue["fields"][number]
+  field: TypeField,
+  value: StructValue["fields"][number]
 ): Type {
   const type = field.type;
 
@@ -317,7 +316,7 @@ function getTypeKind(type: Type): DocItemKind {
   if (isEnumType(type)) return "enum";
   if (isUnionType(type)) return "union";
   if (isTraitType(type)) return "trait";
-  if (isModuleType(type)) return "module";
+  if (isSourceNamespaceType(type)) return "module";
   return "type-alias";
 }
 
@@ -361,7 +360,7 @@ function enumVariantsToDocVariants(
 
 // ── Helper: get forall type params from a type-constructor function ──
 
-function getTypeConstructorParams(field: ModuleField): DocParam[] | undefined {
+function getTypeConstructorParams(field: TypeField): DocParam[] | undefined {
   if (
     isFunctionType(field.type) &&
     isFunctionTypeAndIsTypeFunction(field.type)
@@ -987,7 +986,7 @@ export interface BuildDocModuleOptions {
   /** The module path (e.g., "std/collections/array_list") */
   path: string;
   /** The evaluated module value */
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   /** The extracted doc comments */
   extraction: DocExtractionResult;
   /** The raw tokens (for future position-based matching) */
@@ -1024,11 +1023,11 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
     submodules: [],
   };
 
-  const moduleType = moduleValue.type;
-  if (!isModuleType(moduleType)) return result;
+  const sourceNamespaceType = moduleValue.type;
+  if (!isSourceNamespaceType(sourceNamespaceType)) return result;
 
-  for (let i = 0; i < moduleType.fields.length; i++) {
-    const field = moduleType.fields[i]!;
+  for (let i = 0; i < sourceNamespaceType.fields.length; i++) {
+    const field = sourceNamespaceType.fields[i]!;
     const value = moduleValue.fields[i];
     const fieldName = field.label;
     const doc = docLookup.get(fieldName);
@@ -1203,10 +1202,10 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
         continue;
       }
 
-      if (isModuleType(actualType)) {
-        const directModuleType = actualType as ModuleType;
+      if (isSourceNamespaceType(actualType)) {
+        const directNamespaceType = actualType as SourceNamespaceType;
         const moduleMethods: DocFunction[] = [];
-        for (const mField of directModuleType.fields) {
+        for (const mField of directNamespaceType.fields) {
           if (
             isFunctionType(mField.type) &&
             !mField.label.startsWith("___") &&
@@ -1365,10 +1364,10 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             implementors: [],
             ...extractDocSections(doc),
           });
-        } else if (isModuleType(innerType)) {
-          const resolvedModuleType = innerType as ModuleType;
+        } else if (isSourceNamespaceType(innerType)) {
+          const resolvedNamespaceType = innerType as SourceNamespaceType;
           const moduleMethods: DocFunction[] = [];
-          for (const mField of resolvedModuleType.fields) {
+          for (const mField of resolvedNamespaceType.fields) {
             if (
               isFunctionType(mField.type) &&
               !mField.label.startsWith("___") &&
@@ -1397,7 +1396,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             ...extractDocSections(doc),
           });
         } else {
-          // Check if the function returns comptime(Trait) or comptime(Module)
+          // Check if the function returns comptime(Trait) or another comptime type record.
           const funcType = field.type as FunctionType;
           const retType = funcType.return.type;
           if (
@@ -1405,13 +1404,13 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
             retType.level >= 1 &&
             (!retType.baseType ||
               isTraitType(retType.baseType) ||
-              isModuleType(retType.baseType))
+              isSourceNamespaceType(retType.baseType))
           ) {
             result.traits.push({
               name: fieldName,
               doc,
               kind:
-                retType.baseType && isModuleType(retType.baseType)
+                retType.baseType && isSourceNamespaceType(retType.baseType)
                   ? "module-function"
                   : "trait-function",
               signature: typeToString(field.type),

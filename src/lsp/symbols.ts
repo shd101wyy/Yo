@@ -151,7 +151,7 @@ function classifyDeclaration(rhs: Expr | undefined): SymbolKind {
       const v = val[0];
       if (typeof v === "object" && "tag" in v) {
         if (v.tag === "TypeValue") return SymbolKind.Class;
-        if (v.tag === "ModuleValue") return SymbolKind.Module;
+        if (v.tag === "StructValue") return SymbolKind.Module;
       }
     }
   }

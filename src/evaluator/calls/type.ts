@@ -11,6 +11,7 @@ import {
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { TypeField } from "../../types/definitions";
+import { isFunctionType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
@@ -170,9 +171,19 @@ Got:   ${typeToString(argType)}`,
       });
     }
 
+    const argValue = evaluatedArgExpr.$?.value;
+
+    // Propagate ioBuiltin from extern function types to struct field types.
+    // This ensures io.async/io.await/io.spawn/etc. are detected as IO builtins
+    // even when accessed through a struct field (mirrors the behavior in
+    // record-type.ts for record constructors).
+    if (argType.ioBuiltin && isFunctionType(memberElement.type)) {
+      memberElement.type.ioBuiltin = argType.ioBuiltin;
+    }
+
     // Set the values
     // if (memberElement.isCompileTimeOnly) {
-    values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+    values[memberElementPositionIndex] = argValue;
     runtimeArgExprsInOrder[memberElementPositionIndex] = evaluatedArgExpr;
     // }
     checkedMemberElements.add(memberElement);

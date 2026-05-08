@@ -88,6 +88,12 @@ Use `cond` when there are more than two branches or when the branches are large.
 - No space between `(fn() -> ReturnType)` and `({ body; })`
 - Method definitions in struct use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
 - Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
+- Use `struct(...)` for record/effect-record types. The old `module(...)`,
+  `Module`, and `SelfModule` syntax has been removed; imported source files are
+  namespace structs, and recursive type references use normal `Self`.
+- Bare `Module` is not a type-hierarchy alias anymore. Use `Type` for
+  compile-time type parameters/returns, and reflect source-module namespaces as
+  ordinary `TypeInfo.Struct(...)` values.
 
 ## Anonymous function (`=>`) parameters cannot have type annotations
 

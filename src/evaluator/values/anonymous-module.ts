@@ -14,12 +14,12 @@ import {
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
-import { createModuleType } from "../../types/creators";
-import type { ModuleType } from "../../types/definitions";
-import { isModuleType } from "../../types/guards";
+import { createSourceNamespaceType } from "../../types/creators";
+import type { SourceNamespaceType } from "../../types/definitions";
+import { isSourceNamespaceType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { ValueTag } from "../../value-tag";
-import type { ModuleValue } from "../../value";
+import type { StructValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -42,27 +42,27 @@ export function evaluateAnonymousModuleBeginExprs({
    */
   allowPartialModule?: boolean;
   /**
-   * Callback to register the ModuleValue early so circular imports can
-   * access already-exported fields. Called immediately after the ModuleValue
+   * Callback to register the StructValue early so circular imports can
+   * access already-exported fields. Called immediately after the StructValue
    * is created (before any expressions are evaluated).
    */
-  registerPartialModule?: (mv: ModuleValue) => void;
+  registerPartialModule?: (mv: StructValue) => void;
 }): {
-  moduleValue: ModuleValue;
-  moduleType: ModuleType;
+  moduleValue: StructValue;
+  sourceNamespaceType: SourceNamespaceType;
   env: Environment;
   partialModuleError?: Error;
 } {
-  // Create module type
-  const moduleType = createModuleType(env);
+  // Create source namespace struct type
+  const sourceNamespaceType = createSourceNamespaceType(env);
   // Collect module-level `:=` initialization expressions for codegen
   const moduleLevelInitExprs: Expr[] = [];
 
-  // Create the module value early so circular imports can access
+  // Create the struct value early so circular imports can access
   // already-exported fields through the shared fields arrays.
-  const moduleValue: ModuleValue = {
-    tag: ValueTag.Module,
-    type: moduleType,
+  const moduleValue: StructValue = {
+    tag: ValueTag.Struct,
+    type: sourceNamespaceType,
     fields: [],
     isLoading: true,
   };
@@ -95,11 +95,11 @@ export function evaluateAnonymousModuleBeginExprs({
             exprIsFunctionCall(exportExpr) &&
             exprIsFunctionCallOf(exportExpr, "...")
           ) {
-            const extendedModuleExpr = exportExpr.args[0]!;
+            const extendedStructExpr = exportExpr.args[0]!;
             let excludeMembersExpr = exportExpr.args[1];
             // Evaluate the extended struct expression
             const evaluatedExtendedModuleExpr = evaluateExpression({
-              expr: extendedModuleExpr,
+              expr: extendedStructExpr,
               env,
               context: {
                 ...context,
@@ -107,20 +107,19 @@ export function evaluateAnonymousModuleBeginExprs({
             });
             if (!evaluatedExtendedModuleExpr.$) {
               throw formatErrorMessage({
-                token: extendedModuleExpr.token,
-                errorMessage: `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`,
+                token: extendedStructExpr.token,
+                errorMessage: `Failed to evaluate the extended struct expression:\n${exprToString(extendedStructExpr)}`,
               });
             }
-            const extendedModuleType = evaluatedExtendedModuleExpr.$.type;
-            if (!isModuleType(extendedModuleType)) {
+            const extendedNamespaceType = evaluatedExtendedModuleExpr.$.type;
+            if (!isSourceNamespaceType(extendedNamespaceType)) {
               throw formatErrorMessage({
-                token: extendedModuleExpr.token,
-                errorMessage: `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`,
+                token: extendedStructExpr.token,
+                errorMessage: `Expected struct type for export, got:\n${typeToString(extendedNamespaceType)}`,
               });
             }
-            const extendedModuleValue = evaluatedExtendedModuleExpr.$.value as
-              | ModuleValue
-              | undefined;
+            const extendedNamespaceValue = evaluatedExtendedModuleExpr.$
+              .value as StructValue | undefined;
 
             const excludedLabels: Set<string> = new Set();
             if (excludeMembersExpr) {
@@ -133,14 +132,14 @@ export function evaluateAnonymousModuleBeginExprs({
               }
               if (exprIsAtom(excludeMembersExpr)) {
                 const label = excludeMembersExpr.token.value;
-                // Check if the label is in the extended module type
-                const existingElement = extendedModuleType.fields.find(
+                // Check if the label is in the extended source namespace type
+                const existingElement = extendedNamespaceType.fields.find(
                   (e) => e.label === label
                 );
                 if (!existingElement) {
                   throw formatErrorMessage({
                     token: excludeMembersExpr.token,
-                    errorMessage: `Label "${label}" is not found in the extended module type.`,
+                    errorMessage: `Label "${label}" is not found in the extended source namespace type.`,
                   });
                 }
                 // Add the label to the excluded labels
@@ -169,14 +168,14 @@ export function evaluateAnonymousModuleBeginExprs({
                       });
                     }
                     const label = memberExpr.token.value;
-                    // Check if the label is in the extended module type
-                    const existingElement = extendedModuleType.fields.find(
+                    // Check if the label is in the extended source namespace type
+                    const existingElement = extendedNamespaceType.fields.find(
                       (e) => e.label === label
                     );
                     if (!existingElement) {
                       throw formatErrorMessage({
                         token: memberExpr.token,
-                        errorMessage: `Label "${label}" is not found in the extended module type.`,
+                        errorMessage: `Label "${label}" is not found in the extended source namespace type.`,
                       });
                     }
                     // Add the label to the excluded labels
@@ -200,8 +199,8 @@ export function evaluateAnonymousModuleBeginExprs({
             }
 
             // Iterate over the fields of the extended struct
-            for (let k = 0; k < extendedModuleType.fields.length; k++) {
-              const extendedStructField = extendedModuleType.fields[k]!;
+            for (let k = 0; k < extendedNamespaceType.fields.length; k++) {
+              const extendedStructField = extendedNamespaceType.fields[k]!;
               // Check if the field is excluded
               if (excludedLabels.has(extendedStructField.label)) {
                 // Skip the field if it's excluded
@@ -210,7 +209,7 @@ export function evaluateAnonymousModuleBeginExprs({
 
               // Check if there is duplicate labels
               // If yes, then throw an error
-              const existingElementIndex = moduleType.fields.findIndex(
+              const existingElementIndex = sourceNamespaceType.fields.findIndex(
                 (e) => e.label === extendedStructField.label
               );
               if (existingElementIndex >= 0) {
@@ -219,8 +218,8 @@ export function evaluateAnonymousModuleBeginExprs({
                   errorMessage: `Element "${extendedStructField.label}" is already exported in the module.`,
                 });
               } else {
-                // Add the field to the module type
-                moduleType.fields.push({
+                // Add the field to the source namespace type
+                sourceNamespaceType.fields.push({
                   label: extendedStructField.label,
                   type: extendedStructField.type,
                   assignedValue: extendedStructField.assignedValue,
@@ -234,9 +233,9 @@ export function evaluateAnonymousModuleBeginExprs({
                   },
                 });
 
-                // Add the value to the module field values
-                if (extendedModuleValue) {
-                  moduleValue.fields.push(extendedModuleValue.fields[k]);
+                // Add the value to the source namespace field values
+                if (extendedNamespaceValue) {
+                  moduleValue.fields.push(extendedNamespaceValue.fields[k]);
                 } else {
                   moduleValue.fields.push(undefined);
                 }
@@ -245,8 +244,8 @@ export function evaluateAnonymousModuleBeginExprs({
                 exportExpr.$ = {
                   env,
                   type: extendedStructField.type,
-                  value: extendedModuleValue
-                    ? extendedModuleValue.fields[k]
+                  value: extendedNamespaceValue
+                    ? extendedNamespaceValue.fields[k]
                     : undefined,
                   pathCollection: [],
                 };
@@ -318,7 +317,7 @@ export function evaluateAnonymousModuleBeginExprs({
             const variable = variables[variables.length - 1]!;
 
             // Check if the same variable is already exported
-            const existingElementIndex = moduleType.fields.findIndex(
+            const existingElementIndex = sourceNamespaceType.fields.findIndex(
               (e) => e.label === givenVariableName
             );
             if (existingElementIndex >= 0) {
@@ -336,8 +335,8 @@ export function evaluateAnonymousModuleBeginExprs({
                 });
               }
 
-              // Add the variable to the module type
-              moduleType.fields.push({
+              // Add the variable to the source namespace type
+              sourceNamespaceType.fields.push({
                 label: variableName,
                 type: variable.type,
                 assignedValue: variable.isCompileTimeOnly
@@ -465,14 +464,14 @@ Use \`${varName} := value;\` or \`(${varName} : ${evaluatedExpr.args[1]?.token.v
     }
   }
 
-  // Finalize the module value
+  // Finalize the struct value
   moduleValue.isLoading = false;
   moduleValue.moduleLevelInitExprs =
     moduleLevelInitExprs.length > 0 ? moduleLevelInitExprs : undefined;
 
   return {
     moduleValue,
-    moduleType,
+    sourceNamespaceType,
     env,
     partialModuleError,
   };

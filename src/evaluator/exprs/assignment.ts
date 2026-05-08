@@ -53,10 +53,10 @@ import {
   createEnumValue,
   createStructValue,
   createTupleValue,
+  createUnknownValue,
   isArrayValue,
   isEnumValue,
   isFunctionValue,
-  isModuleValue,
   isStructValue,
   isTraitValue,
   isTupleValue,
@@ -414,7 +414,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       rhsValue.funcName = variableName;
       rhsValue.funcId += `_${lhs.token.value}`;
     } else if (
-      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
+      (isStructValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName
     ) {
       // Don't set typeName if this is a reference to Self (context.SelfType)
@@ -497,10 +497,22 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // Initialize the variable
       // For value semantics, use cloneValue to ensure deep copy
       // This prevents mutations to one variable from affecting another
+      // Phase 4b: when an `isImplicit` (given) variable of struct type
+      // is assigned a runtime value (no comptime rhsValue), record an
+      // UnknownValue so downstream resolution knows the binding exists
+      // even though its concrete value is only available at runtime.
+      // (Helper.ts still rejects this for now; later sub-steps will
+      // route it through runtime evidence params.)
       const valueToStore =
         variable.isCompileTimeOnly && rhsValue
           ? cloneValue(rhsValue)
-          : undefined;
+          : variable.isImplicit && isStructType(variableType)
+            ? createUnknownValue(variableType, {
+                variableName,
+                env,
+                context,
+              })
+            : undefined;
 
       // Under the new simplified ownership model:
       // Variables created by := always own their values
@@ -880,9 +892,19 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                       newFields
                     );
                   } else {
+                    const tupleFields: Value[] = [];
+                    for (const fieldValue of newFields) {
+                      if (!fieldValue) {
+                        throw formatErrorMessage({
+                          token: expr.token,
+                          errorMessage: `Cannot assign runtime value into compile-time tuple field.`,
+                        });
+                      }
+                      tupleFields.push(fieldValue);
+                    }
                     newValue = createTupleValue(
                       structType as TupleType,
-                      newFields
+                      tupleFields
                     );
                   }
 

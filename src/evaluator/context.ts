@@ -4,7 +4,7 @@ import type { Expr, FnCallExpr, PathCollection, ComptimeRef } from "../expr";
 import type { FunctionValue } from "../function-value";
 import type { Token } from "../token";
 import type { FunctionType, TraitType, Type } from "../types/definitions";
-import type { ModuleValue, TraitValue, Value } from "../value";
+import type { StructValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -19,7 +19,7 @@ export interface FunctionEvaluationContext {
 }
 
 export type LoadModuleFn = (modulePath: string) => {
-  moduleValue: ModuleValue;
+  moduleValue: StructValue;
   moduleError: Error | undefined;
 };
 
@@ -124,14 +124,7 @@ export interface EvaluatorContext {
   SelfTraitType?: Type;
 
   /**
-   * The module type currently being defined.
-   * Used inside module(...) definitions to allow self-referencing via `SelfModule`.
-   * For example: `spawn : (fn(...) -> Impl(Future(Option(T), SelfModule)))`
-   */
-  SelfModuleType?: Type;
-
-  /**
-   * The receiverType for implementing the module value.
+   * The receiverType for implementing the trait value.
    * Like:
    *
    * impl Point, Add(Point)(
@@ -145,7 +138,7 @@ export interface EvaluatorContext {
   /**
    * Whether we are currently evaluating a function type definition.
    * When true, implicit parameters dependencies are deferred and assumed to be satisfied.
-   * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Module)`
+   * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Type)`
    * without requiring all transitive dependencies to be resolved at type definition time.
    */
   isEvaluatingFunctionType?: boolean;
@@ -156,7 +149,7 @@ export interface EvaluatorContext {
    * @returns
    */
   loadModule?: (modulePath: string) => {
-    moduleValue: ModuleValue;
+    moduleValue: StructValue;
     moduleError: Error | undefined;
   };
 
@@ -194,7 +187,7 @@ export interface EvaluatorContext {
   /**
    * Whether we are currently evaluating a where clause constraint.
    * When true, the LHS of `<:` must be a SomeType, and the constraint
-   * will be added to the SomeType's module rather than creating a new module type.
+   * will be added to the SomeType's trait constraints rather than creating a new trait type.
    */
   isInsideWhereClause?: boolean;
 
@@ -348,8 +341,8 @@ export interface TypeCallResult {
   callerEnv: Environment;
 }
 
-export interface ModuleTypeCallResult {
-  moduleValue: ModuleValue;
+export interface RecordTypeCallResult {
+  moduleValue: StructValue;
   callerEnv: Environment;
 }
 
@@ -479,10 +472,10 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   tryToImplementModuleWithArguments
+         *   tryToImplementRecordWithArguments
          */
-        kind: "module-type";
-        result: ModuleTypeCallResult;
+        kind: "record-type";
+        result: RecordTypeCallResult;
       }
     | {
         /**
@@ -563,11 +556,11 @@ export function getTypeCallResult(
   return functionToCall.result.result;
 }
 
-export function getModuleTypeCallResult(
+export function getRecordTypeCallResult(
   functionToCall: FunctionToCall
-): ModuleTypeCallResult {
-  if (functionToCall.result.kind !== "module-type") {
-    throw new Error("Expected module type call result");
+): RecordTypeCallResult {
+  if (functionToCall.result.kind !== "record-type") {
+    throw new Error("Expected record type call result");
   }
   return functionToCall.result.result;
 }

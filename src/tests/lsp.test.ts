@@ -151,7 +151,7 @@ export main;
 
   describe("module member completion", () => {
     const source = `
-MathOps :: module(
+MathOps :: struct(
   /// Add two numbers
   add : (fn(a : i32, b : i32) -> i32),
   /// Negate a number

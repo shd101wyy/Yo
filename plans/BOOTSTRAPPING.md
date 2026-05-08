@@ -724,6 +724,24 @@ Created `yo-self/tests/suspension_analysis.test.yo` with 9 tests.
 
 **Total: 771 tests passing**
 
+### Module/Struct unification sync note
+
+The production compiler is migrating away from a distinct module type toward
+one nominal `Struct` representation for imported module shapes, user structs,
+and runtime effect records. `yo-self` still keeps the older
+`TypeValue.ModuleT`/`TypeTag.TModule` compatibility path for now, but the
+safe pieces of the unified semantics have been mirrored:
+
+- struct auto-derive checks use only explicit runtime fields;
+- C struct declaration codegen skips fields whose registered `TypeField`
+  metadata has `is_comptime = true`;
+- effect analysis accepts struct-typed evidence records in effect rows and
+  transitive effect calls.
+
+This keeps the bootstrap aligned with runtime `given(struct)` evidence passing
+without forcing a broad `ModuleT` deletion before the self-hosted evaluator is
+ready for that larger representation change.
+
 ### Phase 2m — Port `src/evaluator/async/await-analysis.ts` to `yo-self/evaluator/async/await_analysis.yo` ✅ Done
 
 Ported the await-point analysis pass for async function bodies. This is a thin wrapper around the shared suspension-point analysis engine that provides async-specific detection logic (io.await, io.async, io.spawn, JoinHandle.await).
@@ -929,7 +947,7 @@ To unblock several follow-on handlers (`open`, `binding`, `c-include`, ...) that
 
 **Files updated:**
 
-- `yo-self/evaluator/value.yo` — added `type_of_eval_value(v)` helper (best-effort recovery of `TypeValue` from a comptime `EvalValue`). Used by `open.yo` because yo-self's `ModuleVal(names, values)` does not carry a parallel type list (production `ModuleValue` does, via `type: ModuleType`). For `BoolVal`/`IntLit`/`FloatLit`/`StrLit`/`TypeVal`/`StructVal`/`ModuleVal` the type is exact; for unknown variants it falls back to `t_unit()`. Imports for the type constructors added.
+- `yo-self/evaluator/value.yo` — added `type_of_eval_value(v)` helper (best-effort recovery of `TypeValue` from a comptime `EvalValue`). Used by `open.yo` because yo-self's `ModuleVal(names, values)` does not carry a parallel type list (production imported namespace `StructValue` does, via `type: ModuleType`). For `BoolVal`/`IntLit`/`FloatLit`/`StrLit`/`TypeVal`/`StructVal`/`ModuleVal` the type is exact; for unknown variants it falls back to `t_unit()`. Imports for the type constructors added.
 - `yo-self/expr/expr.yo` — added `BF_DOT :: "."` constant and exported it (used by `open.yo` to detect property-access chains).
 
 **Documentation tightened:**

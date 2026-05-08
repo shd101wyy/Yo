@@ -10,17 +10,23 @@ import {
   exprIsFunctionCallOf,
   type FnCallExpr,
 } from "../../expr";
-import type { FunctionImplicitParameter } from "../../types/definitions";
+import type {
+  FunctionImplicitParameter,
+  SourceNamespaceType,
+  StructType,
+  Type,
+} from "../../types/definitions";
 import {
   isEffectsRowType,
   isEnumType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
-import { isFunctionValue, isModuleValue } from "../../value";
+import { isFunctionValue, isStructValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -54,10 +60,10 @@ export function generateAwait(
     return `// Error: await argument must be a Future type`;
   }
 
-  // Extract the Future module type to get the result type
-  const futureModuleType = extractFutureTraitFromType(futureType);
-  if (!futureModuleType) {
-    return `// Error: could not extract Future module from type`;
+  // Extract the Future trait type to get the result type.
+  const futureTraitType = extractFutureTraitFromType(futureType);
+  if (!futureTraitType) {
+    return `// Error: could not extract Future trait from type`;
   }
 
   // In async context (state machine), await expressions don't generate code
@@ -77,7 +83,7 @@ export function generateAwait(
   if (isIoAwaitCall(expr)) {
     const futureCode = generateExpr(futureArg, indent, context);
     const futureTypeName = getTypeString(futureType, context);
-    let resultType = futureModuleType.isFuture.outputType;
+    let resultType = futureTraitType.isFuture.outputType;
 
     // Resolve SomeType to concrete type for the await result.
     if (isSomeType(resultType)) {
@@ -147,7 +153,7 @@ export function generateAwait(
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
     // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
-    // or module effect types (e.g., Future(i32, IO, Exception)).
+    // or effect record types (e.g., Future(i32, IO, Exception)).
     // Effectful futures may be intentionally aborted by a ctl/escape handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
@@ -157,7 +163,10 @@ export function generateAwait(
     const hasAlgebraicEffects =
       futureModuleForCheck?.isFuture.effects?.some(
         (e) =>
-          isFunctionType(e.type) || isModuleType(e.type) || e.isEffectRowSpread
+          isFunctionType(e.type) ||
+          isSourceNamespaceType(e.type) ||
+          isStructType(e.type) ||
+          e.isEffectRowSpread
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
@@ -491,8 +500,11 @@ function isAwaitEscapeHandlerInstallation(
       if (!evidenceParams?.has(key)) {
         return true; // Not forwarded → locally installed
       }
-    } else if (isModuleType(effect.type)) {
-      // Module-type effect (e.g., Exception): check if any member is in evidence
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
+      // Record-type effect (e.g., Exception/IO): check if any member is in evidence
       let isForwarded = false;
       if (evidenceParams) {
         for (const [key] of evidenceParams) {
@@ -534,6 +546,60 @@ function expandFutureEffects(
   return result;
 }
 
+function usesGenericFutureInterface(
+  futureType: Type,
+  context: CodeGenContext
+): boolean {
+  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
+    return false;
+  }
+  if (context.types[futureType.id]) {
+    return false;
+  }
+  if (futureType.resolvedConcreteType) {
+    if (
+      isSomeType(futureType.resolvedConcreteType) &&
+      context.types[futureType.resolvedConcreteType.id]
+    ) {
+      return false;
+    }
+    if (isStructType(futureType.resolvedConcreteType)) {
+      const captureStructId = futureType.resolvedConcreteType.id;
+      for (const entry of Object.values(context.types)) {
+        if (
+          isSomeType(entry.type) &&
+          typeImplementsFuture(entry.type) &&
+          entry.type.resolvedConcreteType &&
+          isStructType(entry.type.resolvedConcreteType) &&
+          entry.type.resolvedConcreteType.id === captureStructId
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return !!extractFutureTraitFromType(futureType);
+}
+
+function emitFutureEffectInjectionLine(
+  futureType: Type,
+  futureVar: string,
+  fieldLabel: string,
+  memberCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  if (usesGenericFutureInterface(futureType, context)) {
+    context.emitter.emitLine(
+      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+    );
+    return;
+  }
+  context.emitter.emitLine(
+    `${indent}  ${futureVar}->__capture.${fieldLabel} = (void*)${memberCode};`
+  );
+}
+
 /**
  * Generate effect injection code for io.await call sites.
  */
@@ -551,7 +617,6 @@ function emitEffectInjectionForAwait(
 
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
   const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
 
   const usingExpr = expr.args.find(
     (arg): arg is FnCallExpr =>
@@ -569,12 +634,21 @@ function emitEffectInjectionForAwait(
       if (isFunctionType(effect.type)) {
         const handlerCode = generateExpr(usingArg, indent, context);
         const fieldName = effect.label;
-        emitter.emitLine(
-          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        emitFutureEffectInjectionLine(
+          futureArg.$.type,
+          futureVar,
+          fieldName,
+          handlerCode,
+          indent,
+          functionContext
         );
-      } else if (isModuleType(effect.type)) {
-        emitModuleEffectInjection(
+      } else if (
+        isSourceNamespaceType(effect.type) ||
+        isStructType(effect.type)
+      ) {
+        emitEffectRecordInjection(
           effect.type,
+          futureArg.$.type,
           futureVar,
           indent,
           usingArg.$?.value,
@@ -593,13 +667,22 @@ function emitEffectInjectionForAwait(
           expr
         );
         if (handlerCode) {
-          emitter.emitLine(
-            `${indent}  ${futureVar}->__capture.${effect.label} = (void*)${handlerCode};`
+          emitFutureEffectInjectionLine(
+            futureArg.$.type,
+            futureVar,
+            effect.label,
+            handlerCode,
+            indent,
+            functionContext
           );
         }
-      } else if (isModuleType(effect.type)) {
-        emitModuleEffectInjection(
+      } else if (
+        isSourceNamespaceType(effect.type) ||
+        isStructType(effect.type)
+      ) {
+        emitEffectRecordInjection(
           effect.type,
+          futureArg.$.type,
           futureVar,
           indent,
           undefined,
@@ -612,19 +695,19 @@ function emitEffectInjectionForAwait(
 }
 
 /**
- * Inject module-type effect fields (e.g., Exception.throw) into a Future's capture struct.
+ * Inject struct-record effect fields (e.g., Exception.throw) into a Future's capture struct.
  * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
  */
-function emitModuleEffectInjection(
-  moduleType: import("../../types/definitions").ModuleType,
+function emitEffectRecordInjection(
+  sourceNamespaceType: SourceNamespaceType | StructType,
+  futureType: Type,
   futureVar: string,
   indent: string,
   usingArgValue: import("../../value").Value | undefined,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): void {
-  const emitter = functionContext.emitter;
-  for (const field of moduleType.fields) {
+  for (const field of sourceNamespaceType.fields) {
     if (!isFunctionType(field.type)) continue;
     let memberCode: string | undefined;
 
@@ -638,9 +721,9 @@ function emitModuleEffectInjection(
       }
     }
 
-    // Resolve from explicit using arg's module value
-    if (!memberCode && usingArgValue && isModuleValue(usingArgValue)) {
-      const fieldIndex = moduleType.fields.indexOf(field);
+    // Resolve from explicit using arg's effect record value
+    if (!memberCode && usingArgValue && isStructValue(usingArgValue)) {
+      const fieldIndex = sourceNamespaceType.fields.indexOf(field);
       const memberValue = usingArgValue.fields[fieldIndex];
       if (memberValue && isFunctionValue(memberValue)) {
         const funcEntry = functionContext.functions[memberValue.funcId];
@@ -662,28 +745,33 @@ function emitModuleEffectInjection(
 
     // Resolve from given bindings in the call environment
     if (!memberCode) {
-      memberCode = resolveModuleFieldFromGivenBindings(
+      memberCode = resolveEvidenceFieldFromGivenBindings(
         field.label,
-        moduleType,
+        sourceNamespaceType,
         functionContext,
         expr
       );
     }
 
     if (memberCode) {
-      emitter.emitLine(
-        `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+      emitFutureEffectInjectionLine(
+        futureType,
+        futureVar,
+        field.label,
+        memberCode,
+        indent,
+        functionContext
       );
     }
   }
 }
 
 /**
- * Resolve a module effect field (e.g., "throw" from Exception) from given bindings in the environment.
+ * Resolvean effect record field (e.g., "throw" from Exception) from given bindings in the environment.
  */
-function resolveModuleFieldFromGivenBindings(
+function resolveEvidenceFieldFromGivenBindings(
   fieldLabel: string,
-  moduleType: import("../../types/definitions").ModuleType,
+  sourceNamespaceType: SourceNamespaceType | StructType,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): string | undefined {
@@ -699,7 +787,7 @@ function resolveModuleFieldFromGivenBindings(
   for (let i = implicitVars.length - 1; i >= 0; i--) {
     const v = implicitVars[i]!;
     const val = v.value?.[v.value.length - 1];
-    if (val && isModuleValue(val)) {
+    if (val && isStructValue(val)) {
       const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
       if (fieldIdx >= 0) {
         const fieldVal = val.fields[fieldIdx];

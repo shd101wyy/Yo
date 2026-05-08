@@ -16,7 +16,7 @@ import {
 import type { FunctionImplicitParameter, Type } from "../../types/definitions";
 import {
   isEffectsRowType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
   isTypeHierarchyType,
 } from "../../types/guards";
@@ -277,7 +277,7 @@ function resolveEffectRowSpread(
  * Derive a label name for an individual effect type.
  */
 function getEffectLabel(effectType: Type, effectExpr: Expr): string {
-  if (isModuleType(effectType) && effectType.typeName) {
+  if (isSourceNamespaceType(effectType) && effectType.typeName) {
     return effectType.typeName;
   }
   if (isSomeType(effectType) && effectType.name) {

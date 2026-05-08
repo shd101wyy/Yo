@@ -14,7 +14,7 @@ import Evaluator, {
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import type { Expr } from "./expr";
-import type { ModuleValue } from "./value";
+import type { StructValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
   let currentPath = startPath;
@@ -44,7 +44,7 @@ export class ModuleManager {
   public modules: Map<
     string,
     {
-      moduleValue: ModuleValue;
+      moduleValue: StructValue;
       moduleError: Error | undefined;
       evaluator: Evaluator;
     }
@@ -62,9 +62,9 @@ export class ModuleManager {
 
   /**
    * Track modules currently being evaluated (for circular dependency detection).
-   * Maps module path to its placeholder ModuleValue being populated.
+   * Maps module path to its placeholder StructValue being populated.
    */
-  private loadingModules: Map<string, ModuleValue> = new Map();
+  private loadingModules: Map<string, StructValue> = new Map();
 
   public stdPath: string;
   private codeGenratorC: CodeGeneratorC;
@@ -260,7 +260,7 @@ export class ModuleManager {
     inputString?: string,
     parentModule?: string
   ): {
-    moduleValue: ModuleValue;
+    moduleValue: StructValue;
     moduleError: Error | undefined;
   } {
     if (!modulePath.match(/^file:\/\//)) {
@@ -284,7 +284,7 @@ export class ModuleManager {
     }
 
     // Check if this module is currently being evaluated (circular import).
-    // Return the partially-populated ModuleValue so the importing module
+    // Return the partially-populated StructValue so the importing module
     // can access fields that have already been exported.
     const loadingModule = this.loadingModules.get(modulePath);
     if (loadingModule) {
@@ -313,7 +313,7 @@ export class ModuleManager {
       },
       inputString,
       allowPartialModule: this.allowPartialModule,
-      registerPartialModule: (mv: ModuleValue) => {
+      registerPartialModule: (mv: StructValue) => {
         this.loadingModules.set(modulePath, mv);
       },
     });

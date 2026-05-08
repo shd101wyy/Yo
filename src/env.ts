@@ -18,7 +18,7 @@ import {
   isComptimeStringType,
   isDynType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isObjectType,
   isPtrType,
   isSomeType,
@@ -36,12 +36,12 @@ import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTraitValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  type ModuleValue,
+  type StructValue,
   type Value,
   valueToString,
 } from "./value";
@@ -207,7 +207,7 @@ export interface Variable {
   /**
    * Whether this variable is a module-level mutable variable (`:=` at module scope).
    * Module-level mutable variables are emitted as C file-scope static variables
-   * rather than function-local variables, so they can be accessed by all module functions.
+   * rather than function-local variables, so they can be accessed by all source module functions.
    */
   isModuleLevel?: boolean;
 
@@ -1157,10 +1157,10 @@ export function getReceiverMethodsByNameFromEnv({
         }
 
         methods.push({ type: method.type, value });
-      } else if (isModuleType(method.type)) {
-        // Find the module value
+      } else if (isSourceNamespaceType(method.type)) {
+        // Find the struct value
         const moduleValue_ = method.assignedValue;
-        if (isModuleValue(moduleValue_)) {
+        if (isStructValue(moduleValue_)) {
           checkModuleSelfCall(moduleValue_);
         }
       }
@@ -1177,7 +1177,7 @@ export function getReceiverMethodsByNameFromEnv({
     }
   }
 
-  function checkModuleSelfCall(moduleValue: ModuleValue) {
+  function checkModuleSelfCall(moduleValue: StructValue) {
     const selfTypeIndex = moduleValue.type.fields.findIndex(
       (field) => field.label === "Call"
     );
@@ -1476,7 +1476,7 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(receiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as ModuleValue)
+    // Also check for impl'd traits (stored with empty label as StructValue)
     // NOTE: We check impl'd traits regardless of whether direct methods were found,
     // because both compile-time and runtime versions of a method might exist,
     // and we need to let the function call resolution pick the right one.
@@ -1530,11 +1530,11 @@ export function getReceiverMethodsByNameFromEnv({
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
-    // First check direct methods (can be FunctionType or ModuleType with Call)
+    // First check direct methods (can be FunctionType or SourceNamespaceType with Call)
     const directMethod = dereferencedReceiverType.trait.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type))
+        (isFunctionType(field.type) || isSourceNamespaceType(field.type))
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -1547,10 +1547,10 @@ export function getReceiverMethodsByNameFromEnv({
         });
       }
       methods.push({ type: directMethod.type, value });
-    } else if (directMethod && isModuleType(directMethod.type)) {
+    } else if (directMethod && isSourceNamespaceType(directMethod.type)) {
       // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
       const moduleValue_ = directMethod.assignedValue;
-      if (isModuleValue(moduleValue_)) {
+      if (isStructValue(moduleValue_)) {
         checkModuleSelfCall(moduleValue_);
       }
     } else {
@@ -1558,7 +1558,7 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as ModuleValue)
+    // Also check for impl'd traits (stored with empty label as StructValue)
     // NOTE: We check impl'd traits regardless of whether direct methods were found,
     // because both compile-time and runtime versions of a method might exist,
     // and we need to let the function call resolution pick the right one.
@@ -1661,7 +1661,7 @@ export function getReceiverMethodsByNameFromEnv({
         checkTraitForMethod(runtimeType.trait, methodName);
       }
 
-      // Also check for impl'd traits (stored with empty label as ModuleValue)
+      // Also check for impl'd traits (stored with empty label as StructValue)
       // console.log(
       //   `DEBUG: Checking impl'd traits, found ${runtimeType.trait.fields.filter((f) => f.label === "").length} empty-label fields`
       // );
@@ -1712,7 +1712,7 @@ export function getReceiverMethodsByNameFromEnv({
   // Check if the dereferencedReceiverType is a SomeType with required traits
   if (isSomeType(dereferencedReceiverType)) {
     // If SomeType has resolvedConcreteType, prefer resolving methods against the concrete type's
-    // impl traits (static dispatch). This is used for `fn() -> Impl(Module)` return values.
+    // impl traits (static dispatch). This is used for plain `fn() -> Impl(...)` return values.
     // EXCEPTION: For Future types, do NOT use resolvedConcreteType methods.
     if (
       dereferencedReceiverType.resolvedConcreteType?.trait &&
@@ -1740,7 +1740,7 @@ export function getReceiverMethodsByNameFromEnv({
         methods.push({ type: directConcreteMethod.type, value });
       }
 
-      // 2) Impl trait methods stored as ModuleValue with empty label ""
+      // 2) Impl trait methods stored as StructValue with empty label ""
       // This is where `impl(concreteType, Module(...))` attaches concrete method bodies.
       // When the receiver is a SomeType with where-clause constraints, only consider
       // impl traits that match those constraints (trait disambiguation).

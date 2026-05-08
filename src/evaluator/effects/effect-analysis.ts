@@ -14,7 +14,7 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEffectsRowType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
@@ -187,7 +187,7 @@ export function analyzeEffectCallPoints(
  * Checks if an expression is a call to the effect parameter.
  * This detects:
  * 1. Direct calls like `raise(msg)` where `raise` is the effect parameter name.
- * 2. Module member calls like `raise_mod.raise(msg)` or nested like
+ * 2. Struct-record member calls like `raise_mod.raise(msg)` or nested like
  *    `mod.errors.raise(msg)` where the effectFieldPath traces the field access chain.
  *
  * When allowMissingType is true, the type check on func.$?.type is relaxed.
@@ -219,7 +219,7 @@ function isEffectCall(
     return true;
   }
 
-  // Case 2: Module member effect call — mod.raise(msg) or mod.errors.raise(msg)
+  // Case 2: Struct-record member effect call — mod.raise(msg) or mod.errors.raise(msg)
   const accessPath: string[] = [];
   let current: Expr = func;
   while (
@@ -278,7 +278,8 @@ function isTransitiveEffectCall(
     for (const implicitParam of funcType.implicitParameters) {
       if (
         implicitParam.label === effectParameterName &&
-        (isFunctionType(implicitParam.type) || isModuleType(implicitParam.type))
+        (isFunctionType(implicitParam.type) ||
+          isSourceNamespaceType(implicitParam.type))
       ) {
         return { matched: true, viaClosure: false };
       }
@@ -307,7 +308,7 @@ function isTransitiveEffectCall(
         if (
           implicitParam.label === effectParameterName &&
           (isFunctionType(implicitParam.type) ||
-            isModuleType(implicitParam.type))
+            isSourceNamespaceType(implicitParam.type))
         ) {
           return { matched: true, viaClosure: true };
         }
@@ -368,7 +369,8 @@ function hasEffectInSpread(
     for (const innerParam of effectsRowType.implicitParameters) {
       if (
         innerParam.label === effectParameterName &&
-        (isFunctionType(innerParam.type) || isModuleType(innerParam.type))
+        (isFunctionType(innerParam.type) ||
+          isSourceNamespaceType(innerParam.type))
       ) {
         return true;
       }

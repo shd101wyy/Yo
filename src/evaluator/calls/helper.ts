@@ -51,8 +51,9 @@ import type {
   FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
-  ModuleType,
+  SourceNamespaceType,
   SomeType,
+  StructType,
   Type,
   TypeHierarchyType,
 } from "../../types/definitions";
@@ -65,8 +66,9 @@ import {
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
-  isModuleType,
+  isSourceNamespaceType,
   isSomeType,
+  isStructType,
   isTypeHierarchyType,
 } from "../../types/guards";
 import {
@@ -85,10 +87,10 @@ import {
   createUnknownValue,
   type ExprValue,
   isFunctionValue,
-  isModuleValue,
+  isStructValue,
   isTypeValue,
   isUnknownValue,
-  type ModuleValue,
+  type StructValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -116,25 +118,34 @@ import {
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
-function moduleTypeContainsCtlField(
-  type: ModuleType,
-  moduleVal?: ModuleValue
+/** A value that can hold effect handler fields — either a module or struct. */
+type EffectRecordValue = StructValue;
+
+function isEffectRecordValue(v: Value | undefined): v is EffectRecordValue {
+  return isStructValue(v);
+}
+
+function isEffectRecordType(t: Type): t is SourceNamespaceType | StructType {
+  return isSourceNamespaceType(t) || isStructType(t);
+}
+
+function effectRecordTypeContainsCtlField(
+  type: SourceNamespaceType | StructType,
+  recordVal?: EffectRecordValue
 ): boolean {
   for (let fi = 0; fi < type.fields.length; fi++) {
     const field = type.fields[fi]!;
     if (isFunctionType(field.type)) {
-      const fieldVal = moduleVal?.fields[fi];
+      const fieldVal = recordVal?.fields[fi];
       if (fieldVal && isFunctionValue(fieldVal) && fieldVal.isControlFunction)
         return true;
     }
-    if (isModuleType(field.type)) {
-      const innerModuleVal = moduleVal?.fields[fi];
+    if (isEffectRecordType(field.type)) {
+      const innerVal = recordVal?.fields[fi];
       if (
-        moduleTypeContainsCtlField(
+        effectRecordTypeContainsCtlField(
           field.type,
-          innerModuleVal && isModuleValue(innerModuleVal)
-            ? innerModuleVal
-            : undefined
+          isEffectRecordValue(innerVal) ? innerVal : undefined
         )
       )
         return true;
@@ -1729,8 +1740,8 @@ Got:   ${typeToString(typeValue.type)}`,
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
-              (isFunctionType(v.type) || isModuleType(v.type))
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
+              (isFunctionType(v.type) || isEffectRecordType(v.type))
           );
           // Filter out given variables that already match a concrete (non-spread)
           // implicit parameter in the function type. These are handled by their
@@ -1824,7 +1835,7 @@ Got:   ${typeToString(typeValue.type)}`,
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               v.name === concreteParam.label &&
               areTypesCompatible(
                 { type: resolvedConcreteType, env: calleeEnv },
@@ -1839,14 +1850,22 @@ Got:   ${typeToString(typeValue.type)}`,
               callerEnv,
               (v) =>
                 v.isImplicit === true &&
-                v.isCompileTimeOnly === true &&
+                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedConcreteType, env: calleeEnv },
                   { type: v.type, env: callerEnv }
                 )
             );
             const byTypeVar = givenByType.at(-1);
-            if (!byTypeVar?.value?.[0]) {
+            let givenValue = byTypeVar?.value?.[0];
+            if (!givenValue && byTypeVar && isStructType(byTypeVar.type)) {
+              givenValue = createUnknownValue(byTypeVar.type, {
+                variableName: byTypeVar.name,
+                env: callerEnv,
+                context,
+              });
+            }
+            if (!givenValue || !byTypeVar) {
               throw formatErrorMessage({
                 token:
                   functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
@@ -1854,7 +1873,6 @@ Got:   ${typeToString(typeValue.type)}`,
 Please ensure a given variable of matching type is in scope.`,
               });
             }
-            const givenValue = byTypeVar.value[0];
             implicitArgValues.push({
               value: givenValue,
               parameterType: resolvedConcreteType,
@@ -1878,7 +1896,22 @@ Please ensure a given variable of matching type is in scope.`,
             });
             calleeEnv = nextEnv;
           } else {
-            const givenValue = givenVar.value[0];
+            let givenValue = givenVar.value?.[0];
+            if (!givenValue && isStructType(givenVar.type)) {
+              givenValue = createUnknownValue(givenVar.type, {
+                variableName: givenVar.name,
+                env: callerEnv,
+                context,
+              });
+            }
+            if (!givenValue) {
+              throw formatErrorMessage({
+                token:
+                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
+Please ensure a given variable of matching type is in scope.`,
+              });
+            }
             implicitArgValues.push({
               value: givenValue,
               parameterType: resolvedConcreteType,
@@ -2024,7 +2057,7 @@ Got:      ${typeToString(argType)}`,
           callerEnv,
           (v) =>
             v.isImplicit === true &&
-            v.isCompileTimeOnly === true &&
+            (v.isCompileTimeOnly === true || isStructType(v.type)) &&
             areTypesCompatible(
               { type: resolvedImplicitType, env: calleeEnv },
               { type: v.type, env: callerEnv }
@@ -2088,7 +2121,7 @@ Add it explicitly:
             callerEnv,
             (v) =>
               v.isImplicit === true &&
-              v.isCompileTimeOnly === true &&
+              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               areTypesCompatible(
                 { type: resolvedImplicitType, env: calleeEnv },
                 { type: v.type, env: callerEnv }
@@ -2099,7 +2132,7 @@ Add it explicitly:
             const innermostMatches = frame.variables.filter(
               (v) =>
                 v.isImplicit === true &&
-                v.isCompileTimeOnly === true &&
+                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedImplicitType, env: calleeEnv },
                   { type: v.type, env: callerEnv }
@@ -2120,7 +2153,18 @@ Please use explicit using() to disambiguate.`,
         }
 
         const givenVar = candidates[candidates.length - 1]!;
-        const givenValue = givenVar.value?.[0];
+        let givenValue = givenVar.value?.[0];
+        // Phase 4b: for runtime struct evidence, the variable carries
+        // either no value (runtime binding) or an UnknownValue (comptime
+        // wrapper). Synthesize an UnknownValue so the call can proceed;
+        // codegen will read the evidence from the runtime C variable.
+        if (!givenValue && isStructType(givenVar.type)) {
+          givenValue = createUnknownValue(givenVar.type, {
+            variableName: givenVar.name,
+            env: callerEnv,
+            context,
+          });
+        }
         if (!givenValue) {
           throw formatErrorMessage({
             token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
@@ -2283,21 +2327,22 @@ Please use explicit using() to disambiguate.`,
   const hasUnknownImplicitArgs = argValues_.implicitArgs?.some((arg) =>
     isUnknownValue(arg.value)
   );
-  // Allow specialization when the only unknown implicit args are module types (like IO)
+  // Allow specialization when the only unknown implicit args are record effects (like IO)
   // AND the call has runtime parameters with SomeType (e.g., Impl(Future(...)))
   // that need concrete type resolution from the call site.
   // This avoids unnecessary re-evaluation for functions where specialization
   // wouldn't produce a different result (just different SomeType IDs).
-  const hasOnlyModuleTypeUnknowns =
+  const hasOnlyRecordTypeUnknowns =
     hasUnknownImplicitArgs &&
     !argValues_.implicitArgs?.some(
-      (arg) => isUnknownValue(arg.value) && !isModuleType(arg.parameterType)
+      (arg) =>
+        isUnknownValue(arg.value) && !isEffectRecordType(arg.parameterType)
     );
   const hasRuntimeSomeTypeParams = argValues_.args.some(
     (arg) => arg.argType && isSomeType(arg.argType)
   );
   const shouldAllowModuleUnknowns =
-    hasOnlyModuleTypeUnknowns && hasRuntimeSomeTypeParams;
+    hasOnlyRecordTypeUnknowns && hasRuntimeSomeTypeParams;
 
   // Allow specialization when the only Unknown implicit args come from
   // effect row spread parameters (e.g., ...(E)). The function body may not
@@ -2333,9 +2378,9 @@ Please use explicit using() to disambiguate.`,
 
   // Skip specialization for functions that are only generic due to implicit
   // parameters (e.g., using(raise : Raise)) AND have evidence-passing-capable
-  // implicits (module fields that can be passed as fn ptrs). These use evidence
+  // implicits (record fields that can be passed as fn ptrs). These use evidence
   // passing instead of per-call-site specialization. Functions with forall-only
-  // module effects still need specialization (they use SM-inlining).
+  // effect records still need specialization (they use SM-inlining).
   const isGenericOnlyBecauseOfImplicits =
     isFunctionTypeGeneric(functionType) &&
     !isFunctionTypeHardGeneric(functionType);
@@ -2343,8 +2388,8 @@ Please use explicit using() to disambiguate.`,
   const hasEvidencePassingCapableImplicits =
     isGenericOnlyBecauseOfImplicits &&
     functionType.implicitParameters.some((param) => {
-      if (isModuleType(param.type)) {
-        return (param.type as ModuleType).fields.some(
+      if (isEffectRecordType(param.type)) {
+        return param.type.fields.some(
           (m) =>
             isFunctionType(m.type) &&
             (m.type as FunctionType).forallParameters.length === 0
@@ -2368,7 +2413,7 @@ Please use explicit using() to disambiguate.`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception 1: allow when only module-type implicit args (like IO) are unknown AND
+    // Exception 1: allow when only effect-record implicit args (like IO) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
     // Exception 2: allow when the only Unknown args come from effect row spread
     // parameters — those are forwarded effects that the body may not reference.
@@ -2407,7 +2452,7 @@ Please use explicit using() to disambiguate.`,
     }
 
     // Filter runtimeArgExprsInOrder to exclude effectful function args.
-    // Functions with implicit parameters of function/module type (i.e., `using(...)` params)
+    // Functions with implicit parameters of function/record type (i.e., `using(...)` params)
     // are always resolved at compile time — they should not be passed as runtime function
     // pointers. They're treated as compile-time in the specialization (not in the C function
     // signature), so they must also be excluded from the caller's argument list.
@@ -2423,7 +2468,7 @@ Please use explicit using() to disambiguate.`,
             argVal &&
             isFunctionValue(argVal) &&
             argVal.type.implicitParameters.some(
-              (p) => isFunctionType(p.type) || isModuleType(p.type)
+              (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
             )
           ) {
             indicesToRemove.add(runtimeArgIdx);
@@ -2702,7 +2747,7 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Functions with implicit parameters of function/module type (i.e., using(...)
+      // Functions with implicit parameters of function/record type (i.e., using(...)
       // effects) must be treated as compile-time because they are compiled as state
       // machines or inlined, not as regular C functions. The concrete function value
       // is needed at compile time for effect call site generation.
@@ -2710,7 +2755,7 @@ function createSpecializedFunctionInline({
         arg.value &&
         isFunctionValue(arg.value) &&
         arg.value.type.implicitParameters.some(
-          (p) => isFunctionType(p.type) || isModuleType(p.type)
+          (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
         );
 
       if (isEffectfulFuncParam) {
@@ -2871,8 +2916,11 @@ function createSpecializedFunctionInline({
     argValues.implicitArgs?.some(
       (arg) =>
         (isFunctionValue(arg.value) && arg.value.isControlFunction) ||
-        (isModuleValue(arg.value) &&
-          moduleTypeContainsCtlField(arg.value.type as ModuleType, arg.value))
+        (isEffectRecordValue(arg.value) &&
+          effectRecordTypeContainsCtlField(
+            arg.value.type as SourceNamespaceType | StructType,
+            arg.value
+          ))
     ) ?? false;
 
   // Compute the specialization signature BEFORE body evaluation so that
@@ -3030,27 +3078,27 @@ function createSpecializedFunctionInline({
                 fromSpread: true,
               });
             }
-          } else if (isModuleType(innerParam.type)) {
-            // Module-based effects inside an effect row spread:
-            // recursively find ctl function fields in the module.
+          } else if (isEffectRecordType(innerParam.type)) {
+            // Effect-record-based effects inside an effect row spread:
+            // recursively find ctl function fields in the record (module or struct).
             const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
-            const innerModuleVal =
-              innerHandlerArg && isModuleValue(innerHandlerArg.value)
+            const innerRecordVal =
+              innerHandlerArg && isEffectRecordValue(innerHandlerArg.value)
                 ? innerHandlerArg.value
                 : undefined;
             const ctlFields: Array<{
               path: string[];
               type: FunctionType;
             }> = [];
-            const findCtlFieldsInModuleSpread = (
-              moduleType: ModuleType,
+            const findCtlFieldsInEffectRecordSpread = (
+              recordType: SourceNamespaceType | StructType,
               pathSoFar: string[],
-              moduleVal?: ModuleValue
+              recordVal?: EffectRecordValue
             ) => {
-              for (let fi = 0; fi < moduleType.fields.length; fi++) {
-                const field = moduleType.fields[fi]!;
+              for (let fi = 0; fi < recordType.fields.length; fi++) {
+                const field = recordType.fields[fi]!;
                 if (isFunctionType(field.type)) {
-                  const fieldVal = moduleVal?.fields[fi];
+                  const fieldVal = recordVal?.fields[fi];
                   if (
                     fieldVal &&
                     isFunctionValue(fieldVal) &&
@@ -3064,17 +3112,21 @@ function createSpecializedFunctionInline({
                       type: _resolvedType,
                     });
                   }
-                } else if (isModuleType(field.type)) {
-                  const innerMV = moduleVal?.fields[fi];
-                  findCtlFieldsInModuleSpread(
+                } else if (isEffectRecordType(field.type)) {
+                  const innerRV = recordVal?.fields[fi];
+                  findCtlFieldsInEffectRecordSpread(
                     field.type,
                     [...pathSoFar, field.label],
-                    innerMV && isModuleValue(innerMV) ? innerMV : undefined
+                    isEffectRecordValue(innerRV) ? innerRV : undefined
                   );
                 }
               }
             };
-            findCtlFieldsInModuleSpread(innerParam.type, [], innerModuleVal);
+            findCtlFieldsInEffectRecordSpread(
+              innerParam.type,
+              [],
+              innerRecordVal
+            );
             for (const ctlField of ctlFields) {
               effectCtlParams.push({
                 handlerArgIndex: argOffset + k,
@@ -3090,20 +3142,21 @@ function createSpecializedFunctionInline({
       } else {
         argOffset += 1;
       }
-    } else if (isModuleType(implicitParam.type)) {
-      // Module-based effects: recursively find effect fields in possibly nested modules.
+    } else if (isEffectRecordType(implicitParam.type)) {
+      // Effect-record-based effects: recursively find effect fields in possibly
+      // nested effect records.
       // Check the handler VALUE's isControlFunction flag (set when a handler body uses escape).
       const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
       const handlerArg = argValues.implicitArgs?.[argOffset];
-      const findCtlFieldsInModule = (
-        moduleType: ModuleType,
+      const findCtlFieldsInEffectRecord = (
+        recordType: SourceNamespaceType | StructType,
         pathSoFar: string[],
-        moduleVal?: ModuleValue
+        recordVal?: EffectRecordValue
       ) => {
-        for (let fi = 0; fi < moduleType.fields.length; fi++) {
-          const field = moduleType.fields[fi]!;
+        for (let fi = 0; fi < recordType.fields.length; fi++) {
+          const field = recordType.fields[fi]!;
           if (isFunctionType(field.type)) {
-            const fieldVal = moduleVal?.fields[fi];
+            const fieldVal = recordVal?.fields[fi];
             if (
               fieldVal &&
               isFunctionValue(fieldVal) &&
@@ -3118,22 +3171,20 @@ function createSpecializedFunctionInline({
                 type: resolvedType,
               });
             }
-          } else if (isModuleType(field.type)) {
-            const innerModuleVal = moduleVal?.fields[fi];
-            findCtlFieldsInModule(
+          } else if (isEffectRecordType(field.type)) {
+            const innerRecordVal = recordVal?.fields[fi];
+            findCtlFieldsInEffectRecord(
               field.type,
               [...pathSoFar, field.label],
-              innerModuleVal && isModuleValue(innerModuleVal)
-                ? innerModuleVal
-                : undefined
+              isEffectRecordValue(innerRecordVal) ? innerRecordVal : undefined
             );
           }
         }
       };
-      findCtlFieldsInModule(
+      findCtlFieldsInEffectRecord(
         implicitParam.type,
         [],
-        handlerArg && isModuleValue(handlerArg.value)
+        handlerArg && isEffectRecordValue(handlerArg.value)
           ? handlerArg.value
           : undefined
       );
@@ -3171,21 +3222,21 @@ function createSpecializedFunctionInline({
       // Store the handler value on the effectAnalysis so codegen can inline it.
       // The implicit args correspond to implicit parameters by index.
       const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
-      // For module-based effects, extract the ctl function by walking the field path
+      // For effect-record-based effects, extract the ctl function by walking the field path
       let resolvedHandlerFn: FunctionValue | undefined;
       const fieldPathForHandler = ctlParam.effectFieldPath;
       if (handlerArg && isFunctionValue(handlerArg.value)) {
         resolvedHandlerFn = handlerArg.value;
       } else if (
         handlerArg &&
-        isModuleValue(handlerArg.value) &&
+        isEffectRecordValue(handlerArg.value) &&
         fieldPathForHandler &&
         fieldPathForHandler.length > 0
       ) {
-        // Walk through nested modules following the field path
+        // Walk through nested effect records following the field path
         let currentValue: Value | undefined = handlerArg.value;
         for (const fieldName of fieldPathForHandler) {
-          if (!isModuleValue(currentValue)) {
+          if (!isEffectRecordValue(currentValue)) {
             currentValue = undefined;
             break;
           }
@@ -3549,8 +3600,8 @@ function createSpecializedFunctionInline({
       if (isEffectsRowType(effectsRow)) {
         resolvedImplicitParams.push(...effectsRow.implicitParameters);
       }
-    } else if (isModuleType(implicitParam.type)) {
-      // Preserve module-typed implicits — they become evidence fn ptr params
+    } else if (isEffectRecordType(implicitParam.type)) {
+      // Preserve record-typed implicits — they become evidence fn ptr params
       resolvedImplicitParams.push(implicitParam);
     }
     // Skip standalone function-typed implicits — they are already resolved

@@ -51,7 +51,7 @@ export function generateDynCall(
     return `/* Error: dyn() value has no type */`;
   }
 
-  // Get the module value from dynCallTraitValues
+  // Get the effect record value from dynCallTraitValues
   const traitValues = expr.$.dynCallTraitValues;
   if (!traitValues || traitValues.length === 0) {
     return `/* Error: dyn() call missing trait values */`;
@@ -83,11 +83,9 @@ export function generateDynCall(
     if (direct) {
       return direct;
     }
-    const fnModule = extractFnTraitFromType(resolvedConcreteType);
-    const fnModuleCName = fnModule
-      ? context.types[fnModule.id]?.cName
-      : undefined;
-    return fnModuleCName || `unknown_${resolvedConcreteType.id}`;
+    const fnTrait = extractFnTraitFromType(resolvedConcreteType);
+    const fnTraitCName = fnTrait ? context.types[fnTrait.id]?.cName : undefined;
+    return fnTraitCName || `unknown_${resolvedConcreteType.id}`;
   })();
   const implKey = `${concreteTypeCName}_${dynTypeCName}`;
 

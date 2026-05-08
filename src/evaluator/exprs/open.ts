@@ -13,9 +13,9 @@ import {
   type FnCallExpr,
   type RuntimeDestructuring,
 } from "../../expr";
-import { isStructType } from "../../types/guards";
+import { isSourceNamespaceType, isStructType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { isModuleValue, isStructValue, type Value } from "../../value";
+import { isStructValue, type Value } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -82,40 +82,15 @@ export function evaluateOpen({
 
   let runtimeDestructurings: RuntimeDestructuring[] | undefined = undefined;
 
-  if (isModuleValue(argValue)) {
-    const moduleValue = argValue;
-    const moduleType = moduleValue.type;
-
-    // Import everything from the module
-    for (let i = 0; i < moduleType.fields.length; i++) {
-      const value = moduleValue.fields[i]!;
-      const field = moduleType.fields[i]!;
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: field.label,
-          type: field.type,
-          isCompileTimeOnly: true,
-          value: [value],
-          token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
-          initializedAtToken:
-            field.exprs.labelExpr?.token ?? field.exprs.expr.token,
-          consumedAtToken: undefined,
-          isReassignable: false, // Destructured variables are not reassignable
-          isOwningTheRcValue: false,
-        },
-      });
-      env = nextEnv;
-    }
-  } else if (isStructType(argType)) {
-    const structValue = argValue;
+  if (isStructType(argType) || isSourceNamespaceType(argType)) {
+    const structValue = isStructValue(argValue) ? argValue : undefined;
     const structType = argType;
     runtimeDestructurings = [];
 
     // Import everything from the struct
     for (let i = 0; i < structType.fields.length; i++) {
       let value: Value | undefined = undefined;
-      if (isStructValue(structValue)) {
+      if (structValue) {
         value = structValue.fields[i];
       }
       const field = structType.fields[i]!;
@@ -163,7 +138,7 @@ export function evaluateOpen({
   } else {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected module/struct for "${BuiltinKeywords.open}", got:\n${exprToString(argExpr)}`,
+      errorMessage: `Expected struct for "${BuiltinKeywords.open}", got:\n${exprToString(argExpr)}`,
     });
   }
 

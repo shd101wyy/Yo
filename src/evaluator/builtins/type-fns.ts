@@ -31,7 +31,6 @@ import type {
   SomeType as SomeTypeT,
   TupleType,
   UnionType,
-  ModuleType,
   TypeHierarchyType,
   ComptimeListType,
   TypeField,
@@ -400,7 +399,7 @@ export function evaluateYoTypeCanFormRcCycle({
  * Usage: __yo_type_impls(SomeType, SomeTrait)
  * Returns: comptime(bool)
  *
- * This checks if the type's trait has a field whose assignedValue is a ModuleValue
+ * This checks if the type's trait has a field whose assignedValue is a StructValue
  * that structurally matches the given trait (with the type as the receiver).
  */
 export function evaluateYoTypeImpls({
@@ -634,8 +633,6 @@ function typeTagToVariantName(tag: string): string {
       return "Some";
     case TypeTag.Slice:
       return "Slice";
-    case TypeTag.Module:
-      return "Module";
     case TypeTag.Trait:
       return "Trait";
     case TypeTag.Ptr:
@@ -867,19 +864,6 @@ export function evaluateYoTypeGetInfo({
       const infoTmp = bindTempFunctionInfo(evalEnv, fnType, context);
       evalEnv = infoTmp.env;
       code = `TypeInfo.Function(${infoTmp.name})`;
-      break;
-    }
-
-    // === Module(fields) ===
-    case TypeTag.Module: {
-      const modType = type as ModuleType;
-      const fieldListTmp = bindTempTypeFieldListFromModuleFields(
-        evalEnv,
-        modType.fields,
-        context
-      );
-      evalEnv = fieldListTmp.env;
-      code = `TypeInfo.Module(${fieldListTmp.name})`;
       break;
     }
 
@@ -1257,21 +1241,6 @@ function bindTempImplicitParamInfoList(
   }
 
   return bindComptimeList(env, values, "ImplicitParamInfo", "ipl", context);
-}
-
-/**
- * Helper: build a ComptimeList(TypeFieldInfo) from ModuleField[] and bind to temp var.
- */
-function bindTempTypeFieldListFromModuleFields(
-  env: Environment,
-  fields: { type: Type; label: string }[],
-  context: EvaluatorContext
-): { name: string; env: Environment } {
-  const typeFields = fields.map((f) => ({
-    type: f.type,
-    label: f.label,
-  })) as TypeField[];
-  return bindTempTypeFieldList(env, typeFields, context);
 }
 
 /**

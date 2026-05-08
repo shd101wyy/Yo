@@ -23,17 +23,20 @@ import {
 } from "../../expr";
 import type {
   FunctionImplicitParameter,
-  ModuleType,
+  SourceNamespaceType,
+  StructType,
+  Type,
 } from "../../types/definitions";
 import {
   isEffectsRowType,
   isFunctionType,
-  isModuleType,
+  isSourceNamespaceType,
   isPtrType,
   isSomeType,
+  isStructType,
   isUnitType,
 } from "../../types/guards";
-import { isFunctionValue, isModuleValue, isUnknownValue } from "../../value";
+import { isFunctionValue, isStructValue, isUnknownValue } from "../../value";
 import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -135,6 +138,60 @@ function expandFutureEffects(
     }
   }
   return result;
+}
+
+function usesGenericFutureInterface(
+  futureType: Type,
+  context: FunctionGenerationContext
+): boolean {
+  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
+    return false;
+  }
+  if (context.types[futureType.id]) {
+    return false;
+  }
+  if (futureType.resolvedConcreteType) {
+    if (
+      isSomeType(futureType.resolvedConcreteType) &&
+      context.types[futureType.resolvedConcreteType.id]
+    ) {
+      return false;
+    }
+    if (isStructType(futureType.resolvedConcreteType)) {
+      const captureStructId = futureType.resolvedConcreteType.id;
+      for (const entry of Object.values(context.types)) {
+        if (
+          isSomeType(entry.type) &&
+          typeImplementsFuture(entry.type) &&
+          entry.type.resolvedConcreteType &&
+          isStructType(entry.type.resolvedConcreteType) &&
+          entry.type.resolvedConcreteType.id === captureStructId
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return !!extractFutureTraitFromType(futureType);
+}
+
+function emitFutureEffectInjectionLine(
+  futureType: Type,
+  futureVar: string,
+  fieldLabel: string,
+  memberCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  if (usesGenericFutureInterface(futureType, context)) {
+    context.emitter.emitLine(
+      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+    );
+    return;
+  }
+  context.emitter.emitLine(
+    `${indent}  ${futureVar}->__capture.${fieldLabel} = (void*)${memberCode};`
+  );
 }
 
 /**
@@ -286,7 +343,6 @@ function emitEffectInjection(
 
   const usingArgs = usingExpr.args;
   const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
 
   for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
     const effect = expandedEffects[i]!;
@@ -334,14 +390,22 @@ function emitEffectInjection(
       }
 
       if (handlerCode) {
-        emitter.emitLine(
-          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        emitFutureEffectInjectionLine(
+          futureArg.$.type,
+          futureVar,
+          fieldName,
+          handlerCode,
+          indent,
+          functionContext
         );
       }
-    } else if (isModuleType(effect.type)) {
-      // Module-typed effect (e.g., IO). Inject each function member individually.
-      const moduleType = effect.type;
-      for (const field of moduleType.fields) {
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
+      // Record-typed effect (e.g., IO). Inject each function member individually.
+      const sourceNamespaceType = effect.type;
+      for (const field of sourceNamespaceType.fields) {
         if (!isFunctionType(field.type)) continue;
         let memberCode: string | undefined;
 
@@ -358,11 +422,11 @@ function emitEffectInjection(
           }
         }
 
-        // Resolve from using arg's module value (concrete module)
+        // Resolve from using arg's effect record value (concrete record)
         if (!memberCode) {
           const usingArgValue = usingArg.$?.value;
-          if (usingArgValue && isModuleValue(usingArgValue)) {
-            const fieldIndex = moduleType.fields.indexOf(field);
+          if (usingArgValue && isStructValue(usingArgValue)) {
+            const fieldIndex = sourceNamespaceType.fields.indexOf(field);
             const memberValue = usingArgValue.fields[fieldIndex];
             if (memberValue && isFunctionValue(memberValue)) {
               const funcEntry = context.functions[memberValue.funcId];
@@ -385,17 +449,22 @@ function emitEffectInjection(
 
         // Resolve from given bindings in the call environment
         if (!memberCode) {
-          memberCode = resolveModuleFieldFromGivenBindingsForSpawn(
+          memberCode = resolveEvidenceFieldFromGivenBindingsForSpawn(
             field.label,
-            moduleType,
+            sourceNamespaceType,
             functionContext,
             expr
           );
         }
 
         if (memberCode) {
-          emitter.emitLine(
-            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+          emitFutureEffectInjectionLine(
+            futureArg.$.type,
+            futureVar,
+            field.label,
+            memberCode,
+            indent,
+            functionContext
           );
         }
       }
@@ -404,12 +473,12 @@ function emitEffectInjection(
 }
 
 /**
- * Resolve a module effect field from given bindings in the call environment.
- * Mirrors resolveModuleFieldFromGivenBindings in await.ts.
+ * Resolvean effect record field from given bindings in the call environment.
+ * Mirrors resolveEvidenceFieldFromGivenBindings in await.ts.
  */
-function resolveModuleFieldFromGivenBindingsForSpawn(
+function resolveEvidenceFieldFromGivenBindingsForSpawn(
   fieldLabel: string,
-  moduleType: ModuleType,
+  sourceNamespaceType: SourceNamespaceType | StructType,
   functionContext: FunctionGenerationContext,
   expr: FnCallExpr
 ): string | undefined {
@@ -423,7 +492,7 @@ function resolveModuleFieldFromGivenBindingsForSpawn(
   for (let i = implicitVars.length - 1; i >= 0; i--) {
     const v = implicitVars[i]!;
     const val = v.value?.[v.value.length - 1];
-    if (val && isModuleValue(val)) {
+    if (val && isStructValue(val)) {
       const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
       if (fieldIdx >= 0) {
         const fieldVal = val.fields[fieldIdx];
@@ -540,12 +609,12 @@ function generateEscape(
     return ``;
   }
 
-  // Module effect member function (e.g., Exception.throw handler):
+  // effect record member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
   // Also set for functions with evidence parameters (evidence passing),
   // so the caller can check the flag and propagate the escape.
   if (
-    functionContext.isModuleEffectMemberFunction ||
+    functionContext.isEffectRecordMemberFunction ||
     (functionContext.currentEvidenceParams &&
       functionContext.currentEvidenceParams.size > 0)
   ) {
@@ -644,12 +713,12 @@ function generateEscape(
     true
   );
   generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
-  // For module effect members or evidence-passing functions:
+  // For effect record members or evidence-passing functions:
   // store escape value in thread-local buffer for retrieval at handler
   // installation site, then return a dummy value.
   // The escape value type may differ from the handler's C return type.
   if (
-    (functionContext.isModuleEffectMemberFunction ||
+    (functionContext.isEffectRecordMemberFunction ||
       (functionContext.currentEvidenceParams &&
         functionContext.currentEvidenceParams.size > 0)) &&
     functionContext.currentFunctionType

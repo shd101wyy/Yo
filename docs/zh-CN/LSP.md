@@ -153,7 +153,7 @@ LSP 维护一个"最后成功模块"缓存。当用户正在输入时（如 `p2.
 文档注释（`///`）在词法分析时提取，通过 `docCommentLookup` 与声明关联，并通过以下方式传播：
 
 - 结构体字段求值 → `TypeField.docComment`
-- 模块字段求值 → `ModuleField.docComment`
+- 模块字段求值 → `TypeField.docComment`
 - Impl 字段求值 → `TraitField.docComment`
 - `attachTraitToReceiverType()` → 将文档注释复制到接收者类型
 

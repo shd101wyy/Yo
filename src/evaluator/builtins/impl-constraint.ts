@@ -98,25 +98,25 @@ export function evaluateImplConstraint({
       });
     }
 
-    const moduleType = evaluatedArg.$.value.value;
+    const sourceNamespaceType = evaluatedArg.$.value.value;
 
     // Check if this is a Concrete(T) trait - extract the concrete type
-    if (isConcreteTraitType(moduleType)) {
+    if (isConcreteTraitType(sourceNamespaceType)) {
       if (concreteType !== undefined) {
         throw formatErrorMessage({
           token: moduleExpr.token,
           errorMessage: `Impl can only have one Concrete(T) specifier`,
         });
       }
-      concreteType = moduleType.isConcrete.concreteType;
+      concreteType = sourceNamespaceType.isConcrete.concreteType;
       // Don't add Concrete to requiredTraits - it's just a marker
       continue;
     }
 
     if (isNegated) {
-      negativeTraits.push(moduleType);
+      negativeTraits.push(sourceNamespaceType);
     } else {
-      requiredTraits.push(moduleType);
+      requiredTraits.push(sourceNamespaceType);
     }
   }
 

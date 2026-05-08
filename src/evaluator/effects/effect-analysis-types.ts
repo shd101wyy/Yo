@@ -102,9 +102,9 @@ export interface EffectAnalysisResult {
   /**
    * For module-based effects, the path of field names from the module parameter
    * to the ctl field. Supports arbitrarily nested modules.
-   * e.g., for `using(raise_mod : Raise)` where `Raise = module(raise : ctl(...))`,
+   * e.g., for `using(raise_eff : Raise)` where `Raise = struct(raise : ctl(...))`,
    * effectParameterName is "raise_mod" and effectFieldPath is ["raise"].
-   * For nested modules like `module(errors : module(raise : ctl(...)))`,
+   * For nested effect records like `struct(errors : struct(raise : ctl(...)))`,
    * effectFieldPath would be ["errors", "raise"].
    */
   effectFieldPath?: string[];
