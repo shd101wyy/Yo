@@ -124,6 +124,7 @@ yo fmt --check
 - It preserves delimiter syntax whose meaning is not just grouping: tuples, `{...}` struct/begin forms, `[T ; N]` arrays, `[T]` slices, call parentheses, function body calls, and prefix-operator operands
 - It preserves grouping or operator line breaks where removing them would expose ambiguous infix syntax, e.g. `{ x : (1 + 2), y : 3 }`, `true => (x / y)`, `(ptr &+ 1).*`, and line-leading `|` chains
 - When an operator ends a line, `yo fmt` indents the RHS one extra level as a continuation
+- `yo fmt` canonicalizes legacy deref spelling `ptr.(*)` to `ptr.*` and keeps single-line array/tuple literals compact
 
 ### Writing tests in Yo
 

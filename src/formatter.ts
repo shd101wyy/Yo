@@ -300,7 +300,9 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           next.type !== TokenType.RBracket &&
           next.type !== TokenType.RCurlyBracket
         ) {
-          if (parenStack[parenStack.length - 1]?.multiline === true) {
+          if (bracketDepth > 0 || inlineCurlyDepth > 0) {
+            ensureSpace();
+          } else if (parenStack[parenStack.length - 1]?.multiline === true) {
             newline();
           } else {
             ensureSpace();
@@ -888,9 +890,14 @@ function isRedundantGroupingParen(
   ) {
     return false;
   }
+  const parenthesizedDotDeref = isParenthesizedDotDeref(
+    tokens,
+    leftIndex,
+    rightIndex
+  );
   if (
-    next?.type === TokenType.Operator ||
-    next?.type === TokenType.Dot ||
+    (next?.type === TokenType.Operator && !parenthesizedDotDeref) ||
+    (next?.type === TokenType.Dot && !parenthesizedDotDeref) ||
     next?.type === TokenType.LParen
   ) {
     return false;
@@ -909,6 +916,33 @@ function isRedundantGroupingParen(
   }
 
   return true;
+}
+
+function isParenthesizedDotDeref(
+  tokens: Token[],
+  leftIndex: number,
+  rightIndex: number
+): boolean {
+  const previous = previousMeaningfulToken(tokens, leftIndex);
+  let innerToken: Token | undefined;
+  let innerTokenCount = 0;
+  for (let index = leftIndex + 1; index < rightIndex; index++) {
+    const token = tokens[index]!;
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      continue;
+    }
+    innerToken = token;
+    innerTokenCount++;
+    if (innerTokenCount > 1) {
+      return false;
+    }
+  }
+  return (
+    previous?.type === TokenType.Dot &&
+    innerToken?.type === TokenType.Operator &&
+    innerToken.value === "*" &&
+    innerTokenCount === 1
+  );
 }
 
 function previousMeaningfulToken(

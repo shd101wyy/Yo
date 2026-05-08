@@ -217,6 +217,50 @@ assert((ptr &+ 1).* == 84);
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("canonicalizes parenthesized dot dereference sugar", () => {
+    const source = `main::(fn()->unit)({
+assert(a.(*) == 99);
+assert(c.(*).count == 10);
+assert(d.* == 7);
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  assert(a.* == 99);
+  assert(c.*.count == 10);
+  assert(d.* == 7);
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
+  test("keeps compact array and tuple literals inside multiline calls", () => {
+    const source = `main::(fn()->unit)({
+cond(
+ready => {
+arr = [1, 2, 3];
+tuple = (1, 2, 3);
+},
+true => {}
+);
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  cond(
+    ready => {
+      arr = [1, 2, 3];
+      tuple = (1, 2, 3);
+    },
+    true => {}
+  );
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("preserves line-leading infix operators for ambiguous chains", () => {
     const source = `main::(fn()->unit)({
 value := (

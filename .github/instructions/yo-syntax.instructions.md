@@ -238,6 +238,11 @@ raise : ((msg) -> {
 })
 ```
 
+Formatter-specific syntax preservation:
+
+- Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
+- Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
+
 This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
 
 ```rust

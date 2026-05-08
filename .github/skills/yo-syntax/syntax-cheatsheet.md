@@ -114,6 +114,8 @@ masked := ((A | B) | C);
 - When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <:!(Runtime)`
+- Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
+- Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
 - **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
