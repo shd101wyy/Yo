@@ -1069,14 +1069,8 @@ export default class Parser {
         index: returnValue.index,
       });
     } else if (
-      (token.type === TokenType.Operator ||
-        (token.type === TokenType.Dot && !hasWhitespaceForward)) &&
-      // prevent the case
-      // use &(x), a;
-      // getting parsed as:
-      // (use & x), a;
-      // which is incorrect
-      tokens[index + 1]?.type !== TokenType.LParen
+      token.type === TokenType.Operator ||
+      (token.type === TokenType.Dot && !hasWhitespaceForward)
     ) {
       // Infix operator
       const startIndex = this.skipWhitespace(tokens, index + 1);
@@ -1252,35 +1246,35 @@ Or use newline after "${token.value}" to confirm the right-associativity.
       // `,
       //         });
       //       }
-    } else {
-      // Function call like
-      // add 3, 4
-      const returnValue = this.parseFunctionCall({
-        func: primaryExpr,
-        tokens,
-        index: index,
-        hasWhitespace: true,
+    } else if (hasWhitespaceForward && token.type === TokenType.LParen) {
+      // f (x) — space before '(' is not allowed
+      throw formatErrorMessage({
+        token: token,
+        errorMessage: `Whitespace before '(' is not allowed in function calls.
+Use:
+
+  ${exprToString(primaryExpr)}(...)
+
+instead of:
+
+  ${exprToString(primaryExpr)} (...)`,
       });
+    } else {
+      // Paren-less function / operator call — no longer supported.
+      // f x, y   →  f(x, y)
+      // &x       →  &(x)
+      // !x       →  !(x)
+      // return x →  return(x)
+      throw formatErrorMessage({
+        token: token,
+        errorMessage: `Paren-less function and operator calls are not supported. Use parentheses.
+Use:
 
-      /*
-      if (
-        primaryExpr.type === "Atom" &&
-        primaryExpr.token.type === TokenType.Operator
-      ) {
-        throw formatErrorMessage(
-          primaryExpr.token,
-          `Ambiguous operator function call ${primaryExpr.token.value}.
-Please use parentheses to clarify:
-          
-${exprToString(returnValue.expr)}`
-        );
-      }
-        */
+  ${exprToString(primaryExpr)}(${token.value})
 
-      return this.parsePrimaryEnd({
-        primaryExpr: returnValue.expr,
-        tokens,
-        index: returnValue.index,
+instead of:
+
+  ${exprToString(primaryExpr)} ${token.value}`,
       });
     }
   }
