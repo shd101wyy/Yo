@@ -76,7 +76,7 @@ describe("buildDocModule", () => {
 
 /// A simple constant
 x :: i32(42);
-export x;
+export(x);
 `);
 
     expect(doc.doc).toBe("This is the module doc.\nIt has two lines.");
@@ -86,7 +86,7 @@ export x;
     const doc = buildDocFromSource(`
 /// Adds two numbers.
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     expect(doc.functions).toHaveLength(1);
@@ -105,7 +105,7 @@ export add;
     const doc = buildDocFromSource(`
 /// A 2D point.
 Point :: struct(x : i32, y : i32);
-export Point;
+export(Point);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -124,7 +124,7 @@ export Point;
     const doc = buildDocFromSource(`
 /// A color enum.
 Color :: enum(Red, Green, Blue);
-export Color;
+export(Color);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -146,7 +146,7 @@ Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32)
 );
-export Shape;
+export(Shape);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -165,7 +165,7 @@ export Shape;
     const doc = buildDocFromSource(`
 /// A user ID wrapper.
 UserId :: newtype(value : i32);
-export UserId;
+export(UserId);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -180,7 +180,7 @@ export UserId;
     const doc = buildDocFromSource(`
 /// A ref-counted container.
 Container :: object(data : i32);
-export Container;
+export(Container);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -193,8 +193,8 @@ export Container;
   test("documents an atomic object", () => {
     const doc = buildDocFromSource(`
 /// A thread-safe ref-counted container.
-Container :: atomic object(data : i32);
-export Container;
+Container :: atomic(object(data : i32));
+export(Container);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -210,7 +210,7 @@ export Container;
 Named :: trait(
   name : (fn(self : Self) -> i32)
 );
-export Named;
+export(Named);
 `);
 
     expect(doc.traits).toHaveLength(1);
@@ -225,7 +225,7 @@ export Named;
     const doc = buildDocFromSource(`
 /// The maximum value.
 MAX :: i32(100);
-export MAX;
+export(MAX);
 `);
 
     // Constants may appear as functions or constants depending on evaluator
@@ -238,7 +238,7 @@ export MAX;
   test("handles declarations without doc comments", () => {
     const doc = buildDocFromSource(`
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     expect(doc.functions).toHaveLength(1);
@@ -259,7 +259,7 @@ export add;
     const doc = buildDocFromSource(`
 /// Public function.
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     // Should not contain any ___-prefixed items
@@ -282,9 +282,9 @@ sub :: (fn(a : i32, b : i32) -> i32)((a - b));
 /// A point.
 Point :: struct(x : i32, y : i32);
 
-export add;
-export sub;
-export Point;
+export(add);
+export(sub);
+export(Point);
 `);
 
     expect(doc.functions).toHaveLength(2);
@@ -307,7 +307,7 @@ impl(forall(T : Type), ArrayList(T),
   is_empty : (fn(self : Self) -> bool)(((self.len == usize(0))))
 );
 
-export ArrayList;
+export(ArrayList);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -331,7 +331,7 @@ impl(forall(T : Type), where(T <: Send), List(T),
   size : (fn(self : Self) -> usize)(self.len)
 );
 
-export List;
+export(List);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -349,7 +349,7 @@ impl(Boxed, Dispose(
   dispose : (fn(self : Self) -> unit)(())
 ));
 
-export Boxed;
+export(Boxed);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -373,7 +373,7 @@ impl(MyVec, Index(usize)(
   index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(&(self.data))
 ));
 
-export MyVec;
+export(MyVec);
 `);
 
     expect(doc.types).toHaveLength(1);
@@ -396,7 +396,7 @@ export MyVec;
  * Returns the product of a and b.
  */
 mul :: (fn(a : i32, b : i32) -> i32)((a * b));
-export mul;
+export(mul);
 `);
 
     expect(doc.functions).toHaveLength(1);
@@ -466,7 +466,7 @@ describe("buildCrossReferences", () => {
 ///
 /// The parsed integer value, or -1 on failure.
 parse :: (fn(s: str) -> i32)(i32(0));
-export parse;
+export(parse);
 `);
 
     expect(doc.functions).toHaveLength(1);
@@ -484,7 +484,7 @@ export parse;
 ///
 /// Returns an error if the file does not exist.
 open_file :: (fn(path: str) -> i32)(i32(0));
-export open_file;
+export(open_file);
 `);
 
     expect(doc.functions[0]!.errors).toBe(
@@ -500,7 +500,7 @@ export open_file;
 ///
 /// Use new_api instead.
 old_api :: (fn() -> i32)(i32(0));
-export old_api;
+export(old_api);
 `);
 
     expect(doc.functions[0]!.deprecated).toBe("Use new_api instead.");
@@ -516,7 +516,7 @@ export old_api;
 /// result :: add(i32(1), i32(2));
 /// \`\`\`
 add :: (fn(a: i32, b: i32) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     expect(doc.functions[0]!.examples).toContain("```rust");
@@ -530,7 +530,7 @@ export add;
 ///
 /// Use Point3D instead.
 OldPoint :: struct(x: i32, y: i32);
-export OldPoint;
+export(OldPoint);
 `);
 
     expect(doc.types[0]!.deprecated).toBe("Use Point3D instead.");
@@ -545,7 +545,7 @@ add :: (fn(
   /// The second operand.
   b: i32
 ) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     expect(doc.functions[0]!.parameters).toHaveLength(2);
@@ -602,7 +602,7 @@ describe("Variable.docComment propagation", () => {
     const program = getEvaluatorProgram(`
 /// A documented constant.
 x :: i32(42);
-export x;
+export(x);
 `);
 
     expect(findVariableDocComment(program, "x")).toBe("A documented constant.");
@@ -613,7 +613,7 @@ export x;
 /// First line.
 /// Second line.
 y :: i32(10);
-export y;
+export(y);
 `);
 
     expect(findVariableDocComment(program, "y")).toBe(
@@ -624,7 +624,7 @@ export y;
   test("variable without doc comment has undefined docComment", () => {
     const program = getEvaluatorProgram(`
 z :: i32(5);
-export z;
+export(z);
 `);
 
     expect(findVariableDocComment(program, "z")).toBeUndefined();
@@ -634,7 +634,7 @@ export z;
     const program = getEvaluatorProgram(`
 /// Adds two numbers.
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
-export add;
+export(add);
 `);
 
     expect(findVariableDocComment(program, "add")).toBe("Adds two numbers.");
@@ -644,7 +644,7 @@ export add;
     const program = getEvaluatorProgram(`
 /// A 2D point.
 Point :: struct(x : f64, y : f64);
-export Point;
+export(Point);
 `);
 
     expect(findVariableDocComment(program, "Point")).toBe("A 2D point.");
@@ -654,7 +654,7 @@ export Point;
     const program = getEvaluatorProgram(`
 /** A block-documented value. */
 val :: i32(99);
-export val;
+export(val);
 `);
 
     expect(findVariableDocComment(program, "val")).toBe(
@@ -668,8 +668,8 @@ export val;
 a1 :: i32(1);
 /// Second.
 b1 :: i32(2);
-export a1;
-export b1;
+export(a1);
+export(b1);
 `);
 
     expect(findVariableDocComment(program, "a1")).toBe("First.");

@@ -219,7 +219,7 @@ function getKeywordCompletions(prefix: string): CompletionItem[] {
 }
 
 /**
- * Handle import path completion (e.g., `import "std/` or `import "./`).
+ * Handle import path completion (e.g., `import("std/` or `import("./`).
  * Provides file/directory completions for import paths.
  */
 function handleImportPathCompletion(
@@ -227,8 +227,11 @@ function handleImportPathCompletion(
   uri: string,
   docManager: LspDocumentManager
 ): CompletionItem[] {
-  // Match patterns like: import "std/..., open import "std/..., { X } :: import "./...
-  const importMatch = textUpToCursor.match(/import\s+"([^"]*?)([^"/]*)$/);
+  // Match strict syntax (`import("std/...`) and tolerate the legacy spacing
+  // form so completion still works while editing older files.
+  const importMatch = textUpToCursor.match(
+    /import(?:\s+|\s*\(\s*)"([^"]*?)([^"/]*)$/
+  );
   if (!importMatch) return [];
 
   const fullPath = importMatch[1]! + importMatch[2]!;
