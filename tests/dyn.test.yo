@@ -1,131 +1,147 @@
 open(import("std/libc/stdio.yo"));
-
 TestDyn :: trait(
   print : (fn(self : *(Self)) -> unit),
   return_i32 : (fn(self : *(Self)) -> i32)
 );
-
-use_test_dyn :: (fn(
-  value : Dyn(TestDyn)
-) -> i32)({
+use_test_dyn :: (
+  fn(
+    value : Dyn(TestDyn)
+  ) -> i32
+)({
   value.print();
   return(value.return_i32());
 });
-
 MyBox :: object(
   x : i32
 );
-impl(MyBox, Dispose(
-  dispose : (fn(self : Self)-> unit)({
-    printf("Disposing Boxed i32 with value: %d\n", self.x);
-  })
-));
-
-impl(i32, TestDyn(
-  print : ((self) -> {
-    printf("i32 value: %d\n", self.*);
-  }),
-  return_i32 : ((self) -> {
-    return(self.*);
-  })
-));
-
-impl(bool, TestDyn(
-  print : ((self) -> {
-    cond(
-      self.* => printf("bool value: true\n"),
-      true => printf("bool value: false\n")
-    );
-  }),
-  return_i32 : ((self) ->
-    cond(
-      self.* => 1,
-      true => return(0))
+impl(
+  MyBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      printf("Disposing Boxed i32 with value: %d\n", self.x);
+    })
   )
-));
-
-impl(MyBox, TestDyn(
-  print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);   // Test auto-dereference
-    printf("Boxed i32 value: %d\n", self.*.x); // Test manual dereference
-  }),
-  // Let's x2 here
-  return_i32 : ((self) -> {
-    return(self.x + (self.*.x));
-  })
-));
-
+);
+impl(
+  i32,
+  TestDyn(
+    print : (
+      (self) -> {
+        printf("i32 value: %d\n", self.*);
+      }
+    ),
+    return_i32 : (
+      (self) -> {
+        return(self.*);
+      }
+    )
+  )
+);
+impl(
+  bool,
+  TestDyn(
+    print : (
+      (self) -> {
+        cond(
+          self.* => printf("bool value: true\n"),
+          true => printf("bool value: false\n")
+        );
+      }
+    ),
+    return_i32 : (
+      (self) ->
+        cond(
+          self.* => 1,
+          true => return(0)
+        )
+    )
+  )
+);
+impl(
+  MyBox,
+  TestDyn(
+    print : (
+      (self) -> {
+        printf("Boxed i32 value: %d\n", self.x); // Test auto-dereference
+        printf("Boxed i32 value: %d\n", self.*.x); // Test manual dereference
+      }
+    ),
+    // Let's x2 here
+    return_i32 : (
+      (self) -> {
+        return(self.x + (self.*.x));
+      }
+    )
+  )
+);
 add :: (fn(x : i32, y : i32) -> i32)({
-  return((x + y));
+  return(x + y);
 });
-
 test("Test simple dynamic dispatch with `box`", {
   assert(use_test_dyn(dyn(box(i32(42)))) == 42);
   assert(use_test_dyn(dyn(box(true))) == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn(bi)) == 200);
 });
-
 test("Test simple dynamic dispatch with `Box(T)`", {
   assert(use_test_dyn(dyn(Box(i32)(i32(42)))) == 42);
   assert(use_test_dyn(dyn(Box(bool)(true))) == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn(bi)) == 200);
 });
-
 test("Test simple dynamic dispatch with automatic `box` call on value types", {
   assert(use_test_dyn(dyn(i32(42))) == 42);
   assert(use_test_dyn(dyn(true)) == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn(bi)) == 200);
 });
-
 test("Test Dyn with multiple traits", {
   Speak :: trait(
     speak : (fn(self : Self) -> i32)
   );
-
   Run :: trait(
     run : (fn(self : Self) -> i32)
   );
-
   // Dog :: struct(); // This should give error working with `dyn`.
   Dog :: object();
-
-  DogSpeak :: impl(Dog, Speak(
-    speak : ((self : Self) -> {
-      printf("Woof!\n");
-      return(1);
-    })
-  ));
-
-  DogRun :: impl(Dog, Run(
-    run : ((self : Self) -> {
-      printf("The dog is running!\n");
-      return(2);
-    })
-  ));
-
+  DogSpeak :: impl(
+    Dog,
+    Speak(
+      speak : (
+        (self : Self) -> {
+          printf("Woof!\n");
+          return(1);
+        }
+      )
+    )
+  );
+  DogRun :: impl(
+    Dog,
+    Run(
+      run : (
+        (self : Self) -> {
+          printf("The dog is running!\n");
+          return(2);
+        }
+      )
+    )
+  );
   act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
-
   dog := Dog();
   result := act(dyn(dog));
   assert(result == 3, "Expected result to be 3");
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 });
-
 open(import("std/string"));
 open(import("std/fmt"));
-
 test("Test downcast success", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
-
   maybe_cat := downcast(animal, Cat);
-  match(maybe_cat,
+  match(
+    maybe_cat,
     .Some(cat) => {
       assert(cat.name == `whiskers`, "Expected cat.name to be 'whiskers'");
     },
@@ -134,19 +150,16 @@ test("Test downcast success", {
     }
   );
 });
-
 test("Test downcast failure", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-
   Dog :: object(name : String);
   impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
-
   maybe_dog := downcast(animal, Dog);
-  match(maybe_dog,
+  match(
+    maybe_dog,
     .Some(d) => {
       assert(false, "Expected None, got Some(Dog)");
     },
@@ -155,51 +168,43 @@ test("Test downcast failure", {
     }
   );
 });
-
 test("Test downcast type check via is_some", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-
   Dog :: object(name : String);
   impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
-
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
 });
-
 test("Test downcast with multiple concrete types", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-
   Dog :: object(name : String);
   impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-
   Animal :: Dyn(ToString);
-
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
-
   // Downcast cat_animal
-  match(downcast(cat_animal, Cat),
+  match(
+    downcast(cat_animal, Cat),
     .Some(cat) => assert(cat.name == `kitty`, "Expected kitty"),
     .None => assert(false, "Expected Some(Cat)")
   );
-
-  match(downcast(cat_animal, Dog),
+  match(
+    downcast(cat_animal, Dog),
     .Some(d) => assert(false, "cat_animal should not be Dog"),
     .None => assert(true)
   );
-
   // Downcast dog_animal
-  match(downcast(dog_animal, Dog),
+  match(
+    downcast(dog_animal, Dog),
     .Some(dog) => assert(dog.name == `buddy`, "Expected buddy"),
     .None => assert(false, "Expected Some(Dog)")
   );
-
-  match(downcast(dog_animal, Cat),
+  match(
+    downcast(dog_animal, Cat),
     .Some(c) => assert(false, "dog_animal should not be Cat"),
     .None => assert(true)
   );

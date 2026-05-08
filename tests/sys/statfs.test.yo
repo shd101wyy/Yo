@@ -6,27 +6,21 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 statfs :: import("std/sys/statfs");
 { temp_dir } :: import("../helper");
-
 test("statfs returns block statistics", {
   dir_str := temp_dir();
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-
   buf_size := statfs.statfs_buf_size();
   buf := *(u8)(malloc(buf_size).unwrap());
-
   ret := statfs.statfs(dir_path, buf);
   assert(ret == i32(0));
-
   bsize := statfs.statfs_bsize(buf);
   blocks := statfs.statfs_blocks(buf);
   bfree := statfs.statfs_bfree(buf);
   bavail := statfs.statfs_bavail(buf);
-
   assert(bsize > u64(0));
   assert(blocks > u64(0));
   assert(bfree <= blocks);
   assert(bavail <= blocks);
-
   free(.Some(*(void)(buf)));
 });

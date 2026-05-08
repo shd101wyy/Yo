@@ -1,6 +1,5 @@
 // Regression tests for: Impl(Fn(...)) is not a valid struct/enum/union field type.
 // See: issues/impl-fn-in-struct-field.md
-
 test("Impl(Fn) in struct field is rejected", {
   comptime_expect_error({
     BadStruct :: struct(
@@ -9,7 +8,6 @@ test("Impl(Fn) in struct field is rejected", {
     );
   });
 });
-
 test("Impl(Fn) in object field is rejected", {
   comptime_expect_error({
     BadObject :: object(
@@ -18,7 +16,6 @@ test("Impl(Fn) in object field is rejected", {
     );
   });
 });
-
 test("Impl(Fn) in enum variant field is rejected", {
   comptime_expect_error({
     BadEnum :: enum(
@@ -27,43 +24,36 @@ test("Impl(Fn) in enum variant field is rejected", {
     );
   });
 });
-
 // --- Workarounds: confirm Dyn(Fn(...)) and generic-over-F both work ---
-
 WithDynCb :: object(
   value : i32,
   cb : Dyn(Fn(x : i32) -> i32)
 );
-
 make_dyn_adder :: (fn(n : i32) -> WithDynCb)(
   WithDynCb(
-    value: n,
-    cb: dyn((x) => (x + n))
+    value : n,
+    cb : dyn((x) => (x + n))
   )
 );
-
 test("workaround A: Dyn(Fn) field captures correctly", {
   obj := make_dyn_adder(i32(5));
   result := obj.cb(i32(10));
-  assert((result == i32(15)), "5 + 10 = 15");
-
+  assert(result == i32(15), "5 + 10 = 15");
   obj2 := make_dyn_adder(i32(100));
   result2 := obj2.cb(i32(1));
-  assert((result2 == i32(101)), "100 + 1 = 101");
+  assert(result2 == i32(101), "100 + 1 = 101");
 });
-
 // Generic-over-F workaround
 GenericCb :: (fn(comptime(F) : Type) -> comptime(Type))(
   struct(value : i32, cb : F)
 );
-
 test("workaround B: struct generic over closure type", {
   // Non-capturing closure - both struct field and value share the same Impl(Fn) type.
   obj := GenericCb(Impl(Fn(x : i32) -> i32))(
-    value: i32(7),
-    cb: ((x) => (x * i32(3)))
+    value : i32(7),
+    cb : ((x) => (x * i32(3)))
   );
   result := obj.cb(i32(4));
-  assert((result == i32(12)), "4 * 3 = 12");
-  assert((obj.value == i32(7)), "value preserved");
+  assert(result == i32(12), "4 * 3 = 12");
+  assert(obj.value == i32(7), "value preserved");
 });

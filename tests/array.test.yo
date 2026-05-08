@@ -1,11 +1,10 @@
 test("Test Array declaration with inferred length", {
   {
     arr1 := Array(i32, _)(1, 2, 3);
-    arr2 := [i32;_](1, 2, 3);
+    arr2 := [i32 ; _](1, 2, 3);
     assert(arr1.len() == 3);
     assert(arr2.len() == 3);
   };
-
   {
     some_condition :: (fn() -> bool)(true);
     comptime_expect_error({
@@ -20,59 +19,48 @@ test("Test Array declaration with inferred length", {
       );
       arr(0) = 5;
     });
-
     arr := cond(
-      some_condition() => [i32; 3](1, 2, 3),
-      true => [i32; 3](2, 3, 4)
+      some_condition() => [i32 ; 3](1, 2, 3),
+      true => [i32 ; 3](2, 3, 4)
     );
   };
-
   {
     // Test basic array type construction
     IntArray :: Array(i32, 3);
     arr := IntArray(1, 2, 3);
-    
     // Test array access
     first := arr(0);
     second := arr(1);
     third := arr(2);
-    
     // Test different array types
     FloatArray :: Array(f64, 2);
     float_arr := FloatArray(1.5, 2.5);
-    
     // Test nested array type construction
     NestedArray :: Array(Array(i32, 2), 2);
     nested := NestedArray(
       Array(i32, 2)(1, 2),
       Array(i32, 2)(3, 4)
     );
-    
     // Test zero-length array
     EmptyArray :: Array(i32, 0);
     empty := EmptyArray();
-
     // Test inferred length - different sizes
     inferred_arr4 := Array(i32, _)(1, 2, 3, 4);
     inferred_arr2 := Array(f64, _)(1.5, 2.5);
     inferred_arr1 := Array(bool, _)(true);
     inferred_empty := Array(i32, _)();
-    
     // Test nested inferred arrays
     inferred_nested := Array(Array(i32, _), _)(
       Array(i32, _)(1, 2, 3),
       Array(i32, _)(4, 5, 6)
     );
-
     // Additional tests for array length inference
     test_basic_inference := Array(i32, _)(10, 20, 30, 40, 50); // Should infer length 5
     test_empty_inference := Array(f64, _)(); // Should infer length 0
     test_single_inference := Array(bool, _)(true); // Should infer length 1
-    
     // Test that inferred arrays work with array access
     first_inferred := test_basic_inference(0); // Should be 10
-    last_inferred := test_basic_inference(4);  // Should be 50
-
+    last_inferred := test_basic_inference(4); // Should be 50
     // Test mutable
     mutable_array := Array(i32, _)(1, 2, 3);
     comptime_expect_error(
@@ -81,9 +69,8 @@ test("Test Array declaration with inferred length", {
     mutable_array = [2, 3, 4]; // Should be allowed
   };
 });
-
 test("Test Array element access and length", {
-  (arr : [i32; 5]) = [10, 20, 30, 40, 50];
+  (arr : [i32 ; 5]) = [10, 20, 30, 40, 50];
   assert(arr.len() == 5);
   assert(arr(usize(0)) == 10);
   assert(arr(usize(1)) == 20);
@@ -91,113 +78,85 @@ test("Test Array element access and length", {
   assert(arr(usize(3)) == 40);
   assert(arr(usize(4)) == 50);
 });
-
 test("Test Array slice element access and length", {
-  (arr : [i32; 5]) = [1, 2, 3, 4, 5];
-  s := arr(usize(1)..arr.len());
+  (arr : [i32 ; 5]) = [1, 2, 3, 4, 5];
+  s := arr(usize(1) .. arr.len());
   assert(s.len() == 4);
   assert(s(usize(0)) == 2);
   assert(s(usize(1)) == 3);
   assert(s(usize(2)) == 4);
   assert(s(usize(3)) == 5);
 });
-
 test("Test Array copy", {
   // Create binding first, then assign value
   arr1 : Array(i32, 3);
   arr1 = [1, 2, 3];
-
   // Create binding and assign value in one line
-  (arr2 : [i32; 3]) = [1, 2, 3];
+  (arr2 : [i32 ; 3]) = [1, 2, 3];
   arr2(0) = 12;
-
   // Copy array
   arr3 := arr1;
   arr3(1) = 22; // This shouldn't affect arr1
-
   assert(arr1(0) == 1);
   assert(arr1(1) == 2);
   assert(arr1(2) == 3);
-
   assert(arr2(0) == 12);
   assert(arr2(1) == 2);
   assert(arr2(2) == 3);
-
   assert(arr3(0) == 1);
   assert(arr3(1) == 22);
   assert(arr3(2) == 3);
 });
-
 test("Test Array fill method", {
-  return_array :: (fn(comptime(n) : usize) -> [i32; n])({
+  return_array :: (fn(comptime(n) : usize) -> [i32 ; n])({
     return(Array(i32, n).fill(10));
   });
-
-  return_array_2 :: (fn(comptime(n) : usize) -> [i32; n])(Array(i32, n).fill(20));
-
-  comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32; n]))({
+  return_array_2 :: (fn(comptime(n) : usize) -> [i32 ; n])(Array(i32, n).fill(20));
+  comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))({
     return(Array(i32, n).fill(30));
   });
-
-  comptime_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32; n]))(Array(i32, n).fill(40));
-
+  comptime_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(Array(i32, n).fill(40));
   arr :: Array(i32, 6).fill(8);
-
   arr2 := return_array(5);
   assert(arr2.len() == 5);
   assert(arr2(0) == 10);
-
   arr2_2 := return_array_2(7);
   assert(arr2_2.len() == 7);
   assert(arr2_2(0) == 20);
-
   arr3 := comptime_return_array(10);
   assert(arr3.len() == 10);
   assert(arr3(0) == 30);
-
   arr3_2 := comptime_return_array_2(12);
   assert(arr3_2.len() == 12);
   assert(arr3_2(0) == 40);
 });
-
 test("Test array slice", {
-  (arr : [i32; 4]) = [1, 2, 3, 4];
+  (arr : [i32 ; 4]) = [1, 2, 3, 4];
   arr_len := arr.len();
-  
   (end : usize) = 3;
-
-  full_slice := arr(usize(0)..usize(4));
-
-  slice := (arr(usize(1)..usize(3)));
+  full_slice := arr(usize(0) .. usize(4));
+  slice := arr(usize(1) .. usize(3));
   slice(0) = 10;
   slice(1) = 20;
-
   slice_length := slice.len();
   x := slice(0);
-
-  slice_of_slice := (slice(usize(0)..usize(2)));
-
+  slice_of_slice := slice(usize(0) .. usize(2));
   assert(arr(0) == 1);
   assert(arr(1) == 10);
   assert(arr(2) == 20);
   assert(arr(3) == 4);
-
   assert(slice(0) == 10);
   assert(slice(1) == 20);
   assert(slice_length == 2);
-
   assert(full_slice(0) == 1);
   assert(full_slice(1) == 10);
   assert(full_slice(2) == 20);
   assert(full_slice(3) == 4);
-
   assert(slice_of_slice(0) == 10);
   assert(slice_of_slice(1) == 20);
   assert(slice_of_slice.len() == 2);
 });
-
 // ===== Array Iterator Tests =====
-
 test("Array iter - empty array yields nothing", {
   arr := Array(i32, 0)();
   count := usize(0);
@@ -205,9 +164,8 @@ test("Array iter - empty array yields nothing", {
     consume(ptr);
     count = (count + usize(1));
   });
-  assert((count == usize(0)), "empty array should yield no elements");
+  assert(count == usize(0), "empty array should yield no elements");
 });
-
 test("Array iter - yields pointers to elements", {
   arr := [i32(10), i32(20), i32(30)];
   sum := i32(0);
@@ -216,55 +174,50 @@ test("Array iter - yields pointers to elements", {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
-  assert((count == usize(3)), "should yield 3 elements");
-  assert((sum == i32(60)), "sum should be correct");
+  assert(count == usize(3), "should yield 3 elements");
+  assert(sum == i32(60), "sum should be correct");
 });
-
 test("Array iter - mutate through pointer", {
   arr := [i32(1), i32(2), i32(3)];
   for((&(arr)).iter(), (ptr) => {
     ptr.* = (ptr.* * i32(10));
   });
-  assert((arr(0) == i32(10)), "first element should be 10");
-  assert((arr(1) == i32(20)), "second element should be 20");
-  assert((arr(2) == i32(30)), "third element should be 30");
+  assert(arr(0) == i32(10), "first element should be 10");
+  assert(arr(1) == i32(20), "second element should be 20");
+  assert(arr(2) == i32(30), "third element should be 30");
 });
-
 // ===== Slice Iterator Tests =====
-
 test("Slice iter - yields pointers to elements", {
   arr := [i32(100), i32(200), i32(300)];
-  slice := arr(usize(0)..usize(3));
+  slice := arr(usize(0) .. usize(3));
   sum := i32(0);
   count := usize(0);
   for((&(slice)).iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
-  assert((count == usize(3)), "should yield 3 elements");
-  assert((sum == i32(600)), "sum should be correct");
+  assert(count == usize(3), "should yield 3 elements");
+  assert(sum == i32(600), "sum should be correct");
 });
-
 test("Slice iter - mutate through pointer", {
   arr := [i32(1), i32(2), i32(3)];
-  slice := arr(usize(0)..usize(3));
+  slice := arr(usize(0) .. usize(3));
   for((&(slice)).iter(), (ptr) => {
     ptr.* = (ptr.* + i32(5));
   });
-  assert((arr(0) == i32(6)), "first element should be 6");
-  assert((arr(1) == i32(7)), "second element should be 7");
-  assert((arr(2) == i32(8)), "third element should be 8");
+  assert(arr(0) == i32(6), "first element should be 6");
+  assert(arr(1) == i32(7), "second element should be 7");
+  assert(arr(2) == i32(8), "third element should be 8");
 });
-
 test("Slice iter - partial slice", {
   arr := [i32(10), i32(20), i32(30), i32(40)];
-  slice := arr(usize(1)..usize(3));
+  slice := arr(usize(1) .. usize(3));
   sum := i32(0);
   count := usize(0);
   for((&(slice)).iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
-  assert((count == usize(2)), "should yield 2 elements");
-  assert((sum == i32(50)), "sum of middle elements should be 50");
+  assert(count == usize(2), "should yield 2 elements");
+  assert(sum == i32(50), "sum of middle elements should be 50");
 });

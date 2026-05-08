@@ -1,56 +1,45 @@
 // Tests for circular module dependencies
-
 // Test 1: Basic circular type reference
 // A exports NodeKind, then imports B which uses NodeKind.
 // B exports Tree (which uses NodeKind from A).
 test("Circular type reference between two modules", {
   { NodeKind } :: import("./circular_deps/circular_a.yo");
   { Tree } :: import("./circular_deps/circular_b.yo");
-
-  (t : Tree) = Tree(kind: .Leaf, value: i32(42));
-  assert((t.value == i32(42)), "Tree value should be 42");
+  (t : Tree) = Tree(kind :.Leaf, value : i32(42));
+  assert(t.value == i32(42), "Tree value should be 42");
 });
-
 // Test 2: Three-way circular import (A -> B -> C -> A)
 test("Three-way circular import", {
   { Color } :: import("./circular_deps/circular_three_a.yo");
   { Shape } :: import("./circular_deps/circular_three_b.yo");
   { Palette } :: import("./circular_deps/circular_three_c.yo");
-
-  (s : Shape) = Shape(color: .Red, sides: i32(4));
-  assert((s.sides == i32(4)), "Shape sides should be 4");
-
-  (p : Palette) = Palette(primary: .Green, secondary: .Blue);
+  (s : Shape) = Shape(color :.Red, sides : i32(4));
+  assert(s.sides == i32(4), "Shape sides should be 4");
+  (p : Palette) = Palette(primary :.Green, secondary :.Blue);
 });
-
 // Test 3: Access a field that hasn't been exported yet (error case).
 // A imports B's LateField, but LateField is exported AFTER B imports A.
 // This should produce a clear error.
 test("Error on accessing not-yet-exported field in circular import", {
   comptime_expect_error(
-    import("./circular_deps/circular_error_a.yo"));
+    import("./circular_deps/circular_error_a.yo")
+  );
 });
-
 // Test 4: Non-circular import still works (regression check)
 test("Non-circular import regression", {
   { printf } :: import("std/libc/stdio");
-
   (x : i32) = i32(123);
-  assert((x == i32(123)), "Non-circular import should still work");
+  assert(x == i32(123), "Non-circular import should still work");
 });
-
 // Test 5: open import with circular modules
 test("Open import with circular modules", {
   { ColoredShape, Color } :: import("./circular_deps/circular_open_a.yo");
   { Shape } :: import("./circular_deps/circular_open_b.yo");
-
-  (cs : ColoredShape) = ColoredShape(color: .Red, shape: .Circle);
+  (cs : ColoredShape) = ColoredShape(color :.Red, shape :.Circle);
 });
-
 // Test 6: Spread export with circular modules
 test("Spread export with circular modules", {
   { Identifier, Expression } :: import("./circular_deps/circular_spread_a.yo");
-
-  (id : Identifier) = Identifier(name: "x");
-  (expr : Expression) = Expression(id: id);
+  (id : Identifier) = Identifier(name : "x");
+  (expr : Expression) = Expression(id : id);
 });

@@ -10,32 +10,36 @@
 //! unification env produced while matching constraint traits against impl
 //! traits. The fix introduces `typeImplementsTraitWithBindings` which
 //! propagates that env back through where-clause validation.
-
 open(import("std/collections/array_list"));
-
 LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
-
-impl(forall(I : Type, A : Type, B : Type, F : Type),
-     LocalMapIter(I, A, B, F),
-     Iterator(
-       Item : B,
-       next : (fn(self : *(Self)) -> Option(B))(
-         Option(B).None
-       )
-     ));
-
-impl(forall(I : Type), where(I <: Iterator), I,
-  local_map_to : (fn(forall(A : Type, B : Type, F : Type),
-               self : Self, f : F,
-               where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B))) -> LocalMapIter(Self, A, B, F))(
-    LocalMapIter(Self, A, B, F)(_inner: self, _f: f)
+impl(
+  forall(I : Type, A : Type, B : Type, F : Type),
+  LocalMapIter(I, A, B, F),
+  Iterator(
+    Item : B,
+    next : (fn(self : *(Self)) -> Option(B))(
+      Option(B).None
+    )
   )
 );
-
-double :: (fn(x : i32) -> i32)((x * i32(2)));
-
+impl(
+  forall(I : Type),
+  where(I <: Iterator),
+  I,
+  local_map_to : (
+    fn(
+      forall(A : Type, B : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B))
+    ) -> LocalMapIter(Self, A, B, F)
+  )(
+    LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
+  )
+);
+double :: (fn(x : i32) -> i32)(x * i32(2));
 test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   list := ArrayList(i32).new();
   list.push(i32(1));
@@ -44,19 +48,20 @@ test("where-clause associated-type inference binds A and B from impl + Fn signat
   // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
   // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
   (iter : LocalMapIter(typeof(it1), i32, i32, fn(x : i32) -> i32)) = it1.local_map_to(double);
-  match(iter.next(),
+  match(
+    iter.next(),
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")
   );
 });
-
 test("where-clause inference with bool callback return type", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
-  is_pos :: (fn(x : i32) -> bool)((x > i32(0)));
+  is_pos :: (fn(x : i32) -> bool)(x > i32(0));
   (iter : LocalMapIter(typeof(it1), i32, bool, fn(x : i32) -> bool)) = it1.local_map_to(is_pos);
-  match(iter.next(),
+  match(
+    iter.next(),
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")
   );

@@ -1,58 +1,50 @@
 open(import("std/libc/stdio.yo"));
-
 MyBox :: object(
-  (*) : i32
+  ( *) : i32
 );
-impl(MyBox, Dispose(
-  dispose : (fn(self : Self)-> unit)({
-    printf("Disposing Boxed i32 with value: %d\n", self.*);
-  })
-));
-
+impl(
+  MyBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      printf("Disposing Boxed i32 with value: %d\n", self.*);
+    })
+  )
+);
 test("Test ClosureType({...}) to create closure value", {
   x := 1;
-
   ClosureType :: Impl(Fn(y : i32) -> i32);
   T :: Type.to_comptime_string(ClosureType);
   closure := ClosureType({
     x = (x + y);
     return(x);
   });
-
-  closure2 := closure;  // Test dup on closure
-
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure(1); // 3
-
   result := closure(2); // 5
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
-
 test("Test anonymous closure value =>", {
   x := 1;
-
-  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
-    x = (x + y);
-    return(x);
-  });
-
-  closure2 := closure;  // Test dup on closure
-
+  (closure : Impl(Fn(y : i32) -> i32)) = (
+    (y) => {
+      x = (x + y);
+      return(x);
+    }
+  );
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure(1); // 3
-
   result := closure(2); // 5
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
-
 some_cond :: (fn() -> bool)({
   return(true);
 });
-
 // This should fail
 test("Test multiple expected errors", {
   comptime_expect_error({
@@ -60,55 +52,60 @@ test("Test multiple expected errors", {
     cond(
       some_cond() => {
         a := 1;
-        closure = ((y) => {
-          return(y + a);
-        });
+        closure = (
+          (y) => {
+            return(y + a);
+          }
+        );
       },
       true => {
         b := 1;
-        closure = ((y) => {
-          return(y + b);
-        });
+        closure = (
+          (y) => {
+            return(y + b);
+          }
+        );
       }
     );
   });
-
   comptime_expect_error({
     closure : Impl(Fn(y : i32) -> i32);
     cond(
       some_cond() => {
         a := 1;
-        closure = ((y) => {
-          return(y + a);
-        });
+        closure = (
+          (y) => {
+            return(y + a);
+          }
+        );
       },
       true => {
         a := 2;
-        closure = ((y) => {
-          return(y + a);
-        });
+        closure = (
+          (y) => {
+            return(y + a);
+          }
+        );
       }
     );
   }, "no two closures, even if identical, have the same type");
-
   comptime_expect_error(
     (closure : Impl(Fn(y : i32) -> i32)) =
-    cond(
-      some_cond() => {
-        a := 1;
-        ((y) => {
-          return(y + a);
-        })
-      },
-      true => {
-        a := 2;
-        ((y) => {
-          return(y + a);
-        })
-      }
-    )
+      cond(
+        some_cond() => {
+          a := 1;
+          (y) => {
+            return(y + a);
+          }
+        },
+        true => {
+          a := 2;
+          (y) => {
+            return(y + a);
+          }
+        }
+      )
   );
-
   // This should fail - sequential reassignment to closures with different capture types
   comptime_expect_error({
     a := 1;
@@ -123,51 +120,40 @@ test("Test multiple expected errors", {
     closure = ((y) => (y + a));
   }, "cannot reassign to variable of Impl");
 });
-
-
 test("Test closure with Dyn", {
   x := 1;
-
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => {
-    x = (x + y);
-    return(x);
-  }));
-
-  closure2 := closure;  // Test dup on closure
-
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
+    box((y) => {
+      x = (x + y);
+      return(x);
+    })
+  );
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure2(1); // 3
-
   result := closure(2); // 5
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
-
 test("Test closure with Impl that captures Rc object", {
   x := MyBox(1);
-
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := ClosureType({
     x.* = (x.* + y);
     return(x.*);
   });
-
-  closure2 := closure;  // Test dup on closure
-
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
-
 test("Test closure captured Rc survives nested early return", {
   x := MyBox(1);
   take_return := true;
-
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := ClosureType({
     cond(
@@ -182,72 +168,58 @@ test("Test closure captured Rc survives nested early return", {
     );
     return(i32(-(1)));
   });
-
   closure2 := closure;
-
   result := closure(4);
   assert(result == i32(5), "nested early return should return updated value");
   assert(x.* == i32(5), "captured boxed variable should survive early return");
-
   result2 := closure2(2);
   assert(result2 == i32(7), "duplicated closure should share captured box");
   assert(x.* == i32(7), "captured box should remain alive after duplicate call");
 });
-
-
 test("Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
-
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  (closure : ClosureType) = ((y) => {
-    x.* = (x.* + y);
-    return(x.*);
-  });
-
-  closure2 := closure;  // Test dup on closure
-
+  (closure : ClosureType) = (
+    (y) => {
+      x.* = (x.* + y);
+      return(x.*);
+    }
+  );
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
-
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
-
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => {
-    x.* = (x.* + y);
-    return(x.*);
-  }));
-
-  closure2 := closure;  // Test dup on closure
-
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
+    box((y) => {
+      x.* = (x.* + y);
+      return(x.*);
+    })
+  );
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure2(1); // 3
   result := closure(2); // 5
-
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
-
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
-
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { // without explicitly calling `box`
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => {
+    // without explicitly calling `box`
     x.* = (x.* + y);
     return(x.*);
   });
-
-  closure2 := closure;  // Test dup on closure
-
+  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure2(1); // 3
   result := closure(2); // 5
-
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");

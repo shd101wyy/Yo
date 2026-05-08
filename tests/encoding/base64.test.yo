@@ -2,200 +2,205 @@ open(import("std/string"));
 open(import("std/encoding/base64"));
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
-
 // ===== Encoding Tests =====
-
 test("base64_encode empty input", {
   data := ArrayList(u8).new();
   result := base64_encode(data);
-  assert((result.as_str() == ""), "empty input should produce empty string");
+  assert(result.as_str() == "", "empty input should produce empty string");
 });
-
 test("base64_encode Hello", {
   data := ArrayList(u8).new();
-  data.push(u8(72)); data.push(u8(101)); data.push(u8(108));
-  data.push(u8(108)); data.push(u8(111));
+  data.push(u8(72));
+  data.push(u8(101));
+  data.push(u8(108));
+  data.push(u8(108));
+  data.push(u8(111));
   result := base64_encode(data);
-  assert((result.as_str() == "SGVsbG8="), "Hello should encode to SGVsbG8=");
+  assert(result.as_str() == "SGVsbG8=", "Hello should encode to SGVsbG8=");
 });
-
 test("base64_encode single byte", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   result := base64_encode(data);
-  assert((result.as_str() == "QQ=="), "A should encode to QQ==");
+  assert(result.as_str() == "QQ==", "A should encode to QQ==");
 });
-
 test("base64_encode two bytes", {
   data := ArrayList(u8).new();
-  data.push(u8(65)); data.push(u8(66));
+  data.push(u8(65));
+  data.push(u8(66));
   result := base64_encode(data);
-  assert((result.as_str() == "QUI="), "AB should encode to QUI=");
+  assert(result.as_str() == "QUI=", "AB should encode to QUI=");
 });
-
 test("base64_encode three bytes no padding", {
   data := ArrayList(u8).new();
-  data.push(u8(65)); data.push(u8(66)); data.push(u8(67));
+  data.push(u8(65));
+  data.push(u8(66));
+  data.push(u8(67));
   result := base64_encode(data);
-  assert((result.as_str() == "QUJD"), "ABC should encode to QUJD with no padding");
+  assert(result.as_str() == "QUJD", "ABC should encode to QUJD with no padding");
 });
-
 test("base64_encode Man", {
   // "Man" -> "TWFu"
   data := ArrayList(u8).new();
-  data.push(u8(77)); data.push(u8(97)); data.push(u8(110));
+  data.push(u8(77));
+  data.push(u8(97));
+  data.push(u8(110));
   result := base64_encode(data);
-  assert((result.as_str() == "TWFu"), "Man should encode to TWFu");
+  assert(result.as_str() == "TWFu", "Man should encode to TWFu");
 });
-
 // ===== URL-safe Encoding =====
-
 test("base64_encode_url no padding", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   result := base64_encode_url(data);
   // URL-safe should not have padding
-  assert((result.as_str() == "QQ"), "URL-safe single byte should not have padding");
+  assert(result.as_str() == "QQ", "URL-safe single byte should not have padding");
 });
-
 // ===== Decoding Tests =====
-
 test("base64_decode empty string", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   bytes := base64_decode("");
-  assert((bytes.len() == usize(0)), "empty string should decode to 0 bytes");
+  assert(bytes.len() == usize(0), "empty string should decode to 0 bytes");
 });
-
 test("base64_decode Hello", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   bytes := base64_decode("SGVsbG8=");
-  assert((bytes.len() == usize(5)), "SGVsbG8= should decode to 5 bytes");
-  assert((bytes.get(usize(0)).unwrap() == u8(72)), "byte 0 = H");
-  assert((bytes.get(usize(1)).unwrap() == u8(101)), "byte 1 = e");
-  assert((bytes.get(usize(2)).unwrap() == u8(108)), "byte 2 = l");
-  assert((bytes.get(usize(3)).unwrap() == u8(108)), "byte 3 = l");
-  assert((bytes.get(usize(4)).unwrap() == u8(111)), "byte 4 = o");
+  assert(bytes.len() == usize(5), "SGVsbG8= should decode to 5 bytes");
+  assert(bytes.get(usize(0)).unwrap() == u8(72), "byte 0 = H");
+  assert(bytes.get(usize(1)).unwrap() == u8(101), "byte 1 = e");
+  assert(bytes.get(usize(2)).unwrap() == u8(108), "byte 2 = l");
+  assert(bytes.get(usize(3)).unwrap() == u8(108), "byte 3 = l");
+  assert(bytes.get(usize(4)).unwrap() == u8(111), "byte 4 = o");
 });
-
 test("base64_decode no padding", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   bytes := base64_decode("TWFu");
-  assert((bytes.len() == usize(3)), "TWFu should decode to 3 bytes");
-  assert((bytes.get(usize(0)).unwrap() == u8(77)), "byte 0 = M");
-  assert((bytes.get(usize(1)).unwrap() == u8(97)), "byte 1 = a");
-  assert((bytes.get(usize(2)).unwrap() == u8(110)), "byte 2 = n");
+  assert(bytes.len() == usize(3), "TWFu should decode to 3 bytes");
+  assert(bytes.get(usize(0)).unwrap() == u8(77), "byte 0 = M");
+  assert(bytes.get(usize(1)).unwrap() == u8(97), "byte 1 = a");
+  assert(bytes.get(usize(2)).unwrap() == u8(110), "byte 2 = n");
 });
-
 test("base64_decode invalid character error", {
-  given(exn) := Exception(throw : ((err) -> {
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        escape(());
+      }
+    )
+  );
   base64_decode("!!!!");
   assert(false, "invalid chars should have thrown");
 });
-
 // ===== Roundtrip Tests =====
-
 test("base64 roundtrip", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   data := ArrayList(u8).new();
   i := u8(0);
-  while((i < u8(255)), (i = (i + u8(1))), {
+  while(i < u8(255), i = (i + u8(1)), {
     data.push(i);
   });
   data.push(u8(255));
   encoded := base64_encode(data);
   decoded := base64_decode(encoded.as_str());
-  assert((decoded.len() == usize(256)), "roundtrip should preserve length");
+  assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
-  while((j < usize(256)), (j = (j + usize(1))), {
-    assert((decoded.get(j).unwrap() == u8(j)), "roundtrip byte mismatch");
+  while(j < usize(256), j = (j + usize(1)), {
+    assert(decoded.get(j).unwrap() == u8(j), "roundtrip byte mismatch");
   });
 });
-
 test("base64 url roundtrip", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   data := ArrayList(u8).new();
-  data.push(u8(0xFB)); data.push(u8(0xFF)); data.push(u8(0xFE));
+  data.push(u8(0xFB));
+  data.push(u8(0xFF));
+  data.push(u8(0xFE));
   encoded := base64_encode_url(data);
   decoded := base64_decode_url(encoded.as_str());
-  assert((decoded.len() == usize(3)), "url roundtrip should preserve length");
-  assert((decoded.get(usize(0)).unwrap() == u8(0xFB)), "url roundtrip byte 0");
-  assert((decoded.get(usize(1)).unwrap() == u8(0xFF)), "url roundtrip byte 1");
-  assert((decoded.get(usize(2)).unwrap() == u8(0xFE)), "url roundtrip byte 2");
+  assert(decoded.len() == usize(3), "url roundtrip should preserve length");
+  assert(decoded.get(usize(0)).unwrap() == u8(0xFB), "url roundtrip byte 0");
+  assert(decoded.get(usize(1)).unwrap() == u8(0xFF), "url roundtrip byte 1");
+  assert(decoded.get(usize(2)).unwrap() == u8(0xFE), "url roundtrip byte 2");
 });
-
 // ===== String-level API Tests =====
-
 test("encode_string empty", {
   result := base64_encode_string(String.new());
-  assert((result.as_str() == ""), "empty string should encode to empty");
+  assert(result.as_str() == "", "empty string should encode to empty");
 });
-
 test("encode_string f to Zg==", {
   result := base64_encode_string(`f`);
-  assert((result.as_str() == "Zg=="), "f should encode to Zg==");
+  assert(result.as_str() == "Zg==", "f should encode to Zg==");
 });
-
 test("encode_string fo to Zm8=", {
   result := base64_encode_string(`fo`);
-  assert((result.as_str() == "Zm8="), "fo should encode to Zm8=");
+  assert(result.as_str() == "Zm8=", "fo should encode to Zm8=");
 });
-
 test("encode_string foo to Zm9v", {
   result := base64_encode_string(`foo`);
-  assert((result.as_str() == "Zm9v"), "foo should encode to Zm9v");
+  assert(result.as_str() == "Zm9v", "foo should encode to Zm9v");
 });
-
 test("encode_string foobar to Zm9vYmFy", {
   result := base64_encode_string(`foobar`);
-  assert((result.as_str() == "Zm9vYmFy"), "foobar should encode to Zm9vYmFy");
+  assert(result.as_str() == "Zm9vYmFy", "foobar should encode to Zm9vYmFy");
 });
-
 test("encode_string Hello, World!", {
   result := base64_encode_string(`Hello, World!`);
-  assert((result.as_str() == "SGVsbG8sIFdvcmxkIQ=="), "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
+  assert(result.as_str() == "SGVsbG8sIFdvcmxkIQ==", "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
 });
-
 test("decode_string empty", {
   result := base64_decode_string(String.new());
   assert(result.is_ok(), "empty string should decode ok");
-  assert((result.unwrap().as_str() == ""), "empty string should decode to empty");
+  assert(result.unwrap().as_str() == "", "empty string should decode to empty");
 });
-
 test("decode_string Zm9v to foo", {
   result := base64_decode_string(`Zm9v`);
   assert(result.is_ok(), "Zm9v should decode ok");
-  assert((result.unwrap().as_str() == "foo"), "Zm9v should decode to foo");
+  assert(result.unwrap().as_str() == "foo", "Zm9v should decode to foo");
 });
-
 test("decode_string Hello World", {
   result := base64_decode_string(`SGVsbG8sIFdvcmxkIQ==`);
   assert(result.is_ok(), "should decode ok");
-  assert((result.unwrap().as_str() == "Hello, World!"), "should decode to Hello, World!");
+  assert(result.unwrap().as_str() == "Hello, World!", "should decode to Hello, World!");
 });
-
 test("decode_string with whitespace", {
   result := base64_decode_string(`Zm9v YmFy`);
   assert(result.is_ok(), "should decode ok with whitespace");
-  assert((result.unwrap().as_str() == "foobar"), "should decode to foobar ignoring whitespace");
+  assert(result.unwrap().as_str() == "foobar", "should decode to foobar ignoring whitespace");
 });
-
 test("decode_string invalid characters", {
   result := base64_decode_string(`!!!!`);
   assert(result.is_err(), "invalid characters should return error");

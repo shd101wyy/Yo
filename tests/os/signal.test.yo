@@ -2,59 +2,65 @@
 { platform, Platform } :: import("std/process");
 { Error, AnyError, Exception } :: import("std/error");
 open(import("std/libc/stdio"));
-
-_noop_handler :: (fn(data: *(u8)) -> unit)({ (); });
-
+_noop_handler :: (fn(data : *(u8)) -> unit)({
+  ();
+});
 // ===== Signal Registration =====
-
 test("on_signal registers handler successfully", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   cond(
     (platform == Platform.Windows) => (),
     true => {
       on_signal(.User1, _noop_handler);
-
       // Clean up
       off_signal(.User1);
     }
   );
 });
-
 test("on_signal replaces previous handler", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   cond(
     (platform == Platform.Windows) => (),
     true => {
-      _other_handler :: (fn(data: *(u8)) -> unit)({ (); });
-
+      _other_handler :: (fn(data : *(u8)) -> unit)({
+        ();
+      });
       // Register first handler
       on_signal(.User2, _noop_handler);
-
       // Replace with second handler
       on_signal(.User2, _other_handler);
-
       // Clean up
       off_signal(.User2);
     }
   );
 });
-
 test("off_signal removes handler", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   cond(
     (platform == Platform.Windows) => (),
     true => {
       on_signal(.Alarm, _noop_handler);
-
       off_signal(.Alarm);
     }
   );

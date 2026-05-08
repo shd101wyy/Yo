@@ -1,5 +1,4 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
-
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { platform, Platform } :: import("std/process");
@@ -11,96 +10,72 @@ dir :: import("std/sys/dir");
 pipe_io :: import("std/sys/pipe");
 temp_io :: import("std/sys/temp");
 seek_io :: import("std/sys/seek");
-
 test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_seek_regular_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
-
   fd := temp_io.mkstemp(template_path);
-  assert((fd >= i32(0)), "mkstemp for seek regular test should succeed");
-
+  assert(fd >= i32(0), "mkstemp for seek regular test should succeed");
   payload := *(u8)("0123456789");
   wr := io.await(file.write(fd, payload, u32(10), u64(0)));
-  assert((wr == i32(10)), "writing 10-byte payload for seek regular test should succeed");
-
-  assert((seek_io.SEEK_SET == i32(0)), "SEEK_SET constant should be 0");
-  assert((seek_io.SEEK_CUR == i32(1)), "SEEK_CUR constant should be 1");
-  assert((seek_io.SEEK_END == i32(2)), "SEEK_END constant should be 2");
-
+  assert(wr == i32(10), "writing 10-byte payload for seek regular test should succeed");
+  assert(seek_io.SEEK_SET == i32(0), "SEEK_SET constant should be 0");
+  assert(seek_io.SEEK_CUR == i32(1), "SEEK_CUR constant should be 1");
+  assert(seek_io.SEEK_END == i32(2), "SEEK_END constant should be 2");
   pos_set := seek_io.lseek(fd, i64(0), seek_io.SEEK_SET);
-  assert((pos_set == i64(0)), "lseek SEEK_SET to 0 should return offset 0");
-
+  assert(pos_set == i64(0), "lseek SEEK_SET to 0 should return offset 0");
   pos_cur_4 := seek_io.lseek(fd, i64(4), seek_io.SEEK_CUR);
-  assert((pos_cur_4 == i64(4)), "lseek SEEK_CUR by +4 should return offset 4");
-
+  assert(pos_cur_4 == i64(4), "lseek SEEK_CUR by +4 should return offset 4");
   pos_cur_3 := seek_io.lseek(fd, i64(3), seek_io.SEEK_CUR);
-  assert((pos_cur_3 == i64(7)), "lseek SEEK_CUR by +3 should return offset 7");
-
+  assert(pos_cur_3 == i64(7), "lseek SEEK_CUR by +3 should return offset 7");
   pos_end_minus_2 := seek_io.lseek(fd, i64(-(2)), seek_io.SEEK_END);
-  assert((pos_end_minus_2 == i64(8)), "lseek SEEK_END by -2 should return offset 8");
-
+  assert(pos_end_minus_2 == i64(8), "lseek SEEK_END by -2 should return offset 8");
   pos_cur_now := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
-  assert((pos_cur_now == i64(8)), "lseek SEEK_CUR by 0 should keep current offset at 8");
-
+  assert(pos_cur_now == i64(8), "lseek SEEK_CUR by 0 should keep current offset at 8");
   pos_end := seek_io.lseek(fd, i64(0), seek_io.SEEK_END);
-  assert((pos_end == i64(10)), "lseek SEEK_END by 0 should return file size 10");
-
+  assert(pos_end == i64(10), "lseek SEEK_END by 0 should return file size 10");
   close_ret := io.await(file.close(fd));
-  assert((close_ret == i32(0)), "closing temp file after seek regular test should succeed");
-
+  assert(close_ret == i32(0), "closing temp file after seek regular test should succeed");
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
-  assert((rm == i32(0)), "unlinking temp file after seek regular test should succeed");
+  assert(rm == i32(0), "unlinking temp file after seek regular test should succeed");
 });
-
 test("lseek invalid fd invalid whence and negative offset errors", {
   bad_fd_ret := seek_io.lseek(i32(-(1)), i64(0), seek_io.SEEK_SET);
-  assert((bad_fd_ret == (i64(0) - i64(EBADF))), "lseek on invalid fd should return -EBADF");
-
+  assert(bad_fd_ret == (i64(0) - i64(EBADF)), "lseek on invalid fd should return -EBADF");
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_seek_error_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
-
   fd := temp_io.mkstemp(template_path);
-  assert((fd >= i32(0)), "mkstemp for seek error test should succeed");
-
+  assert(fd >= i32(0), "mkstemp for seek error test should succeed");
   invalid_whence_ret := seek_io.lseek(fd, i64(0), i32(99));
-  assert((invalid_whence_ret == (i64(0) - i64(EINVAL))), "lseek with invalid whence should return -EINVAL");
-
+  assert(invalid_whence_ret == (i64(0) - i64(EINVAL)), "lseek with invalid whence should return -EINVAL");
   negative_set_ret := seek_io.lseek(fd, i64(-(1)), seek_io.SEEK_SET);
-  assert((negative_set_ret == (i64(0) - i64(EINVAL))), "lseek SEEK_SET to negative offset should return -EINVAL");
-
+  assert(negative_set_ret == (i64(0) - i64(EINVAL)), "lseek SEEK_SET to negative offset should return -EINVAL");
   close_ret := io.await(file.close(fd));
-  assert((close_ret == i32(0)), "closing temp file after seek error test should succeed");
-
+  assert(close_ret == i32(0), "closing temp file after seek error test should succeed");
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
-  assert((rm == i32(0)), "unlinking temp file after seek error test should succeed");
+  assert(rm == i32(0), "unlinking temp file after seek error test should succeed");
 });
-
 test("lseek on pipe returns non-seekable error", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
-  assert((pr == i32(0)), "pipe creation for seek-on-pipe test should succeed");
-
+  assert(pr == i32(0), "pipe creation for seek-on-pipe test should succeed");
   read_fd := (pipefd &+ usize(0)).*;
   write_fd := (pipefd &+ usize(1)).*;
-
   seek_ret := seek_io.lseek(read_fd, i64(0), seek_io.SEEK_SET);
-
   cond(
     (platform == Platform.Windows) => {
-      assert((seek_ret < i64(0)), "lseek on Windows pipe should return a negative error");
+      assert(seek_ret < i64(0), "lseek on Windows pipe should return a negative error");
     },
     true => {
-      assert((seek_ret == (i64(0) - i64(ESPIPE))), "lseek on POSIX pipe should return -ESPIPE");
+      assert(seek_ret == (i64(0) - i64(ESPIPE)), "lseek on POSIX pipe should return -ESPIPE");
     }
   );
-
   c1 := io.await(file.close(read_fd));
   c2 := io.await(file.close(write_fd));
-  assert((c1 == i32(0)), "closing pipe read fd after seek-on-pipe test should succeed");
-  assert((c2 == i32(0)), "closing pipe write fd after seek-on-pipe test should succeed");
+  assert(c1 == i32(0), "closing pipe read fd after seek-on-pipe test should succeed");
+  assert(c2 == i32(0), "closing pipe write fd after seek-on-pipe test should succeed");
 });

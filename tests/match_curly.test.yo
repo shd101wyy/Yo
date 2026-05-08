@@ -6,110 +6,105 @@
 //! omitted labels are simply ignored. Bare `_` and nested curlies are rejected.
 //!
 //! See `evaluateMatch` in `src/evaluator/exprs/match.ts`.
-
 open(import("std/string"));
-
 Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32),
   Triangle(base : i32, height : i32, label : str)
 );
-
 test("curly destructuring — full field set", {
-  s := Shape.Rectangle(width: i32(3), height: i32(4));
-  area := match(s,
-    .Rectangle({width, height}) => (width * height),
+  s := Shape.Rectangle(width : i32(3), height : i32(4));
+  area := match(
+    s,
+    .Rectangle({ width, height }) => (width * height),
     _ => i32(0)
   );
-  assert((area == i32(12)), "rectangle area via curly");
+  assert(area == i32(12), "rectangle area via curly");
 });
-
 test("curly destructuring — rename with label: alias", {
-  s := Shape.Rectangle(width: i32(5), height: i32(6));
-  area := match(s,
-    .Rectangle({width: w, height: h}) => (w * h),
+  s := Shape.Rectangle(width : i32(5), height : i32(6));
+  area := match(
+    s,
+    .Rectangle({ width : w, height : h }) => (w * h),
     _ => i32(0)
   );
-  assert((area == i32(30)), "rectangle area via renamed curly");
+  assert(area == i32(30), "rectangle area via renamed curly");
 });
-
 test("curly destructuring — mixed bare + rename", {
-  s := Shape.Triangle(base: i32(10), height: i32(4), label: "T1");
-  v := match(s,
-    .Triangle({base, height: h}) => (base * h),
+  s := Shape.Triangle(base : i32(10), height : i32(4), label : "T1");
+  v := match(
+    s,
+    .Triangle({ base, height : h }) => (base * h),
     _ => i32(0)
   );
-  assert((v == i32(40)), "mixed bare+rename");
+  assert(v == i32(40), "mixed bare+rename");
 });
-
 test("curly destructuring — partial (omit fields)", {
-  s := Shape.Triangle(base: i32(7), height: i32(2), label: "T2");
+  s := Shape.Triangle(base : i32(7), height : i32(2), label : "T2");
   // Only bind `base`; `height` and `label` are ignored.
-  v := match(s,
-    .Triangle({base}) => (base + i32(1)),
+  v := match(
+    s,
+    .Triangle({ base }) => (base + i32(1)),
     _ => i32(0)
   );
-  assert((v == i32(8)), "partial curly destructuring");
+  assert(v == i32(8), "partial curly destructuring");
 });
-
 test("curly destructuring — label: _ ignores binding", {
-  s := Shape.Rectangle(width: i32(9), height: i32(99));
-  v := match(s,
-    .Rectangle({width, height: _}) => width,
+  s := Shape.Rectangle(width : i32(9), height : i32(99));
+  v := match(
+    s,
+    .Rectangle({ width, height : _ }) => width,
     _ => i32(0)
   );
-  assert((v == i32(9)), "height: _ skips binding");
+  assert(v == i32(9), "height: _ skips binding");
 });
-
 test("curly destructuring — single-field variant", {
-  s := Shape.Circle(radius: i32(7));
-  r := match(s,
-    .Circle({radius}) => radius,
+  s := Shape.Circle(radius : i32(7));
+  r := match(
+    s,
+    .Circle({ radius }) => radius,
     _ => i32(0)
   );
-  assert((r == i32(7)), "single-field curly");
+  assert(r == i32(7), "single-field curly");
 });
-
 // ─── Coexistence with existing forms ─────────────────────────────────────────
-
 test("curly destructuring — coexists with positional in other arms", {
-  s := Shape.Rectangle(width: i32(2), height: i32(3));
-  v := match(s,
+  s := Shape.Rectangle(width : i32(2), height : i32(3));
+  v := match(
+    s,
     .Circle(r) => r,
-    .Rectangle({width, height}) => (width + height),
+    .Rectangle({ width, height }) => (width + height),
     .Triangle(b, h, _) => (b * h)
   );
-  assert((v == i32(5)), "curly + positional in same match");
+  assert(v == i32(5), "curly + positional in same match");
 });
-
 test("curly destructuring — coexists with labeled in other arms", {
-  s := Shape.Triangle(base: i32(4), height: i32(5), label: "T3");
-  v := match(s,
+  s := Shape.Triangle(base : i32(4), height : i32(5), label : "T3");
+  v := match(
+    s,
     .Circle(r) => r,
-    .Rectangle(width: w, height: h) => (w * h),
-    .Triangle({base, height: h}) => (base * h)
+    .Rectangle(width : w, height : h) => (w * h),
+    .Triangle({ base, height : h }) => (base * h)
   );
-  assert((v == i32(20)), "curly + labeled in same match");
+  assert(v == i32(20), "curly + labeled in same match");
 });
-
 // ─── Generic enum compatibility ──────────────────────────────────────────────
-
 test("curly destructuring — works with Option(T).Some via field label `value`", {
   o := Option(i32).Some(i32(42));
-  v := match(o,
-    .Some({value}) => value,
+  v := match(
+    o,
+    .Some({ value }) => value,
     .None => i32(0)
   );
-  assert((v == i32(42)), "Option curly");
+  assert(v == i32(42), "Option curly");
 });
-
 // ─── Compile-time scrutinee ──────────────────────────────────────────────────
-
 test("curly destructuring — comptime scrutinee", {
-  comptime_s :: Shape.Rectangle(width: i32(11), height: i32(13));
-  comptime_a :: match(comptime_s,
-    .Rectangle({width, height}) => (width * height),
+  comptime_s :: Shape.Rectangle(width : i32(11), height : i32(13));
+  comptime_a :: match(
+    comptime_s,
+    .Rectangle({ width, height }) => (width * height),
     _ => i32(0)
   );
-  comptime_assert((comptime_a == i32(143)), "comptime curly");
+  comptime_assert(comptime_a == i32(143), "comptime curly");
 });

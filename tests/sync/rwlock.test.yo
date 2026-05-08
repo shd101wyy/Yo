@@ -6,20 +6,16 @@ open(import("std/libc/stdio"));
 { sleep } :: import("std/time/sleep");
 { WaitGroup } :: import("std/sync/waitgroup");
 Worker :: import("std/worker");
-
 SharedCounter :: atomic(object(value : i32));
-
 // ============================================================================
 // Basic operations
 // ============================================================================
-
 test("RwLock new creates unlocked lock", {
   lock := RwLock.new();
   // Should be able to acquire read lock immediately
   lock.read_lock();
   lock.read_unlock();
 });
-
 test("RwLock read lock and unlock", {
   lock := RwLock.new();
   lock.read_lock();
@@ -28,7 +24,6 @@ test("RwLock read lock and unlock", {
   lock.read_lock();
   lock.read_unlock();
 });
-
 test("RwLock write lock and unlock", {
   lock := RwLock.new();
   lock.write_lock();
@@ -37,7 +32,6 @@ test("RwLock write lock and unlock", {
   lock.write_lock();
   lock.write_unlock();
 });
-
 test("RwLock multiple concurrent readers", {
   lock := RwLock.new();
   // Multiple read locks should succeed without blocking
@@ -48,7 +42,6 @@ test("RwLock multiple concurrent readers", {
   lock.read_unlock();
   lock.read_unlock();
 });
-
 test("RwLock write after read", {
   lock := RwLock.new();
   lock.read_lock();
@@ -57,7 +50,6 @@ test("RwLock write after read", {
   lock.write_lock();
   lock.write_unlock();
 });
-
 test("RwLock read after write", {
   lock := RwLock.new();
   lock.write_lock();
@@ -66,15 +58,13 @@ test("RwLock read after write", {
   lock.read_lock();
   lock.read_unlock();
 });
-
 // ============================================================================
 // Sequencing: read/write transitions
 // ============================================================================
-
 test("RwLock alternating read and write locks", {
   lock := RwLock.new();
   i := i32(0);
-  while(runtime((i < i32(5))), {
+  while(runtime(i < i32(5)), {
     lock.read_lock();
     lock.read_unlock();
     lock.write_lock();
@@ -82,7 +72,6 @@ test("RwLock alternating read and write locks", {
     i = (i + i32(1));
   });
 });
-
 test("RwLock multiple readers then write then readers", {
   lock := RwLock.new();
   // Multiple readers
@@ -101,7 +90,6 @@ test("RwLock multiple readers then write then readers", {
   lock.read_unlock();
   lock.read_unlock();
 });
-
 test("RwLock write lock is exclusive - cannot nest writes", {
   // Verify that after write_unlock, we can write_lock again
   lock := RwLock.new();
@@ -112,98 +100,80 @@ test("RwLock write lock is exclusive - cannot nest writes", {
   lock.write_lock();
   lock.write_unlock();
 });
-
 // ============================================================================
 // Thread integration (atomic object — shared directly without Arc)
 // ============================================================================
-
 test("RwLock concurrent readers across threads", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-
   t1 := Thread.spawn(() => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
   });
-
   t2 := Thread.spawn(() => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
   });
-
   t3 := Thread.spawn(() => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
   });
-
   // Main thread also reads concurrently
   lock.read_lock();
   lock.read_unlock();
-
   t1.join();
   t2.join();
   t3.join();
 });
-
 test("RwLock writer thread modifies shared data", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
-
   t := Thread.spawn(() => {
     lock.write_lock();
     data.value = i32(42);
     lock.write_unlock();
   });
-
   t.join();
-
   lock.read_lock();
-  assert((data.value == i32(42)), "should see writer's value");
+  assert(data.value == i32(42), "should see writer's value");
   lock.read_unlock();
 });
-
 test("RwLock two writer threads increment counter", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
-
   t1 := Thread.spawn(() => {
     i := i32(0);
-    while(runtime((i < i32(100))), {
+    while(runtime(i < i32(100)), {
       lock.write_lock();
       data.value = (data.value + i32(1));
       lock.write_unlock();
       i = (i + i32(1));
     });
   });
-
   t2 := Thread.spawn(() => {
     i := i32(0);
-    while(runtime((i < i32(100))), {
+    while(runtime(i < i32(100)), {
       lock.write_lock();
       data.value = (data.value + i32(1));
       lock.write_unlock();
       i = (i + i32(1));
     });
   });
-
   t1.join();
   t2.join();
-
   lock.read_lock();
-  assert((data.value == i32(200)), "counter should be 200 after 2 threads x 100 increments");
+  assert(data.value == i32(200), "counter should be 200 after 2 threads x 100 increments");
   lock.read_unlock();
 });
-
 test("RwLock readers wait for writer across threads", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
-
   // Writer runs first, holds lock while sleeping
   writer := Thread.spawn(() => {
     lock.write_lock();
@@ -211,40 +181,33 @@ test("RwLock readers wait for writer across threads", {
     data.value = i32(99);
     lock.write_unlock();
   });
-
   // Give writer time to acquire lock
   sleep(usize(10));
-
   // Readers will block until writer releases
   t1 := Thread.spawn(() => {
     lock.read_lock();
-    val := data.value;  
-    assert((val == i32(99)), "reader 1 should see 99");
+    val := data.value;
+    assert(val == i32(99), "reader 1 should see 99");
     lock.read_unlock();
   });
-
   t2 := Thread.spawn(() => {
     lock.read_lock();
-    val := data.value;  
-    assert((val == i32(99)), "reader 2 should see 99");
+    val := data.value;
+    assert(val == i32(99), "reader 2 should see 99");
     lock.read_unlock();
   });
-
   writer.join();
   t1.join();
   t2.join();
 });
-
 // ============================================================================
 // Worker integration (atomic object — shared directly without Arc)
 // ============================================================================
-
 test("RwLock with Workers concurrent reads", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
-
   wg.add(i32(3));
   Worker.spawn(() => {
     lock.read_lock();
@@ -261,17 +224,14 @@ test("RwLock with Workers concurrent reads", {
     lock.read_unlock();
     wg.done();
   });
-
   wg.wait();
 });
-
 test("RwLock with Workers write then read", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
-
   // Writer worker
   wg.add(i32(1));
   Worker.spawn(() => {
@@ -280,11 +240,9 @@ test("RwLock with Workers write then read", {
     lock.write_unlock();
     wg.done();
   });
-
   wg.wait();
-
   // Verify from main thread
   lock.read_lock();
-  assert((data.value == i32(77)), "should see worker's write");
+  assert(data.value == i32(77), "should see worker's write");
   lock.read_unlock();
 });

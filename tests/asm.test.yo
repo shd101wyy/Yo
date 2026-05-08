@@ -2,14 +2,11 @@
 // @skip_wasm32-wasi — WASM does not support x86/ARM inline assembly
 // Inline Assembly Tests
 // These tests validate the asm() and global_asm() builtins.
-
 { arch, Arch } :: import("std/process");
-
 test("Test asm nop", {
   // Basic asm with no operands — just a nop
   asm("nop");
 });
-
 test("Test asm single output", {
   // Move an immediate into a register and get it as output
   cond(
@@ -18,7 +15,7 @@ test("Test asm single output", {
         "mov {0}, #42",
         out(reg, i32)
       );
-      assert((result == i32(42)), "asm single output should be 42");
+      assert(result == i32(42), "asm single output should be 42");
     },
     (arch == Arch.X86_64) => {
       result := asm(
@@ -26,12 +23,11 @@ test("Test asm single output", {
         out(reg, i32),
         asm_options(intel_syntax)
       );
-      assert((result == i32(42)), "asm single output should be 42");
+      assert(result == i32(42), "asm single output should be 42");
     },
     true => ()
   );
 });
-
 test("Test asm input operand", {
   // Pass a value as input and use it
   cond(
@@ -42,7 +38,7 @@ test("Test asm input operand", {
         out(reg, i32),
         in(reg, x)
       );
-      assert((result == i32(15)), "asm input should produce 15");
+      assert(result == i32(15), "asm input should produce 15");
     },
     (arch == Arch.X86_64) => {
       x := i32(10);
@@ -52,12 +48,11 @@ test("Test asm input operand", {
         in(reg, x),
         asm_options(intel_syntax)
       );
-      assert((result == i32(15)), "asm input should produce 15");
+      assert(result == i32(15), "asm input should produce 15");
     },
     true => ()
   );
 });
-
 test("Test asm inout operand", {
   // inout: value is both input and output
   cond(
@@ -67,7 +62,7 @@ test("Test asm inout operand", {
         "add {0}, {0}, #3",
         inout(reg, x)
       );
-      assert((result == i32(23)), "asm inout should produce 23");
+      assert(result == i32(23), "asm inout should produce 23");
     },
     (arch == Arch.X86_64) => {
       x := i32(20);
@@ -76,12 +71,11 @@ test("Test asm inout operand", {
         inout(reg, x),
         asm_options(intel_syntax)
       );
-      assert((result == i32(23)), "asm inout should produce 23");
+      assert(result == i32(23), "asm inout should produce 23");
     },
     true => ()
   );
 });
-
 test("Test asm named operands", {
   cond(
     (arch == Arch.Aarch64) => {
@@ -93,7 +87,7 @@ test("Test asm named operands", {
         in("a", reg, a),
         in("b", reg, b)
       );
-      assert((result == i32(10)), "asm named operands should produce 10");
+      assert(result == i32(10), "asm named operands should produce 10");
     },
     (arch == Arch.X86_64) => {
       a := i32(7);
@@ -105,12 +99,11 @@ test("Test asm named operands", {
         in("b", reg, b),
         asm_options(intel_syntax)
       );
-      assert((result == i32(10)), "asm named operands should produce 10");
+      assert(result == i32(10), "asm named operands should produce 10");
     },
     true => ()
   );
 });
-
 test("Test asm clobbers", {
   // asm with clobber declarations
   cond(
@@ -129,13 +122,11 @@ test("Test asm clobbers", {
     true => ()
   );
 });
-
 // Compile-time error tests
 test("Test asm comptime errors", {
   // asm() with no arguments should be a compile error
   comptime_expect_error(asm());
 });
-
 test("Test asm variable target output", {
   // out(reg, variable) — write directly to a variable
   cond(
@@ -145,7 +136,7 @@ test("Test asm variable target output", {
         "mov {0}, #99",
         out(reg, x)
       );
-      assert((x == i32(99)), "asm variable target should set x to 99");
+      assert(x == i32(99), "asm variable target should set x to 99");
     },
     (arch == Arch.X86_64) => {
       x := i32(0);
@@ -154,12 +145,11 @@ test("Test asm variable target output", {
         out(reg, x),
         asm_options(intel_syntax)
       );
-      assert((x == i32(99)), "asm variable target should set x to 99");
+      assert(x == i32(99), "asm variable target should set x to 99");
     },
     true => ()
   );
 });
-
 test("Test asm multiple outputs", {
   // Two outputs → tuple return
   cond(
@@ -169,8 +159,8 @@ test("Test asm multiple outputs", {
         out(reg, i32),
         out(reg, i32)
       );
-      assert((result.0 == i32(10)), "asm tuple first element should be 10");
-      assert((result.1 == i32(20)), "asm tuple second element should be 20");
+      assert(result.0 == i32(10), "asm tuple first element should be 10");
+      assert(result.1 == i32(20), "asm tuple second element should be 20");
     },
     (arch == Arch.X86_64) => {
       result := asm(
@@ -179,13 +169,12 @@ test("Test asm multiple outputs", {
         out(reg, i32),
         asm_options(intel_syntax)
       );
-      assert((result.0 == i32(10)), "asm tuple first element should be 10");
-      assert((result.1 == i32(20)), "asm tuple second element should be 20");
+      assert(result.0 == i32(10), "asm tuple first element should be 10");
+      assert(result.1 == i32(20), "asm tuple second element should be 20");
     },
     true => ()
   );
 });
-
 test("Test asm const_val operand", {
   // const_val substitutes a compile-time value directly into the template
   cond(
@@ -195,7 +184,7 @@ test("Test asm const_val operand", {
         out(reg, i32),
         const_val(i32(77))
       );
-      assert((result == i32(77)), "asm const_val should produce 77");
+      assert(result == i32(77), "asm const_val should produce 77");
     },
     (arch == Arch.X86_64) => {
       result := asm(
@@ -204,12 +193,11 @@ test("Test asm const_val operand", {
         const_val(i32(77)),
         asm_options(intel_syntax)
       );
-      assert((result == i32(77)), "asm const_val should produce 77");
+      assert(result == i32(77), "asm const_val should produce 77");
     },
     true => ()
   );
 });
-
 test("Test asm discarded output", {
   // out(reg, _) — discarded output, does not contribute to return type
   cond(
@@ -231,7 +219,6 @@ test("Test asm discarded output", {
     true => ()
   );
 });
-
 test("Test asm with asm_options", {
   // Test various asm_options flags
   cond(
@@ -251,7 +238,6 @@ test("Test asm with asm_options", {
     true => ()
   );
 });
-
 test("Test asm uninitialized variable target", {
   // out(reg, x) where x is declared but not initialized — asm initializes it
   cond(
@@ -261,7 +247,7 @@ test("Test asm uninitialized variable target", {
         "mov {0}, #42",
         out(reg, x)
       );
-      assert((x == i32(42)), "uninitialized var should be set to 42 by asm");
+      assert(x == i32(42), "uninitialized var should be set to 42 by asm");
     },
     (arch == Arch.X86_64) => {
       x : i32;
@@ -270,7 +256,7 @@ test("Test asm uninitialized variable target", {
         out(reg, x),
         asm_options(intel_syntax)
       );
-      assert((x == i32(42)), "uninitialized var should be set to 42 by asm");
+      assert(x == i32(42), "uninitialized var should be set to 42 by asm");
     },
     true => ()
   );

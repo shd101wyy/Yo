@@ -2,100 +2,84 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { Duration } :: import("std/time/duration");
-
 // ============================================================================
 // Duration construction tests
 // ============================================================================
-
 test("Duration.from_secs", {
   d := Duration.from_secs(i64(5));
-  assert((d.as_secs() == i64(5)), "should be 5 seconds");
-  assert((d.as_millis() == i64(5000)), "should be 5000 millis");
-  assert((d.as_nanos() == i64(5000000000)), "should be 5e9 nanos");
+  assert(d.as_secs() == i64(5), "should be 5 seconds");
+  assert(d.as_millis() == i64(5000), "should be 5000 millis");
+  assert(d.as_nanos() == i64(5000000000), "should be 5e9 nanos");
 });
-
 test("Duration.from_millis", {
   d := Duration.from_millis(i64(1500));
-  assert((d.as_secs() == i64(1)), "should be 1 second");
-  assert((d.as_millis() == i64(1500)), "should be 1500 millis");
-  assert((d.as_micros() == i64(1500000)), "should be 1500000 micros");
+  assert(d.as_secs() == i64(1), "should be 1 second");
+  assert(d.as_millis() == i64(1500), "should be 1500 millis");
+  assert(d.as_micros() == i64(1500000), "should be 1500000 micros");
 });
-
 test("Duration.from_micros", {
   d := Duration.from_micros(i64(2500000));
-  assert((d.as_secs() == i64(2)), "should be 2 seconds");
-  assert((d.as_millis() == i64(2500)), "should be 2500 millis");
-  assert((d.as_micros() == i64(2500000)), "should be 2500000 micros");
+  assert(d.as_secs() == i64(2), "should be 2 seconds");
+  assert(d.as_millis() == i64(2500), "should be 2500 millis");
+  assert(d.as_micros() == i64(2500000), "should be 2500000 micros");
 });
-
 test("Duration.from_nanos", {
   d := Duration.from_nanos(i64(1234567890));
-  assert((d.as_secs() == i64(1)), "should be 1 second");
-  assert((d.as_nanos() == i64(1234567890)), "should preserve nanos");
+  assert(d.as_secs() == i64(1), "should be 1 second");
+  assert(d.as_nanos() == i64(1234567890), "should preserve nanos");
 });
-
 test("Duration.zero", {
   d := Duration.zero();
   assert(d.is_zero(), "should be zero");
-  assert((d.as_secs() == i64(0)), "secs should be 0");
-  assert((d.as_nanos() == i64(0)), "nanos should be 0");
+  assert(d.as_secs() == i64(0), "secs should be 0");
+  assert(d.as_nanos() == i64(0), "nanos should be 0");
 });
-
 // ============================================================================
 // Arithmetic tests
 // ============================================================================
-
 test("Duration.add", {
   a := Duration.from_millis(i64(500));
   b := Duration.from_millis(i64(700));
   c := a.add(b);
-  assert((c.as_millis() == i64(1200)), "500 + 700 = 1200 millis");
-  assert((c.as_secs() == i64(1)), "should be 1 second");
+  assert(c.as_millis() == i64(1200), "500 + 700 = 1200 millis");
+  assert(c.as_secs() == i64(1), "should be 1 second");
 });
-
 test("Duration.add with nanos overflow", {
   a := Duration.from_nanos(i64(999999999));
   b := Duration.from_nanos(i64(2));
   c := a.add(b);
-  assert((c.as_secs() == i64(1)), "should carry to 1 second");
-  assert((c.as_nanos() == i64(1000000001)), "total nanos should be correct");
+  assert(c.as_secs() == i64(1), "should carry to 1 second");
+  assert(c.as_nanos() == i64(1000000001), "total nanos should be correct");
 });
-
 test("Duration.sub normal", {
   a := Duration.from_millis(i64(1000));
   b := Duration.from_millis(i64(300));
   c := a.sub(b);
-  assert((c.as_millis() == i64(700)), "1000 - 300 = 700 millis");
+  assert(c.as_millis() == i64(700), "1000 - 300 = 700 millis");
 });
-
 test("Duration.sub saturates to zero", {
   a := Duration.from_millis(i64(100));
   b := Duration.from_millis(i64(200));
   c := a.sub(b);
   assert(c.is_zero(), "should saturate to zero");
 });
-
 // ============================================================================
 // Conversion tests
 // ============================================================================
-
 test("Duration.as_secs_f64", {
   d := Duration.from_millis(i64(1500));
   f := d.as_secs_f64();
   // f64 comparison is approximate
-  assert((f > f64(1.49)), "should be > 1.49");
-  assert((f < f64(1.51)), "should be < 1.51");
+  assert(f > f64(1.49), "should be > 1.49");
+  assert(f < f64(1.51), "should be < 1.51");
 });
-
 test("Duration.is_zero false for non-zero", {
   d := Duration.from_nanos(i64(1));
-  assert((!(d.is_zero())), "1 ns should not be zero");
+  assert(!(d.is_zero()), "1 ns should not be zero");
 });
-
 // ============================================================================
 // ToString test
 // ============================================================================
-
 test("Duration.to_string", {
   d := Duration.from_millis(i64(2500));
   s := d.to_string();

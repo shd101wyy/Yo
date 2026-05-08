@@ -10,54 +10,68 @@ open(import("std/fmt"));
 { IpAddr, SocketAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
 { Error, AnyError, Exception } :: import("std/error");
-
 // ============================================================================
 // DNS tests
 // ============================================================================
-
 test("lookup_host localhost returns loopback", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "lookup_host localhost should succeed"); escape(()); }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "lookup_host localhost should succeed");
+        escape(());
+      }
+    )
+  );
   addrs := io.await(lookup_host(`localhost`));
   printf("  addrs.len = %zu\n", addrs.len());
-  assert((addrs.len() > usize(0)), "should resolve at least one address");
-
+  assert(addrs.len() > usize(0), "should resolve at least one address");
   // Check that at least one address is loopback
   found_loopback := false;
   i := usize(0);
-  while(runtime((i < addrs.len())), {
+  while(runtime(i < addrs.len()), {
     addr := addrs.get(i).unwrap();
     printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
     cond(
-      addr.is_loopback() => { found_loopback = true; },
+      addr.is_loopback() => {
+        found_loopback = true;
+      },
       true => ()
     );
     i = (i + usize(1));
   });
   assert(found_loopback, "at least one result should be loopback");
 });
-
 test("lookup_host invalid host fails", {
-  given(exn) := Exception(throw : ((err) -> {
-    printf("  expected error from invalid host\n");
-    escape(());
-  }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        printf("  expected error from invalid host\n");
+        escape(());
+      }
+    )
+  );
   addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`));
   // Some systems may resolve any domain; if so, skip assertion
   printf("  unexpectedly resolved %zu addresses\n", addrs.len());
 });
-
 test("resolve localhost returns socket addresses", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "resolve localhost should succeed"); escape(()); }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "resolve localhost should succeed");
+        escape(());
+      }
+    )
+  );
   addrs := io.await(resolve(`localhost`, u16(8080)));
   printf("  addrs.len = %zu\n", addrs.len());
-  assert((addrs.len() > usize(0)), "should resolve at least one address");
-
+  assert(addrs.len() > usize(0), "should resolve at least one address");
   i := usize(0);
-  while(runtime((i < addrs.len())), {
+  while(runtime(i < addrs.len()), {
     addr := addrs.get(i).unwrap();
     printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
     // Verify port is 8080
-    assert((addr.port == u16(8080)), "port should be 8080");
+    assert(addr.port == u16(8080), "port should be 8080");
     // Verify IP is loopback
     assert(addr.ip.is_loopback(), "ip should be loopback");
     i = (i + usize(1));

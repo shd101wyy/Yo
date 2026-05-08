@@ -6,28 +6,23 @@ open(import("std/libc/stdio"));
 { Thread } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 Worker :: import("std/worker");
-
 SharedCounter :: atomic(object(value : i32));
-
 // ============================================================================
 // Basic operations
 // ============================================================================
-
 test("Once new is not done", {
   o := Once.new();
-  assert((!(o.is_done())), "new Once should not be done");
+  assert(!(o.is_done()), "new Once should not be done");
 });
-
 test("Once call executes function", {
   o := Once.new();
   log := ArrayList(i32).new();
   o.call(() => {
     log.push(i32(1));
   });
-  assert((log.len() == usize(1)), "function should have been called");
+  assert(log.len() == usize(1), "function should have been called");
   assert(o.is_done(), "Once should be done after call");
 });
-
 test("Once call executes only once", {
   o := Once.new();
   log := ArrayList(i32).new();
@@ -40,16 +35,14 @@ test("Once call executes only once", {
   o.call(() => {
     log.push(i32(3));
   });
-  assert((log.len() == usize(1)), "function should have been called exactly once");
+  assert(log.len() == usize(1), "function should have been called exactly once");
 });
-
 test("Once is_done after call", {
   o := Once.new();
-  assert((!(o.is_done())), "should not be done before call");
+  assert(!(o.is_done()), "should not be done before call");
   o.call(() => ());
   assert(o.is_done(), "should be done after call");
 });
-
 test("Once second call is no-op even with different function", {
   o := Once.new();
   log := ArrayList(i32).new();
@@ -59,25 +52,23 @@ test("Once second call is no-op even with different function", {
   o.call(() => {
     log.push(i32(99));
   });
-  assert((log.len() == usize(1)), "only first function should have run");
+  assert(log.len() == usize(1), "only first function should have run");
   v := log.get(usize(0)).unwrap();
-  assert((v == i32(42)), "value should be 42 from first call");
+  assert(v == i32(42), "value should be 42 from first call");
 });
-
 test("Once many calls still executes once", {
   o := Once.new();
   log := ArrayList(i32).new();
   i := i32(0);
-  while(runtime((i < i32(100))), {
+  while(runtime(i < i32(100)), {
     o.call(() => {
       log.push(i32(1));
     });
     i = (i + i32(1));
   });
-  assert((log.len() == usize(1)), "function should have been called exactly once out of 100 attempts");
+  assert(log.len() == usize(1), "function should have been called exactly once out of 100 attempts");
   assert(o.is_done(), "should be done");
 });
-
 test("Once call with side effects", {
   o := Once.new();
   values := ArrayList(i32).new();
@@ -87,20 +78,17 @@ test("Once call with side effects", {
   o.call(() => {
     values.push(i32(99));
   });
-  assert((values.len() == usize(1)), "should have exactly one value");
+  assert(values.len() == usize(1), "should have exactly one value");
   v := values.get(usize(0)).unwrap();
-  assert((v == i32(42)), "value should be 42 from first call");
+  assert(v == i32(42), "value should be 42 from first call");
 });
-
 // ============================================================================
 // Thread integration (atomic object — shared directly without Arc)
 // ============================================================================
-
 test("Once call from multiple threads executes only once", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
-
   t1 := Thread.spawn(() => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
@@ -116,30 +104,24 @@ test("Once call from multiple threads executes only once", {
       counter.value = (counter.value + i32(1));
     });
   });
-
   // Main thread also tries
   o.call(() => {
     counter.value = (counter.value + i32(1));
   });
-
   t1.join();
   t2.join();
   t3.join();
-
-  assert((counter.value == i32(1)), "function should have executed exactly once");
+  assert(counter.value == i32(1), "function should have executed exactly once");
   assert(o.is_done(), "should be done");
 });
-
 test("Once is_done visible across threads after call", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
-
   // Main thread calls first
   o.call(() => {
     counter.value = (counter.value + i32(1));
   });
-
   t := Thread.spawn(() => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
@@ -147,16 +129,13 @@ test("Once is_done visible across threads after call", {
       counter.value = (counter.value + i32(1));
     });
   });
-
   t.join();
-  assert((counter.value == i32(1)), "function should have executed only once");
+  assert(counter.value == i32(1), "function should have executed only once");
 });
-
 test("Once multiple threads race to call", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
-
   // All threads start at the same time (no sleep)
   t1 := Thread.spawn(() => {
     o.call(() => {
@@ -183,28 +162,23 @@ test("Once multiple threads race to call", {
       counter.value = (counter.value + i32(1));
     });
   });
-
   t1.join();
   t2.join();
   t3.join();
   t4.join();
   t5.join();
-
-  assert((counter.value == i32(1)), "should have executed exactly once despite 5 threads racing");
+  assert(counter.value == i32(1), "should have executed exactly once despite 5 threads racing");
   assert(o.is_done(), "should be done");
 });
-
 // ============================================================================
 // Worker integration (atomic object — shared directly without Arc)
 // ============================================================================
-
 test("Once with Workers executes only once", {
-  if((arch == Arch.Wasm32), return(()));
+  if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
-
   wg.add(i32(3));
   Worker.spawn(() => {
     o.call(() => {
@@ -224,8 +198,7 @@ test("Once with Workers executes only once", {
     });
     wg.done();
   });
-
   wg.wait();
-  assert((counter.value == i32(1)), "function should have executed only once across workers");
+  assert(counter.value == i32(1), "function should have executed only once across workers");
   assert(o.is_done(), "should be done");
 });

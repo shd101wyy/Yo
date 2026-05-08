@@ -1,300 +1,225 @@
 open(import("std/string/rune.yo"));
-
 test("rune.from_u32 - valid Unicode code points", {
   space_rune := rune.from_u32(0x20);
   assert(space_rune.is_some());
   unwrapped := space_rune.unwrap();
   assert(unwrapped.to_u32() == 0x20);
-
   a_rune := rune.from_u32(0x61);
   assert(a_rune.is_some());
   assert(a_rune.unwrap().to_u32() == 0x61);
-
   emoji := rune.from_u32(0x1F600);
   assert(emoji.is_some());
   assert(emoji.unwrap().to_u32() == 0x1F600);
-
   max_valid := rune.from_u32(0x10FFFF);
   assert(max_valid.is_some());
   assert(max_valid.unwrap().to_u32() == 0x10FFFF);
 });
-
 test("rune.from_u32 - invalid Unicode code points", {
   too_large := rune.from_u32(0x110000);
   assert(too_large.is_none());
-
   surrogate_start := rune.from_u32(0xD800);
   assert(surrogate_start.is_none());
-
   surrogate_mid := rune.from_u32(0xDC00);
   assert(surrogate_mid.is_none());
-
   surrogate_end := rune.from_u32(0xDFFF);
   assert(surrogate_end.is_none());
 });
-
 test("rune.is_ascii - ASCII characters", {
   nul := rune.from_u32(0x00).unwrap();
   assert(nul.is_ascii());
-
   space := rune.from_u32(0x20).unwrap();
   assert(space.is_ascii());
-
   a := rune.from_u32(0x61).unwrap();
   assert(a.is_ascii());
-
   del := rune.from_u32(0x7F).unwrap();
   assert(del.is_ascii());
 });
-
 test("rune.is_ascii - non-ASCII characters", {
   latin_ext := rune.from_u32(0x80).unwrap();
   assert(not(latin_ext.is_ascii()));
-
   latin_a_grave := rune.from_u32(0xE0).unwrap();
   assert(not(latin_a_grave.is_ascii()));
-
   cjk := rune.from_u32(0x4E00).unwrap();
   assert(not(cjk.is_ascii()));
-
   emoji := rune.from_u32(0x1F600).unwrap();
   assert(not(emoji.is_ascii()));
 });
-
 test("rune.is_whitespace - whitespace characters", {
   space := rune.from_u32(0x20).unwrap();
   assert(space.is_whitespace());
-
   tab := rune.from_u32(0x09).unwrap();
   assert(tab.is_whitespace());
-
   newline := rune.from_u32(0x0A).unwrap();
   assert(newline.is_whitespace());
-
   carriage_return := rune.from_u32(0x0D).unwrap();
   assert(carriage_return.is_whitespace());
 });
-
 test("rune.is_whitespace - non-whitespace characters", {
   a := rune.from_u32(0x61).unwrap();
   assert(not(a.is_whitespace()));
-
   zero := rune.from_u32(0x30).unwrap();
   assert(not(zero.is_whitespace()));
-
   exclamation := rune.from_u32(0x21).unwrap();
   assert(not(exclamation.is_whitespace()));
 });
-
 test("rune.is_digit - digit characters", {
   zero := rune.from_u32(0x30).unwrap();
   assert(zero.is_digit());
-
   five := rune.from_u32(0x35).unwrap();
   assert(five.is_digit());
-
   nine := rune.from_u32(0x39).unwrap();
   assert(nine.is_digit());
 });
-
 test("rune.is_digit - non-digit characters", {
   a := rune.from_u32(0x61).unwrap();
   assert(not(a.is_digit()));
-
   slash := rune.from_u32(0x2F).unwrap();
   assert(not(slash.is_digit()));
-
   colon := rune.from_u32(0x3A).unwrap();
   assert(not(colon.is_digit()));
-
   space := rune.from_u32(0x20).unwrap();
   assert(not(space.is_digit()));
 });
-
 test("rune.is_alphabetic - alphabetic characters", {
   uppercase_a := rune.from_u32(0x41).unwrap();
   assert(uppercase_a.is_alphabetic());
-
   uppercase_z := rune.from_u32(0x5A).unwrap();
   assert(uppercase_z.is_alphabetic());
-
   lowercase_a := rune.from_u32(0x61).unwrap();
   assert(lowercase_a.is_alphabetic());
-
   lowercase_z := rune.from_u32(0x7A).unwrap();
   assert(lowercase_z.is_alphabetic());
-
   uppercase_m := rune.from_u32(0x4D).unwrap();
   assert(uppercase_m.is_alphabetic());
-
   lowercase_m := rune.from_u32(0x6D).unwrap();
   assert(lowercase_m.is_alphabetic());
 });
-
 test("rune.is_alphabetic - non-alphabetic characters", {
   zero := rune.from_u32(0x30).unwrap();
   assert(not(zero.is_alphabetic()));
-
   space := rune.from_u32(0x20).unwrap();
   assert(not(space.is_alphabetic()));
-
   at_sign := rune.from_u32(0x40).unwrap();
   assert(not(at_sign.is_alphabetic()));
-
   left_bracket := rune.from_u32(0x5B).unwrap();
   assert(not(left_bracket.is_alphabetic()));
-
   backtick := rune.from_u32(0x60).unwrap();
   assert(not(backtick.is_alphabetic()));
-
   left_brace := rune.from_u32(0x7B).unwrap();
   assert(not(left_brace.is_alphabetic()));
 });
-
 test("rune.is_uppercase - uppercase characters", {
   a := rune.from_u32(0x41).unwrap();
   assert(a.is_uppercase());
-
   m := rune.from_u32(0x4D).unwrap();
   assert(m.is_uppercase());
-
   z := rune.from_u32(0x5A).unwrap();
   assert(z.is_uppercase());
 });
-
 test("rune.is_uppercase - non-uppercase characters", {
   lowercase_a := rune.from_u32(0x61).unwrap();
   assert(not(lowercase_a.is_uppercase()));
-
   zero := rune.from_u32(0x30).unwrap();
   assert(not(zero.is_uppercase()));
-
   at_sign := rune.from_u32(0x40).unwrap();
   assert(not(at_sign.is_uppercase()));
-
   left_bracket := rune.from_u32(0x5B).unwrap();
   assert(not(left_bracket.is_uppercase()));
 });
-
 test("rune.is_lowercase - lowercase characters", {
   a := rune.from_u32(0x61).unwrap();
   assert(a.is_lowercase());
-
   m := rune.from_u32(0x6D).unwrap();
   assert(m.is_lowercase());
-
   z := rune.from_u32(0x7A).unwrap();
   assert(z.is_lowercase());
 });
-
 test("rune.is_lowercase - non-lowercase characters", {
   uppercase_a := rune.from_u32(0x41).unwrap();
   assert(not(uppercase_a.is_lowercase()));
-
   zero := rune.from_u32(0x30).unwrap();
   assert(not(zero.is_lowercase()));
-
   backtick := rune.from_u32(0x60).unwrap();
   assert(not(backtick.is_lowercase()));
-
   left_brace := rune.from_u32(0x7B).unwrap();
   assert(not(left_brace.is_lowercase()));
 });
-
 test("rune.to_lowercase - convert uppercase to lowercase", {
   a := rune.from_u32(0x41).unwrap();
   lower_a := a.to_lowercase();
   assert(lower_a.to_u32() == 0x61);
-
   m := rune.from_u32(0x4D).unwrap();
   lower_m := m.to_lowercase();
   assert(lower_m.to_u32() == 0x6D);
-
   z := rune.from_u32(0x5A).unwrap();
   lower_z := z.to_lowercase();
   assert(lower_z.to_u32() == 0x7A);
 });
-
 test("rune.to_lowercase - preserve non-uppercase", {
   lower_a := rune.from_u32(0x61).unwrap();
   result := lower_a.to_lowercase();
   assert(result.to_u32() == 0x61);
-
   zero := rune.from_u32(0x30).unwrap();
   result2 := zero.to_lowercase();
   assert(result2.to_u32() == 0x30);
-
   space := rune.from_u32(0x20).unwrap();
   result3 := space.to_lowercase();
   assert(result3.to_u32() == 0x20);
 });
-
 test("rune.to_uppercase - convert lowercase to uppercase", {
   a := rune.from_u32(0x61).unwrap();
   upper_a := a.to_uppercase();
   assert(upper_a.to_u32() == 0x41);
-
   m := rune.from_u32(0x6D).unwrap();
   upper_m := m.to_uppercase();
   assert(upper_m.to_u32() == 0x4D);
-
   z := rune.from_u32(0x7A).unwrap();
   upper_z := z.to_uppercase();
   assert(upper_z.to_u32() == 0x5A);
 });
-
 test("rune.to_uppercase - preserve non-lowercase", {
   upper_a := rune.from_u32(0x41).unwrap();
   result := upper_a.to_uppercase();
   assert(result.to_u32() == 0x41);
-
   zero := rune.from_u32(0x30).unwrap();
   result2 := zero.to_uppercase();
   assert(result2.to_u32() == 0x30);
-
   space := rune.from_u32(0x20).unwrap();
   result3 := space.to_uppercase();
   assert(result3.to_u32() == 0x20);
 });
-
 test("rune constants - NUL", {
   assert(rune.NUL.to_u32() == 0x00);
   assert(not(rune.NUL.is_alphabetic()));
   assert(not(rune.NUL.is_digit()));
 });
-
 test("rune constants - TAB", {
   assert(rune.TAB.to_u32() == 0x09);
   assert(rune.TAB.is_whitespace());
   assert(rune.TAB.is_ascii());
 });
-
 test("rune constants - NEWLINE", {
   assert(rune.NEWLINE.to_u32() == 0x0A);
   assert(rune.NEWLINE.is_whitespace());
   assert(rune.NEWLINE.is_ascii());
 });
-
 test("rune constants - SPACE", {
   assert(rune.SPACE.to_u32() == 0x20);
   assert(rune.SPACE.is_whitespace());
   assert(rune.SPACE.is_ascii());
 });
-
 test("rune constants - ZERO", {
   assert(rune.ZERO.to_u32() == 0x30);
   assert(rune.ZERO.is_digit());
   assert(rune.ZERO.is_ascii());
   assert(not(rune.ZERO.is_alphabetic()));
 });
-
 test("rune constants - NINE", {
   assert(rune.NINE.to_u32() == 0x39);
   assert(rune.NINE.is_digit());
   assert(rune.NINE.is_ascii());
   assert(not(rune.NINE.is_alphabetic()));
 });
-
 test("rune constants - UPPERCASE_A", {
   assert(rune.UPPERCASE_A.to_u32() == 0x41);
   assert(rune.UPPERCASE_A.is_alphabetic());
@@ -302,7 +227,6 @@ test("rune constants - UPPERCASE_A", {
   assert(not(rune.UPPERCASE_A.is_lowercase()));
   assert(rune.UPPERCASE_A.is_ascii());
 });
-
 test("rune constants - UPPERCASE_Z", {
   assert(rune.UPPERCASE_Z.to_u32() == 0x5A);
   assert(rune.UPPERCASE_Z.is_alphabetic());
@@ -310,7 +234,6 @@ test("rune constants - UPPERCASE_Z", {
   assert(not(rune.UPPERCASE_Z.is_lowercase()));
   assert(rune.UPPERCASE_Z.is_ascii());
 });
-
 test("rune constants - LOWERCASE_A", {
   assert(rune.LOWERCASE_A.to_u32() == 0x61);
   assert(rune.LOWERCASE_A.is_alphabetic());
@@ -318,7 +241,6 @@ test("rune constants - LOWERCASE_A", {
   assert(not(rune.LOWERCASE_A.is_uppercase()));
   assert(rune.LOWERCASE_A.is_ascii());
 });
-
 test("rune constants - LOWERCASE_Z", {
   assert(rune.LOWERCASE_Z.to_u32() == 0x7A);
   assert(rune.LOWERCASE_Z.is_alphabetic());
@@ -326,91 +248,71 @@ test("rune constants - LOWERCASE_Z", {
   assert(not(rune.LOWERCASE_Z.is_uppercase()));
   assert(rune.LOWERCASE_Z.is_ascii());
 });
-
 test("Eq trait - equality", {
   r1 := rune.from_u32(0x41).unwrap();
   r2 := rune.from_u32(0x41).unwrap();
   r3 := rune.from_u32(0x42).unwrap();
-
   assert(r1 == r2);
   assert(not(r1 == r3));
 });
-
 test("Eq trait - inequality", {
   r1 := rune.from_u32(0x41).unwrap();
   r2 := rune.from_u32(0x42).unwrap();
   r3 := rune.from_u32(0x41).unwrap();
-
   assert(r1 != r2);
   assert(not(r1 != r3));
 });
-
 test("Ord trait - less than", {
   a := rune.from_u32(0x41).unwrap();
   b := rune.from_u32(0x42).unwrap();
-
   assert(a < b);
   assert(not(b < a));
   assert(not(a < a));
 });
-
 test("Ord trait - less than or equal", {
   a := rune.from_u32(0x41).unwrap();
   b := rune.from_u32(0x42).unwrap();
   a2 := rune.from_u32(0x41).unwrap();
-
   assert(a <= b);
   assert(a <= a2);
   assert(not(b <= a));
 });
-
 test("Ord trait - greater than", {
   a := rune.from_u32(0x41).unwrap();
   b := rune.from_u32(0x42).unwrap();
-
   assert(b > a);
   assert(not(a > b));
   assert(not(a > a));
 });
-
 test("Ord trait - greater than or equal", {
   a := rune.from_u32(0x41).unwrap();
   b := rune.from_u32(0x42).unwrap();
   a2 := rune.from_u32(0x41).unwrap();
-
   assert(b >= a);
   assert(a >= a2);
   assert(not(a >= b));
 });
-
 test("rune case conversion round-trip", {
   a := rune.from_u32(0x61).unwrap();
   upper := a.to_uppercase();
   back_to_lower := upper.to_lowercase();
   assert(back_to_lower.to_u32() == a.to_u32());
-
   z := rune.from_u32(0x7A).unwrap();
   upper_z := z.to_uppercase();
   back_to_lower_z := upper_z.to_lowercase();
   assert(back_to_lower_z.to_u32() == z.to_u32());
 });
-
 test("rune edge cases - boundaries", {
   before_digit := rune.from_u32(0x2F).unwrap();
   assert(not(before_digit.is_digit()));
-
   after_digit := rune.from_u32(0x3A).unwrap();
   assert(not(after_digit.is_digit()));
-
   before_upper := rune.from_u32(0x40).unwrap();
   assert(not(before_upper.is_uppercase()));
-
   after_upper := rune.from_u32(0x5B).unwrap();
   assert(not(after_upper.is_uppercase()));
-
   before_lower := rune.from_u32(0x60).unwrap();
   assert(not(before_lower.is_lowercase()));
-
   after_lower := rune.from_u32(0x7B).unwrap();
   assert(not(after_lower.is_lowercase()));
 });

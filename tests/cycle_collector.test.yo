@@ -1,102 +1,91 @@
 open(import("std/libc/stdio.yo"));
 Gc :: import("std/gc");
-
 List :: object(
   value : i32,
   next : Option(Self)
 );
-impl(List, Dispose(
-  dispose : (fn(self : Self)-> unit)({
-    printf("Disposing List with value %d\n", self.value);
-  })
-));
-
+impl(
+  List,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      printf("Disposing List with value %d\n", self.value);
+    })
+  )
+);
 form_cycle :: (fn() -> unit)({
-  a := List(3, .None);
-  b := List(5, .None);
-
-  a.next = .Some(b);
-  b.next = .Some(a); // Create a cycle
+  a := List(3,.None);
+  b := List(5,.None);
+  a.next =.Some(b);
+  b.next =.Some(a); // Create a cycle
 });
-
 test("Gc initial state", {
   assert(Gc.tracked_count() == 0, "Expected 0 tracked objects at start");
 });
-
 test("Test cycle collection", {
   test_list :: (fn() -> unit)({
     form_cycle(); // create cycle
-    c := List(7, .None);
+    c := List(7,.None);
     assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
     Gc.collect(); // manually trigger the GC collection
     assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
   });
-
   test_list();
 });
-
-
 test("Test freeing many objects", {
   test_leak :: (fn() -> unit)({
-    z := List(3, .None);
-    y := List(2, .Some(z));
-    x := List(1, .Some(y));
+    z := List(3,.None);
+    y := List(2,.Some(z));
+    x := List(1,.Some(y));
   });
-
   // Run 100 times to accumulate leaks
   i := 0;
   while(i < 100, {
     test_leak();
     i = (i + 1);
   });
-
   assert(Gc.tracked_count() == 0, "Expect no leak from test_leak();");
 });
-
 // --- New tests for Bug 1: Reachable objects through cycles ---
-
 // Node type with a child pointer (can form cycles)
 Node :: object(
   value : i32,
   child : Option(Self)
 );
-impl(Node, Dispose(
-  dispose : (fn(self : Self) -> unit)({
-    printf("Disposing Node with value %d\n", self.value);
-  })
-));
-
+impl(
+  Node,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      printf("Disposing Node with value %d\n", self.value);
+    })
+  )
+);
 test("Live root reaching into cycle - reachable objects preserved", {
   // Bug 1 test: root → b ↔ c cycle. root is live (on stack).
   // After GC, b and c must NOT be freed (reachable from root).
   create_chain_with_cycle :: (fn() -> Node)({
-    b := Node(2, .None);
-    c := Node(3, .Some(b));
-    b.child = .Some(c);
-    return(Node(1, .Some(b)));
+    b := Node(2,.None);
+    c := Node(3,.Some(b));
+    b.child =.Some(c);
+    return(Node(1,.Some(b)));
   });
-
   do_test :: (fn() -> unit)({
     root := create_chain_with_cycle();
-
     // root(1), b(2), c(3) — all tracked
-    assert((Gc.tracked_count() == u64(3)), "Expected 3 tracked objects");
-
+    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked objects");
     Gc.collect();
-
     // All 3 should still be alive (root is live, b and c are reachable from root)
-    assert((Gc.tracked_count() == u64(3)), "Expected 3 tracked objects after GC (all reachable)");
-
+    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked objects after GC (all reachable)");
     // Verify the objects are still accessible (not freed)
-    assert((root.value == 1), "root value should be 1");
-
+    assert(root.value == 1, "root value should be 1");
     inner := root.child;
-    match(inner,
+    match(
+      inner,
       .Some(b) => {
-        assert((b.value == 2), "b value should be 2");
-        match(b.child,
+        assert(b.value == 2, "b value should be 2");
+        match(
+          b.child,
           .Some(c) => {
-            assert((c.value == 3), "c value should be 3");
+            assert(c.value == 3, "c value should be 3");
           },
           .None => {
             assert(false, "c should exist");
@@ -108,82 +97,68 @@ test("Live root reaching into cycle - reachable objects preserved", {
       }
     );
   });
-
   do_test();
   // After do_test, root is freed by RC. b ↔ c cycle remains — need GC to collect.
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All should be freed after scope exit + GC");
+  assert(Gc.tracked_count() == u64(0), "All should be freed after scope exit + GC");
 });
-
 test("Longer chain into cycle - all reachable objects preserved", {
   // root → a → b → c → b (cycle between b and c)
   create_long_chain :: (fn() -> Node)({
-    b := Node(20, .None);
-    c := Node(30, .Some(b));
-    b.child = .Some(c);
-    a := Node(10, .Some(b));
-    return(Node(1, .Some(a)));
+    b := Node(20,.None);
+    c := Node(30,.Some(b));
+    b.child =.Some(c);
+    a := Node(10,.Some(b));
+    return(Node(1,.Some(a)));
   });
-
   do_test :: (fn() -> unit)({
     root := create_long_chain();
-    assert((Gc.tracked_count() == u64(4)), "Expected 4 tracked objects");
-
+    assert(Gc.tracked_count() == u64(4), "Expected 4 tracked objects");
     Gc.collect();
-
     // All 4 should survive — all reachable from root
-    assert((Gc.tracked_count() == u64(4)), "Expected 4 after GC (all reachable from root)");
-    assert((root.value == 1), "root intact");
+    assert(Gc.tracked_count() == u64(4), "Expected 4 after GC (all reachable from root)");
+    assert(root.value == 1, "root intact");
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
+  assert(Gc.tracked_count() == u64(0), "All freed after scope exit + GC");
 });
-
 test("Mixed live and garbage - only garbage collected", {
   // Create two independent structures:
   // 1. live_root → live_child (live, on stack)
   // 2. cycle: a ↔ b (garbage after leaving scope)
   create_garbage_cycle :: (fn() -> unit)({
-    a := Node(100, .None);
-    b := Node(200, .Some(a));
-    a.child = .Some(b);
+    a := Node(100,.None);
+    b := Node(200,.Some(a));
+    a.child =.Some(b);
     // a and b become garbage when this function returns
   });
-
   do_test :: (fn() -> unit)({
-    live_root := Node(1, .None);
-    live_child := Node(2, .None);
-    live_root.child = .Some(live_child);
-
+    live_root := Node(1,.None);
+    live_child := Node(2,.None);
+    live_root.child =.Some(live_child);
     create_garbage_cycle();
-
     // 4 tracked: live_root, live_child, a(100), b(200)
-    assert((Gc.tracked_count() == u64(4)), "Expected 4 tracked objects");
-
+    assert(Gc.tracked_count() == u64(4), "Expected 4 tracked objects");
     Gc.collect();
-
     // Only 2 should remain (live_root and live_child); a,b are garbage
-    assert((Gc.tracked_count() == u64(2)), "Expected 2 after GC (garbage cycle collected)");
-
+    assert(Gc.tracked_count() == u64(2), "Expected 2 after GC (garbage cycle collected)");
     // Verify live objects are intact
-    assert((live_root.value == 1), "live_root intact");
-    match(live_root.child,
+    assert(live_root.value == 1, "live_root intact");
+    match(
+      live_root.child,
       .Some(c) => {
-        assert((c.value == 2), "live_child intact");
+        assert(c.value == 2, "live_child intact");
       },
       .None => {
         assert(false, "live_child should exist");
       }
     );
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
+  assert(Gc.tracked_count() == u64(0), "All freed after scope exit + GC");
 });
-
 test("Garbage cycle collected while live objects survive", {
   // Yo uses ownership-transfer (move) semantics for .Some(obj) and constructor args.
   // After `garbage_a := Node(2, .Some(live))`, live's RC=1 is owned by garbage_a.child.
@@ -191,113 +166,94 @@ test("Garbage cycle collected while live objects survive", {
   // that owns live's reference. The garbage cycle (a ↔ b) has only internal references
   // and is correctly collected. live survives because the temp variable owns its RC.
   do_test :: (fn() -> unit)({
-    live := Node(1, .None);
-    garbage_a := Node(2, .Some(live));
-    garbage_b := Node(3, .Some(garbage_a));
-    garbage_a.child = .Some(garbage_b);
+    live := Node(1,.None);
+    garbage_a := Node(2,.Some(live));
+    garbage_b := Node(3,.Some(garbage_a));
+    garbage_a.child =.Some(garbage_b);
     // garbage_a ↔ garbage_b cycle (only internal refs → garbage)
     // live's RC=1 is owned by the saved temp from field assignment (not part of cycle)
-
-    assert((Gc.tracked_count() == u64(3)), "Expected 3 tracked");
-
+    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked");
     Gc.collect();
-
     // garbage_a and garbage_b collected (cycle with only internal refs)
     // live survives (its RC=1 from the saved temp, no cycle edges)
-    assert((Gc.tracked_count() == u64(1)), "Only live remains after collecting garbage cycle");
-    assert((live.value == 1), "live intact after GC");
+    assert(Gc.tracked_count() == u64(1), "Only live remains after collecting garbage cycle");
+    assert(live.value == 1, "live intact after GC");
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
+  assert(Gc.tracked_count() == u64(0), "All freed after scope exit + GC");
 });
-
 test("Multiple GC passes don't corrupt state", {
   do_test :: (fn() -> unit)({
-    root := Node(1, .None);
-
+    root := Node(1,.None);
     // Create and abandon multiple cycles
     i := 0;
     while(i < 10, {
-      a := Node(((i * 2) + 100), .None);
-      b := Node(((i * 2) + 101), .Some(a));
-      a.child = .Some(b);
+      a := Node((i * 2) + 100,.None);
+      b := Node((i * 2) + 101,.Some(a));
+      a.child =.Some(b);
       i = (i + 1);
     });
-
     // Multiple GC passes
     j := 0;
     while(j < 5, {
       Gc.collect();
       j = (j + 1);
     });
-
     // Only root should remain
-    assert((Gc.tracked_count() == u64(1)), "Only root should remain after multiple GC passes");
-    assert((root.value == 1), "root intact after multiple GC passes");
+    assert(Gc.tracked_count() == u64(1), "Only root should remain after multiple GC passes");
+    assert(root.value == 1, "root intact after multiple GC passes");
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
+  assert(Gc.tracked_count() == u64(0), "All freed after scope exit + GC");
 });
-
 test("Self-referential object collected correctly", {
   do_test :: (fn() -> unit)({
-    a := Node(42, .None);
-    a.child = .Some(a);
+    a := Node(42,.None);
+    a.child =.Some(a);
     // a points to itself — simplest possible cycle
-
-    assert((Gc.tracked_count() == u64(1)), "Expected 1 tracked");
+    assert(Gc.tracked_count() == u64(1), "Expected 1 tracked");
   });
   // After do_test, 'a' stack ref is dropped → RC=1 (self-ref only)
   // Normal RC can't free it (RC never reaches 0), but the cycle should be collectable
   do_test();
-
   // The self-referential node may or may not have been collected yet
   // (depends on whether RC drop triggered dealloc or it needs GC)
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "Self-referential cycle collected");
+  assert(Gc.tracked_count() == u64(0), "Self-referential cycle collected");
 });
-
 test("Three-node cycle all garbage", {
   do_test :: (fn() -> unit)({
-    a := Node(1, .None);
-    b := Node(2, .None);
-    c := Node(3, .None);
-    a.child = .Some(b);
-    b.child = .Some(c);
-    c.child = .Some(a);
+    a := Node(1,.None);
+    b := Node(2,.None);
+    c := Node(3,.None);
+    a.child =.Some(b);
+    b.child =.Some(c);
+    c.child =.Some(a);
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "Three-node cycle collected");
+  assert(Gc.tracked_count() == u64(0), "Three-node cycle collected");
 });
-
 test("Diamond reference pattern - all reachable", {
   // root → a, root → b, a → shared, b → shared, shared → a (cycle)
   do_test :: (fn() -> unit)({
-    shared := Node(4, .None);
-    a := Node(2, .Some(shared));
-    b := Node(3, .Some(shared));
-    shared.child = .Some(a);
-
+    shared := Node(4,.None);
+    a := Node(2,.Some(shared));
+    b := Node(3,.Some(shared));
+    shared.child =.Some(a);
     // root has two children: a and b. We'll use List for this since Node only has one child.
     // Instead, just keep a, b, shared on stack and verify GC doesn't collect them.
-    assert((Gc.tracked_count() == u64(3)), "Expected 3 tracked (a, b, shared)");
-
+    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked (a, b, shared)");
     Gc.collect();
-
     // All on stack → all live
-    assert((Gc.tracked_count() == u64(3)), "All live — on stack");
-    assert((a.value == 2), "a intact");
-    assert((b.value == 3), "b intact");
-    assert((shared.value == 4), "shared intact");
+    assert(Gc.tracked_count() == u64(3), "All live — on stack");
+    assert(a.value == 2, "a intact");
+    assert(b.value == 3, "b intact");
+    assert(shared.value == 4, "shared intact");
   });
-
   do_test();
   Gc.collect();
-  assert((Gc.tracked_count() == u64(0)), "All freed after scope + GC");
+  assert(Gc.tracked_count() == u64(0), "All freed after scope + GC");
 });

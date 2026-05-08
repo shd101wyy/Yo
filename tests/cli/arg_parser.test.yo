@@ -1,253 +1,201 @@
 { ArgParser, ParsedArgs } :: import("std/cli/arg_parser");
 open(import("std/collections/array_list"));
 open(import("std/string"));
-
 test("ArgParser parse flags", {
   parser := ArgParser.new(`test-app`, `Test application`);
   parser.add_flag(`--verbose`, `-v`, `Verbose output`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--verbose`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse successfully");
-
   parsed := result.unwrap();
   assert(parsed.get_flag(`--verbose`), "verbose should be true");
 });
-
 test("ArgParser parse options", {
   parser := ArgParser.new(`test-app`, `Test application`);
   parser.add_option(`--output`, `-o`, `Output file`, `default.txt`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--output`);
   args.push(`result.txt`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse successfully");
-
   parsed := result.unwrap();
   opt := parsed.get_option(`--output`);
   assert(opt.is_some(), "output should be present");
-  assert((opt.unwrap() == `result.txt`), "output should be result.txt");
+  assert(opt.unwrap() == `result.txt`, "output should be result.txt");
 });
-
 test("ArgParser parse short flags", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_flag(`--verbose`, `-v`, `Verbose`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`-v`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse -v");
   assert(result.unwrap().get_flag(`--verbose`), "-v should set verbose");
 });
-
 test("ArgParser parse positionals", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_positional(`input`, `Input file`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`hello.txt`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse positional");
-
   parsed := result.unwrap();
   input := parsed.get_positional(`input`);
   assert(input.is_some(), "input should be present");
-  assert((input.unwrap() == `hello.txt`), "input should be hello.txt");
+  assert(input.unwrap() == `hello.txt`, "input should be hello.txt");
 });
-
 test("ArgParser default option value", {
   parser := ArgParser.new(`test-app`, `Test`);
   parser.add_option(`--output`, `-o`, `Output`, `default.txt`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse with defaults");
-
   parsed := result.unwrap();
   opt := parsed.get_option(`--output`);
   assert(opt.is_some(), "should have default value");
-  assert((opt.unwrap() == `default.txt`), "should be default.txt");
+  assert(opt.unwrap() == `default.txt`, "should be default.txt");
 });
-
 test("ArgParser unknown flag error", {
   parser := ArgParser.new(`test-app`, `Test`);
-
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--unknown`);
-
   result := parser.parse(args);
   assert(result.is_err(), "should error on unknown flag");
 });
-
 test("ArgParser help text generation", {
   parser := ArgParser.new(`my-app`, `My cool application`);
   parser.add_flag(`--verbose`, `-v`, `Enable verbose output`);
   parser.add_option(`--output`, `-o`, `Output file path`, `out.txt`);
   parser.add_positional(`input`, `Input file path`);
-
   help := parser.help_text();
   assert(help.contains(`my-app`), "help should contain app name");
   assert(help.contains(`--verbose`), "help should contain verbose flag");
   assert(help.contains(`--output`), "help should contain output option");
 });
-
 test("ArgParser simple subcommand", {
   parser := ArgParser.new(`git`, `Distributed VCS`);
   sub_commit := parser.add_subcommand(`commit`, `Record changes`);
   sub_commit.add_flag(`--amend`, `-a`, `Amend previous commit`);
-
   args := ArrayList(String).new();
   args.push(`git`);
   args.push(`commit`);
   args.push(`--amend`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse subcommand");
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "subcommand should be set");
-  assert((sub.unwrap() == `commit`), "subcommand should be commit");
-
+  assert(sub.unwrap() == `commit`, "subcommand should be commit");
   sub_args_opt := parsed.get_subcommand_args();
   assert(sub_args_opt.is_some(), "should have subcommand args");
   sub_args := sub_args_opt.unwrap();
   assert(sub_args.get_flag(`--amend`), "amend flag should be set");
 });
-
 test("ArgParser subcommand with option", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build the project`);
   sub_build.add_option(`--target`, `-t`, `Build target`, `debug`);
-
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
   args.push(`--target`);
   args.push(`release`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse subcommand option");
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "should have subcommand");
-  assert((sub.unwrap() == `build`), "subcommand should be build");
-
+  assert(sub.unwrap() == `build`, "subcommand should be build");
   sub_args := parsed.get_subcommand_args().unwrap();
   target := sub_args.get_option(`--target`);
   assert(target.is_some(), "target should be set");
-  assert((target.unwrap() == `release`), "target should be release");
+  assert(target.unwrap() == `release`, "target should be release");
 });
-
 test("ArgParser subcommand default option", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build`);
   sub_build.add_option(`--target`, `-t`, `Target`, `debug`);
-
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse with sub default");
   sub_args := result.unwrap().get_subcommand_args().unwrap();
   target := sub_args.get_option(`--target`);
   assert(target.is_some(), "should have default");
-  assert((target.unwrap() == `debug`), "target default should be debug");
+  assert(target.unwrap() == `debug`, "target default should be debug");
 });
-
 test("ArgParser nested subcommand", {
   parser := ArgParser.new(`docker`, `Docker CLI`);
   container := parser.add_subcommand(`container`, `Container commands`);
   ls := container.add_subcommand(`ls`, `List containers`);
   ls.add_flag(`--all`, `-a`, `Show all containers`);
-
   args := ArrayList(String).new();
   args.push(`docker`);
   args.push(`container`);
   args.push(`ls`);
   args.push(`--all`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse nested");
   parsed := result.unwrap();
-
   sub1 := parsed.get_subcommand().unwrap();
-  assert((sub1 == `container`), "first level should be container");
-
+  assert(sub1 == `container`, "first level should be container");
   inner := parsed.get_subcommand_args().unwrap();
   sub2 := inner.get_subcommand().unwrap();
-  assert((sub2 == `ls`), "second level should be ls");
-
+  assert(sub2 == `ls`, "second level should be ls");
   inner2 := inner.get_subcommand_args().unwrap();
   assert(inner2.get_flag(`--all`), "all flag should be set");
 });
-
 test("ArgParser no subcommand chosen", {
   parser := ArgParser.new(`tool`, `Tool`);
   parser.add_subcommand(`build`, `Build`);
   parser.add_subcommand(`test`, `Test`);
-
   args := ArrayList(String).new();
   args.push(`tool`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should parse with no subcommand");
   parsed := result.unwrap();
   assert(parsed.get_subcommand().is_none(), "no subcommand should be set");
   assert(parsed.get_subcommand_args().is_none(), "no subcommand args");
 });
-
 test("ArgParser unknown subcommand falls through to positional", {
   parser := ArgParser.new(`tool`, `Tool`);
   parser.add_subcommand(`build`, `Build`);
   parser.add_positional(`name`, `Name`);
-
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`unknown-command`);
-
   result := parser.parse(args);
   assert(result.is_ok(), "should treat unknown as positional");
   parsed := result.unwrap();
   assert(parsed.get_subcommand().is_none(), "no subcommand matched");
   pos := parsed.get_positional(`name`);
   assert(pos.is_some(), "positional should be set");
-  assert((pos.unwrap() == `unknown-command`), "positional value");
+  assert(pos.unwrap() == `unknown-command`, "positional value");
 });
-
 test("ArgParser subcommand error propagates", {
   parser := ArgParser.new(`tool`, `Tool`);
   sub_build := parser.add_subcommand(`build`, `Build`);
   sub_build.add_option(`--target`, `-t`, `Target`, ``);
-
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
   args.push(`--target`);
   // missing value
-
   result := parser.parse(args);
   assert(result.is_err(), "should error on missing subcmd opt value");
 });
-
 test("ArgParser help text includes subcommands", {
   parser := ArgParser.new(`git`, `VCS`);
   parser.add_subcommand(`commit`, `Record changes`);
   parser.add_subcommand(`push`, `Upload changes`);
-
   help := parser.help_text();
   assert(help.contains(`Subcommands:`), "should have subcommands section");
   assert(help.contains(`commit`), "should list commit");

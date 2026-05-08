@@ -13,22 +13,18 @@
 //
 // Imports as comptime structs are exercised implicitly by every other
 // .test.yo file via top-level `import` — no dedicated case needed here.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
 test("Phase 4c: migrated struct effect record escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
     cond(
       (y == 0) => r.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(r) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -36,20 +32,16 @@ test("Phase 4c: migrated struct effect record escape", {
         escape(());
       }
   );
-
   divide(10, 0);
   assert(false, "should not reach here after escape");
 });
-
 test("Phase 4c: migrated struct effect record resume", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
-
   shout :: (fn(msg : String, using(l : Logger)) -> unit)(
     l.log(msg)
   );
-
   (given(l) : Logger) = Logger(
     log :
       (msg) -> {
@@ -57,25 +49,20 @@ test("Phase 4c: migrated struct effect record resume", {
         return(());
       }
   );
-
   shout("hello-effect".to_string());
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
 });
-
-
 test("Baseline: struct(...) builds a usable effect record type", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
     cond(
       (y == 0) => r.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(r) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -83,20 +70,16 @@ test("Baseline: struct(...) builds a usable effect record type", {
         escape(());
       }
   );
-
   divide(10, 0);
   assert(false, "should not reach here after escape");
 });
-
 test("Baseline: given/using round-trip with resume (struct)", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
-
   shout :: (fn(msg : String, using(l : Logger)) -> unit)(
     l.log(msg)
   );
-
   count := 0;
   (given(l) : Logger) = Logger(
     log :
@@ -105,12 +88,10 @@ test("Baseline: given/using round-trip with resume (struct)", {
         return(());
       }
   );
-
   shout("hello-effect".to_string());
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
 });
-
 // ----------------------------------------------------------------------
 // Phase 4 progress tests: runtime-built `given` evidence with structs.
 //
@@ -120,35 +101,29 @@ test("Baseline: given/using round-trip with resume (struct)", {
 // evidence (e.g. struct value computed by a non-comptime function call),
 // which currently fails with "given variable has no compile-time value".
 // ----------------------------------------------------------------------
-
 test("Phase 4a: given(struct) inside a runtime branch", {
   Tag :: struct(
     name : (fn() -> str)
   );
-
   speak :: (fn(using(t : Tag)) -> str)(
     t.name()
   );
-
   flag := true;
   if(flag, {
     (given(t) : Tag) = Tag(name : (() -> "alpha"));
-    assert((speak() == "alpha"), "branch-true picked alpha");
+    assert(speak() == "alpha", "branch-true picked alpha");
   }, {
     (given(t) : Tag) = Tag(name : (() -> "beta"));
-    assert((speak() == "beta"), "branch-false picked beta");
+    assert(speak() == "beta", "branch-false picked beta");
   });
 });
-
 test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   Counter :: struct(
     next : (fn() -> i32)
   );
-
   step :: (fn(using(c : Counter)) -> i32)(
     c.next()
   );
-
   i := Box(i32)(0);
   sum := Box(i32)(0);
   while(runtime(i.* < 3), {
@@ -156,64 +131,54 @@ test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
     sum.* = (sum.* + step());
     i.* = (i.* + 1);
   });
-  assert((sum.* == 21), "3 iterations × 7 = 21");
+  assert(sum.* == 21, "3 iterations × 7 = 21");
 });
-
 test("Phase 4b: given(struct) bound to runtime function-returned value", {
   Counter :: struct(
     next : (fn() -> i32)
   );
-
   make_counter :: (fn(use_a : bool) -> Counter)(
     cond(
       use_a => Counter(next : (() -> i32(1))),
       true => Counter(next : (() -> i32(2)))
     )
   );
-
   step :: (fn(using(c : Counter)) -> i32)(
     c.next()
   );
-
   flag := true;
   if(flag, {
     (given(c) : Counter) = make_counter(true);
-    assert((step() == 1), "use_a=true -> 1");
+    assert(step() == 1, "use_a=true -> 1");
   }, {
     (given(c) : Counter) = make_counter(false);
-    assert((step() == 2), "use_a=false -> 2");
+    assert(step() == 2, "use_a=false -> 2");
   });
-
   flag2 := false;
   if(flag2, {
     (given(c) : Counter) = make_counter(true);
-    assert((step() == 1), "unreachable");
+    assert(step() == 1, "unreachable");
   }, {
     (given(c) : Counter) = make_counter(false);
-    assert((step() == 2), "use_a=false -> 2");
+    assert(step() == 2, "use_a=false -> 2");
   });
 });
-
 test("Phase 1: comptime-only struct fields are erased from C layout", {
   ConfiguredCounter :: struct(
     tag :: "configured-counter",
     next : (fn() -> i32)
   );
   comptime_assert(Type.impls(ConfiguredCounter, Runtime), "mixed struct is runtime");
-
   make_counter :: (fn() -> ConfiguredCounter)(
     ConfiguredCounter(next : (() -> i32(42)))
   );
-
   counter := make_counter();
-  assert((counter.next() == 42), "runtime field remains callable");
+  assert(counter.next() == 42, "runtime field remains callable");
 });
-
 test("Phase 6: module and Module keywords are removed", {
   comptime_expect_error(module(x : i32));
   comptime_expect_error(Module);
 });
-
 // Verify that open works correctly with struct-typed values
 // after the Module→Struct unification.
 test("open on struct-typed values", {
@@ -221,9 +186,8 @@ test("open on struct-typed values", {
     x : i32,
     y : i32
   );
-
   s := MyStruct(x : i32(10), y : i32(20));
   open(s);
-  assert((x == i32(10)), "x should be 10");
-  assert((y == i32(20)), "y should be 20");
+  assert(x == i32(10), "x should be 10");
+  assert(y == i32(20), "y should be 20");
 });

@@ -5,35 +5,29 @@ signals :: import("std/sys/signals");
 events :: import("std/sys/events");
 { IOError } :: import("std/sys/errors");
 { platform, Platform } :: import("std/process");
-
 test("Test IO constants", {
   // =========================================================================
   // Test: module structure and constant imports
   // =========================================================================
-
   // File mode constants
   assert(constants.S_IFREG == u32(0o100000));
   assert(constants.S_IFDIR == u32(0o040000));
   assert(constants.DEFAULT_FILE_MODE == u32(0o644));
   assert(constants.DEFAULT_DIR_MODE == u32(0o755));
-
   // AT_* flags
   cond(
     (platform == Platform.Macos) => assert(constants.AT_FDCWD == i32(-(2))),
     true => assert(constants.AT_FDCWD == i32(-(100)))
   );
-
   // Access mode constants
   assert(constants.F_OK == i32(0));
   assert(constants.R_OK == i32(4));
   assert(constants.W_OK == i32(2));
   assert(constants.X_OK == i32(1));
-
   // DT_* directory entry types
   assert(constants.DT_REG == u8(8));
   assert(constants.DT_DIR == u8(4));
   assert(constants.DT_LNK == u8(10));
-
   // Socket constants - platform-aware
   assert(socket.AF_INET == i32(2));
   assert(socket.AF_UNIX == i32(1));
@@ -42,7 +36,6 @@ test("Test IO constants", {
   assert(socket.SHUT_RD == i32(0));
   assert(socket.SHUT_WR == i32(1));
   assert(socket.SHUT_RDWR == i32(2));
-
   // Platform-specific socket constants
   cond(
     (platform == Platform.Macos) => {
@@ -55,12 +48,10 @@ test("Test IO constants", {
     },
     true => ()
   );
-
   // Signal constants
   assert(signals.SIGINT == i32(2));
   assert(signals.SIGTERM == i32(15));
   assert(signals.SIGKILL == i32(9));
-
   // Platform-specific signal constants
   cond(
     (platform == Platform.Macos) => {
@@ -77,17 +68,16 @@ test("Test IO constants", {
     },
     true => ()
   );
-
   // Event constants
   assert(events.TTY_MODE_NORMAL == i32(0));
   assert(events.TTY_MODE_RAW == i32(1));
   assert(events.POLL_READABLE == i32(1));
   assert(events.POLL_WRITABLE == i32(2));
-
   // IOError
   { ENOENT } :: import("std/libc/errno");
   err := IOError.from_errno(i32(ENOENT));
-  match(err,
+  match(
+    err,
     .NotFound => assert(true, "IOError.from_errno(ENOENT) should be NotFound"),
     _ => assert(false, "IOError.from_errno(ENOENT) should be NotFound")
   );

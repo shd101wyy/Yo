@@ -1,5 +1,4 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
-
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { Path } :: import("std/path");
@@ -10,149 +9,140 @@ fs_file :: import("std/fs/file");
 { File } :: import("std/fs/file");
 fs_dir :: import("std/fs/dir");
 { temp_dir, path_join } :: import("../helper");
-
 // ============================================================================
 // TempDir
 // ============================================================================
-
 test("TempDir.new creates a directory", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   td := io.await(TempDir.new());
-
   p := td.path().to_string();
   printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
-  assert((p.len() > usize(0)), "path should not be empty");
-
+  assert(p.len() > usize(0), "path should not be empty");
   // Verify it exists
   e := io.await(fs_file.exists(td.path(), using(io)));
   assert(e, "temp dir should exist");
-
   // Remove
   io.await(td.remove());
   printf("  removed ok\n");
-
   // Verify removed
   e2 := io.await(fs_file.exists(td.path(), using(io)));
-  assert((!(e2)), "temp dir should not exist after remove");
+  assert(!(e2), "temp dir should not exist after remove");
 });
-
 test("TempDir.new_in creates in specified parent", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   tmp := temp_dir();
   parent := Path.new(tmp);
-
   td := io.await(TempDir.new_in(parent));
-
   p := td.path().to_string();
   printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
-
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(td.path().starts_with(parent), "path should start with parent");
-
   io.await(td.remove());
 });
-
 test("TempDir.remove is idempotent", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   td := io.await(TempDir.new());
   io.await(td.remove());
-
   // Second remove should succeed (no-op)
   io.await(td.remove());
   printf("  second remove ok\n");
 });
-
 // ============================================================================
 // TempFile
 // ============================================================================
-
 test("TempFile.new creates a file", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   tf := io.await(TempFile.new());
-
   p := tf.path().to_string();
   printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
-  assert((p.len() > usize(0)), "path should not be empty");
-
+  assert(p.len() > usize(0), "path should not be empty");
   // Verify it exists
   e := io.await(fs_file.exists(tf.path(), using(io)));
   assert(e, "temp file should exist");
-
   // Remove
   io.await(tf.remove());
   printf("  removed ok\n");
-
   // Verify removed
   e2 := io.await(fs_file.exists(tf.path(), using(io)));
-  assert((!(e2)), "temp file should not exist after remove");
+  assert(!(e2), "temp file should not exist after remove");
 });
-
 test("TempFile.new_in creates in specified parent", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   tmp := temp_dir();
   parent := Path.new(tmp);
-
   tf := io.await(TempFile.new_in(parent));
-
   p := tf.path().to_string();
   printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
-
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(tf.path().starts_with(parent), "path should start with parent");
-
   io.await(tf.remove());
 });
-
 test("TempFile.file returns usable File", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   tf := io.await(TempFile.new());
   f := tf.file();
-
   // Write to the file
   n := io.await(f.write_string(`temp file content`));
   printf("  wrote %d bytes\n", n);
-
   // Read it back using the path
   s := io.await(fs_file.read_string(tf.path()));
   printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-  assert((s == `temp file content`), "temp file content mismatch");
-
+  assert(s == `temp file content`, "temp file content mismatch");
   io.await(tf.remove());
 });
-
 test("TempFile.remove is idempotent", {
-  given(exn) := Exception(throw : ((err) -> {
-    assert(false, "unexpected exception");
-    escape(());
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   tf := io.await(TempFile.new());
   io.await(tf.remove());
-
   // Second remove should succeed (no-op)
   io.await(tf.remove());
   printf("  second remove ok\n");

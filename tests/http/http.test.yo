@@ -1,7 +1,6 @@
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
 open(import("std/string"));
-
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
   req.set_host(`example.com`);
@@ -9,7 +8,6 @@ test("HttpRequest build GET request", {
   assert(s.contains(`GET /index.html HTTP/1.1`), "should contain request line");
   assert(s.contains(`Host: example.com`), "should contain host header");
 });
-
 test("HttpRequest build POST with body", {
   req := HttpRequest.new(HttpMethod.POST, `/api/data`);
   req.set_host(`api.example.com`);
@@ -19,7 +17,6 @@ test("HttpRequest build POST with body", {
   assert(s.contains(`Host: api.example.com`), "should contain host");
   assert(s.contains(`body_data`), "should contain body");
 });
-
 test("HttpRequest set multiple headers", {
   req := HttpRequest.new(HttpMethod.GET, `/`);
   req.set_header(`Accept`, `text/html`);
@@ -30,7 +27,6 @@ test("HttpRequest set multiple headers", {
   assert(s.contains(`User-Agent: YoHTTP/1.0`), "should contain User-Agent header");
   assert(s.contains(`Connection: close`), "should contain Connection header");
 });
-
 test("HttpRequest to_string format", {
   req := HttpRequest.new(HttpMethod.GET, `/path`);
   req.set_host(`host.com`);
@@ -38,57 +34,48 @@ test("HttpRequest to_string format", {
   assert(s.starts_with(`GET /path HTTP/1.1`), "should start with request line");
   assert(s.contains(`Host: host.com`), "should contain host header");
 });
-
 test("Parse simple HTTP response", {
   raw := `HTTP/1.1 200 OK\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert((resp.status_code == i32(200)), "status code should be 200");
-  assert((resp.status_text == `OK`), "status text should be OK");
+  assert(resp.status_code == i32(200), "status code should be 200");
+  assert(resp.status_text == `OK`, "status text should be OK");
 });
-
 test("Parse response with headers", {
   raw := `HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nX-Custom: hello\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert((resp.status_code == i32(404)), "status code should be 404");
-  assert((resp.status_text == `Not Found`), "status text should be Not Found");
-  assert((resp.headers.len() == usize(2)), "should have 2 headers");
+  assert(resp.status_code == i32(404), "status code should be 404");
+  assert(resp.status_text == `Not Found`, "status text should be Not Found");
+  assert(resp.headers.len() == usize(2), "should have 2 headers");
 });
-
 test("Parse response with body", {
   raw := `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert((resp.status_code == i32(200)), "status code should be 200");
-  assert((resp.body == `Hello World`), "body should match");
+  assert(resp.status_code == i32(200), "status code should be 200");
+  assert(resp.body == `Hello World`, "body should match");
 });
-
 test("HttpResponse get_header case-insensitive", {
   raw := `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Request-Id: abc123\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-
   ct := resp.get_header(`content-type`);
   assert(ct.is_some(), "should find content-type lowercase");
-  assert((ct.unwrap() == `text/html`), "content-type value should match");
-
+  assert(ct.unwrap() == `text/html`, "content-type value should match");
   ct2 := resp.get_header(`CONTENT-TYPE`);
   assert(ct2.is_some(), "should find CONTENT-TYPE uppercase");
-  assert((ct2.unwrap() == `text/html`), "content-type value should match uppercase");
-
+  assert(ct2.unwrap() == `text/html`, "content-type value should match uppercase");
   xr := resp.get_header(`x-request-id`);
   assert(xr.is_some(), "should find x-request-id");
-  assert((xr.unwrap() == `abc123`), "x-request-id value should match");
-
+  assert(xr.unwrap() == `abc123`, "x-request-id value should match");
   missing := resp.get_header(`Authorization`);
   assert(missing.is_none(), "missing header should be None");
 });
-
 test("HttpMethod enum values", {
   m_get := HttpMethod.GET;
   m_post := HttpMethod.POST;
@@ -96,10 +83,10 @@ test("HttpMethod enum values", {
   m_del := HttpMethod.DELETE;
   m_head := HttpMethod.HEAD;
   m_patch := HttpMethod.PATCH;
-  assert((m_get.to_string() == `GET`), "GET to_string");
-  assert((m_post.to_string() == `POST`), "POST to_string");
-  assert((m_put.to_string() == `PUT`), "PUT to_string");
-  assert((m_del.to_string() == `DELETE`), "DELETE to_string");
-  assert((m_head.to_string() == `HEAD`), "HEAD to_string");
-  assert((m_patch.to_string() == `PATCH`), "PATCH to_string");
+  assert(m_get.to_string() == `GET`, "GET to_string");
+  assert(m_post.to_string() == `POST`, "POST to_string");
+  assert(m_put.to_string() == `PUT`, "PUT to_string");
+  assert(m_del.to_string() == `DELETE`, "DELETE to_string");
+  assert(m_head.to_string() == `HEAD`, "HEAD to_string");
+  assert(m_patch.to_string() == `PATCH`, "PATCH to_string");
 });

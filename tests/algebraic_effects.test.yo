@@ -1,10 +1,8 @@
 open(import("std/string")); // Let's use `String` instead of `str`
 open(import("std/fmt"));
 { Exception } :: import("std/error");
-
 test("Test fn escape and return via using parameter", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Use an effect in a function (effect becomes an implicit parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -12,22 +10,24 @@ test("Test fn escape and return via using parameter", {
       true => (x / y)
     )
   );
-
   // Handle the effect — without resume (discarding continuation)
   raise_const :: (fn() -> i64)({
-    (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
-      println(msg);
-      println(msg2);
-      escape(i64(42)); // escape type should match the outer function return type, which is i64 in this case
-                    // `escape` is only allowed in `fn` function value.  
-    });
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        // values/anonymous-function.ts
+        println(msg);
+        println(msg2);
+        escape(i64(42)); // escape type should match the outer function return type, which is i64 in this case
+        // `escape` is only allowed in `fn` function value.
+      }
+    );
     (i64(8) + i64(safe_divide(1, 0))) + (i64(10) + i64(safe_divide(10, 2)))
   });
   // Returns 42 — continuation is discarded
-
   // Handle the effect — with resume (invoking continuation)
   raise_resume :: (fn() -> i64)({
-    (given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ // calls/function-type.ts
+    (given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({
+      // calls/function-type.ts
       println(msg);
       println(msg2);
       return(i32(42));
@@ -35,26 +35,24 @@ test("Test fn escape and return via using parameter", {
     (i64(8) + i64(safe_divide(1, 0))) + i64(10)
   });
   // Returns 60 — return(42) continues after the raise call site
-
   result1 := raise_const();
   result2 := raise_resume();
-
   assert(result1 == i64(42));
   assert(result2 == i64(60));
 });
-
 test("Test fn resume called directly without intermediate using function", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // The fn function is called directly. The handler uses `return(value)` to
   // resume the continuation — execution continues after the raise(...) call
   // and `result` receives the handler's returned value.
   run_test :: (fn() -> unit)({
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      println(msg);
-      println(msg2);
-      return(i32(16));
-    });
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        println(msg);
+        println(msg2);
+        return(i32(16));
+      }
+    );
     result := raise(`direct-resume`, `Handler returns a value`);
     println("After raise");
     assert(result == 16, "result should be 16");
@@ -63,55 +61,57 @@ test("Test fn resume called directly without intermediate using function", {
 });
 test("Test fn escape called directly without intermediate using function", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // The fn function is called directly in the handler scope — no intermediate
   // function with `using(raise : Raise)`. The handler runs, prints the messages,
   // and aborts with `()`, matching the enclosing function's return type (unit).
   run_test :: (fn() -> unit)({
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      println(msg);
-      println(msg2);
-      escape(());
-    });
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        println(msg);
+        println(msg2);
+        escape(());
+      }
+    );
     raise(`direct-call`, `No using parameter needed`);
     assert(false, "This line should not be reached");
   });
   run_test();
 });
-
 test("Test zero-arg escape exits unit function", {
   Raise :: (fn() -> unit);
-
   run_test :: (fn() -> unit)({
-    (given(raise) : Raise) = (() -> {
-      escape();
-    });
+    (given(raise) : Raise) = (
+      () -> {
+        escape();
+      }
+    );
     raise();
     assert(false, "This line should not be reached");
   });
-
   run_test();
 });
-
 test("Test nested fn escape inside resume handler", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
   // which becomes the result of the outer raise call (since escape exits the
   // nearest enclosing fn handler, which is raise's handler).
   run_test :: (fn() -> unit)({
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      println(msg);
-      println(msg2);
-      (given(raise2) : Raise) = ((m1, m2) -> {
-        println(m1);
-        println(m2);
-        escape(i32(18));
-      });
-      raise2(`inner msg1`, `inner msg2`);
-      assert(false, "This should not be reached if raise2 aborts");
-      return(i32(16));
-    });
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        println(msg);
+        println(msg2);
+        (given(raise2) : Raise) = (
+          (m1, m2) -> {
+            println(m1);
+            println(m2);
+            escape(i32(18));
+          }
+        );
+        raise2(`inner msg1`, `inner msg2`);
+        assert(false, "This should not be reached if raise2 aborts");
+        return(i32(16));
+      }
+    );
     result := raise(`outer msg1`, `outer msg2`);
     assert(result == 18, "result should be 18 from raise2s escape");
   });
@@ -120,23 +120,26 @@ test("Test nested fn escape inside resume handler", {
 test("Test nested fn resume inside resume handler", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
   RaiseF32 :: (fn(msg : String, msg2 : String) -> f32);
-
   // raise2 is defined inside raise's handler body. raise2 resumes with f32(3.14),
   // then raise resumes with i32(16). Both handlers use return (resume) so
   // execution continues after each call site.
   run_test :: (fn() -> unit)({
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      println(msg);
-      println(msg2);
-      (given(raise2) : RaiseF32) = ((m1, m2) -> {
-        println(m1);
-        println(m2);
-        return(f32(3.14));
-      });
-      raise2_result := raise2(`inner msg1`, `inner msg2`);
-      assert(raise2_result == f32(3.14), "raise2 should return 3.14");
-      return(i32(16));
-    });
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        println(msg);
+        println(msg2);
+        (given(raise2) : RaiseF32) = (
+          (m1, m2) -> {
+            println(m1);
+            println(m2);
+            return(f32(3.14));
+          }
+        );
+        raise2_result := raise2(`inner msg1`, `inner msg2`);
+        assert(raise2_result == f32(3.14), "raise2 should return 3.14");
+        return(i32(16));
+      }
+    );
     result := raise(`outer msg1`, `outer msg2`);
     assert(result == 16, "result should be 16 from raise's return");
   });
@@ -144,23 +147,21 @@ test("Test nested fn resume inside resume handler", {
 });
 test("Test while loop calling fn with resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #13: While loop with await inside.
   // Each iteration calls the fn handler which resumes with i32(10).
   run_test :: (fn() -> unit)({
     sum := Box(i32)(0);
     counter := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(10));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(10));
+      }
+    );
     while(runtime(counter.* < i32(5)), {
       result := raise(`msg1`, `msg2`);
       sum.* = (sum.* + result);
       counter.* = (counter.* + 1);
     });
-
     assert(counter.* == i32(5), "counter should be 5");
     assert(sum.* == i32(50), "sum should be 5*10 = 50");
   });
@@ -168,53 +169,53 @@ test("Test while loop calling fn with resume", {
 });
 test("Test while loop with break after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #14: While loop with break after await.
   // The handler resumes, then break is used after the fn call.
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       result := raise(`msg1`, `msg2`);
       counter.* = (counter.* + result);
       cond(
-        (counter.* >= i32(3)) => { break; },
+        (counter.* >= i32(3)) => {
+          break;
+        },
         true => ()
       );
     });
-
     assert(counter.* == i32(3), "counter should be 3 after break");
   });
   run_test();
 });
 test("Test while loop with continue after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #24: Continue in async while loop.
   // Loop calls fn with resume, then continues (skips sum) on odd iterations.
   run_test :: (fn() -> unit)({
     sum := Box(i32)(0);
     counter := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(counter.* < i32(10)), {
       raise(`msg1`, `msg2`);
       i := counter.*;
       counter.* = (counter.* + 1);
       cond(
-        ((i % i32(2)) != i32(0)) => { continue; },
+        ((i % i32(2)) != i32(0)) => {
+          continue;
+        },
         true => ()
       );
       sum.* = (sum.* + i);
     });
-
     assert(counter.* == i32(10), "counter should be 10");
     assert(sum.* == i32(20), "sum of even numbers 0+2+4+6+8 = 20");
   });
@@ -222,28 +223,28 @@ test("Test while loop with continue after fn resume", {
 });
 test("Test break from cond after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #25: Break from cond in async while loop.
   // while(true), call fn, increment counter, break from cond when counter >= 5.
   // sum = 1+2+3+4 = 10
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       raise(`msg1`, `msg2`);
       counter.* = (counter.* + 1);
       cond(
-        (counter.* >= i32(5)) => { break; },
+        (counter.* >= i32(5)) => {
+          break;
+        },
         true => ()
       );
       sum.* = (sum.* + counter.*);
     });
-
     assert(counter.* == i32(5), "counter should be 5 after break");
     assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
   });
@@ -251,61 +252,60 @@ test("Test break from cond after fn resume", {
 });
 test("Test break drops local allocations after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #27: Break drops local allocations.
   // Allocate a Box each iteration; break at iteration 3.
   // ASan will catch leaks of the Box or String fn args.
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       temp := Box(i32)(counter.*);
       raise(`msg1`, `msg2`);
       counter.* = (temp.* + 1);
       cond(
-        (counter.* >= i32(3)) => { break; },
+        (counter.* >= i32(3)) => {
+          break;
+        },
         true => ()
       );
     });
-
     assert(counter.* == i32(3), "counter should be 3 after break");
   });
   run_test();
 });
 test("Test mixed continue then break after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #32: Mixed continue then break.
   // 1,2 continue; 3,4 accumulate; 5 breaks. sum = 3+4 = 7.
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       counter.* = (counter.* + 1);
       raise(`msg1`, `msg2`);
-
       cond(
-        (counter.* <= i32(2)) => { continue; },
+        (counter.* <= i32(2)) => {
+          continue;
+        },
         true => ()
       );
-
       cond(
-        (counter.* >= i32(5)) => { break; },
+        (counter.* >= i32(5)) => {
+          break;
+        },
         true => ()
       );
-
       sum.* = (sum.* + counter.*);
     });
-
     assert(counter.* == i32(5), "counter should stop at 5");
     assert(sum.* == i32(7), "sum should be 3+4 = 7");
   });
@@ -313,25 +313,24 @@ test("Test mixed continue then break after fn resume", {
 });
 test("Test early return inside loop after fn resume", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
-
   // Analogous to async_await test #37: Early return inside loop after continue.
   // Continue on even numbers; early-return at first odd >= 5.
   find_first_odd :: (fn() -> i32)({
     i := Box(i32)(0);
-
-    (given(raise) : Raise) = ((msg, msg2) -> {
-      return(i32(1));
-    });
-
+    (given(raise) : Raise) = (
+      (msg, msg2) -> {
+        return(i32(1));
+      }
+    );
     while(runtime(i.* < i32(10)), {
       i.* = (i.* + 1);
       raise(`msg1`, `msg2`);
-
       cond(
-        ((i.* % i32(2)) == i32(0)) => { continue; },
+        ((i.* % i32(2)) == i32(0)) => {
+          continue;
+        },
         true => ()
       );
-
       cond(
         (i.* >= i32(5)) => {
           return(i.*);
@@ -339,133 +338,120 @@ test("Test early return inside loop after fn resume", {
         true => ()
       );
     });
-
     return(i32(-(1)));
   });
-
   result := find_first_odd();
   assert(result == i32(5), "first odd value >= 5 should be 5");
 });
-
 test("Test two different fn types in same scope (Log + Raise)", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String, counter : Box(i32)) -> unit);
-
   log_count := box(i32(0));
-
-  (given(log) : Log) = ((msg, counter) -> {
-    println(msg);
-    counter.* = (counter.* + i32(1));
-    return(());
-  });
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(42));
-  });
-
+  (given(log) : Log) = (
+    (msg, counter) -> {
+      println(msg);
+      counter.* = (counter.* + i32(1));
+      return(());
+    }
+  );
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(42));
+    }
+  );
   log(`first log`, log_count);
   log(`second log`, log_count);
   result := raise(`error!`);
-
-  assert((log_count.* == i32(2)), "log_count should be 2");
-  assert((result == i32(42)), "result should be 42");
+  assert(log_count.* == i32(2), "log_count should be 2");
+  assert(result == i32(42), "result should be 42");
 });
-
 test("Test single-level effect propagation via using parameter", {
   Raise :: (fn(msg : String) -> i32);
-
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
       true => (x / y)
     )
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(0));
-  });
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(0));
+    }
+  );
   result := safe_divide(10, 0);
-  assert((result == i32(0)), "single-level propagation: should return 0");
+  assert(result == i32(0), "single-level propagation: should return 0");
 });
-
 test("Test two-level effect propagation via using parameter", {
   Raise :: (fn(msg : String) -> i32);
-
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
       true => (x / y)
     )
   );
-
   compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
-    (safe_divide(a, b) + i32(10))
+    safe_divide(a, b) + i32(10)
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(0));
-  });
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(0));
+    }
+  );
   result := compute(50, 0);
-  assert((result == i32(10)), "two-level propagation: 0 + 10 = 10");
+  assert(result == i32(10), "two-level propagation: 0 + 10 = 10");
 });
-
 test("Test two-level effect propagation via using parameter with escape", {
   Raise :: (fn(msg : String) -> i32);
-
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
       true => (x / y)
     )
   );
-
   compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
-    (safe_divide(a, b) + i32(10))
+    safe_divide(a, b) + i32(10)
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    escape(());
-  });
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      escape(());
+    }
+  );
   result := compute(50, 0);
   assert(false, "Expected to escape");
 });
-
 test("Test given variable shadowing (inner scope shadows outer)", {
   Raise :: (fn(msg : String) -> i32);
-
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
       true => (x / y)
     )
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    return(i32(0));
-  });
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      return(i32(0));
+    }
+  );
   result1 := safe_divide(10, 0);
-  assert((result1 == i32(0)), "outer handler should return 0");
-
+  assert(result1 == i32(0), "outer handler should return 0");
   result2 := {
-    (given(raise_inner) : Raise) = ((msg) -> {
-      return(i32(-(1)));
-    });
+    (given(raise_inner) : Raise) = (
+      (msg) -> {
+        return(i32(-(1)));
+      }
+    );
     safe_divide(20, 0)
   };
-  assert((result2 == i32(-(1))), "inner handler should shadow outer and return -1");
-
+  assert(result2 == i32(-(1)), "inner handler should shadow outer and return -1");
   result3 := safe_divide(30, 0);
-  assert((result3 == i32(0)), "outer handler should still work after inner scope");
+  assert(result3 == i32(0), "outer handler should still work after inner scope");
 });
-
 test("Test given variable shadowing (inner scope shadows outer) with escape", {
   Raise :: (fn(msg : String) -> i32);
-
   // Function that USES the effect (propagates via using parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -473,82 +459,80 @@ test("Test given variable shadowing (inner scope shadows outer) with escape", {
       true => (x / y)
     )
   );
-
   // Define `raise` at top level
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(0));
-  });
-
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(0));
+    }
+  );
   {
     // Define a new `raise` that overrides the outer one, simulating multi-level propagation
-    (given(raise2) : Raise) = ((msg) -> {
-      println(msg);
-      escape(());
-    });
-
+    (given(raise2) : Raise) = (
+      (msg) -> {
+        println(msg);
+        escape(());
+      }
+    );
     result := safe_divide(10, 0);
     assert(false, "multi-level propagation: should not reach here");
   };
-
   assert(false, "should not reach here");
 });
-
 test("Test effect polymorphism with using spread", {
   Raise :: (fn(msg : String) -> i32);
-
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
   );
-
   // Effect-polymorphic function: forwards whatever effects f needs
-  run :: (fn(forall(T : Type, ...(E)),
+  run :: (
+    fn(
+      forall(T : Type, ...(E)),
       f : (fn(using(...(E))) -> T),
-      using(...(E))) -> T)(f());
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(42));
-  });
-
+      using(...(E))
+    ) -> T
+  )(f());
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(42));
+    }
+  );
   result := run(might_fail);
   assert(result == i32(42), "effect polymorphism: should be 42");
 });
-
 test("Test effect polymorphism with using spread and escape", {
   Raise :: (fn(msg : String) -> i32);
-
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
   );
-
   // Effect-polymorphic function: forwards whatever effects f needs
-  run :: (fn(forall(T : Type, ...(E)),
+  run :: (
+    fn(
+      forall(T : Type, ...(E)),
       f : (fn(using(...(E))) -> T),
-      using(...(E))) -> T)(f());
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    escape(());
-  });
-
+      using(...(E))
+    ) -> T
+  )(f());
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      escape(());
+    }
+  );
   result := run(might_fail);
   assert(false, "This line should not be reached since might_fail raises an error");
 });
-
 test("Test struct-record effect with escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -556,23 +540,19 @@ test("Test struct-record effect with escape", {
         escape(());
       }
   );
-
   result := safe_divide(10, 0);
   assert(false, "Should not reach here after escape");
 });
-
 test("Test struct-record effect with resume", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -580,29 +560,24 @@ test("Test struct-record effect with resume", {
         return(i32(0));
       }
   );
-
   result := safe_divide(10, 0);
-  assert((result == 0), "struct-record effect with resume: should be 0");
+  assert(result == 0, "struct-record effect with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "struct-record effect with resume: should be 5");
+  assert(result2 == 5, "struct-record effect with resume: should be 5");
 });
-
 test("Test nested struct-record effect with escape", {
   Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   Effects :: struct(
     errors : Errors
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
     cond(
       (y == 0) => fx.errors.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(fx) : Effects) = Effects(
     errors : Errors(
       raise :
@@ -612,27 +587,22 @@ test("Test nested struct-record effect with escape", {
         }
     )
   );
-
   result := safe_divide(10, 0);
   assert(false, "Should not reach here after escape");
 });
-
 test("Test nested struct-record effect with resume", {
   Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   Effects :: struct(
     errors : Errors
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
     cond(
       (y == 0) => fx.errors.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(fx) : Effects) = Effects(
     errors : Errors(
       raise :
@@ -642,25 +612,21 @@ test("Test nested struct-record effect with resume", {
         }
     )
   );
-
   result := safe_divide(10, 0);
-  assert((result == 0), "nested struct-record effect with resume: should be 0");
+  assert(result == 0, "nested struct-record effect with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "nested struct-record effect with resume: should be 5");
+  assert(result2 == 5, "nested struct-record effect with resume: should be 5");
 });
-
 test("Test struct record labeled using(name : Type) with escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -668,23 +634,19 @@ test("Test struct record labeled using(name : Type) with escape", {
         escape(());
       }
   );
-
   result := safe_divide(10, 0);
   assert(false, "Should not reach here after escape");
 });
-
 test("Test struct record labeled using(name : Type) with resume", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -692,232 +654,213 @@ test("Test struct record labeled using(name : Type) with resume", {
         return(i32(0));
       }
   );
-
   result := safe_divide(10, 0);
-  assert((result == 0), "struct record labeled with resume: should be 0");
+  assert(result == 0, "struct record labeled with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "struct record labeled with resume: should be 5");
+  assert(result2 == 5, "struct record labeled with resume: should be 5");
 });
-
 test("Test multiple effect row spreads with resume", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
   );
-
   might_log :: (fn(using(log : Log)) -> unit)(
     log(`logged something`)
   );
-
-  run_both :: (fn(
+  run_both :: (
+    fn(
       forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
       f1 : (fn(using(...(E1))) -> T1),
       f2 : (fn(using(...(E2))) -> T2),
       using(...(E1), ...(E2))
-    ) -> T1)({
+    ) -> T1
+  )({
     f2();
     f1()
   });
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    return(i32(42));
-  });
-
-  (given(log) : Log) = ((msg) -> {
-    println(msg);
-    return(());
-  });
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      return(i32(42));
+    }
+  );
+  (given(log) : Log) = (
+    (msg) -> {
+      println(msg);
+      return(());
+    }
+  );
   result := run_both(might_fail, might_log);
-  assert((result == i32(42)), "multiple spreads resume: should be 42");
+  assert(result == i32(42), "multiple spreads resume: should be 42");
 });
-
 test("Test multiple effect row spreads with escape", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
   );
-
   might_log :: (fn(using(log : Log)) -> unit)(
     log(`logged something`)
   );
-
-  run_both :: (fn(
+  run_both :: (
+    fn(
       forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
       f1 : (fn(using(...(E1))) -> T1),
       f2 : (fn(using(...(E2))) -> T2),
       using(...(E1), ...(E2))
-    ) -> T1)({
+    ) -> T1
+  )({
     f2();
     f1()
   });
-
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    escape(());
-  });
-
-  (given(log) : Log) = ((msg) -> {
-    println(msg);
-    return(());
-  });
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      println(msg);
+      escape(());
+    }
+  );
+  (given(log) : Log) = (
+    (msg) -> {
+      println(msg);
+      return(());
+    }
+  );
   run_both(might_fail, might_log);
   assert(false, "multiple spreads escape: should not reach here");
 });
-
 test("Test closure with using() effect - resume", {
   Log :: (fn(msg : String) -> unit);
-
   x := Box(i32)(0);
-
-  (given(log) : Log) = ((msg) -> {
-    println(msg);
-    return(());
-  });
-
+  (given(log) : Log) = (
+    (msg) -> {
+      println(msg);
+      return(());
+    }
+  );
   (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
     (v, msg, using(log)) => {
       log(msg);
       x.* = (x.* + v);
       return(x.*);
     };
-
   result1 := closure(1, `hello`);
-  assert((result1 == 1), "closure+effect resume: expected result1 to be 1");
-  assert((x.* == 1), "closure+effect resume: expected x to be 1");
-
+  assert(result1 == 1, "closure+effect resume: expected result1 to be 1");
+  assert(x.* == 1, "closure+effect resume: expected x to be 1");
   result2 := closure(2, `world`);
-  assert((result2 == 3), "closure+effect resume: expected result2 to be 3");
-  assert((x.* == 3), "closure+effect resume: expected x to be 3");
+  assert(result2 == 3, "closure+effect resume: expected result2 to be 3");
+  assert(x.* == 3, "closure+effect resume: expected x to be 3");
 });
-
 test("Test closure with using() effect - escape", {
   Log :: (fn(msg : String) -> unit);
-
   run_test :: (fn() -> i32)({
     x := Box(i32)(0);
-
-    (given(log) : Log) = ((msg) -> {
-      println(msg);
-      escape(i32(99));
-    });
-
+    (given(log) : Log) = (
+      (msg) -> {
+        println(msg);
+        escape(i32(99));
+      }
+    );
     (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
       (v, msg, using(log)) => {
         log(msg);
         x.* = (x.* + v);
         return(x.*);
       };
-
     result := closure(1, `hello`);
     assert(false, "closure+effect escape: should not reach here");
     return(result);
   });
-
   val := run_test();
-  assert((val == 99), "closure+effect escape: expected escape value 99");
+  assert(val == 99, "closure+effect escape: expected escape value 99");
 });
-
 test("Effect row polymorphism with ...(E) spread", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
-
-  traverse :: (fn(
-    forall(S : usize, ...(E)),
-    arr : Array(i32, S),
-    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
-    using(...(E))
-    ) -> unit)({
-      i := usize(0);
-      while(i < S, i = (i + 1), {
-        callback(arr(i));
-      });
+  traverse :: (
+    fn(
+      forall(S : usize, ...(E)),
+      arr : Array(i32, S),
+      callback : Impl(Fn(v : i32, using(...(E))) -> unit),
+      using(...(E))
+    ) -> unit
+  )({
+    i := usize(0);
+    while(i < S, i = (i + 1), {
+      callback(arr(i));
     });
-
+  });
   (given(yield) : Yield) =
     (v) -> {
       return(v);
     };
-
   (given(log) : Log) =
     (v) -> {
       println(v);
     };
-
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   traverse(arr, (v, using(_yield, _log)) => {
     _log(v);
     result := _yield(v);
-    assert((result == v), "effect row: yield should return the value");
+    assert(result == v, "effect row: yield should return the value");
     sum.* = (sum.* + result);
   }, using(yield, log));
-  assert((sum.* == 10), "effect row: sum should be 10");
+  assert(sum.* == 10, "effect row: sum should be 10");
 });
-
 test("Effect row inline typed declaration using(name : Type)", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
-
-  traverse :: (fn(
-    forall(S : usize, ...(E)),
-    arr : Array(i32, S),
-    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
-    using(...(E))
-    ) -> unit)({
-      i := usize(0);
-      while(i < S, i = (i + 1), {
-        callback(arr(i));
-      });
+  traverse :: (
+    fn(
+      forall(S : usize, ...(E)),
+      arr : Array(i32, S),
+      callback : Impl(Fn(v : i32, using(...(E))) -> unit),
+      using(...(E))
+    ) -> unit
+  )({
+    i := usize(0);
+    while(i < S, i = (i + 1), {
+      callback(arr(i));
     });
-
+  });
   (given(yield) : Yield) =
     (v) -> {
       return(v);
     };
-
   (given(log) : Log) =
     (v) -> {
       println(v);
     };
-
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
-
   // Closure declares effect row inline with types — no call-site using() needed
   traverse(arr, (v, using(yield : Yield, log : Log)) => {
     log(v);
     result := yield(v);
-    assert((result == v), "inline typed: yield should return the value");
+    assert(result == v, "inline typed: yield should return the value");
     sum.* = (sum.* + result);
   });
-  assert((sum.* == 10), "inline typed: sum should be 10");
+  assert(sum.* == 10, "inline typed: sum should be 10");
 });
-
 test("Mixed escape and return in effect handler", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
-
-  traverse :: (fn(
-    forall(S : usize, ...(E)),
-    arr : Array(i32, S),
-    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
-    using(...(E))
-    ) -> unit)({
-      i := usize(0);
-      while(i < S, i = (i + 1), {
-        callback(arr(i));
-      });
+  traverse :: (
+    fn(
+      forall(S : usize, ...(E)),
+      arr : Array(i32, S),
+      callback : Impl(Fn(v : i32, using(...(E))) -> unit),
+      using(...(E))
+    ) -> unit
+  )({
+    i := usize(0);
+    while(i < S, i = (i + 1), {
+      callback(arr(i));
     });
-
+  });
   (given(yield) : Yield) =
-    (v) -> (
+    (v) ->
       cond(
         (v > 2) => {
           escape(());
@@ -925,37 +868,32 @@ test("Mixed escape and return in effect handler", {
         true => {
           return(v);
         }
-      )
-    );
-
+      );
   (given(log) : Log) =
     (v) -> {
       println(v);
     };
-
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
-
   traverse(arr, (v, using(yield : Yield, log : Log)) => {
     log(v);
     result := yield(v);
-    assert((result == v), "mixed handler: yield should return the value");
+    assert(result == v, "mixed handler: yield should return the value");
     sum.* = (sum.* + result);
   });
-
   assert(false, "This line should not be reached due to escape in yield");
 });
-
 test("Transitive SM while loop with break", {
   Yield :: (fn(v : i32) -> i32);
-
   // A transitive effectful function — its forall(...(E)) means it always gets an SM.
   // The while loop + break is inside the SM-generated function itself.
-  count_until :: (fn(
-    forall(...(E)),
-    limit : i32,
-    using(...(E))
-  ) -> i32)({
+  count_until :: (
+    fn(
+      forall(...(E)),
+      limit : i32,
+      using(...(E))
+    ) -> i32
+  )({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(true), {
@@ -963,133 +901,132 @@ test("Transitive SM while loop with break", {
       sum.* = (sum.* + result);
       counter.* = (counter.* + 1);
       cond(
-        (counter.* >= limit) => { break; },
+        (counter.* >= limit) => {
+          break;
+        },
         true => ()
       );
     });
     return(sum.*);
   });
-
   (given(yield) : Yield) =
     (v) -> {
-      return((v * i32(2)));
+      return(v * i32(2));
     };
-
   result := count_until(i32(4));
   // yield(0)*2=0, yield(1)*2=2, yield(2)*2=4, yield(3)*2=6 => sum = 12
-  assert((result == i32(12)), "transitive break: sum should be 0+2+4+6 = 12");
+  assert(result == i32(12), "transitive break: sum should be 0+2+4+6 = 12");
 });
-
 test("Transitive SM while loop with continue", {
   Yield :: (fn(v : i32) -> i32);
-
   // Skip odd results, accumulate even results, stop at counter == 8.
-  sum_even :: (fn(
-    forall(...(E)),
-    using(...(E))
-  ) -> i32)({
+  sum_even :: (
+    fn(
+      forall(...(E)),
+      using(...(E))
+    ) -> i32
+  )({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(counter.* < i32(8)), {
       result := yield(counter.*);
       counter.* = (counter.* + 1);
       cond(
-        ((result % i32(2)) != i32(0)) => { continue; },
+        ((result % i32(2)) != i32(0)) => {
+          continue;
+        },
         true => ()
       );
       sum.* = (sum.* + result);
     });
     return(sum.*);
   });
-
   (given(yield) : Yield) =
     (v) -> {
       return(v);
     };
-
   result := sum_even();
   // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip),
   // yield(4)=4, yield(5)=5(skip), yield(6)=6, yield(7)=7(skip) => 0+2+4+6 = 12
-  assert((result == i32(12)), "transitive continue: sum of even should be 12");
+  assert(result == i32(12), "transitive continue: sum of even should be 12");
 });
-
 test("Transitive SM while loop with mixed continue and break", {
   Yield :: (fn(v : i32) -> i32);
-
   // continue on counter <= 2, break on counter >= 5, accumulate the rest
-  mixed_loop :: (fn(
-    forall(...(E)),
-    using(...(E))
-  ) -> i32)({
+  mixed_loop :: (
+    fn(
+      forall(...(E)),
+      using(...(E))
+    ) -> i32
+  )({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(true), {
       counter.* = (counter.* + 1);
       yield(counter.*);
-
       cond(
-        (counter.* <= i32(2)) => { continue; },
+        (counter.* <= i32(2)) => {
+          continue;
+        },
         true => ()
       );
-
       cond(
-        (counter.* >= i32(5)) => { break; },
+        (counter.* >= i32(5)) => {
+          break;
+        },
         true => ()
       );
-
       sum.* = (sum.* + counter.*);
     });
     return(sum.*);
   });
-
   (given(yield) : Yield) =
     (v) -> {
       return(v);
     };
-
   result := mixed_loop();
   // counter 1: continue, 2: continue, 3: sum+=3, 4: sum+=4, 5: break
-  assert((result == i32(7)), "transitive mixed: sum should be 3+4 = 7");
+  assert(result == i32(7), "transitive mixed: sum should be 3+4 = 7");
 });
-
 test("Transitive SM while loop with step expr and continue", {
   Yield :: (fn(v : i32) -> i32);
-
-  sum_with_step :: (fn(
-    forall(...(E)),
-    using(...(E))
-  ) -> i32)({
+  sum_with_step :: (
+    fn(
+      forall(...(E)),
+      using(...(E))
+    ) -> i32
+  )({
     i := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(i.* < i32(6)), i.* = (i.* + 1), {
       result := yield(i.*);
       cond(
-        ((result % i32(2)) != i32(0)) => { continue; },
+        ((result % i32(2)) != i32(0)) => {
+          continue;
+        },
         true => ()
       );
       sum.* = (sum.* + result);
     });
     return(sum.*);
   });
-
   (given(yield) : Yield) =
     (v) -> {
       return(v);
     };
-
   result := sum_with_step();
   // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip), yield(4)=4, yield(5)=5(skip) => 0+2+4 = 6
-  assert((result == i32(6)), "transitive step+continue: sum of even should be 6");
+  assert(result == i32(6), "transitive step+continue: sum of even should be 6");
 });
-
 test("Transitive SM while loop with early return", {
   Yield :: (fn(v : i32) -> i32);
-
-  find_first :: (fn(
-    forall(...(E)),
-    threshold : i32,
-    using(...(E))
-  ) -> i32)({
+  find_first :: (
+    fn(
+      forall(...(E)),
+      threshold : i32,
+      using(...(E))
+    ) -> i32
+  )({
     i := Box(i32)(0);
     while(runtime(i.* < i32(10)), i.* = (i.* + 1), {
       result := yield(i.*);
@@ -1102,17 +1039,14 @@ test("Transitive SM while loop with early return", {
     });
     return(i32(-(1)));
   });
-
   (given(yield) : Yield) =
     (v) -> {
-      return((v * i32(3)));
+      return(v * i32(3));
     };
-
   result := find_first(i32(12));
   // yield(0)=0, yield(1)=3, yield(2)=6, yield(3)=9, yield(4)=12 >= 12 => return 12
-  assert((result == i32(12)), "transitive early return: should find 12");
+  assert(result == i32(12), "transitive early return: should find 12");
 });
-
 test("Struct-record effect with forall handler — escape in while loop", {
   // Tests the pattern from fixme.yo: struct-record effect with forall(ResumeType),
   // handler uses escape inside a while loop to abort traversal.
@@ -1121,35 +1055,35 @@ test("Struct-record effect with forall handler — escape in while loop", {
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
     cond(
       (y == 0) => exn.throw(x, i32(666)),
       true => (x / y)
     )
   );
-
-  traverse :: (fn(
-    forall(S : usize, ...(E)),
-    arr : Array(i32, S),
-    using(exn : MyException(i32), ...(E))
-    ) -> unit)({
-      i := usize(0);
-      while(i < S, i = (i + 1), {
-        safe_divide(i32(42), arr(i));
-      });
+  traverse :: (
+    fn(
+      forall(S : usize, ...(E)),
+      arr : Array(i32, S),
+      using(exn : MyException(i32), ...(E))
+    ) -> unit
+  )({
+    i := usize(0);
+    while(i < S, i = (i + 1), {
+      safe_divide(i32(42), arr(i));
     });
-
+  });
   arr := Array(i32, 4)(1, 2, 0, 3);
   given(exn) := MyException(i32)(
-    throw : ((val, resume_val) -> {
-      escape(());
-    })
+    throw : (
+      (val, resume_val) -> {
+        escape(());
+      }
+    )
   );
   traverse(arr, using(exn));
   assert(false, "Should not reach here after escape");
 });
-
 test("Struct-record effect with forall handler — resume in while loop", {
   // Struct-record effect with forall(ResumeType), handler resumes with a value.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
@@ -1157,25 +1091,23 @@ test("Struct-record effect with forall handler — resume in while loop", {
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
     cond(
       (y == 0) => exn.throw(x, i32(0)),
       true => (x / y)
     )
   );
-
   run_test :: (fn() -> unit)({
     sum := Box(i32)(0);
     counter := Box(i32)(0);
-
     given(exn) := MyException(i32)(
-      throw : ((val, resume_val) -> {
-        // resume_val should be i32(0), resume with it
-        return(resume_val);
-      })
+      throw : (
+        (val, resume_val) -> {
+          // resume_val should be i32(0), resume with it
+          return(resume_val);
+        }
+      )
     );
-
     while(runtime(counter.* < i32(5)), {
       // arr = [2, 0, 3, 0, 1] pattern inlined
       divisor := cond(
@@ -1186,120 +1118,112 @@ test("Struct-record effect with forall handler — resume in while loop", {
       sum.* = (sum.* + result);
       counter.* = (counter.* + 1);
     });
-
-    assert((counter.* == i32(5)), "counter should reach 5");
+    assert(counter.* == i32(5), "counter should reach 5");
     // 10/1=10, 10/0→resume(0)=0, 10/3=3, 10/0→resume(0)=0, 10/5=2 => sum = 15
-    assert((sum.* == i32(15)), "sum should be 15");
+    assert(sum.* == i32(15), "sum should be 15");
   });
   run_test();
 });
-
 test("Struct-record effect with forall handler — break after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
-
   safe_op :: (fn(x : i32, using(exn : MyException(i32))) -> i32)(
     cond(
       (x < 0) => exn.throw(x, i32(0)),
       true => x
     )
   );
-
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
-
     given(exn) := MyException(i32)(
-      throw : ((val, resume_val) -> {
-        return(resume_val);
-      })
+      throw : (
+        (val, resume_val) -> {
+          return(resume_val);
+        }
+      )
     );
-
     while(runtime(true), {
-      result := safe_op((counter.* - i32(2)));
+      result := safe_op(counter.* - i32(2));
       counter.* = (counter.* + 1);
       cond(
-        (counter.* >= i32(5)) => { break; },
+        (counter.* >= i32(5)) => {
+          break;
+        },
         true => ()
       );
     });
-
-    assert((counter.* == i32(5)), "break after struct-record resume: counter should be 5");
+    assert(counter.* == i32(5), "break after struct-record resume: counter should be 5");
   });
   run_test();
 });
-
 test("Struct-record effect with forall handler — continue after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
-
   safe_op :: (fn(x : i32, using(exn : MyException(i32))) -> i32)(
     cond(
       (x < 0) => exn.throw(x, i32(0)),
       true => x
     )
   );
-
   run_test :: (fn() -> unit)({
     sum := Box(i32)(0);
     counter := Box(i32)(0);
-
     given(exn) := MyException(i32)(
-      throw : ((val, resume_val) -> {
-        return(resume_val);
-      })
+      throw : (
+        (val, resume_val) -> {
+          return(resume_val);
+        }
+      )
     );
-
     while(runtime(counter.* < i32(6)), {
       i := counter.*;
       counter.* = (counter.* + 1);
-      result := safe_op((i - i32(2)));
+      result := safe_op(i - i32(2));
       // result: negative inputs → 0 (resumed), non-negative → identity
       // i=0→-2→0, i=1→-1→0, i=2→0, i=3→1, i=4→2, i=5→3
       cond(
-        (result == i32(0)) => { continue; },
+        (result == i32(0)) => {
+          continue;
+        },
         true => ()
       );
       sum.* = (sum.* + result);
     });
-
-    assert((counter.* == i32(6)), "continue after struct-record resume: counter should be 6");
+    assert(counter.* == i32(6), "continue after struct-record resume: counter should be 6");
     // sum = 1 + 2 + 3 = 6
-    assert((sum.* == i32(6)), "continue after struct-record resume: sum should be 6");
+    assert(sum.* == i32(6), "continue after struct-record resume: sum should be 6");
   });
   run_test();
 });
-
 test("Struct-record effect with forall handler — early return after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
-
   safe_op :: (fn(x : i32, using(exn : MyException(i32))) -> i32)(
     cond(
       (x < 0) => exn.throw(x, i32(0)),
       true => x
     )
   );
-
   find_first_positive :: (fn() -> i32)({
     counter := Box(i32)(0);
-
     given(exn) := MyException(i32)(
-      throw : ((val, resume_val) -> {
-        return(resume_val);
-      })
+      throw : (
+        (val, resume_val) -> {
+          return(resume_val);
+        }
+      )
     );
-
     while(runtime(counter.* < i32(10)), {
-      result := safe_op((counter.* - i32(3)));
+      result := safe_op(counter.* - i32(3));
       counter.* = (counter.* + 1);
       cond(
         (result > i32(0)) => {
@@ -1308,15 +1232,12 @@ test("Struct-record effect with forall handler — early return after resume in 
         true => ()
       );
     });
-
     return(i32(-(1)));
   });
-
   result := find_first_positive();
   // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
-  assert((result == i32(1)), "early return after struct-record resume: should find 1");
+  assert(result == i32(1), "early return after struct-record resume: should find 1");
 });
-
 // ---------------------------------------------------------------------------
 // Break in tagged union (Option) match arm after fn resume
 // Analogous to async_await test: break in Option match in async while loop.
@@ -1324,108 +1245,97 @@ test("Struct-record effect with forall handler — early return after resume in 
 // ---------------------------------------------------------------------------
 test("Test break in Option match arm after fn resume", {
   GetValue :: (fn() -> i32);
-
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
-
-    (given(get_value) : GetValue) = (() -> {
-      return(i32(1));
-    });
-
+    (given(get_value) : GetValue) = (
+      () -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       get_value();
       counter.* = (counter.* + 1);
-
       opt := cond(
         (counter.* > i32(5)) => Option(i32).None,
         true => Option(i32).Some(counter.*)
       );
-
-      val := match(opt,
+      val := match(
+        opt,
         .Some(v) => v,
         .None => break
       );
       sum.* = (sum.* + val);
     });
-
     assert(counter.* == i32(6), "counter should be 6 when None triggers break");
     assert(sum.* == i32(15), "sum should be 1+2+3+4+5 = 15");
   });
   run_test();
 });
-
 // ---------------------------------------------------------------------------
 // Continue in tagged union (Option) match arm after fn resume
 // Analogous to async_await test: continue in Option match in async while loop.
 // ---------------------------------------------------------------------------
 test("Test continue in Option match arm after fn resume", {
   GetValue :: (fn() -> i32);
-
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
-
-    (given(get_value) : GetValue) = (() -> {
-      return(i32(1));
-    });
-
+    (given(get_value) : GetValue) = (
+      () -> {
+        return(i32(1));
+      }
+    );
     while(runtime(counter.* < i32(6)), {
       get_value();
       counter.* = (counter.* + 1);
-
       // Skip even numbers via Option match
       opt := cond(
         ((counter.* % i32(2)) == i32(0)) => Option(i32).None,
         true => Option(i32).Some(counter.*)
       );
-
-      val := match(opt,
+      val := match(
+        opt,
         .Some(v) => v,
         .None => continue
       );
       sum.* = (sum.* + val);
     });
-
     assert(counter.* == i32(6), "counter should reach 6");
     assert(sum.* == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
   });
   run_test();
 });
-
 // ---------------------------------------------------------------------------
 // Mixed break and continue in tagged union (Option) match arms after fn resume
 // Analogous to async_await test: mixed break and continue in Option match.
 // ---------------------------------------------------------------------------
 test("Test mixed break and continue in Option match after fn resume", {
   GetValue :: (fn() -> i32);
-
   run_test :: (fn() -> unit)({
     counter := Box(i32)(0);
     sum := Box(i32)(0);
-
-    (given(get_value) : GetValue) = (() -> {
-      return(i32(1));
-    });
-
+    (given(get_value) : GetValue) = (
+      () -> {
+        return(i32(1));
+      }
+    );
     while(runtime(true), {
       get_value();
       counter.* = (counter.* + 1);
-
       // None means break, Some(0) means continue, Some(v) means accumulate
       opt := cond(
         (counter.* > i32(7)) => Option(i32).None,
         ((counter.* % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
         true => Option(i32).Some(counter.*)
       );
-
-      val := match(opt,
+      val := match(
+        opt,
         .Some(v) => cond((v == i32(0)) => continue, true => v),
         .None => break
       );
       sum.* = (sum.* + val);
     });
-
     assert(counter.* == i32(8), "counter should be 8 when None triggers break");
     // Iterations: 1→Some(1)→sum, 2→Some(2)→sum, 3→Some(0)→continue,
     // 4→Some(4)→sum, 5→Some(5)→sum, 6→Some(0)→continue,
@@ -1435,77 +1345,66 @@ test("Test mixed break and continue in Option match after fn resume", {
   });
   run_test();
 });
-
 // ===========================================================================
 // Additional corner-case tests
 // ===========================================================================
-
 // ---------------------------------------------------------------------------
 // Three-level effect propagation via using parameter
 // Tests that evidence pointers are forwarded correctly through 3 call levels.
 // ---------------------------------------------------------------------------
 test("Test three-level effect propagation via using parameter", {
   Raise :: (fn(msg : String) -> i32);
-
   level3 :: (fn(x : i32, using(raise : Raise)) -> i32)(
     cond(
       (x < 0) => raise(`negative`),
       true => (x * i32(2))
     )
   );
-
   level2 :: (fn(x : i32, using(raise : Raise)) -> i32)(
-    (level3(x) + i32(1))
+    level3(x) + i32(1)
   );
-
   level1 :: (fn(x : i32, using(raise : Raise)) -> i32)(
-    (level2(x) + i32(10))
+    level2(x) + i32(10)
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    return(i32(0));
-  });
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      return(i32(0));
+    }
+  );
   result1 := level1(i32(5));
-  assert((result1 == i32(21)), "3-level propagation: 5*2+1+10 = 21");
-
+  assert(result1 == i32(21), "3-level propagation: 5*2+1+10 = 21");
   result2 := level1(i32(-(1)));
-  assert((result2 == i32(11)), "3-level propagation with raise: 0+1+10 = 11");
+  assert(result2 == i32(11), "3-level propagation with raise: 0+1+10 = 11");
 });
-
 // ---------------------------------------------------------------------------
 // Three-level effect propagation with escape
 // Escape at the deepest level should propagate all the way out.
 // ---------------------------------------------------------------------------
 test("Test three-level effect propagation with escape", {
   Raise :: (fn(msg : String) -> i32);
-
   level3 :: (fn(x : i32, using(raise : Raise)) -> i32)(
     cond(
       (x < 0) => raise(`negative`),
       true => (x * i32(2))
     )
   );
-
   level2 :: (fn(x : i32, using(raise : Raise)) -> i32)(
-    (level3(x) + i32(1))
+    level3(x) + i32(1)
   );
-
   level1 :: (fn(x : i32, using(raise : Raise)) -> i32)(
-    (level2(x) + i32(10))
+    level2(x) + i32(10)
   );
-
   run_test :: (fn() -> i32)({
-    (given(raise) : Raise) = ((msg) -> {
-      escape(i32(99));
-    });
+    (given(raise) : Raise) = (
+      (msg) -> {
+        escape(i32(99));
+      }
+    );
     level1(i32(-(1)))
   });
-
   result := run_test();
-  assert((result == i32(99)), "3-level escape: should get 99");
+  assert(result == i32(99), "3-level escape: should get 99");
 });
-
 // ---------------------------------------------------------------------------
 // Struct-record effect with escape returning non-unit value
 // ---------------------------------------------------------------------------
@@ -1513,14 +1412,12 @@ test("Test struct-record effect escape with non-unit value", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   run_test :: (fn() -> i32)({
     (given(raise_mod) : Raise) = Raise(
       raise :
@@ -1530,11 +1427,9 @@ test("Test struct-record effect escape with non-unit value", {
     );
     safe_divide(10, 0)
   });
-
   result := run_test();
-  assert((result == i32(-(1))), "struct-record escape non-unit: should get -1");
+  assert(result == i32(-(1)), "struct-record escape non-unit: should get -1");
 });
-
 // ---------------------------------------------------------------------------
 // Struct-record effect with multiple functions
 // Tests that a struct record with more than one function field works correctly.
@@ -1545,14 +1440,12 @@ test("Test struct-record effect with multiple function members", {
     warn : (fn(msg : String) -> i32),
     count : (fn(current : i32) -> i32)
   );
-
   log_messages :: (fn(using(logger : Logger)) -> i32)({
     logger.info(`first info`);
     logger.warn(`first warn`);
     logger.info(`second info`);
     logger.count(i32(3))
   });
-
   (given(logger) : Logger) = Logger(
     info :
       (msg) -> {
@@ -1569,11 +1462,9 @@ test("Test struct-record effect with multiple function members", {
         return(current);
       }
   );
-
   result := log_messages();
-  assert((result == 3), "multi-member struct record: count(3) should return 3");
+  assert(result == 3, "multi-member struct record: count(3) should return 3");
 });
-
 // ---------------------------------------------------------------------------
 // Multiple struct-record effects in the same scope
 // Two distinct struct-record effect types used together.
@@ -1582,11 +1473,9 @@ test("Test multiple struct-record effects in same scope", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   Log :: struct(
     log : (fn(msg : String) -> i32)
   );
-
   compute :: (fn(x : i32, y : i32, using(raise_mod : Raise, log_mod : Log)) -> i32)({
     log_mod.log(`computing`);
     cond(
@@ -1594,7 +1483,6 @@ test("Test multiple struct-record effects in same scope", {
       true => (x / y)
     )
   });
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -1609,133 +1497,122 @@ test("Test multiple struct-record effects in same scope", {
         return(i32(1));
       }
   );
-
   result := compute(10, 2);
-  assert((result == 5), "multi-struct-record: 10/2 = 5");
-
+  assert(result == 5, "multi-struct-record: 10/2 = 5");
   result2 := compute(10, 0);
-  assert((result2 == 0), "multi-struct-record: raise returns 0");
+  assert(result2 == 0, "multi-struct-record: raise returns 0");
 });
-
 // ---------------------------------------------------------------------------
 // Effect handler that conditionally resumes or escapes based on argument
 // Handler decides at runtime whether to resume or escape.
 // ---------------------------------------------------------------------------
 test("Test effect handler conditional resume or escape based on argument", {
   Raise :: (fn(msg : String, attempt : i32) -> i32);
-
   safe_divide :: (fn(x : i32, y : i32, attempt : i32, using(raise : Raise)) -> i32)(
     cond(
       (y == 0) => raise(`div-by-zero`, attempt),
       true => (x / y)
     )
   );
-
   run_test :: (fn() -> i32)({
-    (given(raise) : Raise) = ((msg, attempt) -> {
-      cond(
-        (attempt <= i32(2)) => {
-          return(i32(0));
-        },
-        true => {
-          escape(i32(-(1)));
-        }
-      );
-    });
-
+    (given(raise) : Raise) = (
+      (msg, attempt) -> {
+        cond(
+          (attempt <= i32(2)) => {
+            return(i32(0));
+          },
+          true => {
+            escape(i32(-(1)));
+          }
+        );
+      }
+    );
     sum := Box(i32)(0);
     sum.* = (sum.* + safe_divide(10, 0, i32(1)));
     sum.* = (sum.* + safe_divide(20, 0, i32(2)));
     sum.* = (sum.* + safe_divide(30, 0, i32(3)));
     return(sum.*);
   });
-
   result := run_test();
-  assert((result == i32(-(1))), "conditional resume/escape: third call escapes with -1");
+  assert(result == i32(-(1)), "conditional resume/escape: third call escapes with -1");
 });
-
 // ---------------------------------------------------------------------------
 // Recursive function with effects (recur + using)
 // ---------------------------------------------------------------------------
 test("Test recursive function with effect via recur", {
   Raise :: (fn(msg : String) -> i32);
-
   sum_to :: (fn(n : i32, using(raise : Raise)) -> i32)(
     cond(
       (n <= 0) => raise(`reached zero`),
-      true => (n + recur((n - 1)))
+      true => (n + recur(n - 1))
     )
   );
-
-  (given(raise) : Raise) = ((msg) -> {
-    return(i32(0));
-  });
-
+  (given(raise) : Raise) = (
+    (msg) -> {
+      return(i32(0));
+    }
+  );
   result := sum_to(i32(5));
-  assert((result == i32(15)), "recur+effect: 5+4+3+2+1+0 = 15");
+  assert(result == i32(15), "recur+effect: 5+4+3+2+1+0 = 15");
 });
-
 // ---------------------------------------------------------------------------
 // Recursive function with effect — escape during recursion
 // ---------------------------------------------------------------------------
 test("Test recursive function with effect escape during recursion", {
   Raise :: (fn(val : i32) -> i32);
-
   sum_to :: (fn(n : i32, using(raise : Raise)) -> i32)(
     cond(
       (n <= 0) => i32(0),
-      true => (raise(n) + recur((n - 1)))
+      true => (raise(n) + recur(n - 1))
     )
   );
-
   run_test :: (fn() -> i32)({
-    (given(raise) : Raise) = ((val) -> {
-      cond(
-        (val == i32(3)) => {
-          escape(i32(42));
-        },
-        true => {
-          return(val);
-        }
-      );
-    });
+    (given(raise) : Raise) = (
+      (val) -> {
+        cond(
+          (val == i32(3)) => {
+            escape(i32(42));
+          },
+          true => {
+            return(val);
+          }
+        );
+      }
+    );
     sum_to(i32(5))
   });
-
   result := run_test();
-  assert((result == i32(42)), "recur+escape: should escape with 42 at n=3");
+  assert(result == i32(42), "recur+escape: should escape with 42 at n=3");
 });
-
 // ---------------------------------------------------------------------------
 // Effect with enum return type (Option)
 // ---------------------------------------------------------------------------
 test("Test effect with Option return type", {
   Lookup :: (fn(key : i32) -> Option(i32));
-
   get_or_default :: (fn(key : i32, default_val : i32, using(lookup : Lookup)) -> i32)(
-    match(lookup(key),
+    match(
+      lookup(key),
       .Some(v) => v,
       .None => default_val
     )
   );
-
-  (given(lookup) : Lookup) = ((key) -> {
-    return(cond(
-      (key > 0) => Option(i32).Some((key * i32(10))),
-      true => Option(i32).None
-    ));
-  });
-
+  (given(lookup) : Lookup) = (
+    (key) -> {
+      return(
+        cond(
+          (key > 0) => Option(i32).Some(key * i32(10)),
+          true => Option(i32).None
+        )
+      );
+    }
+  );
   result1 := get_or_default(i32(3), i32(-(1)));
-  assert((result1 == i32(30)), "option effect: key=3 -> 30");
-
+  assert(result1 == i32(30), "option effect: key=3 -> 30");
   result2 := get_or_default(i32(0), i32(-(1)));
-  assert((result2 == i32(-(1))), "option effect: key=0 -> default -1");
-
+  assert(result2 == i32(-(1)), "option effect: key=0 -> default -1");
   result3 := get_or_default(i32(-(5)), i32(99));
-  assert((result3 == i32(99)), "option effect: key=-5 -> default 99");
+  assert(result3 == i32(99), "option effect: key=-5 -> default 99");
 });
-
 // ---------------------------------------------------------------------------
 // Effect-polymorphic function with struct-record effect (not just fn-type effect)
 // Combines forall(...(E)) spread with struct-record effects.
@@ -1744,26 +1621,25 @@ test("Test effect polymorphism with struct-record effect spread", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   might_fail :: (fn(using(raise_mod : Raise)) -> i32)(
     raise_mod.raise(`oops`)
   );
-
-  run :: (fn(forall(T : Type, ...(E)),
+  run :: (
+    fn(
+      forall(T : Type, ...(E)),
       f : (fn(using(...(E))) -> T),
-      using(...(E))) -> T)(f());
-
+      using(...(E))
+    ) -> T
+  )(f());
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
         return(i32(77));
       }
   );
-
   result := run(might_fail);
   assert(result == i32(77), "struct-record effect polymorphism: should be 77");
 });
-
 // ---------------------------------------------------------------------------
 // Transitive SM with struct-record effects (combine forall + transitive + record)
 // ---------------------------------------------------------------------------
@@ -1771,12 +1647,13 @@ test("Test transitive SM with struct-record effect in while loop", {
   Counter :: struct(
     increment : (fn(current : i32) -> i32)
   );
-
-  loop_with_effect :: (fn(
-    forall(...(E)),
-    limit : i32,
-    using(...(E))
-  ) -> i32)({
+  loop_with_effect :: (
+    fn(
+      forall(...(E)),
+      limit : i32,
+      using(...(E))
+    ) -> i32
+  )({
     sum := Box(i32)(0);
     i := Box(i32)(0);
     c := Box(i32)(0);
@@ -1787,16 +1664,14 @@ test("Test transitive SM with struct-record effect in while loop", {
     });
     return(sum.*);
   });
-
   (given(counter) : Counter) = Counter(
     increment :
       (current) -> {
-        return((current + i32(1)));
+        return(current + i32(1));
       }
   );
-
   result := loop_with_effect(i32(4));
-  assert((result == i32(10)), "transitive SM struct record: 1+2+3+4 = 10");
+  assert(result == i32(10), "transitive SM struct record: 1+2+3+4 = 10");
 });
 // Regression: regular -> functions cannot capture outer runtime variables.
 // Runtime struct evidence does not turn a regular handler function into a closure.
@@ -1804,7 +1679,6 @@ test("regular fn struct handler cannot capture outer runtime variable", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   outer_val := i32(42);
   comptime_expect_error(
     (given(r) : Raise) = Raise(
@@ -1812,19 +1686,16 @@ test("regular fn struct handler cannot capture outer runtime variable", {
     )
   );
 });
-
 test("Test struct-based effect with escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -1832,23 +1703,19 @@ test("Test struct-based effect with escape", {
         escape(());
       }
   );
-
   result := safe_divide(10, 0);
   assert(false, "Should not reach here after escape");
 });
-
 test("Test struct-based effect with resume", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-
   (given(raise_mod) : Raise) = Raise(
     raise :
       (msg) -> {
@@ -1856,9 +1723,8 @@ test("Test struct-based effect with resume", {
         return(i32(0));
       }
   );
-
   result := safe_divide(10, 0);
-  assert((result == 0), "struct-based effect with resume: should be 0");
+  assert(result == 0, "struct-based effect with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "struct-based effect with resume: should be 5");
+  assert(result2 == 5, "struct-based effect with resume: should be 5");
 });
