@@ -2487,7 +2487,7 @@ function emitEffectInjectionForSM(
         isSourceNamespaceType(effect.type) ||
         isStructType(effect.type)
       ) {
-        emitModuleEffectInjectionForSM(
+        emitEffectRecordInjectionForSM(
           effect.type,
           futureArg.$.type,
           futureAccess,
@@ -2522,7 +2522,7 @@ function emitEffectInjectionForSM(
         isSourceNamespaceType(effect.type) ||
         isStructType(effect.type)
       ) {
-        emitModuleEffectInjectionForSM(
+        emitEffectRecordInjectionForSM(
           effect.type,
           futureArg.$.type,
           futureAccess,
@@ -2536,7 +2536,7 @@ function emitEffectInjectionForSM(
   }
 }
 
-function emitModuleEffectInjectionForSM(
+function emitEffectRecordInjectionForSM(
   sourceNamespaceType: SourceNamespaceType | StructType,
   futureType: Type,
   futureAccess: string,

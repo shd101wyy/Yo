@@ -272,7 +272,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
     // MUST still be emitted in their unspecialized form — their forall params are type-erased
     // (void), the body is just escape(), and the unspecialized name is stored as a void*
-    // function pointer in async capture structs by emitModuleEffectInjection in await.ts.
+    // function pointer in async capture structs by emitEffectRecordInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&
@@ -286,7 +286,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // body lacks type annotations on sub-expressions (metadata is only filled in
     // during specialization). We must emit the unspecialized form because its name
     // is stored as a void* function pointer in async capture structs by
-    // emitModuleEffectInjection (see await.ts). Emit a minimal stub: set the
+    // emitEffectRecordInjection (see await.ts). Emit a minimal stub: set the
     // effect-escaped flag and return a zero value matching the declared return type.
     if (
       value.isEffectRecordMember &&
@@ -872,7 +872,7 @@ export function generateFunction(
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
   // Track if this isan effect record member function (for escape detection)
-  const previousIsModuleEffectMemberFunction = (
+  const previousIsEffectRecordMemberFunction = (
     context as FunctionGenerationContext
   ).isEffectRecordMemberFunction;
   const previousOverrideReturnTypeStr = (context as FunctionGenerationContext)
@@ -1008,7 +1008,7 @@ export function generateFunction(
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;
   (context as FunctionGenerationContext).isEffectRecordMemberFunction =
-    previousIsModuleEffectMemberFunction;
+    previousIsEffectRecordMemberFunction;
   (context as FunctionGenerationContext).overrideReturnTypeStr =
     previousOverrideReturnTypeStr;
   (context as FunctionGenerationContext).currentEvidenceParams =

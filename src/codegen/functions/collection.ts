@@ -212,7 +212,7 @@ export function collectRequiredFunctions(
  * Recursively collect function values from a struct namespace and its nested records,
  * marking them as effect record members so they get compiled as standalone functions.
  */
-function collectModuleEffectMembers(
+function collectEffectRecordMembers(
   mv: StructValue,
   context: CodeGenContext
 ): void {
@@ -244,7 +244,7 @@ function collectModuleEffectMembers(
         }
       }
     } else if (fieldValue && isStructValue(fieldValue)) {
-      collectModuleEffectMembers(fieldValue, context);
+      collectEffectRecordMembers(fieldValue, context);
     }
   }
 }
@@ -262,7 +262,7 @@ export function findFunctionCallsInExpr(
   // as function call expressions in the AST, so the normal traversal misses them.
   if (expr.$?.value && isStructValue(expr.$.value)) {
     const mv = expr.$.value;
-    collectModuleEffectMembers(mv, context);
+    collectEffectRecordMembers(mv, context);
   }
   // Skip test blocks - they should not generate code
   if (

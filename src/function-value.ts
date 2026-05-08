@@ -134,7 +134,7 @@ export type FunctionValue = {
    *
    * Set in two places:
    * - effect record members: fields of an effect record value used as an effect handler
-   *   (set in codegen collection via collectModuleEffectMembers)
+   *   (set in codegen collection via collectEffectRecordMembers)
    * - Bare function-type effect handlers: function values assigned via `given`
    *   bindings (set in evaluator initialization-assignment)
    */

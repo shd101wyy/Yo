@@ -131,7 +131,7 @@ export function generateFunctionDeclarations(
     // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
     // MUST still be emitted in their unspecialized form — their body is simple (escape)
     // and the unspecialized name is stored as a void* function pointer in async capture
-    // structs by emitModuleEffectInjection in await.ts.
+    // structs by emitEffectRecordInjection in await.ts.
     if (
       !isUserMain &&
       !value.type.isClosure &&

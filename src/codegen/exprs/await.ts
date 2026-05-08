@@ -646,7 +646,7 @@ function emitEffectInjectionForAwait(
         isSourceNamespaceType(effect.type) ||
         isStructType(effect.type)
       ) {
-        emitModuleEffectInjection(
+        emitEffectRecordInjection(
           effect.type,
           futureArg.$.type,
           futureVar,
@@ -680,7 +680,7 @@ function emitEffectInjectionForAwait(
         isSourceNamespaceType(effect.type) ||
         isStructType(effect.type)
       ) {
-        emitModuleEffectInjection(
+        emitEffectRecordInjection(
           effect.type,
           futureArg.$.type,
           futureVar,
@@ -698,7 +698,7 @@ function emitEffectInjectionForAwait(
  * Inject struct-record effect fields (e.g., Exception.throw) into a Future's capture struct.
  * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
  */
-function emitModuleEffectInjection(
+function emitEffectRecordInjection(
   sourceNamespaceType: SourceNamespaceType | StructType,
   futureType: Type,
   futureVar: string,
