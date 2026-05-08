@@ -18,6 +18,8 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
+| Format Yo source          | `yo fmt ./src ./tests`                                    |
+| Check Yo formatting       | `yo fmt --check`                                          |
 | Generate docs for project | `yo doc ./src`                                            |
 | Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
 | Install AI agent skills   | `yo skills install`                                       |
@@ -89,6 +91,7 @@ doc_step.depend_on(docs);
 | Whole project with `build.yo`   | `yo build ...`                             |
 | One standalone file             | `yo compile ...`                           |
 | One test file or test directory | `yo test ...`                              |
+| Formatting Yo source            | `yo fmt ...`                               |
 | Dependency changes              | `yo install ...` then `yo fetch` if needed |
 
 ## Testing patterns
@@ -102,6 +105,19 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 - Use `--parallel 1` for focused, readable single-file runs
 - Use `--test-name-pattern` when a file contains many tests
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
+
+## Formatting
+
+```bash
+yo fmt
+yo fmt ./src ./tests
+yo fmt --check
+```
+
+- `yo fmt` recursively formats `.yo` files under the current directory by default
+- Pass files or directories to limit the scope
+- `yo fmt --check` reports files that need formatting without writing changes
+- Formatting is intentionally fixed: 2-space indentation and no configuration
 
 ### Writing tests in Yo
 

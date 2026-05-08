@@ -160,6 +160,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 **核心设计原则：**
 
 - **受 Lisp 启发的简洁语法**（无关键字，极简设计）
+- **对 LLM 友好的语法**（函数、关键字和前缀运算符调用都必须使用紧贴的括号）
 - **一等类型**（类型即值）
 - **编译期求值**（强大的 `comptime` 系统）
 - **带所有权分析的引用计数**（消除不必要的 RC 操作）
@@ -200,13 +201,13 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 ## Hello World
 
 ```rust
-{ println } :: import "std/fmt";
+{ println } :: import("std/fmt");
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   println("Hello, world!");
-};
+});
 
-export main;
+export(main);
 ```
 
 ## CLI 用法
@@ -232,9 +233,16 @@ yo build --target wasm-emscripten  # 交叉编译为 WASM（Emscripten）
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
 yo compile hello.yo --target wasm-emscripten -o hello.html
+
+# 格式化（固定风格，2 空格缩进）
+yo fmt                     # 格式化当前目录下所有 .yo 文件
+yo fmt src tests           # 格式化 src 和 tests 下的 .yo 文件
+yo fmt --check             # 只检查格式，不写入变更
 ```
 
 完整的构建系统文档请参阅 [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)。
+
+`yo fmt` 有意不提供配置，遵循类似 `go fmt` 的理念：所有 Yo 项目共享一种紧凑、一致的风格，固定使用 2 空格缩进。
 
 ## 语法
 
@@ -252,12 +260,11 @@ yo compile hello.yo --target wasm-emscripten -o hello.html
 x // 一个原子（标识符）
 func(x, y) // 带两个参数 x 和 y 的函数调用。
            // 注意函数名和括号之间没有空格
+           // 不带括号的调用（如 func x, y）是非法的。
 
-// 或不使用括号：
-func x, y  // 与上面相同
-
-// 或使用 S 表达式风格：
-(func x, y) // 与上面相同，但用括号包围整个表达式
+// 调用必须使用紧贴的括号。以下写法是非法的：
+// func x, y
+// func (x, y)
 
 // Yo 区分大小写，所以 `X` 和 `x` 是不同的标识符
 
@@ -272,7 +279,7 @@ y :: 14;
 
 // Yo 中没有算术优先级
 // 除了 "." 不被视为运算符，但它具有最高优先级。
-// "." 有自己的解析规则，例如 a.b + c.d 被解析为 (. a b) + (. c d)
+// "." 有自己的解析规则，例如 a.b + c.d 被解析为 .(a, b) + .(c, d)
 
 // 每个中缀运算符接受左右两个参数
 // 所以下面的表达式是无效的
@@ -567,9 +574,9 @@ add = _(x + y); // 这里的 `_` 从 `add` 推断函数类型
 add = ((a, b) -> (a + b));  // 类型从用法推断。可以使用不同的参数名
 
 // 带显式返回类型
-multiply :: (fn(x : i32, y : i32) -> i32) {
-  return (x * y);  // 显式返回
-};
+multiply :: (fn(x : i32, y : i32) -> i32)({
+  return((x * y));  // 显式返回
+});
 
 // 最后一个表达式即为返回值
 divide :: (fn(x : i32, y : i32) -> i32)
@@ -577,12 +584,12 @@ divide :: (fn(x : i32, y : i32) -> i32)
 ;
 
 // 函数可以接受 `comptime` 参数并返回 `comptime` 值，如 Type：
-Point :: (fn(comptime(T) : Type) -> comptime(Type)) {
-  return struct(
+Point :: (fn(comptime(T) : Type) -> comptime(Type))({
+  return(struct(
     x : T,
     y : T
-  );
-};
+  ));
+});
 I32Point :: Point(i32);
 BoolPoint :: Point(bool);
 
@@ -676,14 +683,14 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // 隐式分派 — where(T <: T1) 约束 self.get_number() 只使用 T1 的方法
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
-  return self.get_number();  // 返回 self.x (10)
-};
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+  return(self.get_number());  // 返回 self.x (10)
+});
 
 // 显式分派 — 使用 (T <: T2).method(self) 语法
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
-  return (T <: T2).get_number(self);  // 返回 self.y (20)
-};
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+  return((T <: T2).get_number(self));  // 返回 self.y (20)
+});
 
 point := Point(10, 20);
 use_t1(point);  // 10
@@ -858,11 +865,11 @@ Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C：
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
+swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
   tmp := a.*;  // 解引用指针
   a.* = b.*;
   b.* = tmp;
-};
+});
 
 swap(&(x), &(y));  // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
@@ -896,7 +903,7 @@ float_ptr := *(f32)(ptr);  // 将指针转换为 *(f32)
 Yo 提供了一整套指针算术运算符：
 
 ```rust
-test "Pointer arithmetic", {
+test("Pointer arithmetic", {
   x := 12;
   p := &(x);
 
@@ -915,7 +922,7 @@ test "Pointer arithmetic", {
   // 指针差值（指针间的距离）
   diff := (q &/ p);  // 距离：2 个元素
   assert(diff == 2);
-};
+});
 ```
 
 ### 指针运算符参考
@@ -968,7 +975,7 @@ match(some_ptr,
 Yo 通过引用计数自动管理对象类型的内存。当对象的引用计数降为零时，它会被自动释放。
 
 ```rust
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   x := String.from("World!");  // RC = 1
   // ... 使用 x ...
   // 作用域结束时，RC 递减
@@ -1169,7 +1176,7 @@ if :: (fn(
 ;
 
 // 使用
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   // 如果没有返回类型，则为 unit
   number := 3;
 
@@ -1181,7 +1188,7 @@ main :: (fn() -> unit) {
   };
 
   if(number < 5, println("condition was true"), println("condition was false"));
-};
+});
 ```
 
 ### while
@@ -1190,7 +1197,7 @@ main :: (fn() -> unit) {
 `while(condition, steps, do: body)`
 
 ```rust
-factorial :: (fn(n: i32) -> i32) {
+factorial :: (fn(n: i32) -> i32)({
   result := 1;
   i := 1;
   while(i <= n, {
@@ -1198,16 +1205,16 @@ factorial :: (fn(n: i32) -> i32) {
     i = (i + 1);
   });
   result
-};
+});
 
-factorial2 :: (fn(n: i32) -> i32) {
+factorial2 :: (fn(n: i32) -> i32)({
   result := 1;
   i := 1;
   while((i <= n), (i = (i + 1)), {
     result = (result * i);
   });
   result
-};
+});
 ```
 
 ### 迭代器与 for 循环
@@ -1254,9 +1261,9 @@ IntoIterator :: trait(
 
 ```rust
 // for 循环语法
-for iter_expr, (variable) => {
+for(iter_expr, (variable) => {
   // 循环体
-};
+});
 ```
 
 每个集合提供两种迭代模式：
@@ -1272,39 +1279,39 @@ list.push(i32(10));
 list.push(i32(20));
 
 // iter() — 产出指向元素的指针
-for list.iter(), (ptr) => {
+for(list.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
 // into_iter() — 产出值（获取 RC 句柄的所有权）
-for list.into_iter(), (value) => {
+for(list.into_iter(), (value) => {
   println(value);
-};
+});
 
 // 数组使用 iter() — 产出指向元素的指针
 arr := Array(i32, 3)(1, 2, 3);
-for arr.iter(), (ptr) => {
+for(arr.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
 // 字符串使用 chars() 和 bytes()
 s := String.from("Hello");
-for s.chars(), (ch) => {
+for(s.chars(), (ch) => {
   println(ch);
-};
+});
 ```
 
 `for` 宏展开为：
 
 ```rust
 iter := iter_expr;
-while runtime(true), {
+while(runtime(true), {
   temp := &(iter).next();
   match(temp,
     .Some(variable) => body,
     .None => { break; }
   )
-};
+});
 ```
 
 ## 代数数据类型 (ADT)
@@ -1675,15 +1682,15 @@ impl(NewsArticle, Display(
 ));
 
 // 传入函数
-notify :: (fn(item: *(NewsArticle)) -> unit) {
+notify :: (fn(item: *(NewsArticle)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
-};
+});
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit) {
+notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
-};
+});
 ```
 
 ## 模式匹配
@@ -1769,7 +1776,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 支持自动扩容的动态数组。
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 
 // 创建新的 ArrayList
 list := ArrayList(i32).new();
@@ -1812,7 +1819,7 @@ list.shrink_to_fit();
 键值对哈希映射。
 
 ```rust
-{ HashMap } :: import "std/collections/hash_map";
+{ HashMap } :: import("std/collections/hash_map");
 
 // 创建新的 HashMap
 map := HashMap(i32, i32).new();
@@ -1863,7 +1870,7 @@ map.clear();
 用于唯一值的哈希集合。
 
 ```rust
-{ HashSet } :: import "std/collections/hash_set";
+{ HashSet } :: import("std/collections/hash_set");
 
 // 创建新的 HashSet
 set := HashSet(i32).new();
@@ -1930,7 +1937,7 @@ cond(
 双向链表。
 
 ```rust
-{ LinkedList } :: import "std/collections/linked_list";
+{ LinkedList } :: import("std/collections/linked_list");
 
 // 创建新的 LinkedList
 list := LinkedList(i32).new();
@@ -2012,13 +2019,13 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。闭包自动进行�
 1. **使用 `Impl(Fn(...))`** — 显式闭包类型：
 
 ```rust
-test_closure :: (fn() -> unit) {
+test_closure :: (fn() -> unit)({
   x := 1;
 
   // 使用 Impl 的显式闭包类型
   (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
     x = (x + y);
-    return x;
+    return(x);
   });
 
   closure(1); // x 现在是 2
@@ -2026,24 +2033,24 @@ test_closure :: (fn() -> unit) {
   result := closure(2); // x 现在是 5
 
   assert(result == 5);
-};
+});
 ```
 
 2. **使用 `ClosureType({...})`** — 从类型创建闭包值：
 
 ```rust
-test_closure :: (fn() -> unit) {
+test_closure :: (fn() -> unit)({
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := (ClosureType {
     x = (x + y);
-    return x;
+    return(x);
   });
 
   result := closure(2);
   assert(result == 3);
-};
+});
 ```
 
 ### 闭包捕获语义
@@ -2055,7 +2062,7 @@ test_closure :: (fn() -> unit) {
 - 被捕获的变量保持其可变性
 
 ```rust
-test_capture :: (fn() -> unit) {
+test_capture :: (fn() -> unit)({
   // 值类型 — 按值捕获
   counter := 0;
 
@@ -2065,13 +2072,13 @@ test_capture :: (fn() -> unit) {
   closure := ((increment : i32) => {
     counter = (counter + increment);  // 修改本地副本
     data.* = (data.* + increment);     // 修改共享对象
-    return counter;
+    return(counter);
   });
 
   closure(5);
   // counter 仍然是 0（闭包有自己的副本）
   // data.* 现在是 47（共享引用）
-};
+});
 ```
 
 ### 闭包类型限制
@@ -2080,7 +2087,7 @@ test_capture :: (fn() -> unit) {
 
 ```rust
 // 这将失败 — 每个闭包都有不同的类型
-test_error :: (fn() -> unit) {
+test_error :: (fn() -> unit)({
   closure : Impl(Fn(y : i32) -> i32);
 
   cond(
@@ -2094,7 +2101,7 @@ test_error :: (fn() -> unit) {
     }
   );
   // 错误：即使两个闭包完全相同，它们的类型也不同
-};
+});
 ```
 
 ### 闭包与对象类型
@@ -2106,21 +2113,21 @@ MyBox :: object(
   (*) : i32
 );
 
-make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32)) {
-  return ((unit) => {
+make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
+  return((unit) => {
     start.* = (start.* + 1);
-    return start.*;
+    return(start.*);
   });
-};
+});
 
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   counter := MyBox(0);
   inc := make_incrementer(counter);
 
   assert(inc(()) == 1);
   assert(inc(()) == 2);
   assert(counter.* == 2);
-};
+});
 ```
 
 更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
@@ -2171,13 +2178,13 @@ assert(m.* == 20);
 ### Box 与赋值
 
 ```rust
-test "Box assignment behavior", {
+test("Box assignment behavior", {
   x := box(1);
   y := (x = box(2));  // y 获得旧值
 
   assert(x.* == 2);   // x 现在指向新的 Box
   assert(y.* == 1);   // y 持有旧的 Box
-};
+});
 ```
 
 ### Box 与引用计数
@@ -2185,7 +2192,7 @@ test "Box assignment behavior", {
 `Box(T)` 是对象类型，因此使用自动引用计数：
 
 ```rust
-test "Box reference counting", {
+test("Box reference counting", {
   original := box(42);
   copy := original;        // 引用计数递增
   another := copy;         // 引用计数递增
@@ -2197,7 +2204,7 @@ test "Box reference counting", {
   assert(another.* == 100);
 
   // 变量离开作用域时引用计数递减
-};
+});
 ```
 
 ### 何时使用 Box
@@ -2212,7 +2219,7 @@ test "Box reference counting", {
 impl(i32, SomeTrait(...));
 
 // 值类型必须装箱才能用于 Dyn
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) { ... };
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({ ... };
 
 // 将 i32 装箱以用于 Dyn
 use_dyn(dyn box(42));
@@ -2235,15 +2242,15 @@ use_id :: (fn(
   forall(T : Type),
   value : T,
   where(T <: Id)
-) -> T) {
-  return value.id();
-};
+) -> T)({
+  return(value.id());
+});
 
 // 为 i32 实现 Id
 impl(i32, Id(
   id : ((self) -> {
     printf("i32: %d\n", self);
-    return self;
+    return(self);
   })
 ));
 
@@ -2260,12 +2267,12 @@ RetI32 :: trait(
   return_i32 : (fn(self : *(Self)) -> i32)
 );
 
-get_value :: (fn(use_bool : bool) -> Impl(RetI32)) {
+get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
-    use_bool => return true,   // bool 实现了 RetI32
-    true => return i32(42)      // i32 实现了 RetI32
+    use_bool => return(true),   // bool 实现了 RetI32
+    true => return(i32(42))      // i32 实现了 RetI32
   )
-};
+});
 ```
 
 **重要提示**：每个返回路径必须返回一个具体类型，而不是恰好实现了相同 trait 的不同类型。
@@ -2286,10 +2293,10 @@ perform :: (fn(
   forall(T : Type),
   actor : T,
   where(T <: (Speak, Run))
-) -> unit) {
+) -> unit)({
   actor.speak();
   actor.run();
-};
+});
 ```
 
 ## 动态分发
@@ -2326,14 +2333,14 @@ Dog :: object();
 DogSpeak :: impl(Dog, Speak(
   speak: ((self: Self) -> {
     printf("Woof!\n");
-    return 1;
+    return(1);
   })
 ));
 
 DogRun :: impl(Dog, Run(
   run: ((self: Self) -> {
     printf("The dog is running!\n");
-    return 2;
+    return(2);
   })
 ));
 
@@ -2342,12 +2349,12 @@ act :: (fn(s: Dyn(Speak, Run)) -> i32)
   (s.speak() + s.run())
 ;
 
-main :: (fn() -> i32) {
+main :: (fn() -> i32)({
   dog := Dog();
   // dyn() 创建一个引用计数的 trait 对象
   result := act(dyn(dog));
-  return result;
-};
+  return(result);
+});
 ```
 
 **注意：** `Dyn` 类型内部是引用计数的对象，提供自动内存管理，无需手动处理指针。
@@ -2359,14 +2366,14 @@ main :: (fn() -> i32) {
 
 ```rust
 // Impl — 静态分发（单态化）
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit) {
+use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // 静态分发
-};
+});
 
 // Dyn — 动态分发（虚函数表）
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) {
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
   value.method();  // 动态分发
-};
+});
 ```
 
 更多示例请参阅 [impl.test.yo](../tests/impl.test.yo)。
@@ -2376,7 +2383,7 @@ use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) {
 Yo 支持**代数效应** — 一种用于隐式参数传递和定界续延的机制。效应建立在两个特性之上：
 
 1. **隐式参数（`using` / `given`）**：函数可以使用 `using(name : Type)` 声明隐式参数。在调用处，编译器会从作用域中的 `given` 绑定自动解析这些参数。
-2. **效应处理器（`return` / `escape`）**：当效应处理器使用 `return(value)` 时，它会恢复被捕获的续延。当它使用 `escape expr` 时，它会丢弃续延并从外围函数返回。
+2. **效应处理器（`return` / `escape`）**：当效应处理器使用 `return(value)` 或 `return()` 时，它会恢复被捕获的续延。当它使用 `escape(value)` 或 `escape()` 时，它会丢弃续延并从外围函数返回。
 
 效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的效应处理器能够正确工作。如果在异步任务中调用了 `escape`，该 Future 会被标记为已逃逸，等待它会导致 panic。
 
@@ -2424,7 +2431,7 @@ match(result,
 标准库定义了用于动态错误处理的 `Error` trait 和 `AnyError` 类型：
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 // Error trait 要求实现 ToString。自定义错误类型需同时实现两者：
 MathError :: enum(
@@ -2454,7 +2461,7 @@ match(downcast(err, MathError),
 `Exception` 是一种用于不可恢复异常处理的代数效应。当处理器调用 `escape` 时，续延被丢弃，控制流返回到外围函数：
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
   cond(
@@ -2467,7 +2474,7 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
 given(exn) := Exception(
   throw : ((err) -> {
     println(`Error: ${err}`);  // 打印 "Error: Division by zero"
-    escape ();  // 丢弃续延，从外围函数返回
+    escape();  // 丢弃续延，从外围函数返回
   })
 );
 
@@ -2481,7 +2488,7 @@ safe_divide(10, 0, using(exn));     // 触发处理器，escape 丢弃续延
 `ResumableException(ResumeType)` 是一种用于可恢复异常处理的代数效应。当处理器调用 `return` 时，它会以恢复值恢复续延：
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
   cond(
@@ -2494,7 +2501,7 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)
 given(exn) := ResumableException(i32)(
   throw : ((err) -> {
     println(`Error: ${err}`);
-    return 0;  // 以恢复值 0 恢复续延
+    return(0);  // 以恢复值 0 恢复续延
   })
 );
 
@@ -2509,23 +2516,23 @@ result = safe_divide(10, 0);    // 处理器以 0 恢复续延，result = 0
 Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并发**。异步任务是**惰性的** — 它们在被显式等待或加入之前不会开始执行。
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 main :: (fn(using(io : IO)) -> unit)({
   task1 := io.async((using(io : IO))=> {
     io.await(yield());
-    return i32(1);
+    return(i32(1));
   });
   task2 := io.async((using(io : IO))=> {
     io.await(yield());
-    return i32(2);
+    return(i32(2));
   });
   handle1 := io.spawn(task1);  // 启动 task1，返回 JoinHandle(i32)
   handle2 := io.spawn(task2);  // 启动 task2，返回 JoinHandle(i32)
   r1 := handle1.await(using(io));  // 等待 → Option(i32)
   r2 := handle2.await(using(io));
 });
-export main;
+export(main);
 ```
 
 关键特性：
@@ -2565,7 +2572,7 @@ val := shared.(*);          // val == 42
 copy := shared;             // 引用计数：1 → 2
 
 // 跨线程共享
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 shared := arc(i32(42));
 t := Thread.spawn(() => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
@@ -2580,10 +2587,10 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ```rust
 // module1.yo
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   println("Hello, world!");
-};
-export test;
+});
+export(test);
 
 // module2.yo
 // 导出类型
@@ -2593,11 +2600,11 @@ Option :: (fn(comptime(T): Type) -> comptime(Type))
     None
   )
 ;
-export Option;
+export(Option);
 ```
 
 ```rust
-open import("./test.yo"); // 从 test.yo 导入所有内容
+open(import("./test.yo")); // 从 test.yo 导入所有内容
 test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 Test 命名空间
 { test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
 { test : test2 } :: import("./test.yo"); // 从 test.yo 导入 test 函数并重命名为 test2
@@ -2608,13 +2615,13 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 
 匿名模块使用 `impl` 关键字后跟一个 `begin` 块来定义：
 
-```typescript
-my_module :: impl {
-  my_function :: (fn() -> unit) {
+```rust
+my_module :: impl({
+  my_function :: (fn() -> unit)({
     println("Hello from my_module!");
-  };
-  export my_function;
-};
+  });
+  export(my_function);
+});
 ```
 
 ### 模块级可变变量
@@ -2650,7 +2657,7 @@ inc :: (fn() -> unit)({
   m :: impl {
     b := i32(13);  // ❌ 错误：impl 块内不允许
     b :: 13;       // ✅ 正确：编译时常量
-    export b;
+    export(b);
   };
   ```
 - 模块级可变变量**不能被导出**。只有编译时已知的值才能从模块中导出。
@@ -2678,16 +2685,16 @@ Yo 内置了通过 `test` 关键字使用的测试框架。
 ### 基本测试语法
 
 ```rust
-test "Test description", {
+test("Test description", {
   // 测试代码
   x := 1 + 1;
   assert(x == 2);
-};
+});
 
 // IO 通过 `io` 自动注入到所有测试体中
-test "With effects", {
+test("With effects", {
   io.await(sleep(u64(1000)));
-};
+});
 ```
 
 ### 运行测试
@@ -2713,7 +2720,7 @@ $ ./yo-cli test path/to/file.test.yo -v
 #### 运行时断言
 
 ```rust
-test "Runtime assertions", {
+test("Runtime assertions", {
   x := 42;
 
   // 基本断言
@@ -2725,7 +2732,7 @@ test "Runtime assertions", {
   // 复杂断言
   arr := [1, 2, 3];
   assert(arr.len() == 3, "Array should have 3 elements");
-};
+});
 ```
 
 #### 编译时断言
@@ -2733,7 +2740,7 @@ test "Runtime assertions", {
 使用 `comptime_assert` 进行编译时验证：
 
 ```rust
-test "Compile-time assertions", {
+test("Compile-time assertions", {
   // 这些在编译期间检查
   comptime_assert((2 + 2) == 4);
   comptime_assert(Array(i32, 5).fill(0).len() == 5);
@@ -2742,7 +2749,7 @@ test "Compile-time assertions", {
   // 类型级断言
   T :: i32;
   comptime_assert(Type.to_string(T) == "i32");
-};
+});
 ```
 
 ### 测试预期错误
@@ -2750,7 +2757,7 @@ test "Compile-time assertions", {
 验证某些代码会产生编译时错误：
 
 ```rust
-test "Expected compile errors", {
+test("Expected compile errors", {
   // 预期错误但不指定具体消息
   comptime_expect_error({
     x :: (1 / 0);  // 除以零
@@ -2772,7 +2779,7 @@ test "Expected compile errors", {
     // 每个闭包都有唯一类型
     (c : typeof(closure1)) = closure2;  // 错误！
   }, "no two closures have the same type");
-};
+});
 ```
 
 ### 测试组织
@@ -2782,25 +2789,25 @@ test "Expected compile errors", {
 ```rust
 // arithmetic.test.yo
 
-test "Addition", {
+test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);
-};
+});
 
-test "Subtraction", {
+test("Subtraction", {
   assert((5 - 3) == 2);
   assert((10 - 10) == 0);
-};
+});
 
-test "Multiplication", {
+test("Multiplication", {
   assert((2 * 3) == 6);
   assert((7 * 0) == 0);
-};
+});
 
-test "Division", {
+test("Division", {
   assert((10 / 2) == 5);
   assert((9 / 3) == 3);
-};
+});
 ```
 
 ### 使用对象类型进行测试
@@ -2817,14 +2824,14 @@ impl(MyBox, Dispose(
   })
 ));
 
-test "Object disposal", {
+test("Object disposal", {
   // Box 在作用域结束时自动释放
   b := MyBox(42);
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
   // 此处自动调用 dispose()
-};
+});
 ```
 
 ### 测试文件
@@ -2885,18 +2892,18 @@ if(true, {
 });
 
 // 用于 Result 类型的 `try` 宏
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
   temp :: gensym("try");
   quote {
     unquote(temp) := unquote(expr_to_try);
     match(unquote(temp),
       .Ok => unquote(temp).value,
       .Error => {
-        return unquote(temp).error;
+        return(unquote(temp).error);
       }
     )
   }
-};
+});
 
 // 自定义宏示例
 unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
@@ -2918,13 +2925,13 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Eq, Hash, Clone, Ord, ToString);
 
 // 现在 Point 支持 ==、!=、哈希、克隆、比较和字符串转换
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   p1 := Point(1, 2);
   p2 := Point(1, 2);
   assert((p1 == p2), "equal");
   assert((p1.to_string() == `Point(1, 2)`), "to_string");
-};
-export main;
+});
+export(main);
 ```
 
 ### 用户自定义派生规则（`derive_rule`）
@@ -2936,7 +2943,7 @@ MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
   trait(eq : (fn(self : T, other : T) -> bool))
 );
 
-derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr))({
   eq_body :: __yo_type_join_fields(
     T,
     (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
@@ -3084,7 +3091,7 @@ int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 使用 `comptime_assert` 验证编译时条件：
 
 ```rust
-test "Compile-time assertions", {
+test("Compile-time assertions", {
   // 这些在编译时检查
   comptime_assert((2 + 2) == 4);
   comptime_assert(f32(100.5) > f32(50.0));
@@ -3093,7 +3100,7 @@ test "Compile-time assertions", {
   // 编译时类型检查
   T :: i32;
   comptime_assert(Type.to_string(T) == "i32");
-};
+});
 ```
 
 ### 编译时预期错误
@@ -3101,7 +3108,7 @@ test "Compile-time assertions", {
 测试代码是否会产生编译时错误：
 
 ```rust
-test "Expected compile errors", {
+test("Expected compile errors", {
   // 验证此代码会产生错误
   comptime_expect_error(
     x :: (1 / 0),  // 除以零
@@ -3112,7 +3119,7 @@ test "Expected compile errors", {
     arr : Array(i32, _);  // 无法在绑定中推断长度
     arr = [1, 2, 3];
   });
-};
+});
 ```
 
 ### 编译时与运行时

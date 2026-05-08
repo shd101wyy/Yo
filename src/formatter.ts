@@ -1,0 +1,411 @@
+import * as fs from "fs";
+import * as path from "path";
+import Parser from "./parser";
+import { type Token, TokenType } from "./token";
+
+const INDENT_SIZE = 2;
+
+const COMMENT_TOKEN_TYPES = new Set<TokenType>([
+  TokenType.SingleLineComment,
+  TokenType.MultiLineComment,
+  TokenType.DocLineComment,
+  TokenType.InnerDocLineComment,
+  TokenType.DocBlockComment,
+  TokenType.InnerDocBlockComment,
+]);
+
+const LINE_COMMENT_TOKEN_TYPES = new Set<TokenType>([
+  TokenType.SingleLineComment,
+  TokenType.DocLineComment,
+  TokenType.InnerDocLineComment,
+]);
+
+const ATOM_LIKE_TOKEN_TYPES = new Set<TokenType>([
+  TokenType.Identifier,
+  TokenType.Integer,
+  TokenType.Float,
+  TokenType.Bool,
+  TokenType.String,
+  TokenType.Char,
+  TokenType.TemplateString,
+]);
+
+const PREFIX_OPERATOR_VALUES = new Set<string>([
+  "!",
+  "&",
+  "-",
+  "~",
+  "*",
+  "^",
+  "...",
+]);
+
+const IGNORED_FORMAT_DIRS = new Set<string>([
+  ".git",
+  ".yo-cache",
+  "node_modules",
+  "out",
+  "yo-out",
+]);
+
+export interface FormatYoFilesOptions {
+  check?: boolean;
+  cwd?: string;
+}
+
+export interface FormatYoFilesResult {
+  files: string[];
+  changed: string[];
+}
+
+export function formatYoSource(input: string, modulePath = "<input>"): string {
+  if (input.length === 0) {
+    return "";
+  }
+
+  const parser = new Parser({ modulePath, inputString: input });
+  const parserError = parser.getParserError();
+  if (parserError) {
+    throw parserError;
+  }
+
+  const allTokens = parser.getTokens();
+  const significantTokens = allTokens.filter(
+    (token) => token.type !== TokenType.Whitespace
+  );
+  const inlineCurlyIndices = findInlineCurlyIndices(significantTokens);
+  const rawValues = significantTokens.map((token, index) =>
+    rawTokenValue(input, significantTokens, index)
+  );
+
+  let result = "";
+  let indentLevel = 0;
+  let atLineStart = true;
+  let previousToken: Token | undefined;
+
+  const trimTrailingHorizontalWhitespace = (): void => {
+    result = result.replace(/[ \t]+$/u, "");
+  };
+
+  const writeIndentIfNeeded = (): void => {
+    if (atLineStart) {
+      result += " ".repeat(indentLevel * INDENT_SIZE);
+      atLineStart = false;
+    }
+  };
+
+  const write = (text: string): void => {
+    if (text.length === 0) {
+      return;
+    }
+    writeIndentIfNeeded();
+    result += text;
+  };
+
+  const ensureSpace = (): void => {
+    if (!atLineStart && !result.endsWith(" ") && !result.endsWith("\n")) {
+      result += " ";
+    }
+  };
+
+  const newline = (): void => {
+    trimTrailingHorizontalWhitespace();
+    if (!result.endsWith("\n")) {
+      result += "\n";
+    }
+    atLineStart = true;
+  };
+
+  const writeBlockComment = (raw: string): void => {
+    if (raw.includes("\n")) {
+      if (!atLineStart) {
+        newline();
+      }
+      const lines = raw.split("\n");
+      for (const line of lines) {
+        write(line.trimEnd());
+        newline();
+      }
+      return;
+    }
+
+    if (!atLineStart) {
+      ensureSpace();
+    }
+    write(raw);
+    ensureSpace();
+  };
+
+  for (let index = 0; index < significantTokens.length; index++) {
+    const token = significantTokens[index]!;
+    const previous = previousToken;
+    const next = significantTokens[index + 1];
+    const raw = rawValues[index]!;
+
+    if (COMMENT_TOKEN_TYPES.has(token.type)) {
+      if (LINE_COMMENT_TOKEN_TYPES.has(token.type)) {
+        if (!atLineStart) {
+          ensureSpace();
+        }
+        write(raw.trimEnd());
+        newline();
+      } else {
+        writeBlockComment(raw);
+      }
+      previousToken = token;
+      continue;
+    }
+
+    switch (token.type) {
+      case TokenType.LCurlyBracket: {
+        if (inlineCurlyIndices.has(index)) {
+          write("{");
+          if (next && next.type !== TokenType.RCurlyBracket) {
+            ensureSpace();
+          }
+        } else {
+          write("{");
+          indentLevel++;
+          newline();
+        }
+        break;
+      }
+      case TokenType.RCurlyBracket: {
+        if (inlineCurlyIndices.has(index)) {
+          trimTrailingHorizontalWhitespace();
+          if (previous && previous.type !== TokenType.LCurlyBracket) {
+            ensureSpace();
+          }
+          write("}");
+        } else {
+          if (!atLineStart) {
+            newline();
+          }
+          indentLevel = Math.max(0, indentLevel - 1);
+          write("}");
+        }
+        break;
+      }
+      case TokenType.LParen:
+      case TokenType.LBracket: {
+        write(token.value);
+        break;
+      }
+      case TokenType.RParen:
+      case TokenType.RBracket: {
+        trimTrailingHorizontalWhitespace();
+        write(token.value);
+        break;
+      }
+      case TokenType.Comma: {
+        trimTrailingHorizontalWhitespace();
+        write(",");
+        if (
+          next &&
+          next.type !== TokenType.RParen &&
+          next.type !== TokenType.RBracket &&
+          next.type !== TokenType.RCurlyBracket
+        ) {
+          ensureSpace();
+        }
+        break;
+      }
+      case TokenType.Semicolon: {
+        trimTrailingHorizontalWhitespace();
+        write(";");
+        if (next && !COMMENT_TOKEN_TYPES.has(next.type)) {
+          newline();
+        }
+        break;
+      }
+      case TokenType.Dot: {
+        trimTrailingHorizontalWhitespace();
+        write(".");
+        break;
+      }
+      case TokenType.Operator: {
+        if (isTightlyBoundOperator(token, previous, next)) {
+          trimTrailingHorizontalWhitespace();
+          write(token.value);
+        } else {
+          trimTrailingHorizontalWhitespace();
+          ensureSpace();
+          write(token.value);
+          ensureSpace();
+        }
+        break;
+      }
+      case TokenType.Identifier:
+      case TokenType.Integer:
+      case TokenType.Float:
+      case TokenType.Bool:
+      case TokenType.String:
+      case TokenType.Char:
+      case TokenType.TemplateString: {
+        if (needsSpaceBeforeAtom(previous)) {
+          ensureSpace();
+        }
+        write(raw);
+        break;
+      }
+      case TokenType.Whitespace:
+        break;
+    }
+
+    previousToken = token;
+  }
+
+  trimTrailingHorizontalWhitespace();
+  if (result.length > 0 && !result.endsWith("\n")) {
+    result += "\n";
+  }
+  return result;
+}
+
+export function findYoFormatFiles(
+  inputPaths: string[],
+  cwd = process.cwd()
+): string[] {
+  const pathsToFormat = inputPaths.length > 0 ? inputPaths : ["."];
+  const files = new Set<string>();
+
+  for (const inputPath of pathsToFormat) {
+    const resolvedPath = path.resolve(cwd, inputPath);
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Path does not exist: ${inputPath}`);
+    }
+    collectYoFiles(resolvedPath, files);
+  }
+
+  return [...files].sort();
+}
+
+export function formatYoFiles(
+  inputPaths: string[],
+  options: FormatYoFilesOptions = {}
+): FormatYoFilesResult {
+  const cwd = options.cwd ?? process.cwd();
+  const files = findYoFormatFiles(inputPaths, cwd);
+  const changed: string[] = [];
+
+  for (const file of files) {
+    const original = fs.readFileSync(file, "utf-8");
+    const formatted = formatYoSource(original, file);
+    if (formatted !== original) {
+      changed.push(file);
+      if (options.check !== true) {
+        fs.writeFileSync(file, formatted, "utf-8");
+      }
+    }
+  }
+
+  return { files, changed };
+}
+
+function collectYoFiles(targetPath: string, files: Set<string>): void {
+  const stat = fs.statSync(targetPath);
+  if (stat.isFile()) {
+    if (targetPath.endsWith(".yo")) {
+      files.add(targetPath);
+    }
+    return;
+  }
+
+  if (!stat.isDirectory()) {
+    return;
+  }
+
+  const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory() && IGNORED_FORMAT_DIRS.has(entry.name)) {
+      continue;
+    }
+    collectYoFiles(path.join(targetPath, entry.name), files);
+  }
+}
+
+function findInlineCurlyIndices(tokens: Token[]): Set<number> {
+  const inlineIndices = new Set<number>();
+  const stack: Array<{ index: number; hasTopLevelSemicolon: boolean }> = [];
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === TokenType.LCurlyBracket) {
+      stack.push({ index, hasTopLevelSemicolon: false });
+    } else if (token.type === TokenType.Semicolon && stack.length > 0) {
+      stack[stack.length - 1]!.hasTopLevelSemicolon = true;
+    } else if (token.type === TokenType.RCurlyBracket) {
+      const frame = stack.pop();
+      if (frame && !frame.hasTopLevelSemicolon) {
+        inlineIndices.add(frame.index);
+        inlineIndices.add(index);
+      }
+    }
+  }
+
+  return inlineIndices;
+}
+
+function rawTokenValue(input: string, tokens: Token[], index: number): string {
+  const token = tokens[index]!;
+  if (token.type === TokenType.TemplateString) {
+    return readRawTemplateString(input, token.position.character);
+  }
+  return token.value;
+}
+
+function readRawTemplateString(input: string, start: number): string {
+  let index = start + 1;
+  let braceDepth = 0;
+
+  while (index < input.length) {
+    const char = input[index]!;
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (braceDepth === 0 && char === "`") {
+      return input.slice(start, index + 1);
+    }
+    if (braceDepth === 0 && char === "$" && input[index + 1] === "{") {
+      braceDepth = 1;
+      index += 2;
+      continue;
+    }
+    if (braceDepth > 0) {
+      if (char === "{") {
+        braceDepth++;
+      } else if (char === "}") {
+        braceDepth--;
+      }
+    }
+    index++;
+  }
+
+  return input.slice(start);
+}
+
+function isTightlyBoundOperator(
+  token: Token,
+  previous: Token | undefined,
+  next: Token | undefined
+): boolean {
+  if (previous?.type === TokenType.Dot) {
+    return true;
+  }
+  return (
+    PREFIX_OPERATOR_VALUES.has(token.value) && next?.type === TokenType.LParen
+  );
+}
+
+function needsSpaceBeforeAtom(previous: Token | undefined): boolean {
+  if (!previous) {
+    return false;
+  }
+  return (
+    ATOM_LIKE_TOKEN_TYPES.has(previous.type) ||
+    previous.type === TokenType.RParen ||
+    previous.type === TokenType.RBracket ||
+    previous.type === TokenType.RCurlyBracket
+  );
+}

@@ -202,14 +202,14 @@ my-project/
 
 `src/main.yo`:
 
-```typescript
-{ println } :: import "std/fmt";
+```rust
+{ println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
   println("Hello, world!");
 });
 
-export main;
+export(main);
 ```
 
 Common build commands:
@@ -220,6 +220,8 @@ $ yo build run              # Build and run the executable
 $ yo build test             # Run tests
 $ yo build --list-steps     # List available build steps
 $ yo build doc              # Generate HTML documentation
+$ yo fmt                    # Format Yo source files
+$ yo fmt --check            # Check formatting without writing changes
 ```
 
 ## Prelude
@@ -254,15 +256,15 @@ Check the [./tests](./tests/) and [./std](./std/) folders for more code examples
 
 ### Hello World
 
-```typescript
+```rust
 // main.yo
-{ println } :: import "std/fmt";
+{ println } :: import("std/fmt");
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   println("Hello, world!");
-};
+});
 
-export main;
+export(main);
 
 // $ yo compile main.yo --release -o main
 // $ ./main
