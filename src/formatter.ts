@@ -83,6 +83,8 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
     significantTokens,
     skippedParenIndices
   );
+  const multilineBracketIndices =
+    findMultilineBracketIndices(significantTokens);
   const rawValues = significantTokens.map((token, index) =>
     rawTokenValue(input, significantTokens, index)
   );
@@ -96,6 +98,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
   let atLineStart = true;
   let previousToken: Token | undefined;
   const parenStack: Array<{ index: number; multiline: boolean }> = [];
+  const bracketStack: Array<{ multiline: boolean }> = [];
   const continuationStack: Array<{
     parenDepth: number;
     bracketDepth: number;
@@ -258,10 +261,18 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         }
         break;
       case TokenType.LBracket: {
-        if (token.type === TokenType.LBracket) {
-          bracketDepth++;
+        const isMultiline = multilineBracketIndices.has(index);
+        bracketStack.push({ multiline: isMultiline });
+        bracketDepth++;
+        if (isMultiline) {
+          write("[");
+          indentLevel++;
+          if (next && next.type !== TokenType.RBracket) {
+            newline();
+          }
+        } else {
+          write("[");
         }
-        write(token.value);
         break;
       }
       case TokenType.RParen:
@@ -283,11 +294,18 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       case TokenType.RBracket: {
         closeOperatorContinuations();
-        trimTrailingHorizontalWhitespace();
-        if (token.type === TokenType.RBracket) {
-          bracketDepth = Math.max(0, bracketDepth - 1);
+        const bracketFrame = bracketStack.pop();
+        bracketDepth = Math.max(0, bracketDepth - 1);
+        if (bracketFrame?.multiline) {
+          if (!atLineStart) {
+            newline();
+          }
+          indentLevel = Math.max(0, indentLevel - 1);
+          write("]");
+        } else {
+          trimTrailingHorizontalWhitespace();
+          write("]");
         }
-        write(token.value);
         break;
       }
       case TokenType.Comma: {
@@ -300,7 +318,10 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           next.type !== TokenType.RBracket &&
           next.type !== TokenType.RCurlyBracket
         ) {
-          if (bracketDepth > 0 || inlineCurlyDepth > 0) {
+          const currentBracket = bracketStack[bracketStack.length - 1];
+          if (currentBracket?.multiline) {
+            newline();
+          } else if (currentBracket !== undefined || inlineCurlyDepth > 0) {
             ensureSpace();
           } else if (parenStack[parenStack.length - 1]?.multiline === true) {
             newline();
@@ -612,6 +633,29 @@ function findMatchingParenIndices(tokens: Token[]): Map<number, number> {
   }
 
   return pairs;
+}
+
+function findMultilineBracketIndices(tokens: Token[]): Set<number> {
+  const multilineIndices = new Set<number>();
+  const stack: number[] = [];
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === TokenType.LBracket) {
+      stack.push(index);
+    } else if (token.type === TokenType.RBracket) {
+      const leftIndex = stack.pop();
+      if (leftIndex !== undefined) {
+        const leftToken = tokens[leftIndex]!;
+        if (token.position.row > leftToken.position.row) {
+          multilineIndices.add(leftIndex);
+          multilineIndices.add(index);
+        }
+      }
+    }
+  }
+
+  return multilineIndices;
 }
 
 function findMultilineParenIndices(

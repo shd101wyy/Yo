@@ -261,6 +261,41 @@ true => {}
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("formats multiline array literal with each element on its own line", () => {
+    const source = `main::(fn()->unit)({
+arr :: [1,
+2, 3, 4, 5];
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  arr :: [
+    1,
+    2,
+    3,
+    4,
+    5
+  ];
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
+  test("keeps array type sugar compact even if written across lines", () => {
+    const source = `main::(fn()->unit)({
+t :: [i32; 10];
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  t :: [i32 ; 10];
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("preserves line-leading infix operators for ambiguous chains", () => {
     const source = `main::(fn()->unit)({
 value := (
