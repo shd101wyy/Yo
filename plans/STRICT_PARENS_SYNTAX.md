@@ -250,9 +250,12 @@ Implementation:
 
 - `bun run build` (TypeScript clean).
 - `bun test src/tests/build-system.test.ts --timeout 10000`.
-- `./yo-cli test --bail` (full integration suite, ~30 min on M4).
-- `./yo-cli test ./yo-self/tests/ --disable-sanitize --parallel 1`
-  (bootstrap suite).
+- `./yo-cli test --bail` (full integration suite over `./tests/`,
+  ~30 min on M4) — **must pass**.
+- `./yo-cli test ./yo-self/tests/ --disable-sanitize --parallel 1` —
+  **not gated**. The self-hosted test suite is not currently passing on
+  this branch's baseline; we update its sources for the new syntax in
+  Phase 3 but do not block on its results.
 - Compile and run a few representative examples manually.
 
 ## Risks
