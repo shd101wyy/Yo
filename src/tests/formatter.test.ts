@@ -172,10 +172,30 @@ escape(());
   Raise :: struct(raise : (fn(msg : String) -> i32));
   value := Raise(
     raise :
-    (msg) -> {
-      escape(());
-    }
+      (msg) -> {
+        escape(());
+      }
   );
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
+  test("indents operator newline right-hand side as a continuation", () => {
+    const source = `main::(fn()->unit)({
+(given(yield) : Yield) =
+(v) -> {
+return((v * i32(3)));
+};
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  (given(yield) : Yield) =
+    (v) -> {
+      return(v * i32(3));
+    };
 });
 `);
     expect(formatYoSource(once)).toBe(once);

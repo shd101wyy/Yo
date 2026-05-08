@@ -111,6 +111,7 @@ masked := ((A | B) | C);
 - Yo has no operator precedence; fully parenthesize binary expressions
 - Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
 - Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
+- When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <:!(Runtime)`
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`

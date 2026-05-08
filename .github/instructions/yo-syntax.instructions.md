@@ -226,6 +226,12 @@ raise :
     escape(());
   }
 
+// Formatter style: indent the RHS one level under the line-ending operator:
+(given(yield) : Yield) =
+  (v) -> {
+    return(v * i32(3));
+  };
+
 // Also valid: explicit grouping on the RHS.
 raise : ((msg) -> {
   escape(());

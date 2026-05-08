@@ -89,11 +89,18 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
 
   let result = "";
   let indentLevel = 0;
+  let parenDepth = 0;
   let bracketDepth = 0;
+  let curlyDepth = 0;
   let inlineCurlyDepth = 0;
   let atLineStart = true;
   let previousToken: Token | undefined;
   const parenStack: Array<{ index: number; multiline: boolean }> = [];
+  const continuationStack: Array<{
+    parenDepth: number;
+    bracketDepth: number;
+    curlyDepth: number;
+  }> = [];
 
   const trimTrailingHorizontalWhitespace = (): void => {
     result = result.replace(/[ \t]+$/u, "");
@@ -126,6 +133,27 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       result += "\n";
     }
     atLineStart = true;
+  };
+
+  const startOperatorContinuation = (): void => {
+    newline();
+    indentLevel++;
+    continuationStack.push({ parenDepth, bracketDepth, curlyDepth });
+  };
+
+  const closeOperatorContinuations = (): void => {
+    while (continuationStack.length > 0) {
+      const top = continuationStack[continuationStack.length - 1]!;
+      if (
+        parenDepth > top.parenDepth ||
+        bracketDepth > top.bracketDepth ||
+        curlyDepth > top.curlyDepth
+      ) {
+        return;
+      }
+      continuationStack.pop();
+      indentLevel = Math.max(0, indentLevel - 1);
+    }
   };
 
   const writeBlockComment = (raw: string): void => {
@@ -183,12 +211,14 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       case TokenType.LCurlyBracket: {
         if (inlineCurlyIndices.has(index)) {
           write("{");
+          curlyDepth++;
           inlineCurlyDepth++;
           if (next && next.type !== TokenType.RCurlyBracket) {
             ensureSpace();
           }
         } else {
           write("{");
+          curlyDepth++;
           indentLevel++;
           newline();
         }
@@ -209,12 +239,14 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           indentLevel = Math.max(0, indentLevel - 1);
           write("}");
         }
+        curlyDepth = Math.max(0, curlyDepth - 1);
         break;
       }
       case TokenType.LParen:
         if (multilineParenIndices.has(index)) {
           write("(");
           parenStack.push({ index, multiline: true });
+          parenDepth++;
           indentLevel++;
           if (next && next.type !== TokenType.RParen) {
             newline();
@@ -222,6 +254,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         } else {
           write("(");
           parenStack.push({ index, multiline: false });
+          parenDepth++;
         }
         break;
       case TokenType.LBracket: {
@@ -233,6 +266,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
       }
       case TokenType.RParen:
         {
+          closeOperatorContinuations();
           const frame = parenStack.pop();
           if (frame?.multiline) {
             if (!atLineStart) {
@@ -244,9 +278,11 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
             trimTrailingHorizontalWhitespace();
             write(")");
           }
+          parenDepth = Math.max(0, parenDepth - 1);
         }
         break;
       case TokenType.RBracket: {
+        closeOperatorContinuations();
         trimTrailingHorizontalWhitespace();
         if (token.type === TokenType.RBracket) {
           bracketDepth = Math.max(0, bracketDepth - 1);
@@ -255,6 +291,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.Comma: {
+        closeOperatorContinuations();
         trimTrailingHorizontalWhitespace();
         write(",");
         if (
@@ -283,6 +320,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           write(";");
           ensureSpace();
         } else {
+          closeOperatorContinuations();
           trimTrailingHorizontalWhitespace();
           write(";");
           if (
@@ -306,7 +344,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           ensureSpace();
           write(":");
           if (next && next.position.row > token.position.row) {
-            newline();
+            startOperatorContinuation();
           } else {
             ensureSpace();
           }
@@ -326,7 +364,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           }
           write(token.value);
           if (next && next.position.row > token.position.row) {
-            newline();
+            startOperatorContinuation();
           } else {
             ensureSpace();
           }
