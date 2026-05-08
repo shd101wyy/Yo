@@ -213,3 +213,17 @@ test "Phase 6: module and Module keywords are removed", {
   comptime_expect_error(module(x : i32));
   comptime_expect_error(Module);
 };
+
+// Verify that open works correctly with struct-typed values
+// after the Module→Struct unification.
+test "open on struct-typed values", {
+  MyStruct :: struct(
+    x : i32,
+    y : i32
+  );
+
+  s := MyStruct(x : i32(10), y : i32(20));
+  open s;
+  assert((x == i32(10)), "x should be 10");
+  assert((y == i32(20)), "y should be 20");
+};
